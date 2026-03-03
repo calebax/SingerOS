@@ -1,55 +1,297 @@
-# CollieOS 🐕
+# 🐶 CollieOS
 
-**CollieOS** 是一个面向复杂任务的多智能体编排框架（Multi-Agent Orchestration Framework），提供操作员驱动的目标输入、编排层规划与执行层协作三层架构。
+## Enterprise Digital Workforce Operating System
 
-**CollieOS** is a multi-agent orchestration framework for complex task execution, featuring a three-tier architecture: operator-driven goal input, an orchestration layer for planning, and an execution layer for parallel agent collaboration.
+> Build, orchestrate and govern AI-powered digital employees for enterprise.
 
 ---
 
-## 架构概览 / Architecture Overview
+## 🚀 What is CollieOS?
 
+**CollieOS** is an enterprise-grade Multi-Agent Operating System designed to power the next generation of digital workforce.
+
+It is not a chatbot framework.
+It is not a simple workflow engine.
+
+CollieOS is:
+
+> A distributed, governance-first AI execution system for enterprise digital transformation.
+
+CollieOS enables organizations to:
+
+* Design AI-powered digital employees
+* Orchestrate multi-agent workflows
+* Govern skills, models, and permissions
+* Run intelligent task execution pipelines
+* Operate in both private enterprise environments and SaaS sandbox mode
+
+---
+
+## 🧠 Why CollieOS?
+
+Traditional workflow systems focus on deterministic task automation.
+
+Modern enterprises require:
+
+* Intelligent decision-making
+* Cross-system reasoning
+* Multi-agent collaboration
+* Cost-aware model routing
+* Auditable AI execution
+* Enterprise-grade governance
+
+CollieOS is built to meet these needs.
+
+Compared to traditional workflow engines such as DeerFlow:
+
+* CollieOS embeds cognitive agents into workflows
+* CollieOS includes model routing and cost governance
+* CollieOS enforces Skill isolation via Skill Proxy
+* CollieOS supports multi-tenant enterprise deployment
+* CollieOS is designed as an AI OS, not just a flow engine
+
+---
+
+## 🏗 Architecture Overview
+
+CollieOS is built with strict separation between:
+
+* **Control Plane** (governance & management)
+* **Data Plane** (runtime execution)
+* **Infrastructure Layer**
+
+### Core Components
+
+#### 🐾 Agent Runtime
+
+* Stateful execution
+* Planning / Acting / Reflecting loop
+* Sub-agent collaboration
+* Recoverable execution
+
+#### 🔧 Skill System
+
+* Stateless capability units
+* Versioned & governable
+* Executed via Skill Proxy
+* Rate-limited & auditable
+
+#### 🧩 Workflow Engine
+
+* DAG-based execution
+* Version-controlled workflows
+* Parallel & conditional nodes
+* Human-in-the-loop support
+
+#### 🧠 Model Router
+
+* Multi-provider abstraction
+* Cost-aware routing
+* Latency-aware fallback
+* Token quota control
+
+#### 🗂 Memory System
+
+* Short-term session memory
+* Long-term semantic memory
+* Structured state persistence
+
+---
+
+## 🎯 Design Principles
+
+CollieOS enforces the following architectural invariants:
+
+1. Agent never directly calls external systems.
+2. Skill never performs orchestration logic.
+3. Control plane never executes runtime logic.
+4. All workflow execution must be persisted.
+5. All model usage must be measurable and governable.
+
+---
+
+## 🏢 Target Scenarios
+
+CollieOS is designed for:
+
+### Enterprise Internal Digital Transformation
+
+* Digital employees for operations
+* Intelligent approval systems
+* Automated reporting
+* Cross-system workflow automation
+* AI-assisted decision engines
+
+### SaaS Sandbox Mode
+
+* Demonstration environments
+* Trial accounts
+* Limited skill library
+* Token quota enforcement
+* No sensitive system integration
+
+---
+
+## 🔐 Enterprise-First Capabilities
+
+* Multi-tenant isolation
+* RBAC access control
+* Audit logs
+* Skill-level permission control
+* Cost tracking
+* SLA-aware execution
+* Private deployment support
+
+---
+
+## 📦 Core Modules
+
+```text
+collieos/
+├── control-plane/
+│   ├── agent-registry
+│   ├── skill-registry
+│   ├── workflow-store
+│   ├── tenant-manager
+│   └── policy-engine
+│
+├── data-plane/
+│   ├── orchestrator
+│   ├── agent-runtime
+│   ├── skill-proxy
+│   ├── model-router
+│   ├── memory-engine
+│   └── scheduler
+│
+├── plugins/
+│   ├── skills/
+│   ├── agents/
+│   ├── models/
+│   └── memory-backends/
+│
+└── infrastructure/
 ```
-  Operator  ──── (goal / constraints) ────▶  Orchestrator Agent (Collie)
-                                                        │
-                              ┌─────────────────────────┼──────────────────────┐
-                              ▼                         ▼                      ▼
-                        Executor Agent A        Executor Agent B        Executor Agent C
-                         (sub-task)              (sub-task)              (sub-task)
-```
-
-| 层级 / Layer | 角色 / Role | 职责 / Responsibility |
-|---|---|---|
-| **操作员层 Operator** | 人类用户或上游系统 | 定义目标、约束与验收标准 / Define goals, constraints, and acceptance criteria |
-| **编排层 Orchestrator** | Collie Agent | 任务分解、执行规划、状态监控、结果聚合 / Task decomposition, planning, monitoring, result aggregation |
-| **执行层 Executor** | Worker Agents | 执行具体子任务，上报状态与结果 / Execute sub-tasks and report status/results |
 
 ---
 
-## 核心特性 / Core Features
+## 🔄 Execution Lifecycle
 
-- **目标驱动的任务分解** — 编排层将高层目标自动拆解为可执行的子任务图（DAG），动态调度执行顺序
-- **人机协同（Human-in-the-Loop）** — 操作员可在任意检查点注入反馈、修正约束或中止流程
-- **多 Agent 并行协作** — 执行层支持多个独立 Agent 并发运行，由编排层统一管理依赖与状态
-- **可审计的决策链** — 编排层的每次规划、调度与状态变更均记录可追溯日志
+1. Task submitted
+2. Execution context created
+3. Workflow resolved
+4. Agent initialized
+5. Steps executed
+6. State persisted
+7. Completion recorded
+8. Metrics & audit logged
 
----
+All execution is:
 
-- **Goal-driven task decomposition** — The Orchestrator decomposes high-level goals into a directed acyclic graph (DAG) of sub-tasks and dynamically schedules their execution order
-- **Human-in-the-Loop** — Operators can inject feedback, modify constraints, or abort execution at any checkpoint
-- **Parallel multi-agent collaboration** — The execution layer supports concurrent independent agents with dependency and state management handled by the Orchestrator
-- **Auditable decision trail** — Every planning step, dispatch decision, and state transition is logged for traceability
-
----
-
-## 快速开始 / Getting Started
-
-> 🚧 项目正在积极开发中，更多文档和示例即将到来。
-> 🚧 The project is under active development. More documentation and examples coming soon.
+* Replayable
+* Observable
+* Auditable
 
 ---
 
-## 许可证 / License
+## 🧩 Extensibility
 
-本项目遵循 [GNU General Public License v3.0](LICENSE) 开源协议。
+CollieOS supports plugin-based architecture:
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+* Skill plugins
+* Agent templates
+* Model providers
+* Memory backends
+* Workflow templates
+
+All plugins must be:
+
+* Versioned
+* Isolated
+* Auditable
+
+---
+
+## 🛣 Roadmap
+
+### Phase 1 – Core Execution Layer
+
+* DAG execution engine
+* Agent runtime
+* Skill proxy
+* Model router
+* Multi-tenant basics
+
+### Phase 2 – Enterprise Intelligence
+
+* Cross-agent collaboration
+* Cost optimization engine
+* Distributed scheduler
+* Observability suite
+
+### Phase 3 – AI OS Evolution
+
+* Agent federation
+* Autonomous optimization
+* Workflow marketplace
+* Digital workforce marketplace
+
+---
+
+## ⚠ Non-Goals
+
+CollieOS is NOT:
+
+* A prompt playground
+* A simple chatbot UI
+* A research-only autonomous agent simulator
+* A decentralized AI experiment
+
+---
+
+## 🧬 Philosophy
+
+CollieOS treats AI agents as:
+
+> First-class digital employees with governance, accountability, and operational boundaries.
+
+We believe the future enterprise stack will include:
+
+* Human employees
+* Software systems
+* Digital employees (AI Agents)
+
+CollieOS is designed to operate the third category.
+
+---
+
+## 📜 License
+
+(To be determined — Apache 2.0 / Commercial Hybrid / Enterprise License)
+
+---
+
+## 🤝 Contributing
+
+We welcome:
+
+* Skill plugins
+* Model adapters
+* Workflow templates
+* Observability integrations
+* Security enhancements
+
+Enterprise partners are welcome to collaborate.
+
+---
+
+## 🐶 Why “Collie”?
+
+Border Collies are:
+
+* Intelligent
+* Agile
+* Highly trainable
+* Excellent coordinators
+
+CollieOS aims to embody the same traits in enterprise AI systems.
+
