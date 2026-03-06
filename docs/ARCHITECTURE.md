@@ -1,5 +1,212 @@
 # 企业级 AI OS
 
+```
+AI OS
+│
+├ Digital Employee Layer
+│    ├ Profile
+│    ├ Knowledge
+│    ├ Capabilities
+│    └ RuntimeConfig
+│
+├ AI Runtime
+│    ├ Planner
+│    ├ Executor
+│    ├ Context Engine
+│    ├ Memory Manager
+│    └ Tool Router
+│
+├ Skill / Tool Platform
+│    ├ Skill / Tool Registry
+│    ├ Permission
+│    └ Sandbox
+│
+├ Workflow Engine
+│    ├ Trigger
+│    ├ Steps
+│    └ Approval
+│
+├ Knowledge Platform
+│    ├ Document Store
+│    ├ Vector Index
+│    ├ Knowledge Graph
+│    └ Retrieval Engine
+│
+├ Model Gateway
+│    ├ Model Router
+│    ├ Cost Controller
+│    ├ Load Balancer
+│    └ Fallback Strategy
+│
+├ Security & Permission
+│    ├ RBAC
+│    ├ Tool Permission
+│    ├ Data Access Control
+│    └ Audit Log
+│
+└ Observability
+     ├ Tracing
+     ├ Metrics
+     ├ Token Cost
+     ├ Agent Logs
+     └ Debug Replay
+```
+
+```
+                     AI OS
+
+        ┌───────────────────────────┐
+        │     Digital Employees     │
+        └────────────┬──────────────┘
+                     │
+             ┌───────▼────────┐
+             │  Agent Runtime │
+             │                │
+             │ Planner        │
+             │ Executor       │
+             │ Memory         │
+             │ ContextEngine  │
+             └───────┬────────┘
+                     │
+         ┌───────────▼───────────┐
+         │   Skill Platform      │
+         │                       │
+         │ Skill Registry       │
+         │ Tool Registry        │
+         │ Tool Gateway         │
+         └───────────┬──────────┘
+                     │
+          ┌──────────▼──────────┐
+          │    Workflow Engine  │
+          └──────────┬──────────┘
+                     │
+   ┌───────────┬───────────┬───────────┐
+   │Knowledge  │ Model GW  │ Security  │
+   │Platform   │           │           │
+   └───────────┴───────────┴───────────┘
+```
+
+```
+backend/
+│
+├── cmd/
+│   └── server/
+│       └── main.go
+│
+├── api/
+│   ├── http/
+│   └── grpc/
+│
+├── internal/
+│
+│   ├── app/
+│   │   └── server.go
+│
+│   ├── config/
+│   │   └── config.go
+│
+│   ├── domain/
+│   │
+│   │   ├── digitalemployee/
+│   │   │   ├── entity.go
+│   │   │   ├── repository.go
+│   │   │   └── service.go
+│   │   │
+│   │   ├── agent/
+│   │   │   ├── runtime.go
+│   │   │   ├── planner.go
+│   │   │   ├── executor.go
+│   │   │   └── context.go
+│   │   │
+│   │   ├── skill/
+│   │   │   ├── skill.go
+│   │   │   ├── registry.go
+│   │   │   └── executor.go
+│   │   │
+│   │   ├── tool/
+│   │   │   ├── tool.go
+│   │   │   ├── registry.go
+│   │   │   ├── gateway.go
+│   │   │   └── executor.go
+│   │   │
+│   │   ├── workflow/
+│   │   │   ├── workflow.go
+│   │   │   ├── engine.go
+│   │   │   └── node.go
+│   │   │
+│   │   ├── knowledge/
+│   │   │   ├── retriever.go
+│   │   │   └── service.go
+│   │   │
+│   │   └── memory/
+│   │       ├── memory.go
+│   │       └── store.go
+│
+│   ├── infrastructure/
+│   │
+│   │   ├── model/
+│   │   │   ├── gateway.go
+│   │   │   ├── openai.go
+│   │   │   ├── deepseek.go
+│   │   │   └── qwen.go
+│   │   │
+│   │   ├── vector/
+│   │   │   └── vectordb.go
+│   │   │
+│   │   ├── storage/
+│   │   │   ├── mysql.go
+│   │   │   └── redis.go
+│   │   │
+│   │   ├── mq/
+│   │   │   └── rabbitmq.go
+│   │   │
+│   │   └── sandbox/
+│   │       └── tool_sandbox.go
+│
+│   ├── interfaces/
+│   │
+│   │   ├── http/
+│   │   │   ├── handler_agent.go
+│   │   │   ├── handler_skill.go
+│   │   │   └── handler_workflow.go
+│   │   │
+│   │   └── grpc/
+│   │       └── service.go
+│
+│   └── pkg/
+│       ├── logger/
+│       ├── errors/
+│       ├── utils/
+│       └── trace/
+│
+├── plugins/
+│   ├── skills/
+│   │   ├── contract_analysis/
+│   │   ├── patent_summary/
+│   │   └── procurement_analyzer/
+│   │
+│   └── tools/
+│       ├── http_api/
+│       ├── sql_query/
+│       └── python_executor/
+│
+├── sdk/
+│   ├── skill-sdk-go/
+│   └── skill-sdk-python/
+│
+├── deployments/
+│   ├── docker/
+│   └── k8s/
+│
+├── configs/
+│   └── config.yaml
+│
+├── scripts/
+│
+├── go.mod
+└── README.md
+```
+
 ## Multi-Agent 操作系统架构设计文档
 
 ---
@@ -433,14 +640,3 @@ Skill 必须支持状态管理：
 Enterprise AI OS 是：
 
 > 一个以治理为核心、以可追溯为基础、以可扩展为目标的企业级 Multi-Agent 执行操作系统。
-
----
-
-如果你愿意，下一步我可以：
-
-* 帮你拆成“技术栈选型建议版”
-* 或做一版“工程分层代码目录结构建议”
-* 或输出“5人团队 vs 50人团队复杂度控制对比建议”
-
-你现在这套架构，是准备真正落地实现，还是用于对外融资 / 战略规划展示？
-不同目标，我会帮你再打磨不同版本。

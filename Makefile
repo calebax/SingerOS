@@ -12,3 +12,5 @@ docker-release: docker-build docker-push
 docker-run:
 	-docker rm -f $(PROJECT)-dev
 	docker run -d --name $(PROJECT)-dev -p 8080:8080 $(REGISTRY)$(PROJECT):latest
+
+
