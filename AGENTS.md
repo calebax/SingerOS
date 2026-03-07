@@ -98,3 +98,154 @@ import (
 - Make sure all tests pass (`go test ./...`) before submitting changes
 - Follow Go's idiomatic patterns and standard practices
 - When implementing, consider how components fit into the broader microservices architecture described in ARCHITECTURE.md
+
+## CORE COMPONENTS AND ARCHITECTURE
+
+Based on the AI OS architecture described in docs/ARCHITECTURE_v2.md, the SingerOS platform consists of the following primary components:
+
+1. **Event Gateway** - Receives external events from various channels
+2. **Event Bus** - Message queue system for decoupling components
+3. **Orchestrator** - Core scheduling and coordination mechanism
+4. **DigitalEmployee** - Top-level abstraction representing AI workers
+5. **Agent** - Decision-making entities within DigitalEmployees
+6. **Skill** - Reusable capabilities that can be invoked
+7. **Tool** - External system integrations that Skills can call
+
+## SKILL SYSTEM DEFINITION
+
+Skills represent core building blocks in SingerOS:
+
+```
+skill.id
+skill.name
+skill.description
+skill.input_schema
+skill.output_schema
+skill.permissions
+skill.executor
+```
+
+### Skill Categories
+
+- **Integration Skills** - External system integrations (GitHub, GitLab, WeChat, Feishu, Jira)
+- **AI Skills** - LLM-based reasoning capabilities (code_review, summarize, classification)
+- **Tool Skills** - Utility capabilities (run_shell, execute_python, http_request)
+- **Workflow Skills** - Complex coordinated operations (pr_review_workflow, bug_triage_workflow)
+
+## CHANNEL INTEGRATION
+
+Support for multiple interaction channels:
+
+- GitHub
+- GitLab
+- Enterprise WeChat
+- Feishu
+- App
+- Webhook
+
+Each channel is abstracted through a Channel adapter pattern for unified interaction handling.
+
+## PERMISSIONS AND SECURITY
+
+Granular permissions control at multiple levels:
+
+- DigitalEmployee
+- Agent
+- Skill
+- Tool
+
+Permission model: RBAC + Capability
+
+## GOLANG ENGINE STRUCTURE
+
+SingerOS follows this recommended Golang project structure:
+
+```
+aios/
+│
+├── cmd/
+│   ├── api
+│   ├── worker
+│   └── scheduler
+│
+├── internal/
+│   ├── core/
+│   │   ├── employee
+│   │   ├── agent
+│   │   ├── workflow
+│   │   ├── skill
+│   │   └── event
+│
+│   ├── orchestrator/
+│   │   └── orchestrator.go
+│
+│   ├── engine/
+│   │   ├── agent_engine
+│   │   ├── workflow_engine
+│   │   └── skill_engine
+│
+│   ├── integrations/
+│   │   ├── github
+│   │   ├── gitlab
+│   │   ├── wechat
+│   │   └── feishu
+│
+│   ├── skills/
+│   │   ├── git
+│   │   ├── opencode
+│   │   ├── llm
+│   │   └── messaging
+│
+│   ├── storage/
+│   │   ├── postgres
+│   │   ├── redis
+│   │   └── vector
+│
+│   ├── eventbus/
+│   │   └── nats
+│
+│   ├── auth/
+│   │   └── permissions
+│
+│   └── config/
+│
+├── pkg/
+│   ├── sdk
+│   └── client
+│
+├── api/
+│   └── proto
+│
+├── deployments/
+│   └── docker
+│
+└── docs/
+```
+
+## MINIMUM VISION PRODUCT (MVP)
+
+The initial MVP focuses on these key components:
+
+1. Event Gateway
+2. Orchestrator
+3. Skill System
+4. GitHub Integration
+5. CodeAssistantEmployee
+
+MVP Features:
+
+- PR automatic Review
+- PR automatic summary
+- Issue automatic reply
+- Code explanation
+
+## TECHNICAL STACK
+
+Recommended stack:
+
+- Language: Golang
+- Message System: NATS
+- Database: Postgres
+- Cache: Redis
+- Vector Store: Qdrant
+- LLM: OpenAI / Claude / DeepSeek
