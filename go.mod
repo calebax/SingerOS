@@ -7,10 +7,10 @@ toolchain go1.24.10
 require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/google/go-github/v78 v78.0.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/spf13/cobra v1.10.2
 	github.com/ygpkg/yg-go v1.23.51
-	go.uber.org/zap v1.27.0
 	gorm.io/gorm v1.30.1
 )
 
@@ -55,6 +55,7 @@ require (
 	github.com/xen0n/go-workwx v1.7.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
+	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/arch v0.20.0 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
