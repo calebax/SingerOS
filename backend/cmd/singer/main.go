@@ -134,10 +134,19 @@ func loadConfig() (*config.Config, error) {
 			return nil, fmt.Errorf("failed to load config from %s: %v", configPath, err)
 		}
 	} else {
-		// Try to load from default path or environment
-		err := ygconfig.LoadYamlLocalFile("./config.yaml", &cfg)
+		// Try to load from default locations
+		pathsToTry := []string{"./config.yaml", "/app/config.yaml"}
+
+		err := fmt.Errorf("config file not found in any location")
+		for _, path := range pathsToTry {
+			if err = ygconfig.LoadYamlLocalFile(path, &cfg); err == nil {
+				logs.Infof("Loaded config from: %s", path)
+				break
+			}
+		}
+
 		if err != nil {
-			logs.Warnf("Could not load config from './config.yaml': %v, will proceed without config", err)
+			logs.Warnf("Could not load config from any path (%v), will proceed without config", err)
 			return &config.Config{}, nil
 		}
 	}
