@@ -121,11 +121,24 @@ import (
 - 查阅 CONTRIBUTING.md 了解提交消息风格指导
 - 在提交更改前确保所有测试通过 (`go test ./...`)
 - 遵循 Go 的习惯用法和标准实践
-- 实现时考虑组件如何融入 ARCHITECTURE.md 描述的更广泛架构
+- 实现时考虑组件如何融入架构文档描述的更广泛架构
+
+## 文档索引
+
+项目文档位于 `docs/` 目录：
+
+- `ARCHITECTURE.md` - AI OS 架构设计（核心架构文档）
+- `PRD.md` - 产品需求文档（员工视图/AI工作台）
+- `TODO.md` - 后端开发 TODO（2周 MVP 计划）
+- `TODO_v1.md` - 后端开发 TODO 清单（详细任务分解）
+- `GITHUB_AUTH_SETUP.md` - GitHub OAuth 集成配置指南
+- `GITHUB_WEBHOOK_TROUBLESHOOTING.md` - GitHub Webhook 签名验证问题排查
+- `PR_EVENT_FLOW.md` - GitHub PR 事件处理流程验证清单
+- `TROUBLESHOOTING.md` - 常见问题故障排除指南
 
 ## 核心组件和架构
 
-基于 ARCHITECTURE.md 中描述的 AI OS 架构，SingerOS 平台包含以下主要组件：
+基于 docs/ARCHITECTURE.md 中描述的 AI OS 架构，SingerOS 平台包含以下主要组件：
 
 1. **Event Gateway** - 接收来自各种渠道的外部事件（✅ 已实现）
 2. **Event Bus** - 用于解耦组件的消息队列系统（✅ RabbitMQ 已实现）
