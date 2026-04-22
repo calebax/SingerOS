@@ -77,3 +77,41 @@ func TestBuildToolsContext(t *testing.T) {
 		t.Fatalf("missing required fields summary: %s", context.SummarySection)
 	}
 }
+
+func TestBuildToolsContextForNames(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(&mockTool{
+		info: &tools.ToolInfo{
+			Name:        "node_shell",
+			Description: "Execute shell command",
+			Provider:    "node",
+			ReadOnly:    false,
+		},
+	}); err != nil {
+		t.Fatalf("register node shell tool: %v", err)
+	}
+	if err := registry.Register(&mockTool{
+		info: &tools.ToolInfo{
+			Name:        "node_file_read",
+			Description: "Read file",
+			Provider:    "node",
+			ReadOnly:    true,
+		},
+	}); err != nil {
+		t.Fatalf("register node file read tool: %v", err)
+	}
+
+	context, err := BuildToolsContextForNames(registry, []string{"node_file_read"})
+	if err != nil {
+		t.Fatalf("build filtered tools context: %v", err)
+	}
+	if context == nil {
+		t.Fatalf("expected non-nil tools context")
+	}
+	if strings.Contains(context.SummarySection, "node_shell") {
+		t.Fatalf("unexpected unselected tool in summary: %s", context.SummarySection)
+	}
+	if !strings.Contains(context.SummarySection, "node_file_read: Read file") {
+		t.Fatalf("missing selected tool summary: %s", context.SummarySection)
+	}
+}

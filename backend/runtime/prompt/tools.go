@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/insmtx/SingerOS/backend/tools"
@@ -25,6 +26,46 @@ func BuildToolsContext(registry *tools.Registry) *ToolsContext {
 	return &ToolsContext{
 		SummarySection: buildToolsSummary(infos),
 	}
+}
+
+// BuildToolsContextForNames converts selected tools into a prompt-ready summary.
+func BuildToolsContextForNames(registry *tools.Registry, names []string) (*ToolsContext, error) {
+	if registry == nil {
+		return &ToolsContext{}, nil
+	}
+	if len(names) == 0 {
+		return BuildToolsContext(registry), nil
+	}
+
+	infos := make([]tools.ToolInfo, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		tool, err := registry.Get(name)
+		if err != nil {
+			return nil, err
+		}
+		info := tool.Info()
+		if info == nil {
+			return nil, fmt.Errorf("tool %s info is required", name)
+		}
+		infos = append(infos, *info)
+	}
+	if len(infos) == 0 {
+		return &ToolsContext{}, nil
+	}
+
+	return &ToolsContext{
+		SummarySection: buildToolsSummary(infos),
+	}, nil
 }
 
 func buildToolsSummary(infos []tools.ToolInfo) string {

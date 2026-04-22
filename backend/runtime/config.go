@@ -2,7 +2,6 @@ package runtime
 
 import (
 	skillcatalog "github.com/insmtx/SingerOS/backend/skills/catalog"
-	"github.com/insmtx/SingerOS/backend/toolruntime"
 	"github.com/insmtx/SingerOS/backend/tools"
 )
 
@@ -10,5 +9,4 @@ import (
 type Config struct {
 	SkillsCatalog *skillcatalog.Catalog
 	ToolRegistry  *tools.Registry
-	ToolRuntime   *toolruntime.Runtime
 }

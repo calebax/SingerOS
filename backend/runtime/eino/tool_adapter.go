@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	einotool "github.com/cloudwego/eino/components/tool"
 	einoschema "github.com/cloudwego/eino/schema"
 	auth "github.com/insmtx/SingerOS/backend/auth"
+	runtimeevents "github.com/insmtx/SingerOS/backend/runtime/events"
 	"github.com/insmtx/SingerOS/backend/toolruntime"
 	"github.com/insmtx/SingerOS/backend/tools"
 )
@@ -50,9 +53,12 @@ type ToolAdapter struct {
 
 // ToolBinding carries runtime-bound identity for one Eino agent execution.
 type ToolBinding struct {
-	Selector  *auth.AuthSelector
-	UserID    string
-	AccountID string
+	Selector     *auth.AuthSelector
+	UserID       string
+	AccountID    string
+	AllowedTools []string
+	Emitter      *runtimeevents.Emitter
+	EmitToolIO   bool
 }
 
 // NewToolAdapter creates a new adapter over the shared tool registry and runtime.
@@ -90,7 +96,11 @@ func (a *ToolAdapter) EinoTools(binding ToolBinding) ([]einotool.BaseTool, error
 		return nil, nil
 	}
 
-	infos := a.registry.ListInfos()
+	infos, err := a.boundToolInfos(binding.AllowedTools)
+	if err != nil {
+		return nil, err
+	}
+
 	result := make([]einotool.BaseTool, 0, len(infos))
 	for _, info := range infos {
 		toolInfo := info
@@ -102,6 +112,37 @@ func (a *ToolAdapter) EinoTools(binding ToolBinding) ([]einotool.BaseTool, error
 	}
 
 	return result, nil
+}
+
+func (a *ToolAdapter) boundToolInfos(allowedTools []string) ([]tools.ToolInfo, error) {
+	if len(allowedTools) == 0 {
+		return a.registry.ListInfos(), nil
+	}
+
+	infos := make([]tools.ToolInfo, 0, len(allowedTools))
+	seen := make(map[string]struct{}, len(allowedTools))
+	for _, name := range allowedTools {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		tool, err := a.registry.Get(name)
+		if err != nil {
+			return nil, err
+		}
+		info := tool.Info()
+		if info == nil {
+			return nil, fmt.Errorf("tool %s info is required", name)
+		}
+		infos = append(infos, *info)
+	}
+
+	return infos, nil
 }
 
 // Invoke executes a tool call through SingerOS Tool Runtime.
@@ -165,6 +206,14 @@ func (t *invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string
 		}
 	}
 
+	startedAt := time.Now()
+	if err := t.emitToolEvent(ctx, runtimeevents.RunEventToolCallStarted, eventContentJSON(map[string]any{
+		"name":      t.info.Name,
+		"arguments": cloneArguments(input),
+	})); err != nil {
+		return "", err
+	}
+
 	result, err := t.adapter.Invoke(ctx, &ToolCallRequest{
 		Selector:  t.binding.Selector,
 		Name:      t.info.Name,
@@ -173,6 +222,10 @@ func (t *invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string
 		Arguments: input,
 	})
 	if err != nil {
+		_ = t.emitToolEvent(ctx, runtimeevents.RunEventToolCallFailed, eventContentJSON(map[string]any{
+			"name":       t.info.Name,
+			"elapsed_ms": time.Since(startedAt).Milliseconds(),
+		}))
 		return "", err
 	}
 
@@ -180,8 +233,38 @@ func (t *invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string
 	if err != nil {
 		return "", fmt.Errorf("marshal tool output: %w", err)
 	}
+	if err := t.emitToolEvent(ctx, runtimeevents.RunEventToolCallCompleted, eventContentJSON(map[string]any{
+		"name":       t.info.Name,
+		"result":     result.Output,
+		"elapsed_ms": time.Since(startedAt).Milliseconds(),
+	})); err != nil {
+		return "", err
+	}
 
 	return string(output), nil
+}
+
+func (t *invokableTool) emitToolEvent(ctx context.Context, eventType runtimeevents.RunEventType, content string) error {
+	if t == nil || t.binding.Emitter == nil || !t.binding.EmitToolIO {
+		return nil
+	}
+	err := t.binding.Emitter.Emit(ctx, &runtimeevents.RunEvent{
+		Type:    eventType,
+		Content: content,
+	})
+	_ = err
+	return nil
+}
+
+func cloneArguments(input map[string]interface{}) map[string]any {
+	if len(input) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func toEinoToolInfo(info *tools.ToolInfo) *einoschema.ToolInfo {

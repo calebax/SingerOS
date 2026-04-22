@@ -15,13 +15,14 @@ import (
 	auth "github.com/insmtx/SingerOS/backend/auth"
 	"github.com/insmtx/SingerOS/backend/config"
 	githubprovider "github.com/insmtx/SingerOS/backend/providers/github"
+	runtimeevents "github.com/insmtx/SingerOS/backend/runtime/events"
 	runtimeprompt "github.com/insmtx/SingerOS/backend/runtime/prompt"
 	"github.com/insmtx/SingerOS/backend/toolruntime"
 	"github.com/insmtx/SingerOS/backend/tools"
 	githubtools "github.com/insmtx/SingerOS/backend/tools/github"
 )
 
-func TestAgentRunnerGenerate(t *testing.T) {
+func TestFlowGenerate(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(&mockTool{
 		info: &tools.ToolInfo{
@@ -38,7 +39,7 @@ func TestAgentRunnerGenerate(t *testing.T) {
 
 	model := &fakeToolCallingModel{}
 	adapter := NewToolAdapter(registry, toolruntime.New(registry, nil))
-	runner, err := NewAgentRunner(context.Background(), &AgentRunnerConfig{
+	flow, err := NewFlow(context.Background(), &FlowConfig{
 		Model:        model,
 		ToolAdapter:  adapter,
 		Binding:      ToolBinding{UserID: "u1"},
@@ -52,10 +53,10 @@ func TestAgentRunnerGenerate(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("new agent runner: %v", err)
+		t.Fatalf("new flow: %v", err)
 	}
 
-	message, err := runner.Generate(context.Background(), "who am I?")
+	message, err := flow.Generate(context.Background(), "who am I?")
 	if err != nil {
 		t.Fatalf("generate response: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestAgentRunnerGenerate(t *testing.T) {
 	}
 }
 
-func TestAgentRunnerGenerateWithRealToolRuntime(t *testing.T) {
+func TestFlowGenerateWithRealToolRuntime(t *testing.T) {
 	store := auth.NewInMemoryStore()
 	resolver := auth.NewAccountResolver(store)
 	authService := auth.NewService(store, resolver)
@@ -148,7 +149,7 @@ func TestAgentRunnerGenerateWithRealToolRuntime(t *testing.T) {
 
 	model := &fakeToolCallingModel{}
 	adapter := NewToolAdapter(registry, toolruntime.New(registry, githubFactory))
-	runner, err := NewAgentRunner(context.Background(), &AgentRunnerConfig{
+	flow, err := NewFlow(context.Background(), &FlowConfig{
 		Model:       model,
 		ToolAdapter: adapter,
 		Binding:     ToolBinding{UserID: "u1"},
@@ -156,15 +157,57 @@ func TestAgentRunnerGenerateWithRealToolRuntime(t *testing.T) {
 		Tools:       runtimeprompt.BuildToolsContext(registry),
 	})
 	if err != nil {
-		t.Fatalf("new agent runner: %v", err)
+		t.Fatalf("new flow: %v", err)
 	}
 
-	message, err := runner.Generate(context.Background(), "show my github account")
+	message, err := flow.Generate(context.Background(), "show my github account")
 	if err != nil {
 		t.Fatalf("generate response: %v", err)
 	}
 	if !strings.Contains(message.Content, "octocat") {
 		t.Fatalf("expected real tool output in final content: %s", message.Content)
+	}
+}
+
+func TestFlowStreamEmitsMessageEvents(t *testing.T) {
+	registry := tools.NewRegistry()
+	flow, err := NewFlow(context.Background(), &FlowConfig{
+		Model:       &streamingTextModel{},
+		ToolAdapter: NewToolAdapter(registry, toolruntime.New(registry, nil)),
+		Binding:     ToolBinding{UserID: "u1"},
+	})
+	if err != nil {
+		t.Fatalf("new flow: %v", err)
+	}
+
+	var emitted []*runtimeevents.RunEvent
+	emitter := runtimeevents.NewEmitter("run_stream", "trace_stream", runtimeevents.SinkFunc(func(ctx context.Context, event *runtimeevents.RunEvent) error {
+		emitted = append(emitted, event)
+		return nil
+	}))
+	message, err := flow.Stream(context.Background(), "say hello", emitter)
+	if err != nil {
+		t.Fatalf("stream response: %v", err)
+	}
+	if message == nil || strings.TrimSpace(message.Content) != "hello world" {
+		t.Fatalf("unexpected streamed message: %+v", message)
+	}
+
+	var deltaCount int
+	var finalSnapshot string
+	for _, event := range emitted {
+		switch event.Type {
+		case runtimeevents.RunEventMessageDelta:
+			deltaCount++
+		case runtimeevents.RunEventMessageSnapshot:
+			finalSnapshot = event.Content
+		}
+	}
+	if deltaCount != 2 {
+		t.Fatalf("expected two delta events, got %d: %+v", deltaCount, emitted)
+	}
+	if finalSnapshot != "hello world" {
+		t.Fatalf("unexpected final snapshot: %q", finalSnapshot)
 	}
 }
 
@@ -224,6 +267,25 @@ func (m *fakeToolCallingModel) WithTools(tools []*einoschema.ToolInfo) (einomode
 		boundTools: tools,
 	}
 	return cloned, nil
+}
+
+type streamingTextModel struct{}
+
+var _ einomodel.ToolCallingChatModel = (*streamingTextModel)(nil)
+
+func (m *streamingTextModel) Generate(ctx context.Context, input []*einoschema.Message, opts ...einomodel.Option) (*einoschema.Message, error) {
+	return einoschema.AssistantMessage("hello world", nil), nil
+}
+
+func (m *streamingTextModel) Stream(ctx context.Context, input []*einoschema.Message, opts ...einomodel.Option) (*einoschema.StreamReader[*einoschema.Message], error) {
+	return einoschema.StreamReaderFromArray([]*einoschema.Message{
+		einoschema.AssistantMessage("hello ", nil),
+		einoschema.AssistantMessage("world", nil),
+	}), nil
+}
+
+func (m *streamingTextModel) WithTools(tools []*einoschema.ToolInfo) (einomodel.ToolCallingChatModel, error) {
+	return m, nil
 }
 
 type mockTool struct {

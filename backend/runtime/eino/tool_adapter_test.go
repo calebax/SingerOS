@@ -141,6 +141,45 @@ func TestToolAdapterDefinitionsAndInvoke(t *testing.T) {
 	}
 }
 
+func TestToolAdapterEinoToolsAllowedTools(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(&mockTool{
+		info: &tools.ToolInfo{
+			Name:        "node_shell",
+			Description: "Execute shell command",
+		},
+	}); err != nil {
+		t.Fatalf("register node shell tool: %v", err)
+	}
+	if err := registry.Register(&mockTool{
+		info: &tools.ToolInfo{
+			Name:        "node_file_read",
+			Description: "Read file",
+		},
+	}); err != nil {
+		t.Fatalf("register node file read tool: %v", err)
+	}
+
+	adapter := NewToolAdapter(registry, toolruntime.New(registry, nil))
+	einoTools, err := adapter.EinoTools(ToolBinding{
+		AllowedTools: []string{"node_file_read"},
+	})
+	if err != nil {
+		t.Fatalf("build filtered eino tools: %v", err)
+	}
+	if len(einoTools) != 1 {
+		t.Fatalf("expected 1 filtered tool, got %d", len(einoTools))
+	}
+
+	info, err := einoTools[0].Info(context.Background())
+	if err != nil {
+		t.Fatalf("get filtered tool info: %v", err)
+	}
+	if info.Name != "node_file_read" {
+		t.Fatalf("unexpected filtered tool: %s", info.Name)
+	}
+}
+
 type roundTripFunc func(req *http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
