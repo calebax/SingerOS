@@ -185,23 +185,21 @@ func (t *invokableTool) Info(ctx context.Context) (*einoschema.ToolInfo, error) 
 
 func (t *invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
 	if t == nil || t.adapter == nil {
-		return "", fmt.Errorf("tool adapter is required")
+		return errorOutput("tool adapter is required", t.tool.Name()), nil
 	}
 
 	input := make(map[string]interface{})
 	if argumentsInJSON != "" {
 		if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
-			return "", fmt.Errorf("unmarshal tool arguments: %w", err)
+			return errorOutput(fmt.Sprintf("unmarshal tool arguments: %v", err), t.tool.Name()), nil
 		}
 	}
 
 	startedAt := time.Now()
-	if err := t.emitToolEvent(ctx, runtimeevents.RunEventToolCallStarted, eventContentJSON(map[string]any{
+	_ = t.emitToolEvent(ctx, runtimeevents.RunEventToolCallStarted, eventContentJSON(map[string]any{
 		"name":      t.tool.Name(),
 		"arguments": cloneArguments(input),
-	})); err != nil {
-		return "", err
-	}
+	}))
 
 	result, err := invokeTool(ctx, t.tool, input, t.binding.ToolContext)
 	if err != nil {
@@ -209,18 +207,26 @@ func (t *invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string
 			"name":       t.tool.Name(),
 			"elapsed_ms": time.Since(startedAt).Milliseconds(),
 		}))
-		return "", err
+		return errorOutput(err.Error(), t.tool.Name()), nil
 	}
 
-	if err := t.emitToolEvent(ctx, runtimeevents.RunEventToolCallCompleted, eventContentJSON(map[string]any{
+	_ = t.emitToolEvent(ctx, runtimeevents.RunEventToolCallCompleted, eventContentJSON(map[string]any{
 		"name":       t.tool.Name(),
 		"result":     result.Output,
 		"elapsed_ms": time.Since(startedAt).Milliseconds(),
-	})); err != nil {
-		return "", err
-	}
+	}))
 
 	return result.Output, nil
+}
+
+func errorOutput(detail, toolName string) string {
+	errStr, _ := tools.JSONString(map[string]interface{}{
+		"error":     true,
+		"message":   "工作运行异常",
+		"detail":    detail,
+		"tool_name": toolName,
+	})
+	return errStr
 }
 
 func (t *invokableTool) emitToolEvent(ctx context.Context, eventType runtimeevents.RunEventType, content string) error {
