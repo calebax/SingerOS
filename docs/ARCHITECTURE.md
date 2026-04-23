@@ -1,422 +1,911 @@
 # SingerOS 架构设计文档
 
-> 基于 **Agent Execution Kernel** 理念构建的企业级 AI 操作系统
-
----
+> 基于 **Event Engine + Execution Engine + Agent Runtime 三核架构** 构建的企业级 AI 操作系统
+>
+> **版本：3.1** | **最后更新：2026-04-23**
 
 ## 1. 核心愿景
 
-让企业可以像组织员工一样管理 AI 数字助手。
+构建一个企业级数字员工平台，让企业可以像管理真实员工一样，创建、配置、授权、调度和审计 AI 数字员工，并实现：
 
-**设计原则：**
-- **事件驱动** - 所有行为由事件触发
-- **分层解耦** - 控制平面与数据平面分离
-- **可扩展运行时** - 支持多 Agent 运行时动态切换
-- **数字助手是最高抽象** - 代表完整的 AI 数字员工
+* **多 Agent 协作** - 多个智能体协同工作
+* **多运行时执行** - 支持不同 Agent 引擎并存
+* **本地 + 云端协同** - Edge 与 Remote Runtime 分工
+* **可控、安全、可审计** - 企业级安全控制
 
----
+数字员工不是单纯的聊天机器人。它需要有独立身份、接收任务的入口、真实执行工作的环境，以及模型、工具、技能、知识库等基础能力。
 
-## 2. 分层架构
+## 设计原则
+
+* **事件驱动（Event-Driven First）**
+  所有行为统一抽象为 Event，通过 Event Bus 传播
+* **控制面 / 执行面分离（Control vs Execution）**
+  决策与执行彻底解耦
+* **三核架构（Three-Core Architecture）**
+  Event Engine + Execution Engine + Agent Runtime 职责分离
+* **领域驱动设计（Domain-Driven Design）**
+  按领域分层（event/execution/agent/skill），而非按技术分层（controller/service/model）
+* **接口优先（Interface-Driven）**
+  每一层都必须定义 interface，而不是直接依赖实现
+* **核心引擎内聚可替换**
+  Event Engine、Execution Engine、Agent Runtime 必须可独立替换和部署
+* **分层命名（Layered Naming）**
+  Engine = 执行能力 | Runtime = 运行时容器 | Service = 对外能力 | Connector = 外部接入
+* **边缘优先（Edge-First）**
+  本地能力（文件 / GUI）优先由 Edge Runtime 执行
+* **安全优先（Security by Design）**
+  明确本地与远程执行边界
+* **数字助手是最高抽象（Digital Assistant First）**
+  代表完整的 AI 数字员工实例
+* **强制隔离（Enforced Isolation）**
+  使用 `internal/` 目录强制隔离核心实现，`pkg/` 对外公开接口
+
+## 2. 分层架构（四平面模型）
 
 ### 2.1 架构总览
 
 ```
-┌─────────────────────────────────────────┐
-│        外部系统层                        │  GitHub / GitLab / 企业微信
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│      事件网关层                          │  接收 Webhook，标准化事件
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│        消息总线层                        │  RabbitMQ 消息队列
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│      编排调度层                          │  事件路由 + 分发
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│    运行时抽象层                          │  统一执行接口
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│    运行时实现层                          │  Eino / OpenClaw / ClaudeCode
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│      能力层                              │  Skills / Tools
-└─────────────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│                Client / Edge               │
+│  App / CLI / 本地 Agent Runtime (Edge)    │
+└────────────────────┬───────────────────────┘
+                     │
+                     ▼
+┌────────────────────────────────────────────┐
+│            Interface Layer（接口层）        │
+│         Assistant Service / Connector      │
+└────────────────────┬───────────────────────┘
+                     │
+                     ▼
+┌────────────────────────────────────────────┐
+│          Control Plane（控制面）            │
+│  Event Engine / Memory / Policy Engine    │
+└────────────────────┬───────────────────────┘
+                     │
+                     ▼
+┌────────────────────────────────────────────┐
+│          Execution Plane（执行面）          │
+│  Execution Engine / Agent Runtime / Skill  │
+└────────────────────────────────────────────┘
 ```
 
-### 2.2 各层职责
+### 2.2 四平面职责
 
-| 层级 | 组件 | 职责 |
+| 平面 | 组件 | 职责 |
 |------|------|------|
-| **外部系统层** | 外部平台 | 触发事件的来源系统 |
-| **事件网关层** | 连接器 | 接收外部事件，标准化为内部格式 |
-| **消息总线层** | RabbitMQ | 解耦组件，支持异步和高并发 |
-| **编排调度层** | 编排器 | 事件路由，找到匹配的运行时 |
-| **运行时抽象层** | 统一接口 | 隐藏底层实现，提供统一执行边界 |
-| **运行时实现层** | 具体引擎 | LLM Agent 执行引擎 |
-| **能力层** | Skills/Tools | 可复用的原子能力单元 |
+| **Edge Plane** | Edge Runtime / Client | 本地文件访问、GUI 自动化、用户环境交互 |
+| **Interface Layer** | Assistant Service / Connector | 对外 API / 渠道接入 / 事件标准化 |
+| **Control Plane** | Event Engine / Memory / Policy Engine | 决策中心：事件路由、上下文构建、权限控制 |
+| **Execution Plane** | Execution Engine / Agent Runtime / Skill | 执行中心：Agent 推理、Skill 调用、Workflow 编排 |
 
----
+### 2.3 核心数据通道（统一事件流）
 
-## 3. 核心组件
+```
+External Event / User Input
+        ↓
+Connector（事件标准化）
+        ↓
+Event Bus（统一事件模型）
+        ↓
+Event Engine（事件路由）
+        ↓
+Execution Engine（执行调度）
+        ↓
+Agent Runtime / Workflow Engine / Skill（执行单元）
+        ↓
+Event Bus（响应流）
+        ↓
+Assistant Service → Client / UI
+```
 
-### 3.1 事件网关
+> **核心原则**：所有模块之间只能通过 Event Bus 通信
 
-**职责：** 接收外部系统事件并标准化为内部统一格式
+## 3. 核心模块划分
 
-**连接器：** 每个外部渠道（GitHub、GitLab、企业微信等）实现独立的连接器，负责：
-- 注册 Webhook 接收端点
-- 验证请求签名和合法性
-- 解析外部事件格式
-- 转换为内部标准事件
-- 发布到消息总线
+### 3.1 Connector（连接器）
 
-**已实现的连接器：**
-- GitHub：支持 PR、Issue、评论、推送等事件
-- GitLab：规划中
-- 企业微信：规划中
+**职责：**
 
----
+* 接收外部系统事件（Webhook / API / 用户输入）
+* 标准化为内部 Event
+* 发布到 Event Bus
 
-### 3.2 消息总线
+**支持渠道：**
 
-**职责：** 解耦系统组件，支持异步处理和高并发
+* GitHub / GitLab
+* 企业微信 / 飞书
+* CLI / Web UI
 
-**实现：** 基于 RabbitMQ 的消息队列
-- 发布者：事件网关将标准化事件发布到队列
-- 订阅者：编排调度层订阅并消费事件
+**关键能力：**
 
-**优势：**
-- 削峰填谷，应对突发流量
-- 组件解耦，支持独立扩展
-- 支持事件持久化和重试
+* 签名验证
+* 多协议适配
+* 事件转换
 
----
+**命名规范：**
 
-### 3.3 编排调度层
+```
+GitHub Connector
+GitLab Connector
+Feishu Connector
+Slack Connector
+Webhook Connector
+```
 
-**职责：** 事件路由和分发，是系统的调度中枢
+**接口定义：**
 
-**核心流程：**
-- 从消息总线订阅事件
-- 根据事件类型匹配处理器
-- 调用运行时抽象层执行任务
-- 处理执行结果和错误
+```go
+type Connector interface {
+    ChannelCode() string
+    RegisterRoutes(r gin.IRouter)
+}
+```
 
-**设计要点：**
-- 基于事件主题路由到不同处理器
-- 处理器调用统一的运行时接口
-- 预留多运行时调度扩展点
-- 支持动态注册新的事件处理器
+### 3.2 Event Bus（事件总线）
 
----
+**职责：**
 
-### 3.4 运行时抽象层
+系统唯一通信通道
 
-**职责：** 提供统一的执行接口，隐藏底层实现细节
+> 所有模块之间只能通过 Event Bus 通信
 
-**核心价值：**
-- 编排层不依赖具体实现
-- 支持动态切换 Agent 引擎
-- 为多运行时共存奠定基础
+**实现：**
 
-**接口能力：**
-- 接收标准化事件
-- 加载数字助手配置
-- 注入技能和工具
-- 执行 Agent 任务
-- 返回执行结果
+* 当前：RabbitMQ
+* 推荐演进：NATS（更适合事件驱动架构）
 
----
+**接口定义：**
 
-### 3.5 运行时实现层
+```go
+type Publisher interface {
+    Publish(ctx context.Context, topic string, event any) error
+    Close() error
+}
 
-**当前实现：** 基于 CloudWeGo Eino 框架的 LLM Agent 运行时
+type Subscriber interface {
+    Subscribe(ctx context.Context, topic string, handler func(any)) error
+    Close() error
+}
+```
 
-**核心组件：**
-- 对话模型：连接大语言模型
-- 工具适配器：将 Skills/Tools 适配为 LLM 可调用格式
-- 技能上下文：管理可用技能集合
-- 提示词构建：动态生成系统提示词
+### 标准 Event 模型
 
-**执行流程：**
-1. 接收事件
-2. 加载数字助手配置
-3. 构建提示词上下文
-4. 注入可用 Skills 和 Tools
-5. 调用 LLM 执行推理
-6. 处理工具调用结果
-7. 生成最终响应
-8. 回传执行结果
+Event 是系统内部统一的通信载体，包含以下核心字段：
 
-**未来扩展：**
-- OpenClaw 运行时：更强的工具执行能力
-- ClaudeCode 运行时：更强的代码生成能力
-- 自定义运行时：企业特定需求
+- **ID** - 事件唯一标识
+- **Type** - 事件类型（command.* / response.* / stream.* / state.* / system.*）
+- **Source** - 事件来源
+- **Target** - 事件目标
+- **SessionID** - 会话标识
+- **Payload** - 事件载荷
+- **Timestamp** - 时间戳
 
----
+### Event 分类
 
-### 3.6 Skills 能力系统
+```
+command.*      // 指令事件
+response.*     // 响应事件
+stream.*       // 流式事件
+state.*        // 状态事件
+system.*       // 系统事件
+```
+
+### 3.3 Assistant Service（助手服务）【原 Gateway】
+
+**职责：**
+
+* 对外统一 API 入口
+* 用户请求处理
+* 多渠道统一访问
+* 调用 Event Engine / Execution Engine
+
+**本质：**
+
+> **"系统的对外接口层"**
+
+### 3.4 Event Engine（事件引擎）【原 Orchestrator】⭐
+
+**职责：**
+
+* 订阅事件总线中的事件
+* 事件路由与分发
+* 调用 Handler 处理事件
+* 触发执行流程
+
+**核心能力：**
+
+* 事件过滤与路由规则
+* 事件聚合与防抖
+* 事件优先级调度
+
+**接口定义：**
+
+```go
+package eventengine
+
+type Engine interface {
+    Start(ctx context.Context) error
+    RegisterHandler(eventType string, handler Handler)
+    GetHandler(eventType string) (Handler, error)
+}
+
+type Handler interface {
+    Handle(ctx context.Context, event *event.Event) error
+}
+```
+
+**包结构：**
+
+```
+internal/eventengine/
+├── engine.go           # Event Engine 核心实现
+├── registry.go         # Handler 注册中心（插件化）
+├── router.go           # 事件路由（不写死 switch）
+└── builtins/           # 内置事件处理器
+    ├── pr_handler.go
+    ├── issue_handler.go
+    └── push_handler.go
+```
+
+**本质：**
+
+> **"系统的响应中心"** - 负责响应外部事件并启动执行流程
+
+**⚠️ 常见错误：**
+
+- ❌ 把所有逻辑写进 Event Handler
+- ✅ 正确：Handler → 调用 Execution Engine
+
+### 3.5 Execution Engine（执行引擎）【新增关键模块】⭐
+
+**职责：**
+
+* 调用 Skill
+* 调用 Workflow
+* 调用 Agent
+* 控制执行流程（同步 / 异步 / 重试）
+
+**核心能力：**
+
+* 同步/异步执行控制
+* 重试与降级机制
+* 执行超时控制
+* 并发执行管理
+
+**接口定义：**
+
+```go
+package execution
+
+type Engine interface {
+    Execute(ctx context.Context, task *Task) error
+    RegisterExecutor(taskType TaskType, executor Executor)
+}
+
+type Executor interface {
+    Execute(ctx context.Context, task *Task) error
+}
+
+type Task struct {
+    Type       TaskType
+    Payload    map[string]interface{}
+    Timeout    time.Duration
+    MaxRetries int
+}
+```
+
+**包结构：**
+
+```
+internal/execution/
+├── engine.go           # Execution Engine 核心
+├── dispatcher.go       # 调度器（任务分发）
+├── executor.go         # 执行器接口
+├── sync_executor.go    # 同步执行器
+├── async_executor.go   # 异步执行器
+├── retry.go            # 重试控制
+├── timeout.go          # 超时控制
+└── context/            # 执行上下文
+    └── execution_context.go
+```
+
+**与 Event Engine 的关系：**
+
+```
+Event Engine：响应事件 → 决定何时执行
+Execution Engine：执行逻辑 → 决定如何执行
+```
+
+> **核心原则**：Event Engine 与 Execution Engine 必须解耦
+
+**⚠️ 常见错误：**
+
+- ❌ 直接在 Event Handler 中执行复杂逻辑
+- ✅ 正确：Handler → Execution Engine → 具体执行器
+
+### 3.6 Agent Runtime（智能体运行时）
+
+**职责：**
+
+* 管理 Agent 生命周期
+* 调用 LLM
+* 管理 Memory / Context
+* 工具调用（Tool / Skill）
+
+**核心能力：**
+
+* Agent 状态管理
+* 上下文维护
+* 推理循环（Reasoning Loop）
+* 工具调用协调
+
+**接口定义：**
+
+```go
+package agent
+
+type Runtime interface {
+    Initialize(ctx context.Context, config AgentConfig) error
+    Execute(ctx context.Context, task *Task) (*Result, error)
+    Shutdown(ctx context.Context) error
+}
+
+type Task struct {
+    Type      TaskType
+    Context   *Context
+    Skills    []Skill
+    Tools     []Tool
+}
+
+type Result struct {
+    Output   string
+    Metadata map[string]interface{}
+}
+```
+
+**包结构：**
+
+```
+internal/agent/
+├── runtime.go           # Agent Runtime 接口
+├── lifecycle.go         # 生命周期管理
+├── context.go           # 上下文管理
+├── reasoning.go         # 推理循环
+└── eino/               # Eino 具体实现
+    ├── eino_runtime.go
+    ├── agent_runner.go
+    ├── chatmodel.go
+    └── tool_adapter.go
+```
+
+**与 Execution Engine 的关系：**
+
+```
+Execution Engine 调用 Agent Runtime
+Agent Runtime 专注于 Agent 的推理与决策
+```
+
+**⚠️ 常见错误：**
+
+- ❌ Agent Runtime 直接调 MQ / DB
+- ✅ 必须通过 Execution Engine / Skill / Infra
+
+### 3.7 Workflow Engine（工作流引擎）【规划中】
+
+**职责：**
+
+* 多步骤任务编排
+* DAG / 状态机执行
+* 长任务执行管理
+
+**包结构：**
+
+```
+internal/workflow/
+├── engine.go           # 流程引擎
+├── definition/         # DAG / YAML 定义
+└── runtime/            # 运行时
+```
+
+**与 Execution Engine 的关系：**
+
+```
+Execution Engine 调用 Workflow Engine
+Workflow Engine 专注于复杂流程编排
+```
+
+### 3.8 Runtime Manager（运行时调度器）
+
+**职责：**
+
+* 管理所有 Runtime 实例
+* 能力注册（Skill / GPU / Browser）
+* 负载均衡
+* 健康检查
+
+**类比：**
+
+> Kubernetes Scheduler（简化版）
+
+### 3.9 Memory（记忆系统）
+
+**职责：**
+
+* 会话上下文（短期记忆）
+* 长期记忆（向量）
+* 知识检索（RAG）
+
+### 3.10 Model Router（模型调度）
+
+**职责：**
+
+* 多模型管理
+* fallback / 降级
+* 成本控制
+
+### 3.11 Policy Engine（策略引擎）【新增关键模块】
+
+**职责：**
+
+* Agent 行为控制
+* Skill 调用权限
+* 审计日志
+
+**强制规则：**
+
+* Remote Runtime 不得直接访问本地资源
+* 所有高权限操作必须经过 Policy Engine
+
+### 3.12 Skills 能力系统
 
 **Skill 定义：** 可复用的 AI 能力单元，是 SingerOS 的核心构建块
 
-**Skill 元数据：**
-- 唯一标识符
-- 名称和描述
-- 版本号
-- 分类（集成类、AI 类、工具类、工作流类）
-- 输入输出模式定义
-- 权限声明
+**接口定义：**
+
+```go
+package skill
+
+type Skill interface {
+    Info() *SkillInfo
+    Execute(ctx context.Context, input SkillInput) (SkillOutput, error)
+    Validate(input SkillInput) error
+    GetID() string
+    GetName() string
+    GetDescription() string
+}
+
+type SkillInfo struct {
+    ID           string                 `json:"id"`
+    Name         string                 `json:"name"`
+    Description  string                 `json:"description"`
+    Version      string                 `json:"version,omitempty"`
+    Category     string                 `json:"category,omitempty"`
+    InputSchema  map[string]interface{} `json:"input_schema,omitempty"`
+    OutputSchema map[string]interface{} `json:"output_schema,omitempty"`
+}
+```
 
 **Skill 分类：**
+
 - **集成类 Skills** - 外部系统集成（GitHub、GitLab、飞书等）
 - **AI 类 Skills** - 基于大模型的推理能力（代码审查、摘要生成、分类等）
 - **工具类 Skills** - 底层工具能力（Shell 执行、Python 脚本、HTTP 请求等）
 - **工作流类 Skills** - 复杂编排能力（PR 审查工作流、Bug 分类工作流等）
 
 **技能加载方式：**
+
 - 文件系统：通过 SKILL.md 文件定义
 - 代码嵌入：编译时打包的内置技能
 - 远程加载：从技能市场动态下载（规划中）
 
----
+**包结构：**
 
-### 3.7 Tools 工具系统
+```
+internal/skill/
+├── registry.go         # Skill 注册中心（必须动态注册）
+├── executor.go         # Skill 执行器
+├── base_skill.go       # 基础 Skill 实现
+└── builtin/            # 内置技能
+    ├── github_pr_review.go
+    └── code_summarize.go
+```
+
+**⚠️ 常见错误：**
+
+- ❌ Skill 写死在代码中
+- ✅ 必须 Registry 化，支持动态注册
+
+### 3.13 Tools 工具系统
 
 **Tool 定义：** 底层原子能力，提供与外部系统交互的具体实现
 
 **与 Skills 的区别：**
-- Tools 是原子操作，Skills 可以组合多个 Tools
-- Tools 由系统注册，Skills 可以由用户创建
-- Tools 侧重执行，Skills 侧重智能决策
+
+| 维度 | Tools | Skills |
+|------|-------|--------|
+| 粒度 | 原子操作 | 可组合 |
+| 注册 | 系统注册 | 用户可创建 |
+| 侧重 | 执行 | 智能决策 |
+
+关系：
+
+```
+Agent → Skill → Tool
+```
 
 **内置 Tools：**
+
 - HTTP 请求工具
 - Shell 命令执行
 - Python 脚本执行
 - 文件读写操作
 - 数据库查询工具
 
----
+## 4. 数字助手（核心抽象）
 
-## 4. 数字助手抽象
+数字助手是企业中的"AI 员工"
 
-**数字助手** 是 SingerOS 中数字员工的顶级抽象，代表一个完整的 AI 助手实例。
+### 组成：
 
-**组成结构：**
-- **标识信息** - 代码、名称、描述、头像
-- **组织信息** - 所属组织、拥有者
-- **运行时配置** - 执行环境类型和参数
-- **大模型配置** - 使用的 LLM 类型和参数
-- **技能集合** - 该助手能够使用的 Skills
-- **渠道集合** - 集成的交互渠道（GitHub、企业微信等）
-- **知识库** - 可访问的知识资源
-- **记忆配置** - 短期记忆和长期记忆设置
-- **策略配置** - 安全策略和权限控制
+* 身份信息
+* 运行时配置
+* 模型配置
+* Skills 集合
+* 渠道绑定
+* Memory
+* Policy
 
-**助手状态：**
-- 草稿：配置中，未启用
-- 激活：正常运行，可接收事件
-- 停用：临时禁用
-- 归档：历史版本归档
+### 助手状态：
 
----
+- **草稿**：配置中，未启用
+- **激活**：正常运行，可接收事件
+- **停用**：临时禁用
+- **归档**：历史版本归档
 
-## 5. 事件流示例
+## 5. 执行面组件
 
-### GitHub PR 自动审查流程
+### 5.1 Agent Runtime（远程执行节点）
+
+**职责：**
+
+* 消费任务 Event
+* 执行 Agent 推理
+* 调用 Skill
+
+**特性（必须满足）：**
+
+* 无状态（或弱状态）
+* Worker 模式
+* 不暴露 API
+
+### 5.2 Edge Runtime（本地执行节点）
+
+**职责：**
+
+* 本地文件访问
+* GUI 自动化（AX / UIA）
+* 本地模型
+* 用户环境交互
+
+与远程 Runtime 的区别：
+
+| 能力     | Edge | Remote |
+| -------- | ---- | ------ |
+| 本地文件 | 是   | 否     |
+| GUI 操作 | 是   | 否     |
+| 云执行   | 否   | 是     |
+
+安全原则：
+
+> Edge Runtime 是唯一可操作用户环境的组件
+
+### 5.3 Skill Proxy（能力代理层）
+
+**职责：**
+
+统一 Skill 调用：
+
+* 本地 Skill
+* 远程 Skill
+* MCP Skill（未来）
+
+## 6. 关键执行链路（统一模型）
+
+### 6.1 标准执行链路
+
+```
+User / Webhook
+ ↓
+Connector（事件标准化）
+ ↓
+Event Bus
+ ↓
+Event Engine（事件路由）
+ ↓
+Execution Engine（执行调度）
+ ↓
+┌────────────────────────────────┐
+│  Agent Runtime / Workflow      │  ← 执行单元选择
+│  Engine / Direct Skill Call    │
+└────────────────────────────────┘
+ ↓
+Skill / Tool 执行
+ ↓
+Event Bus（流式返回）
+ ↓
+Assistant Service → Client
+```
+
+### 6.2 示例：GitHub PR 自动审查流程
 
 1. **事件触发** - 开发者创建 PR，GitHub 发送 Webhook
-2. **事件接收** - 事件网关的 GitHub 连接器接收请求
+2. **事件接收** - GitHub Connector 接收请求
 3. **签名验证** - 验证 Webhook 签名确保来源合法
-4. **事件标准化** - 将 GitHub 格式转换为内部标准事件
-5. **事件发布** - 发布到 RabbitMQ 的 PR 事件队列
-6. **事件订阅** - 编排调度层订阅该队列并消费事件
-7. **路由匹配** - 根据事件类型匹配到 PR 处理器
-8. **运行时调用** - 处理器调用运行时抽象层接口
-9. **配置加载** - 运行时加载目标数字助手的完整配置
-10. **上下文构建** - 获取 PR 差异内容，构建提示词上下文
-11. **技能注入** - 注入代码审查相关的 Skills
-12. **工具注入** - 注入 GitHub API 相关的 Tools
-13. **大模型推理** - 调用 LLM 分析代码变更并生成审查意见
-14. **工具执行** - 调用 GitHub API 发布 Review 评论
-15. **结果记录** - 将执行结果持久化到事件表
-16. **响应返回** - 完成整个处理流程
+4. **事件标准化** - 转换为内部 Event 格式
+5. **事件发布** - 发布到 Event Bus
+6. **事件消费** - Event Engine 订阅并处理事件
+7. **路由匹配** - Event Engine 根据事件类型选择 Handler
+8. **执行触发** - Event Engine 调用 Execution Engine
+9. **执行调度** - Execution Engine 决定执行策略（同步/异步/重试）
+10. **节点选择** - Runtime Manager 选择合适的 Runtime 节点
+11. **配置加载** - Agent Runtime 加载目标数字助手的配置
+12. **上下文构建** - 获取 PR 差异内容，构建提示词
+13. **能力注入** - 注入代码审查 Skills 和 GitHub Tools
+14. **大模型推理** - Agent Runtime 调用 LLM 分析代码并生成审查意见
+15. **工具执行** - Execution Engine 调用 GitHub API 发布 Review 评论
+16. **结果返回** - 通过 Event Bus 流式返回执行结果
+17. **结果记录** - 持久化到事件表
 
----
+## 7. 安全模型
 
-## 6. 实现状态
+### 三层权限模型
 
-### 已完成
-
-| 组件 | 说明 |
-|------|------|
-| 事件网关 | GitHub 连接器完成，支持多种事件类型 |
-| 消息总线 | RabbitMQ 集成完成，支持发布订阅模式 |
-| 编排调度 | 事件路由和处理器分发完成 |
-| 运行时抽象 | 统一执行接口定义完成 |
-| Eino 运行时 | 基于 CloudWeGo Eino 的 LLM Agent 运行时完成 |
-| Skill 系统 | 接口定义和示例技能完成 |
-| Tool 系统 | 接口定义和内置工具完成 |
-| GitHub 集成 | Webhook 接收和 OAuth 认证完成 |
-| 类型定义 | 数字助手、事件、技能等核心模型完成 |
-| 配置管理 | 支持配置文件和环境变量 |
-
-### 进行中
-
-| 组件 | 说明 |
-|------|------|
-| PR 审查流程 | 端到端流程验证中 |
-| Issue 自动回复 | 开发中 |
-| 数据库持久化 | GORM 模型定义完成，API 开发中 |
-| 工具授权系统 | 基础框架完成，接入中 |
-
-### 规划中
-
-| 组件 | 说明 |
-|------|------|
-| 多运行时支持 | OpenClaw / ClaudeCode 运行时接入 |
-| 运行时调度器 | 负载均衡和动态路由 |
-| 运行时实例池 | 多实例管理和健康检查 |
-| 流式执行 | 支持 Token 级别的事件流 |
-| 记忆系统 | 短期会话记忆和长期知识记忆 |
-| 知识库集成 | RAG 检索增强生成 |
-| GitLab 集成 | GitLab 连接器 |
-| 企业微信集成 | 企业微信连接器 |
-| 可视化工作台 | Workflow Studio 流程编排 |
-| 多租户支持 | 租户隔离和 RBAC 权限 |
-| 成本统计 | Token 用量和成本分析 |
-| 技能市场 | 技能的发布和订阅 |
-
----
-
-## 7. 技术栈
-
-| 类别 | 技术选型 | 状态 |
-|------|----------|------|
-| 编程语言 | Golang | 已采用 |
-| HTTP 框架 | Gin | 已采用 |
-| CLI 框架 | Cobra | 已采用 |
-| 消息队列 | RabbitMQ | 已采用 |
-| ORM 框架 | GORM | 已采用 |
-| LLM 框架 | CloudWeGo Eino | 已采用 |
-| 关系数据库 | Postgres | 规划中 |
-| 缓存系统 | Redis | 规划中 |
-| 向量数据库 | Qdrant | 规划中 |
-| 大模型 | OpenAI / Claude / DeepSeek | 规划中 |
-| 容器化 | Docker + Compose | 已采用 |
-
----
-
-## 8. 未来扩展
-
-### 多运行时架构
-
-**目标：** 支持多种 Agent 运行时共存，根据任务类型智能选择
-
-**架构图：**
 ```
-编排调度层
-    ↓
-运行时调度器（路由 + 负载均衡）
-    ↓
-┌────────────┬────────────┬─────────────┐
-│ Eino 集群  │ OpenClaw   │ ClaudeCode  │
-│            │ 集群       │ 集群        │
-└────────────┴────────────┴─────────────┘
+Edge Runtime      → 高权限（本地）
+Control Plane     → 中权限（调度）
+Remote Runtime    → 低权限（执行）
 ```
 
-**调度策略：**
-- 基于任务类型路由（代码任务 → ClaudeCode，对话任务 → Eino）
-- 基于负载情况动态分配
-- 支持权重配置和优先级
-- 健康检查和故障自动转移
+### 核心规则
 
-### 运行时实例池
+* Remote 不能访问本地
+* 所有敏感操作必须经过 Policy Engine
+* 全链路审计
 
-**管理能力：**
-- 多实例横向扩展
-- 负载均衡分发请求
-- 心跳检测和健康检查
-- 故障实例自动摘除
-- 自动恢复和重新加入
+### 安全边界
 
-### 流式执行
+| 组件 | 权限级别 | 可访问资源 |
+|------|----------|------------|
+| Edge Runtime | 高 | 本地文件、GUI、用户环境 |
+| Control Plane | 中 | 调度、路由、配置 |
+| Remote Runtime | 低 | 云端资源、API |
+| Policy Engine | 最高 | 权限决策、审计 |
 
-**支持场景：**
-- Token 级别的实时输出
-- 工具调用的中间状态
-- 执行进度和日志流
-- 用户取消和超时控制
+## 8. Go 包结构（领域驱动设计）
 
-### 记忆系统
+### 8.1 设计原则
 
-**短期记忆：**
-- 会话级别的上下文维护
-- 多轮对话状态跟踪
-- 临时变量和中间结果
+> **按"领域分层"，不是按技术分层**
 
-**长期记忆：**
-- 用户偏好和历史习惯
-- 历史经验和学习成果
-- 跨会话的知识积累
+- ❌ controller / service / dao
+- ✅ event / execution / agent / skill
 
-### 不同类型 AI 数字员工
+### 8.2 推荐的目录结构
 
-- **AI 产品经理** - 需求分析、产品规划、用户研究
-- **AI 代码工程师** - 代码审查、Bug 修复、功能开发
-- **AI QA 工程师** - 自动化测试、质量检查、问题发现
-- **AI DevOps 工程师** - CI/CD 配置、基础设施管理、监控告警
-- **AI 数据分析师** - 数据探索、报表生成、洞察发现
-- **AI 技术支持** - 用户问题解答、工单处理、知识库维护
+```bash
+backend/
+│
+├── cmd/                        # 启动入口（多进程）
+│   ├── singer/                # 主服务（Event Engine + Execution Engine）
+│   └── skill-proxy/           # Skill Proxy 服务
+│
+├── internal/                  # 私有核心代码（强制隔离）
+│   ├── eventengine/          # ⭐ 事件引擎
+│   │   ├── engine.go         # Event Engine 核心
+│   │   ├── registry.go       # Handler 注册中心（插件化）
+│   │   └── builtins/         # 内置事件处理器
+│   │       ├── pr_handler.go
+│   │       └── issue_handler.go
+│   │
+│   ├── execution/            # ⭐ 执行引擎
+│   │   ├── engine.go         # Execution Engine
+│   │   ├── dispatcher.go     # 调度器
+│   │   ├── executor.go       # 执行器接口
+│   │   ├── sync_executor.go  # 同步执行器
+│   │   ├── async_executor.go # 异步执行器
+│   │   └── context/          # 执行上下文
+│   │
+│   ├── agent/                # ⭐ Agent Runtime
+│   │   ├── runtime.go        # Agent Runtime 接口
+│   │   ├── lifecycle.go      # 生命周期管理
+│   │   └── eino/             # Eino 实现
+│   │       ├── eino_runtime.go
+│   │       └── agent_runner.go
+│   │
+│   ├── connectors/           # 连接器
+│   │   ├── connector.go      # Connector 接口
+│   │   ├── github/
+│   │   ├── gitlab/
+│   │   └── wework/
+│   │
+│   ├── service/              # 服务层
+│   │   ├── assistant_service.go
+│   │   └── middleware/       # 中间件
+│   │
+│   ├── skill/                # Skill 系统
+│   │   ├── registry.go       # Skill 注册中心
+│   │   ├── executor.go       # Skill 执行器
+│   │   └── builtin/          # 内置技能
+│   │
+│   ├── policy/               # 策略引擎
+│   └── infra/                # 基础设施
+│       ├── mq/               # 消息队列
+│       ├── db/               # 数据库
+│       └── logger/           # 日志
+│
+├── pkg/                      # 对外公开接口
+│   ├── event/               # Event 定义（对外共享）
+│   │   ├── event.go
+│   │   └── topic.go
+│   └── client/              # SDK（可选）
+│
+├── types/                    # 核心类型定义
+├── config/                   # 配置管理
+├── database/                 # 数据库
+├── auth/                     # 认证系统
+├── tools/                    # 工具定义
+└── toolruntime/              # 工具运行时
+```
 
-### 企业级能力
+### 8.3 目录说明
 
-**多租户：**
-- 租户级别的数据隔离
-- 独立的资源配额
-- 租户级别的配置管理
+**`internal/` 目录：**
+- Go 编译器强制保证只能被本项目内部引用
+- 明确"内部实现"与"对外接口"的边界
+- 为后续拆分多进程/微服务做准备
 
-**权限系统：**
-- 基于角色的访问控制
-- 细粒度的权限分配
-- 操作审计日志
+**`pkg/` 目录：**
+- 对外公开的类型和 SDK
+- 其他项目可以安全导入
 
-**可观测性：**
-- 执行链路追踪
-- 性能指标监控
-- 成本用量统计
-- 告警和通知
+**进程拆分建议：**
 
----
+```bash
+# Phase 1（当前）：单进程
+cmd/singer/               # 主服务
 
-## 总结
+# Phase 2：分离执行节点
+cmd/server/               # API 服务
+cmd/worker/               # 执行节点
 
-**SingerOS 架构核心：**
+# Phase 3：分离连接器
+cmd/connector/            # 连接器进程
+```
 
-事件驱动 + 技能组合 + Agent 编排 + 数字助手抽象
+## 9. 技术栈
 
-**架构特点：**
-- 清晰的分层设计，职责明确
-- 统一的运行时抽象，支持扩展
-- 事件驱动的松耦合架构
-- 企业级的多租户和权限支持
-- 可插拔的 Skills 和 Tools 系统
+| 类别     | 技术                                 |
+| -------- | ------------------------------------ |
+| 语言     | Golang                               |
+| 网关     | Gin                                  |
+| 事件总线 | NATS（推荐）/ RabbitMQ（当前）       |
+| 数据库   | PostgreSQL                           |
+| 缓存     | Redis                                |
+| 向量库   | Qdrant                               |
+| LLM      | 多模型（OpenAI / Claude / DeepSeek） |
+| 容器化   | Docker + Compose                     |
 
-**演进路线：**
-- 第一阶段：单一运行时，完成核心闭环
-- 第二阶段：多运行时支持，增强调度能力
-- 第三阶段：企业级能力，多租户和可观测性
-- 第四阶段：生态系统，技能市场和开发者平台
+## 10. 架构演进路径
+
+### Phase 1（当前）
+
+* 单运行时
+* GitHub 自动化闭环
+* 基础 Event Bus
+* Connector 层完成
+* Event Engine 与 Execution Engine 分离
+
+### Phase 2
+
+* 多 Runtime（OpenClaw / ClaudeCode）
+* Runtime Manager
+* 流式事件
+* Agent Runtime 独立
+
+### Phase 3
+
+* Workflow Engine
+* Memory + RAG
+* Policy Engine 完整落地
+
+### Phase 4
+
+* 多租户
+* Skill Marketplace
+* 企业级治理能力
+
+### Phase 5
+
+* 进程拆分（Server / Worker / Connector）
+* 分布式部署
+* 水平扩展
+
+## 11. 附录：架构演进历史
+
+### v3.1 (2026-04-23) - Go 包结构优化
+
+引入 **领域驱动设计** 和 **强制隔离** 原则：
+
+- ✅ 使用 `internal/` 实现核心代码隔离
+- ✅ 使用 `pkg/` 对外公开接口
+- ✅ Event Engine Handler 插件化
+- ✅ Skill Registry 化
+- ✅ 接口优先设计（每层定义 interface）
+
+### v3.0 (2026-04-23) - 三核架构重构
+
+引入 **Event Engine + Execution Engine + Agent Runtime 三核架构**，解决职责分离问题：
+
+- ✅ Orchestrator → Event Engine（专注事件处理）
+- ✅ 新增 Execution Engine（专注执行控制）
+- ✅ Agent Runtime 职责明确（专注 Agent 推理）
+- ✅ Gateway → Assistant Service（明确对外服务定位）
+
+### v2.0 (2026-04-23) - Agent Execution Kernel 架构
+
+引入 Agent Execution Kernel + 分布式事件驱动架构
+
+### 命名演变
+
+| 版本 | 核心模块命名 |
+|------|-------------|
+| v1.0 | Gateway / Orchestrator / Agent Runtime |
+| v2.0 | Gateway / Orchestrator / Agent Runtime（细化职责） |
+| v3.0 | Assistant Service / Event Engine / Execution Engine / Agent Runtime（三核架构） |
+| v3.1 | 引入 internal/ 和 pkg/ 强制隔离（领域驱动设计） |
+
+## 12. 总结
+
+### SingerOS 的本质：
+
+> 一个 **事件驱动的分布式 Agent 操作系统**
+
+### 核心能力：
+
+* 多 Agent 编排
+* 多 Runtime 执行
+* 本地 + 云协同
+* 企业级安全控制
+
+### 架构关键词：
+
+```
+Event-Driven
+Three-Core Architecture
+Domain-Driven Design
+Interface-First
+Control / Execution Separation
+Multi-Runtime
+Edge + Cloud
+Policy-Driven
+Enforced Isolation (internal/)
+```
+
+### 核心架构公式：
+
+```
+Connector → Event → Event Engine → Execution Engine → Capability → Service
+                                                ↓
+                                    Agent Runtime / Workflow / Skill
+```
+
+### 常见错误清单（务必避免）
+
+| ❌ 错误做法 | ✅ 正确做法 |
+|------------|------------|
+| 把所有逻辑写进 Event Handler | Handler → 调用 Execution Engine |
+| Event Handler 使用 `switch` 硬编码路由 | Router 独立 + Handler 插件化 |
+| Agent Runtime 直接调 MQ / DB | 通过 Execution Engine / Skill / Infra |
+| Skill 写死在代码中 | 必须 Registry 化，支持动态注册 |
+| 按技术分层（controller/service/model） | 按领域分层（event/execution/agent/skill） |
+| 缺少接口定义，直接依赖实现 | 每层定义 interface，支持替换 |

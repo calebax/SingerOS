@@ -52,61 +52,17 @@ SingerOS 的设计正是为了满足这些需求。
 
 ---
 
-## 🏗 架构概述
-
-SingerOS 严格分离了以下部分：
-
-* **控制平面**（治理和管理）
-* **数据平面**（运行时执行）
-* **基础设施层**
-
-### 核心组件
-
-#### 🐾 代理运行时
-
-* 状态化执行
-* 规划/执行/反思循环
-* 子代理协作
-* 可恢复执行
-
-#### 🔧 技能系统
-
-* 无状态能力单元
-* 版本化和可治理
-* 通过技能代理执行
-* 速率限制和可审计
-
-#### 🧩 工作流引擎
-
-* 基于 DAG 的执行
-* 版本控制的工作流
-* 并行和条件节点
-* 支持人工介入
-
-#### 🧠 模型路由器
-
-* 多提供商抽象
-* 成本感知路由
-* 延迟感知回退
-* 令牌配额控制
-
-#### 🗂 内存系统
-
-* 短期会话内存
-* 长期语义内存
-* 结构化状态持久化
-
----
-
 ## 🎯 设计原则
 
-SingerOS 强制执行以下架构不变量：
+SingerOS 强制执行以下架构不变量以确保治理和可靠性：
 
-1. 代理从不直接调用外部系统。
-2. 技能从不执行编排逻辑。
-3. 控制平面从不执行运行时逻辑。
-4. 所有工作流执行都必须被持久化。
-5. 所有模型使用都必须是可度量和可治理的。
+1. **代理从不直接调用外部系统** - 所有外部交互都通过工具（Tools）进行
+2. **技能从不执行编排逻辑** - 技能组合工具，而不是工作流
+3. **控制平面从不执行运行时逻辑** - 清晰的关注点分离
+4. **所有工作流执行都必须被持久化** - 可重放且可审计
+5. **所有模型使用都必须是可度量的** - 成本感知且可治理
+
+有关详细的设计哲学，请参阅 [设计哲学](docs/DESIGN_PHILOSOPHY.md)。
 
 ---
 
@@ -144,52 +100,22 @@ SingerOS 专为以下场景设计：
 
 ---
 
-## 📦 核心模块
+## 🔄 执行流程
 
-```text
-singeros/
-├── control-plane/
-│   ├── agent-registry
-│   ├── skill-registry
-│   ├── workflow-store
-│   ├── tenant-manager
-│   └── policy-engine
-│
-├── data-plane/
-│   ├── orchestrator
-│   ├── agent-runtime
-│   ├── skill-proxy
-│   ├── model-router
-│   ├── memory-engine
-│   └── scheduler
-│
-├── plugins/
-│   ├── skills/
-│   ├── agents/
-│   ├── models/
-│   └── memory-backends/
-│
-└── infrastructure/
+SingerOS 遵循统一的事件驱动执行模型：
+
 ```
-
----
-
-## 🔄 执行生命周期
-
-1. 任务提交
-2. 创建执行上下文
-3. 解析工作流
-4. 初始化代理
-5. 执行步骤
-6. 状态持久化
-7. 记录完成
-8. 记录指标和审计日志
+用户 → 事件网关 → 事件总线 → 控制平面 → 编排器 
+→ 运行时管理器 → 代理/边缘运行时 → 技能 → 工具 → 事件总线 → 客户端
+```
 
 所有执行都是：
 
-* 可重放的
-* 可观察的
-* 可审计的
+* **可重放的** - 记录完整的执行历史
+* **可观察的** - 全链路追踪和监控
+* **可审计的** - 全面的审计日志
+
+有关详细架构，请参阅 [架构文档](docs/ARCHITECTURE.md)。
 
 ---
 
@@ -294,3 +220,21 @@ SingerOS 的设计就是为第三类提供支持。
 * 出色协作能力
 
 SingerOS 致力于在企业人工智能系统中体现同样的特质。
+
+---
+
+## 📚 文档
+
+完整的文档可在 `docs/` 目录中找到：
+
+| 文档 | 描述 |
+|------|------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | AI OS 架构设计（v2 - 三平面模型） |
+| [DESIGN_PHILOSOPHY.md](docs/DESIGN_PHILOSOPHY.md) | 核心设计哲学和原则 |
+| [PRD.md](docs/PRD.md) | 产品需求文档（员工视图/AI工作台） |
+| [GITHUB_AUTH_SETUP.md](docs/GITHUB_AUTH_SETUP.md) | GitHub OAuth 集成指南 |
+| [GITHUB_WEBHOOK_TROUBLESHOOTING.md](docs/GITHUB_WEBHOOK_TROUBLESHOOTING.md) | GitHub Webhook 故障排除 |
+| [PR_EVENT_FLOW.md](docs/PR_EVENT_FLOW.md) | GitHub PR 事件处理验证 |
+| [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 常见问题和解决方案 |
+
+---
