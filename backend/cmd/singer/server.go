@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	auth "github.com/insmtx/SingerOS/backend/auth"
-	authgithub "github.com/insmtx/SingerOS/backend/auth/providers/github"
+	auth "github.com/insmtx/SingerOS/backend/internal/api/auth"
+	"github.com/insmtx/SingerOS/backend/internal/infra/providers/github"
 	"github.com/insmtx/SingerOS/backend/config"
 	infradb "github.com/insmtx/SingerOS/backend/internal/infra/db"
-	"github.com/insmtx/SingerOS/backend/internal/service/trace"
+	"github.com/insmtx/SingerOS/backend/internal/api/trace"
 	"github.com/insmtx/SingerOS/backend/internal/infra/mq"
-	"github.com/insmtx/SingerOS/backend/internal/service"
+	"github.com/insmtx/SingerOS/backend/internal/api"
 	"github.com/insmtx/SingerOS/backend/internal/eventengine"
 	"github.com/insmtx/SingerOS/backend/internal/agent"
 	"github.com/insmtx/SingerOS/backend/tools"
@@ -101,7 +101,7 @@ var serverCmd = &cobra.Command{
 			r.Use(middleware.Recovery())
 		}
 
-		service.SetupRouter(r, *cfg, publisher, db, authService)
+		api.SetupRouter(r, *cfg, publisher, db, authService)
 
 		srv := &http.Server{
 			Addr:    serverHttpAddr,
@@ -203,7 +203,7 @@ func buildAuthService(cfg *config.Config) *auth.Service {
 	authService := auth.NewService(accountStore, accountResolver)
 
 	if cfg != nil && cfg.Github != nil {
-		authService.RegisterProvider(authgithub.NewOAuthProvider(*cfg.Github))
+		authService.RegisterProvider(githubprovider.NewOAuthProvider(*cfg.Github))
 	}
 
 	return authService

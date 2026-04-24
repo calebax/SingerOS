@@ -1,4 +1,4 @@
-package github
+package githubprovider
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	gogithub "github.com/google/go-github/v78/github"
-	auth "github.com/insmtx/SingerOS/backend/auth"
+	"github.com/insmtx/SingerOS/backend/internal/api/dto"
 	"github.com/insmtx/SingerOS/backend/config"
 )
 
@@ -39,11 +39,11 @@ func NewOAuthProvider(cfg config.GithubAppConfig) *OAuthProvider {
 
 // ProviderCode 返回 provider 标识。
 func (p *OAuthProvider) ProviderCode() string {
-	return auth.ProviderGitHub
+	return dto.ProviderGitHub
 }
 
 // BuildAuthorizationURL 构造 GitHub 授权 URL。
-func (p *OAuthProvider) BuildAuthorizationURL(req *auth.StartAuthorizationRequest, state *auth.OAuthState) (string, error) {
+func (p *OAuthProvider) BuildAuthorizationURL(req *dto.StartAuthorizationRequest, state *dto.OAuthState) (string, error) {
 	if p.cfg.ClientID == "" {
 		return "", fmt.Errorf("github oauth client_id is not configured")
 	}
@@ -65,7 +65,7 @@ func (p *OAuthProvider) BuildAuthorizationURL(req *auth.StartAuthorizationReques
 }
 
 // CompleteAuthorization 用 code 完成 GitHub 授权。
-func (p *OAuthProvider) CompleteAuthorization(req *auth.CompleteAuthorizationRequest) (*auth.AuthorizationResult, error) {
+func (p *OAuthProvider) CompleteAuthorization(req *dto.CompleteAuthorizationRequest) (*dto.AuthorizationResult, error) {
 	tokenResp, err := p.exchangeCodeForToken(req)
 	if err != nil {
 		return nil, err
@@ -79,16 +79,16 @@ func (p *OAuthProvider) CompleteAuthorization(req *auth.CompleteAuthorizationReq
 
 	externalID := strconv.FormatInt(user.GetID(), 10)
 	now := time.Now().UTC()
-	account := &auth.AuthorizedAccount{
+	account := &dto.AuthorizedAccount{
 		ID:                buildAccountID(req.State.UserID, externalID),
 		UserID:            req.State.UserID,
-		Provider:          auth.ProviderGitHub,
-		OwnerType:         auth.AccountOwnerTypeUser,
-		AccountType:       auth.AccountTypeUserOAuth,
+		Provider:          dto.ProviderGitHub,
+		OwnerType:         dto.AccountOwnerTypeUser,
+		AccountType:       dto.AccountTypeUserOAuth,
 		ExternalAccountID: externalID,
 		DisplayName:       resolveDisplayName(user),
 		Scopes:            splitScopes(tokenResp.Scope),
-		Status:            auth.AccountStatusActive,
+		Status:            dto.AccountStatusActive,
 		Metadata: map[string]string{
 			"github_login": user.GetLogin(),
 			"name":         user.GetName(),
@@ -99,9 +99,9 @@ func (p *OAuthProvider) CompleteAuthorization(req *auth.CompleteAuthorizationReq
 		UpdatedAt: now,
 	}
 
-	credential := &auth.AccountCredential{
+	credential := &dto.AccountCredential{
 		AccountID:   account.ID,
-		GrantType:   auth.GrantTypeOAuth2,
+		GrantType:   dto.GrantTypeOAuth2,
 		AccessToken: tokenResp.AccessToken,
 		Metadata: map[string]string{
 			"token_type": tokenResp.TokenType,
@@ -109,7 +109,7 @@ func (p *OAuthProvider) CompleteAuthorization(req *auth.CompleteAuthorizationReq
 		},
 	}
 
-	return &auth.AuthorizationResult{
+	return &dto.AuthorizationResult{
 		Account:    account,
 		Credential: credential,
 	}, nil
@@ -121,7 +121,7 @@ type tokenResponse struct {
 	Scope       string `json:"scope"`
 }
 
-func (p *OAuthProvider) exchangeCodeForToken(req *auth.CompleteAuthorizationRequest) (*tokenResponse, error) {
+func (p *OAuthProvider) exchangeCodeForToken(req *dto.CompleteAuthorizationRequest) (*tokenResponse, error) {
 	form := url.Values{}
 	form.Set("code", req.Code)
 	form.Set("client_id", p.cfg.ClientID)
@@ -167,7 +167,7 @@ func (p *OAuthProvider) exchangeCodeForToken(req *auth.CompleteAuthorizationRequ
 }
 
 func buildAccountID(userID, externalID string) string {
-	return auth.ProviderGitHub + ":" + userID + ":" + externalID
+	return dto.ProviderGitHub + ":" + userID + ":" + externalID
 }
 
 func resolveDisplayName(user *gogithub.User) string {

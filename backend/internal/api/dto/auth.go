@@ -1,44 +1,7 @@
-// auth 包提供多 provider 用户授权账户的运行时模型与服务。
-//
-// 该包聚焦于“用户自己授权账户”的接入和使用，不依赖数据库，
-// 当前使用内存存储实现，为后续迁移到持久化存储预留统一接口。
-package auth
+package dto
 
 import (
-	"context"
 	"time"
-)
-
-const (
-	// ProviderGitHub 表示 GitHub 平台。
-	ProviderGitHub = "github"
-
-	// SubjectTypeUser identifies a user-owned execution subject.
-	SubjectTypeUser = "user"
-
-	// ScopeTypeEvent identifies an event-scoped execution request.
-	ScopeTypeEvent = "event"
-
-	// AccountOwnerTypeUser 表示账户属于具体用户。
-	AccountOwnerTypeUser = "user"
-
-	// AccountOwnerTypeSystem 表示账户属于系统或组织级执行身份。
-	AccountOwnerTypeSystem = "system"
-
-	// AccountTypeUserOAuth 表示通过 OAuth 授权得到的用户账户。
-	AccountTypeUserOAuth = "user_oauth"
-
-	// AccountTypeAppInstallation 表示第三方平台应用安装身份。
-	AccountTypeAppInstallation = "app_installation"
-
-	// GrantTypeOAuth2 表示 OAuth2 访问令牌。
-	GrantTypeOAuth2 = "oauth2"
-
-	// AccountStatusActive 表示账户当前可用。
-	AccountStatusActive = "active"
-
-	// AccountStatusDisabled 表示账户已禁用。
-	AccountStatusDisabled = "disabled"
 )
 
 // AuthorizedAccount 表示使用者授权后可被系统复用的第三方账户。
@@ -158,16 +121,4 @@ type ResolvedAuthorization struct {
 	Credential *AccountCredential
 	Labels     map[string]string
 	Resources  map[string]interface{}
-}
-
-// ProviderAuthResolver resolves one provider-specific authorization path.
-type ProviderAuthResolver interface {
-	ResolveAuthorization(ctx context.Context, req *ResolveAuthorizationRequest) (*ResolvedAuthorization, bool, error)
-}
-
-// AuthorizationProvider 定义 provider 授权接入所需接口。
-type AuthorizationProvider interface {
-	ProviderCode() string
-	BuildAuthorizationURL(req *StartAuthorizationRequest, state *OAuthState) (string, error)
-	CompleteAuthorization(req *CompleteAuthorizationRequest) (*AuthorizationResult, error)
 }

@@ -1,39 +1,33 @@
-// session 包提供客户端会话管理功能
-//
-// 该包负责管理 WebSocket 客户端连接和消息发送，
-// 是后端与前端实时通信的桥梁。
-package session
+package websocket
 
 import (
 	"sync"
-
-	"github.com/insmtx/SingerOS/backend/internal/connectors/client"
 )
 
-// ClientConnectorInterface defines methods needed from the client connector for messaging
-type ClientConnectorInterface interface {
-	GetClientMessager() *client.ClientMessager
+// ConnectorInterface defines methods needed from the connector for messaging
+type ConnectorInterface interface {
+	GetMessenger() *Messenger
 	GetAllClientIDs() []string
-	SendMessageToClient(clientID string, message client.ServerMessage) bool
-	BroadcastSend(message client.ServerMessage)
+	SendMessageToClient(clientID string, message ServerMessage) bool
+	BroadcastSend(message ServerMessage)
 }
 
-// Manager holds a reference to the client connector for messaging
+// Manager holds a reference to the connector for messaging
 type Manager struct {
 	mutex       sync.RWMutex
-	connector   ClientConnectorInterface
+	connector   ConnectorInterface
 	initialized bool
 }
 
 var defaultManager = &Manager{}
 
-// GetDefaultManager returns the default singleton instance of client manager
-func GetDefaultManager() *Manager {
+// GetManager returns the default singleton instance of manager
+func GetManager() *Manager {
 	return defaultManager
 }
 
-// SetClientConnector sets the client connector instance that will be used for messaging
-func (m *Manager) SetClientConnector(connector ClientConnectorInterface) {
+// SetConnector sets the connector instance that will be used for messaging
+func (m *Manager) SetConnector(connector ConnectorInterface) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -41,15 +35,15 @@ func (m *Manager) SetClientConnector(connector ClientConnectorInterface) {
 	m.initialized = true
 }
 
-// IsInitialized returns true if the client manager has been properly initialized
+// IsInitialized returns true if the manager has been properly initialized
 func (m *Manager) IsInitialized() bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 	return m.initialized
 }
 
-// GetMessager returns an interface for sending messages to clients, or nil if not initialized
-func (m *Manager) GetMessager() *client.ClientMessager {
+// GetMessenger returns an interface for sending messages to clients, or nil if not initialized
+func (m *Manager) GetMessenger() *Messenger {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -57,23 +51,23 @@ func (m *Manager) GetMessager() *client.ClientMessager {
 		return nil
 	}
 
-	return m.connector.GetClientMessager()
+	return m.connector.GetMessenger()
 }
 
 // SendMessage broadcasts a message to a specific client or all clients
 func (m *Manager) SendMessage(clientID, msgType string, payload map[string]interface{}) error {
-	messager := m.GetMessager()
+	messager := m.GetMessenger()
 	if messager == nil {
-		return nil // or return an error: fmt.Errorf("client manager not initialized")
+		return nil
 	}
 
-	dest := client.MessageDestination{ClientID: clientID}
+	dest := MessageDestination{ClientID: clientID}
 	return messager.SendMessage(dest, msgType, payload)
 }
 
 // SendAgentStatusUpdate sends an agent status update to clients
 func (m *Manager) SendAgentStatusUpdate(clientID, taskID, status, message string) error {
-	messager := m.GetMessager()
+	messager := m.GetMessenger()
 	if messager == nil {
 		return nil
 	}
@@ -83,7 +77,7 @@ func (m *Manager) SendAgentStatusUpdate(clientID, taskID, status, message string
 
 // SendAgentStepUpdate sends a step-by-step update from an agent during execution
 func (m *Manager) SendAgentStepUpdate(clientID, taskID, step, details string) error {
-	messager := m.GetMessager()
+	messager := m.GetMessenger()
 	if messager == nil {
 		return nil
 	}
@@ -93,7 +87,7 @@ func (m *Manager) SendAgentStepUpdate(clientID, taskID, step, details string) er
 
 // SendAgentResult sends the final result of an agent's work to clients
 func (m *Manager) SendAgentResult(clientID, taskID, resultType, result string) error {
-	messager := m.GetMessager()
+	messager := m.GetMessenger()
 	if messager == nil {
 		return nil
 	}
@@ -103,7 +97,7 @@ func (m *Manager) SendAgentResult(clientID, taskID, resultType, result string) e
 
 // SendLogMessage sends a detailed log message during agent execution
 func (m *Manager) SendLogMessage(clientID, taskID, logLevel, message string) error {
-	messager := m.GetMessager()
+	messager := m.GetMessenger()
 	if messager == nil {
 		return nil
 	}

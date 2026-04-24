@@ -1,8 +1,7 @@
-// connectors 包提供不同交互渠道的连接器实现
+// api 包提供不同交互渠道的连接器接口定义
 //
-// 该包定义了 Connector 接口，并提供了 GitHub、GitLab、企业微信等
-// 多种渠道的连接器实现，用于接收和处理来自不同平台的事件。
-package connectors
+// 该包定义了 Connector 接口，用于规范与外部渠道交互的标准方法。
+package api
 
 import "github.com/gin-gonic/gin"
 

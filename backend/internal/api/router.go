@@ -1,26 +1,26 @@
-package connectors
+package api
 
 import "github.com/gin-gonic/gin"
 
-// Registry is a registry of connectors
-type Registry struct {
+// Router manages connector routing registration
+type Router struct {
 	connectors map[string]Connector
 }
 
-// NewRegistry creates a new connector registry
-func NewRegistry() *Registry {
-	return &Registry{
+// NewRouter creates a new connector router
+func NewRouter() *Router {
+	return &Router{
 		connectors: make(map[string]Connector),
 	}
 }
 
 // Register registers a connector
-func (r *Registry) Register(c Connector) {
+func (r *Router) Register(c Connector) {
 	r.connectors[c.ChannelCode()] = c
 }
 
 // RegisterRoutes registers routes for all connectors
-func (r *Registry) RegisterRoutes(router gin.IRouter) {
+func (r *Router) RegisterRoutes(router gin.IRouter) {
 	for _, c := range r.connectors {
 		c.RegisterRoutes(router)
 	}

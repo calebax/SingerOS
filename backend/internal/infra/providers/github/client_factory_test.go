@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	auth "github.com/insmtx/SingerOS/backend/auth"
+	auth "github.com/insmtx/SingerOS/backend/internal/api/auth"
 	"github.com/insmtx/SingerOS/backend/config"
 )
 

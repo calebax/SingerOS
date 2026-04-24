@@ -18,7 +18,8 @@ import (
 	"time"
 
 	gogithub "github.com/google/go-github/v78/github"
-	auth "github.com/insmtx/SingerOS/backend/auth"
+	"github.com/insmtx/SingerOS/backend/internal/api/dto"
+	"github.com/insmtx/SingerOS/backend/internal/api/auth"
 	"github.com/insmtx/SingerOS/backend/config"
 )
 
@@ -31,7 +32,7 @@ var (
 
 // ResolveClientRequest 表示一次 GitHub client 解析请求。
 type ResolveClientRequest struct {
-	Selector  *auth.AuthSelector
+	Selector  *dto.AuthSelector
 	UserID    string
 	AccountID string
 }
@@ -39,8 +40,8 @@ type ResolveClientRequest struct {
 // ResolvedClient 表示解析后的 GitHub client 与账户信息。
 type ResolvedClient struct {
 	Client     *gogithub.Client
-	Account    *auth.AuthorizedAccount
-	Credential *auth.AccountCredential
+	Account    *dto.AuthorizedAccount
+	Credential *dto.AccountCredential
 	ResolvedBy string
 }
 
@@ -132,22 +133,22 @@ func (f *ClientFactory) resolveInstallationClient(ctx context.Context, installat
 		return nil, fmt.Errorf("github installation access token is empty")
 	}
 
-	account := &auth.AuthorizedAccount{
+	account := &dto.AuthorizedAccount{
 		ID:                buildInstallationAccountID(installationID),
-		Provider:          auth.ProviderGitHub,
-		OwnerType:         auth.AccountOwnerTypeSystem,
-		AccountType:       auth.AccountTypeAppInstallation,
+		Provider:          dto.ProviderGitHub,
+		OwnerType:         dto.AccountOwnerTypeSystem,
+		AccountType:       dto.AccountTypeAppInstallation,
 		ExternalAccountID: installationID,
 		DisplayName:       resolveInstallationDisplayName(installationID),
 		Scopes:            append([]string(nil), tokenResp.Permissions.Keys()...),
-		Status:            auth.AccountStatusActive,
+		Status:            dto.AccountStatusActive,
 		Metadata: map[string]string{
 			"installation_id": installationID,
 		},
 		CreatedAt: f.now(),
 		UpdatedAt: f.now(),
 	}
-	credential := &auth.AccountCredential{
+	credential := &dto.AccountCredential{
 		AccountID:   account.ID,
 		GrantType:   "app_installation",
 		AccessToken: tokenResp.Token,
@@ -222,18 +223,18 @@ func explicitProfileID(req *ResolveClientRequest) string {
 	return req.AccountID
 }
 
-func selectorExternalRef(selector *auth.AuthSelector, key string) string {
+func selectorExternalRef(selector *dto.AuthSelector, key string) string {
 	if selector == nil || selector.ExternalRefs == nil {
 		return ""
 	}
 	return selector.ExternalRefs[key]
 }
 
-func (f *ClientFactory) buildResolveAuthorizationRequest(req *ResolveClientRequest) *auth.ResolveAuthorizationRequest {
-	return &auth.ResolveAuthorizationRequest{
+func (f *ClientFactory) buildResolveAuthorizationRequest(req *ResolveClientRequest) *dto.ResolveAuthorizationRequest {
+	return &dto.ResolveAuthorizationRequest{
 		Selector:  req.Selector,
 		UserID:    req.UserID,
-		Provider:  auth.ProviderGitHub,
+		Provider:  dto.ProviderGitHub,
 		AccountID: req.AccountID,
 	}
 }
@@ -283,7 +284,7 @@ func (p installationPermissions) Keys() []string {
 }
 
 func buildInstallationAccountID(installationID string) string {
-	return auth.ProviderGitHub + ":installation:" + installationID
+	return dto.ProviderGitHub + ":installation:" + installationID
 }
 
 func resolveInstallationDisplayName(installationID string) string {
