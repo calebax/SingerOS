@@ -1,4 +1,4 @@
-package client
+package websocket
 
 import (
 	"context"
@@ -10,34 +10,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/insmtx/SingerOS/backend/internal/connectors"
+	"github.com/insmtx/SingerOS/backend/internal/api/connectors"
 	eventbus "github.com/insmtx/SingerOS/backend/internal/infra/mq"
 	"github.com/ygpkg/yg-go/logs"
 )
 
-const ChannelCodeValue = "client"
-
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow connections from any origin - adjust as needed for security
 		return true
 	},
 }
 
-// ClientMessage represents possible message types from clients
-type ClientMessage struct {
-	Type    string                 `json:"type"`
-	Payload map[string]interface{} `json:"payload"`
-	ID      string                 `json:"id,omitempty"`
-}
-
-// ServerMessage represents possible message types sent to clients
-type ServerMessage struct {
-	Type      string                 `json:"type"`
-	Payload   map[string]interface{} `json:"payload"`
-	ID        string                 `json:"id,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
-}
+// 确保 Connector 实现了 connectors.Connector 接口
+var _ connectors.Connector = (*Connector)(nil)
 
 // Connection represents a single WebSocket connection
 type Connection struct {
@@ -46,8 +31,8 @@ type Connection struct {
 	clientID string
 }
 
-// ClientConnector handles client WebSocket connections
-type ClientConnector struct {
+// Connector handles client WebSocket connections
+type Connector struct {
 	publisher   eventbus.Publisher
 	connections map[*Connection]bool
 	broadcast   chan ServerMessage
@@ -56,19 +41,13 @@ type ClientConnector struct {
 	mu          sync.RWMutex
 }
 
-// MessageDestination specifies who should receive the message
-type MessageDestination struct {
-	ClientID string `json:"client_id"` // Specific client ID, or empty for all clients
-	TaskID   string `json:"task_id"`   // Related task ID for filtering
+// Messenger provides interface to send messages to clients
+type Messenger struct {
+	connector *Connector
 }
 
-// ClientMessager provides interface to send messages to clients
-type ClientMessager struct {
-	connector *ClientConnector
-}
-
-func NewConnector(publisher eventbus.Publisher) connectors.Connector {
-	connector := &ClientConnector{
+func NewConnector(publisher eventbus.Publisher) *Connector {
+	connector := &Connector{
 		publisher:   publisher,
 		connections: make(map[*Connection]bool),
 		broadcast:   make(chan ServerMessage),
@@ -80,16 +59,16 @@ func NewConnector(publisher eventbus.Publisher) connectors.Connector {
 	return connector
 }
 
-func (c *ClientConnector) ChannelCode() string {
+func (c *Connector) ChannelCode() string {
 	return ChannelCodeValue
 }
 
-func (c *ClientConnector) RegisterRoutes(r gin.IRouter) {
+func (c *Connector) RegisterRoutes(r gin.IRouter) {
 	r.GET("/ws/client", c.handleWebSocket)
 	r.GET("/api/client/status", c.getClientStatus)
 }
 
-func (c *ClientConnector) handleWebSocket(ctx *gin.Context) {
+func (c *Connector) handleWebSocket(ctx *gin.Context) {
 	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		logs.ErrorContextf(ctx, "Failed to upgrade connection to WebSocket: %v", err)
@@ -104,26 +83,23 @@ func (c *ClientConnector) handleWebSocket(ctx *gin.Context) {
 
 	connection := &Connection{
 		conn:     conn,
-		send:     make(chan ServerMessage, 256), // Buffered channel to prevent blocking
+		send:     make(chan ServerMessage, 256),
 		clientID: clientID,
 	}
 
 	c.register <- connection
 
-	// Start goroutine to read from WebSocket
 	go c.readPump(connection)
-
-	// Start goroutine to write to WebSocket
 	go c.writePump(connection)
 }
 
-func (c *ClientConnector) readPump(conn *Connection) {
+func (c *Connector) readPump(conn *Connection) {
 	defer func() {
 		c.unregister <- conn
 		conn.conn.Close()
 	}()
 
-	conn.conn.SetReadLimit(512 * 1024) // 512KB max message size
+	conn.conn.SetReadLimit(512 * 1024)
 	conn.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.conn.SetPongHandler(func(string) error {
 		conn.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -139,13 +115,12 @@ func (c *ClientConnector) readPump(conn *Connection) {
 			break
 		}
 
-		var clientMsg ClientMessage
+		var clientMsg Message
 		if err := json.Unmarshal(message, &clientMsg); err != nil {
 			logs.Errorf("Failed to unmarshal client message: %v", err)
 			continue
 		}
 
-		// Process client message based on type
 		switch clientMsg.Type {
 		case "ping":
 			response := ServerMessage{
@@ -160,7 +135,6 @@ func (c *ClientConnector) readPump(conn *Connection) {
 				logs.Warnf("Dropping message for client %s due to full send buffer", conn.clientID)
 			}
 		case "user_command":
-			// Forward user command to event bus for processing by agents
 			err := c.forwardUserCommand(clientMsg, conn.clientID)
 			if err != nil {
 				logs.Errorf("Failed to forward user command: %v", err)
@@ -178,7 +152,6 @@ func (c *ClientConnector) readPump(conn *Connection) {
 				}
 			}
 		case "subscribe_to_agent":
-			// Subscribe user to agent's activity
 			taskID, ok := clientMsg.Payload["task_id"].(string)
 			if !ok {
 				logs.Warn("Missing task_id in subscribe_to_agent message")
@@ -191,8 +164,8 @@ func (c *ClientConnector) readPump(conn *Connection) {
 	}
 }
 
-func (c *ClientConnector) writePump(conn *Connection) {
-	ticker := time.NewTicker(54 * time.Second) // Send ping every 54 seconds (slightly less than read timeout)
+func (c *Connector) writePump(conn *Connection) {
+	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
 		ticker.Stop()
 		conn.conn.Close()
@@ -203,7 +176,6 @@ func (c *ClientConnector) writePump(conn *Connection) {
 		case message, ok := <-conn.send:
 			conn.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				// Channel closed, send close message and exit
 				conn.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -234,7 +206,7 @@ func (c *ClientConnector) writePump(conn *Connection) {
 	}
 }
 
-func (c *ClientConnector) run() {
+func (c *Connector) run() {
 	for {
 		select {
 		case conn := <-c.register:
@@ -242,7 +214,6 @@ func (c *ClientConnector) run() {
 			c.connections[conn] = true
 			c.mu.Unlock()
 
-			// Send welcome message to client
 			welcomeMsg := ServerMessage{
 				Type:      "welcome",
 				Payload:   map[string]interface{}{"client_id": conn.clientID, "message": "Connected to SingerOS client service"},
@@ -271,7 +242,6 @@ func (c *ClientConnector) run() {
 				select {
 				case conn.send <- message:
 				default:
-					// Remove client if send buffer is full
 					logs.Debugf("Removing client %s due to send buffer overflow", conn.clientID)
 					go func(connToUnreg *Connection) {
 						c.unregister <- connToUnreg
@@ -283,8 +253,7 @@ func (c *ClientConnector) run() {
 	}
 }
 
-func (c *ClientConnector) forwardUserCommand(msg ClientMessage, clientID string) error {
-	// Publish user command to event bus for processing
+func (c *Connector) forwardUserCommand(msg Message, clientID string) error {
 	event := map[string]interface{}{
 		"type":       "user_command",
 		"client_id":  clientID,
@@ -293,7 +262,6 @@ func (c *ClientConnector) forwardUserCommand(msg ClientMessage, clientID string)
 		"timestamp":  time.Now().Unix(),
 	}
 
-	// Publish to appropriate topic
 	err := c.publisher.Publish(context.Background(), "user.commands", event)
 	if err != nil {
 		return fmt.Errorf("failed to publish user command: %w", err)
@@ -302,13 +270,11 @@ func (c *ClientConnector) forwardUserCommand(msg ClientMessage, clientID string)
 	return nil
 }
 
-func (c *ClientConnector) subscribeToAgentActivity(taskID string, conn *Connection) {
-	// This would normally connect to an agent's activity stream
-	// For now we just log the subscription
+func (c *Connector) subscribeToAgentActivity(taskID string, conn *Connection) {
 	logs.Infof("Client %s subscribed to agent activity for task: %s", conn.clientID, taskID)
 }
 
-func (c *ClientConnector) getClientStatus(ctx *gin.Context) {
+func (c *Connector) getClientStatus(ctx *gin.Context) {
 	c.mu.RLock()
 	status := map[string]interface{}{
 		"connected_clients": len(c.connections),
@@ -320,8 +286,7 @@ func (c *ClientConnector) getClientStatus(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, status)
 }
 
-// GetAllClientIDs returns a list of all connected client IDs
-func (c *ClientConnector) GetAllClientIDs() []string {
+func (c *Connector) GetAllClientIDs() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -332,8 +297,7 @@ func (c *ClientConnector) GetAllClientIDs() []string {
 	return ids
 }
 
-// SendMessageToClient sends a message to a specific client
-func (c *ClientConnector) SendMessageToClient(clientID string, message ServerMessage) bool {
+func (c *Connector) SendMessageToClient(clientID string, message ServerMessage) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -353,8 +317,7 @@ func (c *ClientConnector) SendMessageToClient(clientID string, message ServerMes
 	return false
 }
 
-// BroadcastSend sends a message to the broadcast channel (to all connected clients)
-func (c *ClientConnector) BroadcastSend(message ServerMessage) {
+func (c *Connector) BroadcastSend(message ServerMessage) {
 	select {
 	case c.broadcast <- message:
 	default:
@@ -362,13 +325,11 @@ func (c *ClientConnector) BroadcastSend(message ServerMessage) {
 	}
 }
 
-// GetClientMessager returns an interface for sending messages to clients
-func (c *ClientConnector) GetClientMessager() *ClientMessager {
-	return &ClientMessager{connector: c}
+func (c *Connector) GetMessenger() *Messenger {
+	return &Messenger{connector: c}
 }
 
-// SendMessage broadcasts a message to a specific client or all clients
-func (cm *ClientMessager) SendMessage(dest MessageDestination, msgType string, payload map[string]interface{}) error {
+func (m *Messenger) SendMessage(dest MessageDestination, msgType string, payload map[string]interface{}) error {
 	message := ServerMessage{
 		Type:      msgType,
 		Payload:   payload,
@@ -376,21 +337,18 @@ func (cm *ClientMessager) SendMessage(dest MessageDestination, msgType string, p
 	}
 
 	if dest.ClientID != "" {
-		// Send to specific client
-		success := cm.connector.SendMessageToClient(dest.ClientID, message)
+		success := m.connector.SendMessageToClient(dest.ClientID, message)
 		if !success {
 			return fmt.Errorf("failed to send message to client %s", dest.ClientID)
 		}
 	} else {
-		// Broadcast to all clients
-		cm.connector.BroadcastSend(message)
+		m.connector.BroadcastSend(message)
 	}
 
 	return nil
 }
 
-// SendAgentStatusUpdate sends an agent status update to clients
-func (cm *ClientMessager) SendAgentStatusUpdate(clientID, taskID, status, message string) error {
+func (m *Messenger) SendAgentStatusUpdate(clientID, taskID, status, message string) error {
 	payload := map[string]interface{}{
 		"task_id":   taskID,
 		"status":    status,
@@ -399,11 +357,10 @@ func (cm *ClientMessager) SendAgentStatusUpdate(clientID, taskID, status, messag
 	}
 
 	dest := MessageDestination{ClientID: clientID}
-	return cm.SendMessage(dest, "agent_status_update", payload)
+	return m.SendMessage(dest, "agent_status_update", payload)
 }
 
-// SendAgentStepUpdate sends a step-by-step update from an agent during execution
-func (cm *ClientMessager) SendAgentStepUpdate(clientID, taskID, step, details string) error {
+func (m *Messenger) SendAgentStepUpdate(clientID, taskID, step, details string) error {
 	payload := map[string]interface{}{
 		"task_id":   taskID,
 		"step":      step,
@@ -412,11 +369,10 @@ func (cm *ClientMessager) SendAgentStepUpdate(clientID, taskID, step, details st
 	}
 
 	dest := MessageDestination{ClientID: clientID}
-	return cm.SendMessage(dest, "agent_step_update", payload)
+	return m.SendMessage(dest, "agent_step_update", payload)
 }
 
-// SendAgentResult sends the final result of an agent's work to clients
-func (cm *ClientMessager) SendAgentResult(clientID, taskID, resultType, result string) error {
+func (m *Messenger) SendAgentResult(clientID, taskID, resultType, result string) error {
 	payload := map[string]interface{}{
 		"task_id":     taskID,
 		"result_type": resultType,
@@ -425,11 +381,10 @@ func (cm *ClientMessager) SendAgentResult(clientID, taskID, resultType, result s
 	}
 
 	dest := MessageDestination{ClientID: clientID}
-	return cm.SendMessage(dest, "agent_result", payload)
+	return m.SendMessage(dest, "agent_result", payload)
 }
 
-// SendLogMessage sends a detailed log message during agent execution
-func (cm *ClientMessager) SendLogMessage(clientID, taskID, logLevel, message string) error {
+func (m *Messenger) SendLogMessage(clientID, taskID, logLevel, message string) error {
 	payload := map[string]interface{}{
 		"task_id":   taskID,
 		"log_level": logLevel,
@@ -438,5 +393,5 @@ func (cm *ClientMessager) SendLogMessage(clientID, taskID, logLevel, message str
 	}
 
 	dest := MessageDestination{ClientID: clientID}
-	return cm.SendMessage(dest, "agent_log", payload)
+	return m.SendMessage(dest, "agent_log", payload)
 }

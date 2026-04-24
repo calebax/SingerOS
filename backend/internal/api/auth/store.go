@@ -1,6 +1,8 @@
 package auth
 
-import "context"
+import (
+	"context"
+)
 
 // Store 定义授权账户的存储接口。
 type Store interface {

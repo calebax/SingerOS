@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/SingerOS/backend/pkg/event"
 	"github.com/insmtx/SingerOS/backend/internal/agent"
+	interactionevent "github.com/insmtx/SingerOS/backend/pkg/event"
 )
 
 // 测试Orchestrator是否可以初始化并注册默认处理器
@@ -39,7 +39,7 @@ func TestOrchestratorRegisterAndGet(t *testing.T) {
 	// 注册一个自定义处理器
 	customTopic := "test.custom.topic"
 	called := false
-	handler := func(ctx context.Context, event *interaction.Event) error {
+	handler := func(ctx context.Context, event *interactionevent.Event) error {
 		called = true
 		return nil
 	}
@@ -56,7 +56,7 @@ func TestOrchestratorRegisterAndGet(t *testing.T) {
 	}
 
 	// 调用处理器以验证它正常工作
-	testEvent := &interaction.Event{EventID: "test"}
+	testEvent := &interactionevent.Event{EventID: "test"}
 	err = retrievedHandler(context.Background(), testEvent)
 	if err != nil {
 		t.Errorf("Unexpected error when calling handler: %v", err)
@@ -76,11 +76,11 @@ func (ms *mockSubscriber) Subscribe(ctx context.Context, topic string, handler f
 
 type mockRunner struct{}
 
-var _ 	agent.Runner = (*mockRunner)(nil)
+var _ agent.Runner = (*mockRunner)(nil)
 
-func (m *mockRunner) Run(ctx context.Context, req *	agent.RequestContext) (*	agent.RunResult, error) {
-	return &	agent.RunResult{
+func (m *mockRunner) Run(ctx context.Context, req *agent.RequestContext) (*agent.RunResult, error) {
+	return &agent.RunResult{
 		RunID:  req.RunID,
-		Status: 	agent.RunStatusCompleted,
+		Status: agent.RunStatusCompleted,
 	}, nil
 }

@@ -1,4 +1,4 @@
-package github
+package githubprovider
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 	"time"
 
 	gogithub "github.com/google/go-github/v78/github"
-	auth "github.com/insmtx/SingerOS/backend/auth"
 	"github.com/insmtx/SingerOS/backend/config"
+	"github.com/insmtx/SingerOS/backend/internal/api/auth"
 )
 
 const (
@@ -22,6 +22,9 @@ const (
 )
 
 var defaultOAuthScopes = []string{"read:user", "user:email", "repo"}
+
+// 确保 OAuthProvider 实现了 auth.AuthorizationProvider 接口
+var _ auth.AuthorizationProvider = (*OAuthProvider)(nil)
 
 // OAuthProvider 实现 GitHub 用户 OAuth 授权接入。
 type OAuthProvider struct {

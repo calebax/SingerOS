@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	auth "github.com/insmtx/SingerOS/backend/auth"
 	"github.com/insmtx/SingerOS/backend/config"
+	"github.com/insmtx/SingerOS/backend/internal/api/auth"
 )
 
 func TestClientFactoryResolveClientUsesInstallationSelector(t *testing.T) {
