@@ -134,7 +134,7 @@ definitions:
 info:
   contact: {}
 paths:
-  /CreateDigitalAssistant:
+  /v1/CreateDigitalAssistant:
     post:
       consumes:
       - application/json

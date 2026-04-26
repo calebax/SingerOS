@@ -15,7 +15,7 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/CreateDigitalAssistant": {
+        "/v1/CreateDigitalAssistant": {
             "post": {
                 "description": "创建一个新的数字助手实例",
                 "consumes": [
