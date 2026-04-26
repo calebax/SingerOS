@@ -8,6 +8,9 @@ import (
 	"github.com/insmtx/SingerOS/backend/internal/api/contract"
 )
 
+// 确保 digitalAssistantService 实现了 contract.DigitalAssistantService 接口
+var _ contract.DigitalAssistantService = (*digitalAssistantService)(nil)
+
 // digitalAssistantService DigitalAssistant服务实现（未导出）
 type digitalAssistantService struct {
 	db *gorm.DB
