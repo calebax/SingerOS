@@ -6,16 +6,21 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
-	auth "github.com/insmtx/SingerOS/backend/internal/api/auth"
 	"github.com/insmtx/SingerOS/backend/config"
-	"github.com/insmtx/SingerOS/backend/internal/api/connectors"
+	auth "github.com/insmtx/SingerOS/backend/internal/api/auth"
 	"github.com/insmtx/SingerOS/backend/internal/api/connectors/github"
 	"github.com/insmtx/SingerOS/backend/internal/api/connectors/gitlab"
+	"github.com/insmtx/SingerOS/backend/internal/api/contract"
+	"github.com/insmtx/SingerOS/backend/internal/api/handler"
+	eventbus "github.com/insmtx/SingerOS/backend/internal/infra/mq"
 	githubprovider "github.com/insmtx/SingerOS/backend/internal/infra/providers/github"
 	"github.com/insmtx/SingerOS/backend/internal/infra/websocket"
-	eventbus "github.com/insmtx/SingerOS/backend/internal/infra/mq"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
+
+	_ "github.com/insmtx/SingerOS/docs/swagger" // Swagger 文档生成的导入
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 // SetupRouter 设置事件网关的路由，注册所有连接器
@@ -23,14 +28,12 @@ import (
 // 根据配置初始化并注册 GitHub、GitLab 等渠道连接器，
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
 func SetupRouter(r gin.IRouter, cfg config.Config, publisher eventbus.Publisher, db *gorm.DB) {
-	router := connectors.NewRouter()
-
-	authService := initThirdPartyAuthService(&cfg)
+	v1 := r.Group("/v1")
 
 	if cfg.Github != nil {
 		logs.Info("Setting up GitHub connector")
-		githubConnector := github.NewConnector(*cfg.Github, publisher, db, authService)
-		router.Register(githubConnector)
+		authService := initThirdPartyAuthService(&cfg)
+		github.RegisterGitHubRoutes(v1, *cfg.Github, publisher, db, authService)
 		logs.Info("GitHub connector registered successfully")
 	} else {
 		logs.Debug("No GitHub configuration provided, skipping GitHub connector setup")
@@ -38,20 +41,28 @@ func SetupRouter(r gin.IRouter, cfg config.Config, publisher eventbus.Publisher,
 
 	if cfg.Gitlab != nil {
 		logs.Info("Setting up GitLab connector")
-		gitlabConnector := gitlab.NewConnector(*cfg.Gitlab, publisher)
-		router.Register(gitlabConnector)
+		gitlab.RegisterGitLabRoutes(v1, *cfg.Gitlab, publisher)
 		logs.Info("GitLab connector registered successfully")
 	} else {
 		logs.Debug("No GitLab configuration provided, skipping GitLab connector setup")
 	}
 
-	wsConnector := websocket.NewConnector(publisher)
-	router.Register(wsConnector)
-	websocket.GetManager().SetConnector(wsConnector)
+	websocket.RegisterWebSocketRoutes(v1, publisher)
 	logs.Info("WebSocket connector registered successfully")
 
-	router.RegisterRoutes(r)
-	logs.Info("Event gateway routes registered successfully")
+	digitalAssistantService := initDigitalAssistantService(db)
+	handler.RegisterDigitalAssistantRoutes(v1, digitalAssistantService)
+	logs.Info("Digital assistant routes registered successfully")
+
+	// Swagger UI 路由
+	v1.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+}
+
+// initDigitalAssistantService 初始化DigitalAssistant服务
+func initDigitalAssistantService(db *gorm.DB) contract.DigitalAssistantService {
+	// TODO: 初始化实际的 service 实例
+	// 这里可以注入相关依赖，如 repository 等
+	return nil
 }
 
 // initThirdPartyAuthService 初始化第三方平台授权服务并注册 provider
