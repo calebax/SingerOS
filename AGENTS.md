@@ -110,8 +110,6 @@ import (
 - `/bundles` - 构建输出目录（生成；已忽略 git）
 - `/deployments/build/Dockerfile` - 容器构建配置
 - `/docs` - 文档文件
-- `/proto` - Protobuf 定义
-- `/gen` - 生成的 protobuf Go/Node 代码
 - `/frontend` - 前端应用
 
 ## 贡献说明
