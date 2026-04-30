@@ -56,3 +56,41 @@ func TestTopicBuilderIsImmutable(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestTopicBuilderWithSeparator(t *testing.T) {
+	got := Topic().
+		Org("1001").
+		Worker("worker_1").
+		Task().
+		WithSeparator("_").
+		Build()
+
+	if want := "org_1001_worker_worker_1_task"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestTopicBuilderWithUnderscoreSeparator(t *testing.T) {
+	got := Topic().
+		Org("1001").
+		Worker("worker_1").
+		Task().
+		WithUnderscoreSeparator().
+		Build()
+
+	if want := "org_1001_worker_worker_1_task"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestTopicBuilderWithSeparatorIsImmutable(t *testing.T) {
+	base := Topic().Org("1001").Worker("worker_1")
+	underscore := base.WithSeparator("_").Task()
+
+	if got, want := base.Task().Build(), "org.1001.worker.worker_1.task"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got, want := underscore.Build(), "org_1001_worker_worker_1_task"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

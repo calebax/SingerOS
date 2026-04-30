@@ -6,16 +6,19 @@ import (
 )
 
 const wildcard = "*"
+const defaultSeparator = "."
+const underscoreSeparator = "_"
 const unknownSegment = "unknown"
 
 // TopicBuilder 基于有序片段构造领域消息 topic。
 type TopicBuilder struct {
-	segments []string
+	segments  []string
+	separator string
 }
 
 // Topic 创建一个空的 topic builder。
 func Topic() TopicBuilder {
-	return TopicBuilder{}
+	return TopicBuilder{separator: defaultSeparator}
 }
 
 // Add 追加一个或多个普通 topic 片段。
@@ -64,15 +67,31 @@ func (b TopicBuilder) Wildcard() TopicBuilder {
 	return next
 }
 
-// Build 返回使用点号连接后的最终 topic。
+// WithSeparator 返回使用指定连接符的新 topic builder。
+func (b TopicBuilder) WithSeparator(separator string) TopicBuilder {
+	next := b.clone()
+	next.separator = separator
+	return next
+}
+
+// WithUnderscoreSeparator 返回使用下划线连接符的新 topic builder。
+func (b TopicBuilder) WithUnderscoreSeparator() TopicBuilder {
+	return b.WithSeparator(underscoreSeparator)
+}
+
+// Build 返回使用当前连接符连接后的最终 topic，默认连接符为点号。
 func (b TopicBuilder) Build() string {
-	return strings.Join(b.segments, ".")
+	separator := b.separator
+	if separator == "" {
+		separator = defaultSeparator
+	}
+	return strings.Join(b.segments, separator)
 }
 
 func (b TopicBuilder) clone() TopicBuilder {
 	segments := make([]string, len(b.segments))
 	copy(segments, b.segments)
-	return TopicBuilder{segments: segments}
+	return TopicBuilder{segments: segments, separator: b.separator}
 }
 
 func cleanSegment(value string) string {

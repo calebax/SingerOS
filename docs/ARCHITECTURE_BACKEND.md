@@ -452,11 +452,29 @@ org.{org_id}.worker.{worker_id}.task
 org.{org_id}.session.{session_id}.message.stream
 ```
 
+任务投递和回复通道使用不同可靠性策略：
+
+- `org.{org_id}.worker.{worker_id}.task` 使用 JetStream，负责任务可靠投递和 Worker 手动 Ack。
+- `org.{org_id}.session.{session_id}.message.stream` 使用实时消息 subject，负责 chunk / done / failed 推送，不要求 MQ 层持久化。
+- Worker 不使用 NATS `reply subject` 返回业务消息。
+- Worker 输出消息是否持久化由接收端负责，例如 Server / Gateway 订阅后写库或转发到 UI。
+- `message.stream` 中的 `stream` 描述的是流式消息形态，不表示底层必须使用 JetStream。
+
 `*` 仅用于订阅通配，不用于 publish。例如订阅某组织下所有 Worker 任务：
 
 ```text
 org.{org_id}.worker.*.task
 ```
+
+JetStream 的 Stream、Consumer、Durable 等名称不直接使用带 `.` 的 topic，应由基础设施模块将 `.` 替换为 `_` 后再追加业务后缀。例如：
+
+```text
+topic:       org.1001.worker.worker_1.task
+stream name: org_1001_worker_worker_1_task_STREAM
+durable:     org_1001_worker_worker_1_task_SUBSCRIBER
+```
+
+上述 JetStream 命名规则只适用于任务队列等需要持久化消费的 subject，不适用于 Worker 的普通回复 subject。
 
 **topic builder 示例：**
 
