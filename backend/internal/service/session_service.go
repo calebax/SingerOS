@@ -88,18 +88,12 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 	return convertToContractSession(session), nil
 }
 
-func (s *sessionService) GetSession(ctx context.Context, id uint, sessionID string) (*contract.Session, error) {
-	var session *types.Session
-	var err error
-
-	if id > 0 {
-		session, err = db.GetSessionByID(ctx, s.db, id)
-	} else if sessionID != "" {
-		session, err = db.GetSessionBySessionID(ctx, s.db, sessionID)
-	} else {
-		return nil, errors.New("id or session_id is required")
+func (s *sessionService) GetSession(ctx context.Context, sessionID string) (*contract.Session, error) {
+	if sessionID == "" {
+		return nil, errors.New("session_id is required")
 	}
 
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +104,8 @@ func (s *sessionService) GetSession(ctx context.Context, id uint, sessionID stri
 	return convertToContractSession(session), nil
 }
 
-func (s *sessionService) UpdateSession(ctx context.Context, id uint, req *contract.UpdateSessionRequest) (*contract.Session, error) {
-	session, err := db.GetSessionByID(ctx, s.db, id)
+func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, req *contract.UpdateSessionRequest) (*contract.Session, error) {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,8 +133,8 @@ func (s *sessionService) UpdateSession(ctx context.Context, id uint, req *contra
 	return convertToContractSession(session), nil
 }
 
-func (s *sessionService) DeleteSession(ctx context.Context, id uint) error {
-	session, err := db.GetSessionByID(ctx, s.db, id)
+func (s *sessionService) DeleteSession(ctx context.Context, sessionID string) error {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -148,7 +142,7 @@ func (s *sessionService) DeleteSession(ctx context.Context, id uint) error {
 		return errors.New("session not found")
 	}
 
-	return db.DeleteSession(ctx, s.db, id)
+	return db.DeleteSession(ctx, s.db, session.ID)
 }
 
 func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSessionsRequest) (*contract.SessionList, error) {
@@ -191,8 +185,8 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 	}, nil
 }
 
-func (s *sessionService) ActivateSession(ctx context.Context, id uint) error {
-	session, err := db.GetSessionByID(ctx, s.db, id)
+func (s *sessionService) ActivateSession(ctx context.Context, sessionID string) error {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -204,11 +198,11 @@ func (s *sessionService) ActivateSession(ctx context.Context, id uint) error {
 		return errors.New("cannot activate from ended state")
 	}
 
-	return db.ActivateSession(ctx, s.db, id)
+	return db.ActivateSession(ctx, s.db, session.ID)
 }
 
-func (s *sessionService) PauseSession(ctx context.Context, id uint) error {
-	session, err := db.GetSessionByID(ctx, s.db, id)
+func (s *sessionService) PauseSession(ctx context.Context, sessionID string) error {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -220,11 +214,11 @@ func (s *sessionService) PauseSession(ctx context.Context, id uint) error {
 		return fmt.Errorf("cannot pause from %s state", session.Status)
 	}
 
-	return db.PauseSession(ctx, s.db, id)
+	return db.PauseSession(ctx, s.db, session.ID)
 }
 
-func (s *sessionService) EndSession(ctx context.Context, id uint) error {
-	session, err := db.GetSessionByID(ctx, s.db, id)
+func (s *sessionService) EndSession(ctx context.Context, sessionID string) error {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -236,11 +230,11 @@ func (s *sessionService) EndSession(ctx context.Context, id uint) error {
 		return errors.New("session already ended")
 	}
 
-	return db.EndSession(ctx, s.db, id)
+	return db.EndSession(ctx, s.db, session.ID)
 }
 
-func (s *sessionService) ResumeSession(ctx context.Context, id uint) error {
-	session, err := db.GetSessionByID(ctx, s.db, id)
+func (s *sessionService) ResumeSession(ctx context.Context, sessionID string) error {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -252,10 +246,10 @@ func (s *sessionService) ResumeSession(ctx context.Context, id uint) error {
 		return errors.New("can only resume from paused state")
 	}
 
-	return db.ResumeSession(ctx, s.db, id)
+	return db.ResumeSession(ctx, s.db, session.ID)
 }
 
-func (s *sessionService) AddMessage(ctx context.Context, sessionID uint, req *contract.AddMessageRequest) (*contract.SessionMessage, error) {
+func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *contract.AddMessageRequest) (*contract.SessionMessage, error) {
 	if req.Role == "" {
 		return nil, errors.New("role is required")
 	}
@@ -263,7 +257,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID uint, req *co
 		return nil, errors.New("content is required")
 	}
 
-	session, err := db.GetSessionByID(ctx, s.db, sessionID)
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -284,24 +278,20 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID uint, req *co
 	}
 
 	now := time.Now()
-	if err := db.IncrementMessageCount(ctx, s.db, sessionID); err != nil {
+	if err := db.IncrementMessageCount(ctx, s.db, session.ID); err != nil {
 		return nil, err
 	}
-	if err := db.UpdateLastMessageAt(ctx, s.db, sessionID, now); err != nil {
+	if err := db.UpdateLastMessageAt(ctx, s.db, session.ID, now); err != nil {
 		return nil, err
 	}
 
-	if session.OrgID > 0 && session.MessageCount < 3 {
+	if session.OrgID > 0 {
 		topic, err := dm.SessionMessageRequestSubject(session.OrgID, session.SessionID)
 		if err != nil {
-			logs.WarnContextf(ctx, "failed to build title request subject: %v", err)
+			logs.WarnContextf(ctx, "failed to build message request subject: %v", err)
 		} else {
-			titleReq := &contract.SessionTitleRequest{
-				SessionID: session.SessionID,
-				Content:   req.Content,
-			}
-			if err := s.eventbus.Publish(ctx, topic, titleReq); err != nil {
-				logs.WarnContextf(ctx, "failed to publish title update request: %v", err)
+			if err := s.eventbus.Publish(ctx, topic, message); err != nil {
+				logs.WarnContextf(ctx, "failed to publish message to eventbus: %v", err)
 			}
 		}
 	}
@@ -356,7 +346,7 @@ func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence 
 	return message
 }
 
-func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.Session, content string) {
+func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.Session) {
 	if session.TitleManuallySet {
 		return
 	}
@@ -364,48 +354,69 @@ func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.
 		return
 	}
 
-	if err := s.renameSession(ctx, session, content); err != nil {
+	if err := s.renameSession(ctx, session); err != nil {
 		logs.WarnContextf(ctx, "failed to auto-update session title: %v", err)
 	}
 }
 
-func (s *sessionService) renameSession(ctx context.Context, session *types.Session, content string) error {
+func (s *sessionService) renameSession(ctx context.Context, session *types.Session) error {
+	recentMessages := s.buildRecentMessages(ctx, session.SessionID)
+
 	title, err := prompts.Run(ctx, prompts.KeySessionTitle, map[string]any{
-		"content":       content,
-		"current_title": session.Title,
+		"current_title":   session.Title,
+		"recent_messages": recentMessages,
 	})
+	title = strings.TrimSpace(title)
 	if err != nil {
 		logs.WarnContextf(ctx, "LLM title generation failed, fallback: %v", err)
 		if session.Title != "" && session.Title != "新会话" {
 			return nil
 		}
-		runes := []rune(content)
-		if len(runes) > 100 {
-			title = string(runes[:100])
-		} else {
-			title = content
+		latestMsg, _ := db.GetLatestMessage(ctx, s.db, session.SessionID)
+		if latestMsg != nil {
+			runes := []rune(latestMsg.Content)
+			if len(runes) > 100 {
+				title = string(runes[:100])
+			} else {
+				title = latestMsg.Content
+			}
 		}
-	} else {
-		title = strings.TrimSpace(title)
-		if title == "KEEP" {
+		if title == "" {
 			return nil
 		}
+	} else if title == "KEEP" {
+		return nil
 	}
+	logs.InfoContextf(ctx, "auto-updating session title to: %s, old title: %s", title, session.Title)
 	session.Title = title
 	session.UpdatedAt = time.Now()
 	return db.UpdateSession(ctx, s.db, session)
 }
 
-func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, req *contract.SessionTitleRequest) error {
-	session, err := db.GetSessionBySessionID(ctx, s.db, req.SessionID)
+func (s *sessionService) buildRecentMessages(ctx context.Context, sessionID string) string {
+	const maxMessages = 10
+	messages, err := db.GetRecentSessionMessages(ctx, s.db, sessionID, maxMessages)
+	if err != nil || len(messages) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, msg := range messages {
+		sb.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
+	}
+	return sb.String()
+}
+
+func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, sessionID string) error {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
-		return fmt.Errorf("get session %s: %w", req.SessionID, err)
+		return fmt.Errorf("get session %s: %w", sessionID, err)
 	}
 	if session == nil {
 		return nil
 	}
 
-	s.tryAutoUpdateTitle(ctx, session, req.Content)
+	logs.DebugContextf(ctx, "handling session title request for session %s", sessionID)
+	s.tryAutoUpdateTitle(ctx, session)
 	return nil
 }
 
@@ -478,8 +489,8 @@ func (s *sessionService) publishWorkerTask(ctx context.Context, session *types.S
 	return nil
 }
 
-func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID uint, page, perPage int) (*contract.MessageList, error) {
-	session, err := db.GetSessionByID(ctx, s.db, sessionID)
+func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*contract.MessageList, error) {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -520,8 +531,8 @@ func (s *sessionService) DeleteMessage(ctx context.Context, messageID uint) erro
 	return nil
 }
 
-func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID uint) error {
-	session, err := db.GetSessionByID(ctx, s.db, sessionID)
+func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID string) error {
+	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -562,7 +573,7 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionID stri
 			logs.WarnContextf(ctx, "failed to unmarshal to MessageStreamMessage: %v", err)
 			return
 		}
-		logs.DebugContextf(ctx, "received message from topic %s: session_id=%s event=%s seq=%d", topic, streamMsg.Route.SessionID, streamMsg.Body.Event, streamMsg.Body.Seq)
+		// logs.DebugContextf(ctx, "received message from topic %s: session_id=%s event=%s seq=%d", topic, streamMsg.Route.SessionID, streamMsg.Body.Event, streamMsg.Body.Seq)
 
 		if streamMsg.Body.Seq <= lastSequence {
 			logs.DebugContextf(ctx, "skipping old message for session %s: seq=%d lastSequence=%d", sessionID, streamMsg.Body.Seq, lastSequence)
@@ -744,9 +755,6 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 	}
 
 	now := time.Now()
-	if err := db.IncrementMessageCount(ctx, s.db, session.ID); err != nil {
-		logs.WarnContextf(ctx, "increment count for %s: %v", req.SessionID, err)
-	}
 	if err := db.UpdateLastMessageAt(ctx, s.db, session.ID, now); err != nil {
 		logs.WarnContextf(ctx, "update last_message_at for %s: %v", req.SessionID, err)
 	}
@@ -789,9 +797,6 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 	}
 
 	now := time.Now()
-	if err := db.IncrementMessageCount(ctx, s.db, session.ID); err != nil {
-		logs.WarnContextf(ctx, "increment count for %s: %v", req.SessionID, err)
-	}
 	if err := db.UpdateLastMessageAt(ctx, s.db, session.ID, now); err != nil {
 		logs.WarnContextf(ctx, "update last_message_at for %s: %v", req.SessionID, err)
 	}

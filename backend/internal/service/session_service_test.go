@@ -36,7 +36,7 @@ func (m *mockEventBus) Publish(ctx context.Context, topic string, event any) err
 	return nil
 }
 
-func (m *mockEventBus) Subscribe(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
+func (m *mockEventBus) Subscribe(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
 	return nil
 }
 
@@ -91,6 +91,17 @@ func setupTestContextWithCaller(t *testing.T) context.Context {
 		TraceID:   "test-trace-id",
 	}
 	return auth.WithContext(context.Background(), caller, trace)
+}
+
+func addMessage(t *testing.T, service contract.SessionService, ctx context.Context, sessionID string, content string) {
+	t.Helper()
+	_, err := service.AddMessage(ctx, sessionID, &contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: content,
+	})
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
 }
 
 func TestCreateSession_ValidInput(t *testing.T) {
@@ -186,7 +197,7 @@ func TestGetSession_NotFound(t *testing.T) {
 	service := setupTestService(t)
 	ctx := setupTestContextWithCaller(t)
 
-	_, err := service.GetSession(ctx, 1, "")
+	_, err := service.GetSession(ctx, "nonexistent")
 	if err == nil {
 		t.Error("expected error for non-existent session")
 	}
@@ -210,7 +221,7 @@ func TestGetSession_ByID(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -238,7 +249,7 @@ func TestUpdateSession(t *testing.T) {
 		Title: "Updated Title",
 	}
 
-	updated, err := service.UpdateSession(ctx, session.ID, updateReq)
+	updated, err := service.UpdateSession(ctx, session.SessionID, updateReq)
 	if err != nil {
 		t.Fatalf("UpdateSession failed: %v", err)
 	}
@@ -266,12 +277,12 @@ func TestUpdateSession_MarksTitleManuallySet(t *testing.T) {
 		Title: "Updated Title",
 	}
 
-	_, err = service.UpdateSession(ctx, session.ID, updateReq)
+	_, err = service.UpdateSession(ctx, session.SessionID, updateReq)
 	if err != nil {
 		t.Fatalf("UpdateSession failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -290,20 +301,18 @@ func TestHandleSessionTitleRequest_AfterManualRename(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	_, err = service.UpdateSession(ctx, session.ID, &contract.UpdateSessionRequest{Title: "用户手动设置的标题"})
+	_, err = service.UpdateSession(ctx, session.SessionID, &contract.UpdateSessionRequest{Title: "用户手动设置的标题"})
 	if err != nil {
 		t.Fatalf("UpdateSession failed: %v", err)
 	}
 
-	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
-		SessionID: session.SessionID,
-		Content:   "这是一条消息",
-	})
+	addMessage(t, service, ctx, session.SessionID, "这是一条消息")
+	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -328,12 +337,12 @@ func TestDeleteSession(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	err = service.DeleteSession(ctx, session.ID)
+	err = service.DeleteSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("DeleteSession failed: %v", err)
 	}
 
-	_, err = service.GetSession(ctx, session.ID, "")
+	_, err = service.GetSession(ctx, session.SessionID)
 	if err == nil {
 		t.Error("expected error for deleted session")
 	}
@@ -352,9 +361,9 @@ func TestActivateSession_InvalidState(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	service.EndSession(ctx, session.ID)
+	service.EndSession(ctx, session.SessionID)
 
-	err = service.ActivateSession(ctx, session.ID)
+	err = service.ActivateSession(ctx, session.SessionID)
 	if err == nil {
 		t.Error("expected error for activating from ended state")
 	}
@@ -377,12 +386,12 @@ func TestPauseSession(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	err = service.PauseSession(ctx, session.ID)
+	err = service.PauseSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("PauseSession failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -405,9 +414,9 @@ func TestEndSession_AlreadyEnded(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	service.EndSession(ctx, session.ID)
+	service.EndSession(ctx, session.SessionID)
 
-	err = service.EndSession(ctx, session.ID)
+	err = service.EndSession(ctx, session.SessionID)
 	if err == nil {
 		t.Error("expected error for ending already ended session")
 	}
@@ -430,7 +439,7 @@ func TestResumeSession_NotPaused(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	err = service.ResumeSession(ctx, session.ID)
+	err = service.ResumeSession(ctx, session.SessionID)
 	if err == nil {
 		t.Error("expected error for resuming non-paused session")
 	}
@@ -458,12 +467,12 @@ func TestAddMessage_UpdatesSession(t *testing.T) {
 		Content: "Test message",
 	}
 
-	_, err = service.AddMessage(ctx, session.ID, addReq)
+	_, err = service.AddMessage(ctx, session.SessionID, addReq)
 	if err != nil {
 		t.Fatalf("AddMessage failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -496,7 +505,7 @@ func TestAddMessage_AutoSequence(t *testing.T) {
 			Content: "Message " + string(rune(i)),
 		}
 
-		msg, err := service.AddMessage(ctx, session.ID, addReq)
+		msg, err := service.AddMessage(ctx, session.SessionID, addReq)
 		if err != nil {
 			t.Fatalf("AddMessage failed: %v", err)
 		}
@@ -524,7 +533,7 @@ func TestAddMessage_MissingContent(t *testing.T) {
 		Role: string(types.MessageRoleUser),
 	}
 
-	_, err = service.AddMessage(ctx, session.ID, addReq)
+	_, err = service.AddMessage(ctx, session.SessionID, addReq)
 	if err == nil {
 		t.Error("expected error for missing content")
 	}
@@ -543,15 +552,13 @@ func TestHandleSessionTitleRequest_EmptyTitle(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
-		SessionID: session.SessionID,
-		Content:   "这是我的第一条消息",
-	})
+	addMessage(t, service, ctx, session.SessionID, "这是我的第一条消息")
+	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -572,15 +579,13 @@ func TestHandleSessionTitleRequest_XinSessionTitle(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
-		SessionID: session.SessionID,
-		Content:   "我的第一条消息",
-	})
+	addMessage(t, service, ctx, session.SessionID, "我的第一条消息")
+	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -603,15 +608,13 @@ func TestHandleSessionTitleRequest_Truncated(t *testing.T) {
 		longContent += "a"
 	}
 
-	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
-		SessionID: session.SessionID,
-		Content:   longContent,
-	})
+	addMessage(t, service, ctx, session.SessionID, longContent)
+	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -632,15 +635,13 @@ func TestHandleSessionTitleRequest_CustomTitleUnchanged(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
-		SessionID: session.SessionID,
-		Content:   "一条消息",
-	})
+	addMessage(t, service, ctx, session.SessionID, "一条消息")
+	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -658,20 +659,18 @@ func TestHandleSessionTitleRequest_ManuallySetFlag(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	_, err = service.UpdateSession(ctx, session.ID, &contract.UpdateSessionRequest{Title: "手动标题"})
+	_, err = service.UpdateSession(ctx, session.SessionID, &contract.UpdateSessionRequest{Title: "手动标题"})
 	if err != nil {
 		t.Fatalf("UpdateSession failed: %v", err)
 	}
 
-	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
-		SessionID: session.SessionID,
-		Content:   "新消息内容",
-	})
+	addMessage(t, service, ctx, session.SessionID, "新消息内容")
+	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -702,7 +701,7 @@ func TestDeleteMessage_UpdatesSession(t *testing.T) {
 	}
 
 	// 添加消息获取 ID
-	msg, err := service.AddMessage(ctx, session.ID, addReq)
+	msg, err := service.AddMessage(ctx, session.SessionID, addReq)
 	if err != nil {
 		t.Fatalf("AddMessage failed: %v", err)
 	}
@@ -716,7 +715,7 @@ func TestDeleteMessage_UpdatesSession(t *testing.T) {
 		t.Fatalf("DeleteMessage failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
@@ -789,7 +788,7 @@ func TestListSessions_FilterByStatus(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	service.PauseSession(ctx, session2.ID)
+	service.PauseSession(ctx, session2.SessionID)
 
 	statusFilter := string(types.SessionStatusActive)
 	listReq := &contract.ListSessionsRequest{
@@ -828,13 +827,13 @@ func TestGetSessionMessages(t *testing.T) {
 			Role:    string(types.MessageRoleUser),
 			Content: "Message " + string(rune(i)),
 		}
-		_, err := service.AddMessage(ctx, session.ID, addReq)
+		_, err := service.AddMessage(ctx, session.SessionID, addReq)
 		if err != nil {
 			t.Fatalf("AddMessage failed: %v", err)
 		}
 	}
 
-	result, err := service.GetSessionMessages(ctx, session.ID, 1, 20)
+	result, err := service.GetSessionMessages(ctx, session.SessionID, 1, 20)
 	if err != nil {
 		t.Fatalf("GetSessionMessages failed: %v", err)
 	}
@@ -910,18 +909,18 @@ func TestClearSessionMessages(t *testing.T) {
 			Role:    string(types.MessageRoleUser),
 			Content: "Message " + string(rune(i)),
 		}
-		_, err := service.AddMessage(ctx, session.ID, addReq)
+		_, err := service.AddMessage(ctx, session.SessionID, addReq)
 		if err != nil {
 			t.Fatalf("AddMessage failed: %v", err)
 		}
 	}
 
-	err = service.ClearSessionMessages(ctx, session.ID)
+	err = service.ClearSessionMessages(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("ClearSessionMessages failed: %v", err)
 	}
 
-	retrieved, err := service.GetSession(ctx, session.ID, "")
+	retrieved, err := service.GetSession(ctx, session.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
