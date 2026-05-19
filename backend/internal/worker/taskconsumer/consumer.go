@@ -67,7 +67,7 @@ func (c *Consumer) TaskTopic() string {
 func (c *Consumer) Start(ctx context.Context) error {
 	topic := c.TaskTopic()
 	logs.InfoContextf(ctx, "Starting worker task subscription: %s", topic)
-	return c.subscriber.Subscribe(ctx, topic, dm.WorkerTaskConsumer(c.cfg.WorkerID), func(msg *nats.Msg) {
+	return c.subscriber.Subscribe(ctx, topic, dm.WorkerTaskConsumer(), func(msg *nats.Msg) {
 		logs.InfoContextf(ctx, "Received worker task event from topic: %s", topic)
 		if err := c.handleEvent(ctx, msg); err != nil {
 			logs.ErrorContextf(ctx, "Failed to handle worker task: %v", err)
