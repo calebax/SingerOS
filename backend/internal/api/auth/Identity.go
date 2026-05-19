@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/gin-gonic/gin"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 // AuthState 认证状态
@@ -57,8 +58,29 @@ func WithGinContext(ctx *gin.Context, caller *Caller, trace *Trace) {
 
 // FromContext 从上下文中提取 Caller 和 Trace 信息。
 func FromContext(ctx context.Context) (*Caller, *Trace) {
-	caller, _ := ctx.Value(ctxKeyCaller).(*Caller)
-	trace, _ := ctx.Value(ctxKeyTrace).(*Trace)
+	if ctx == nil {
+		return nil, nil
+	}
+	var (
+		caller *Caller
+		trace  *Trace
+	)
+	{
+		val := ctx.Value(ctxKeyCaller)
+		if val == nil {
+			caller = nil
+		} else {
+			caller, _ = val.(*Caller)
+		}
+	}
+	{
+		val := ctx.Value(ctxKeyTrace)
+		if val == nil {
+			trace = nil
+		} else {
+			trace, _ = val.(*Trace)
+		}
+	}
 	return caller, trace
 }
 
@@ -78,4 +100,13 @@ func FromGinContext(ctx *gin.Context) (*Caller, *Trace) {
 	}
 
 	return caller, trace
+}
+
+// SystemIdentity 返回一个预定义的系统身份，通常用于系统内部调用或没有特定用户上下文的场景。
+func SystemIdentity() *Caller {
+	return &Caller{
+		Uin:   types.SystemUin,
+		OrgID: types.SystemOrgID,
+		State: AuthStateSucc,
+	}
 }

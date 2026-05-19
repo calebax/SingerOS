@@ -4,6 +4,11 @@
 // 以及相关的常量和数据库表名定义。
 package types
 
+const (
+	SystemUin   uint = 1
+	SystemOrgID uint = 1
+)
+
 // DigitalAssistantStatus 表示数字助手的当前运行状态
 type DigitalAssistantStatus string
 
