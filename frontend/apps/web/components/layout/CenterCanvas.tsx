@@ -6,10 +6,12 @@ import { ChatInput } from "../input/ChatInput";
 
 export function CenterCanvas() {
 	return (
-		<div data-slot="center-canvas" className="flex h-full flex-1 flex-col bg-slate-50">
+		<div data-slot="center-canvas" className="flex h-full flex-1 flex-col bg-slate-50/80">
 			<ChatHeader />
-			<MessageTimeline />
-			<ChatInput />
+			<div className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#f6f7fb_100%)]">
+				<MessageTimeline />
+				<ChatInput />
+			</div>
 		</div>
 	);
 }

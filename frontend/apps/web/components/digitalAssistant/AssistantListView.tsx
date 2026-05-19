@@ -4,12 +4,14 @@ import type { DigitalAssistantItem } from "@leros/store";
 import { useDAStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@leros/ui/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
 import { Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AssistantCard } from "./AssistantCard";
 import { AssistantCreateDialog } from "./AssistantCreateDialog";
 import { AssistantDeleteDialog } from "./AssistantDeleteDialog";
+import { AssistantDetailPanel } from "./AssistantDetailPanel";
 import { AssistantEditDialog } from "./AssistantEditDialog";
 
 const statusFilters = [
@@ -25,11 +27,14 @@ export function AssistantListView() {
 		assistantSearchQuery,
 		assistantStatusFilter,
 		fetchAssistants,
+		activeAssistantId,
 		setAssistantSearchQuery,
 		setAssistantStatusFilter,
+		switchAssistant,
 	} = useDAStore((s) => s);
 
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
+	const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<DigitalAssistantItem | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<DigitalAssistantItem | null>(null);
 
@@ -45,6 +50,13 @@ export function AssistantListView() {
 		const matchesStatus = !assistantStatusFilter || a.status === assistantStatusFilter;
 		return matchesSearch && matchesStatus;
 	});
+
+	const selectedAssistant = assistants.find((a) => a.id === activeAssistantId) ?? null;
+
+	const handleSelectAssistant = (assistant: DigitalAssistantItem) => {
+		switchAssistant(assistant.id);
+		setDetailSheetOpen(true);
+	};
 
 	return (
 		<div data-slot="assistant-list-view" className="flex h-full flex-1 flex-col bg-white">
@@ -98,12 +110,26 @@ export function AssistantListView() {
 						<AssistantCard
 							key={a.id}
 							assistant={a}
+							onSelect={handleSelectAssistant}
 							onEdit={setEditTarget}
 							onDelete={setDeleteTarget}
 						/>
 					))}
 				</div>
 			</ScrollArea>
+
+			<Sheet
+				open={detailSheetOpen && !!selectedAssistant}
+				onOpenChange={(open) => setDetailSheetOpen(open)}
+			>
+				<SheetContent side="right" className="w-[min(100vw,420px)] gap-0 p-0 sm:max-w-[420px]">
+					<SheetTitle className="sr-only">
+						{selectedAssistant ? `${selectedAssistant.name} 详情` : "AI 员工详情"}
+					</SheetTitle>
+					<SheetDescription className="sr-only">查看并编辑所选 AI 员工的配置详情</SheetDescription>
+					{selectedAssistant && <AssistantDetailPanel assistant={selectedAssistant} />}
+				</SheetContent>
+			</Sheet>
 
 			<AssistantCreateDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
 			{editTarget && (

@@ -93,12 +93,12 @@ export function ChatInput() {
 	}, [inputText, inputAttachments, sendMessage]);
 
 	return (
-		<div data-slot="chat-input" className="border-t border-slate-200 bg-white">
-			<div className="mx-auto max-w-[800px] p-4">
+		<div data-slot="chat-input" className="bg-transparent px-5 pb-5 sm:px-6 lg:px-8">
+			<div className="mx-auto w-full max-w-[1040px]">
 				{inputAttachments.length > 0 && (
 					<AttachmentPreview attachments={inputAttachments} onRemove={removeAttachment} />
 				)}
-				<div className="relative rounded-lg border border-slate-200 bg-white shadow-sm focus-within:border-blue-300 focus-within:shadow-blue-100 transition-all">
+				<div className="relative rounded-2xl bg-white/95 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-md focus-within:ring-blue-300/70">
 					<textarea
 						ref={textareaRef}
 						value={inputText}
@@ -108,7 +108,7 @@ export function ChatInput() {
 						onFocus={() => setInputFocused(true)}
 						onBlur={() => setInputFocused(false)}
 						placeholder="请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
-						className="w-full resize-none rounded-lg px-4 py-3 text-sm min-h-[52px] max-h-[200px] focus:outline-none placeholder:text-slate-400"
+						className="min-h-[116px] max-h-[220px] w-full resize-none rounded-2xl bg-transparent px-5 py-4 text-sm text-slate-700 focus:outline-none placeholder:text-slate-400"
 						rows={1}
 					/>
 					<input
@@ -119,7 +119,7 @@ export function ChatInput() {
 						multiple
 						onChange={handleFileSelect}
 					/>
-					<div className="flex items-center justify-between border-t border-slate-100 px-3 py-2">
+					<div className="flex items-center justify-between px-4 pb-3">
 						<div className="flex items-center gap-1">
 							<Button
 								variant="ghost"
@@ -140,7 +140,7 @@ export function ChatInput() {
 								<button
 									type="button"
 									onClick={() => setShowModelDropdown(!showModelDropdown)}
-									className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 transition-colors"
+									className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-100"
 								>
 									{currentModel?.label ?? "GPT-4"}
 									<ChevronDown className="size-3" />
@@ -175,7 +175,7 @@ export function ChatInput() {
 								<Button
 									variant="outline"
 									size="sm"
-									className="text-red-500 border-red-200 hover:bg-red-50"
+									className="border-red-200 text-red-500 hover:bg-red-50"
 									onClick={cancelGeneration}
 								>
 									<CircleStop className="size-4 mr-1" />
@@ -184,7 +184,7 @@ export function ChatInput() {
 							) : (
 								<Button
 									size="sm"
-									className="bg-blue-500 hover:bg-blue-600 text-white"
+									className="h-9 min-w-20 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
 									onClick={handleSend}
 									disabled={!inputText.trim() && inputAttachments.length === 0}
 								>
@@ -208,11 +208,11 @@ function AttachmentPreview({
 	onRemove: (id: string) => void;
 }) {
 	return (
-		<div data-slot="attachment-preview" className="flex gap-2 mb-3 flex-wrap">
+		<div data-slot="attachment-preview" className="mb-3 flex flex-wrap gap-2">
 			{attachments.map((att) => (
 				<div
 					key={att.id}
-					className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+					className="flex items-center gap-2 rounded-lg bg-white/90 px-3 py-2 text-sm shadow-sm ring-1 ring-slate-200/70"
 				>
 					{att.type === "image" && att.url ? (
 						<img src={att.url} alt={att.name} className="size-8 rounded object-cover" />

@@ -37,6 +37,7 @@ const iconMap: Record<string, React.ReactNode> = {
 	IconNetwork: <Network className="size-4" />,
 	IconReport: <Calendar className="size-4" />,
 	IconCalendar: <Calendar className="size-4" />,
+	IconSettings: <Settings className="size-4" />,
 	IconSettings2: <Settings className="size-4" />,
 	IconMessage: <MessageSquare className="size-4" />,
 };
@@ -74,18 +75,18 @@ export function LeftRail() {
 	return (
 		<div
 			className={cn(
-				"flex h-full flex-col border-r border-slate-200 bg-white transition-all duration-300",
-				leftRailCollapsed ? "w-[52px]" : "w-[260px]",
+				"flex h-full flex-col border-r border-slate-200/50 bg-white/95 transition-all duration-300",
+				leftRailCollapsed ? "w-[56px]" : "w-[244px]",
 			)}
 		>
 			<ScrollArea className="flex-1">
-				<div className="p-1.5">
+				<div className="p-2">
 					{navGroups.map((group) => {
 						const isCollapsed = collapsedNavGroups.has(group.id);
 
 						if (leftRailCollapsed) {
 							return (
-								<div key={group.id} className="mb-1">
+								<div key={group.id} className="mb-2 space-y-1">
 									{group.items.map((item: NavItem) => (
 										<CollapsedNavItemButton
 											key={item.id}
@@ -99,12 +100,12 @@ export function LeftRail() {
 						}
 
 						return (
-							<div key={group.id} className="mb-0.5">
+							<div key={group.id} className="mb-4 last:mb-0">
 								{group.label && (
 									<button
 										type="button"
 										onClick={() => toggleNavGroup(group.id)}
-										className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 transition-colors"
+										className="mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-500"
 									>
 										{isCollapsed ? (
 											<ChevronRight className="size-3.5" />
@@ -116,7 +117,7 @@ export function LeftRail() {
 								)}
 
 								{!isCollapsed && (
-									<div className={cn("mt-0.5", group.label && "ml-2")}>
+									<div className="space-y-1">
 										{group.items.map((item: NavItem) => (
 											<NavItemButton
 												key={item.id}
@@ -133,12 +134,12 @@ export function LeftRail() {
 				</div>
 			</ScrollArea>
 
-			<div className="border-t border-slate-200 p-2">
+			<div className="border-t border-slate-200/50 p-2">
 				<Button
 					variant="ghost"
 					size="sm"
 					className={cn(
-						"w-full justify-start text-slate-500 hover:text-slate-700",
+						"w-full justify-start rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-700",
 						leftRailCollapsed && "justify-center",
 					)}
 					onClick={toggleLeftRail}
@@ -172,14 +173,21 @@ function NavItemButton({
 			type="button"
 			onClick={onClick}
 			className={cn(
-				"group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm cursor-pointer transition-colors w-full text-left",
+				"group relative flex items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-sm cursor-pointer transition-all w-full text-left",
 				active
-					? "bg-blue-50 text-blue-700"
+					? "bg-slate-100 text-slate-900"
 					: "text-slate-600 hover:bg-slate-50 hover:text-slate-800",
 			)}
 		>
-			{icon}
-			<span className="truncate">{item.label}</span>
+			<span
+				className={cn(
+					"flex size-7 items-center justify-center rounded-lg transition-colors",
+					active ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 group-hover:text-slate-600",
+				)}
+			>
+				{icon}
+			</span>
+			<span className="truncate font-medium">{item.label}</span>
 			{item.badge && (
 				<span className="ml-auto rounded-full bg-red-100 text-red-600 px-1.5 py-0.5 text-xs">
 					{item.badge}
@@ -204,9 +212,9 @@ function CollapsedNavItemButton({
 			type="button"
 			onClick={onClick}
 			className={cn(
-				"flex items-center justify-center rounded-md p-2 transition-colors w-full cursor-pointer",
+				"flex items-center justify-center rounded-xl p-2.5 transition-all w-full cursor-pointer",
 				active
-					? "bg-blue-50 text-blue-700"
+					? "bg-slate-100 text-blue-600"
 					: "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
 			)}
 			title={item.label}

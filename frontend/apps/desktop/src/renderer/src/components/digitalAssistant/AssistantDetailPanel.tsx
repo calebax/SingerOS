@@ -1,6 +1,6 @@
 "use client";
 
-import { useDAStore } from "@leros/store";
+import type { DigitalAssistantItem } from "@leros/store";
 import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
@@ -30,23 +30,13 @@ const configTabs = [
 	{ value: "runtime", label: "运行时", icon: <Settings className="size-3.5" /> },
 ];
 
-export function AssistantDetailPanel() {
-	const { assistants, activeAssistantId } = useDAStore((s) => s);
-	const assistant = assistants.find((a) => a.id === activeAssistantId);
-	const [editOpen, setEditOpen] = useState(false);
+export type AssistantDetailPanelProps = {
+	assistant: DigitalAssistantItem;
+	className?: string;
+};
 
-	if (!assistant) {
-		return (
-			<div
-				data-slot="assistant-detail-panel"
-				className="flex h-full w-[320px] flex-col border-l border-slate-200 bg-white"
-			>
-				<div className="flex flex-1 items-center justify-center text-slate-400 text-sm">
-					选择一个员工查看详情
-				</div>
-			</div>
-		);
-	}
+export function AssistantDetailPanel({ assistant, className }: AssistantDetailPanelProps) {
+	const [editOpen, setEditOpen] = useState(false);
 
 	const statusInfo = statusLabelMap[assistant.status] ?? {
 		label: assistant.status,
@@ -56,7 +46,7 @@ export function AssistantDetailPanel() {
 	return (
 		<div
 			data-slot="assistant-detail-panel"
-			className="flex h-full w-[320px] flex-col border-l border-slate-200 bg-white"
+			className={cn("flex h-full flex-col bg-white", className)}
 		>
 			<div className="flex flex-col items-center gap-3 border-b border-slate-200 px-4 py-6">
 				<div className="flex size-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-2xl font-semibold">
@@ -140,9 +130,7 @@ export function AssistantDetailPanel() {
 				</div>
 			</ScrollArea>
 
-			{assistant && (
-				<AssistantEditDialog assistant={assistant} open={editOpen} onOpenChange={setEditOpen} />
-			)}
+			<AssistantEditDialog assistant={assistant} open={editOpen} onOpenChange={setEditOpen} />
 		</div>
 	);
 }

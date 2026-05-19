@@ -32,13 +32,13 @@ function CopyButton({ text }: { text: string }) {
 export function UserMessageBubble({ message }: { message: Message }) {
 	return (
 		<div data-slot="user-message" className="flex justify-end group">
-			<div className="mr-2 max-w-[80%] flex flex-col items-end">
-				<div className="flex items-center gap-2 mb-1">
+			<div className="flex max-w-[min(720px,78%)] flex-col items-end">
+				<div className="mb-1.5 flex items-center gap-2">
 					<CopyButton text={message.content} />
 					<span className="text-xs text-slate-400">{formatTime(message.timestamp)}</span>
-					<span className="text-xs font-medium text-slate-500 uppercase tracking-wide">你</span>
+					<span className="text-xs font-medium text-slate-500">你</span>
 				</div>
-				<div className="rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 px-4 py-3 text-white text-sm leading-relaxed shadow-sm">
+				<div className="w-fit rounded-2xl rounded-tr-md bg-blue-600 px-4 py-3 text-sm leading-7 text-white shadow-sm shadow-blue-600/10">
 					{message.content}
 				</div>
 			</div>

@@ -22,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 			suppressHydrationWarning
 			className={cn("antialiased font-sans h-full", inter.variable)}
 		>
-			<body className="h-full">
+			<body className="h-full isolate">
 				<ThemeProvider defaultTheme="system">
 					{children}
 					<Toaster />

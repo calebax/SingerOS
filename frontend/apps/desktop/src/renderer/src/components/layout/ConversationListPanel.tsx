@@ -1,5 +1,6 @@
 "use client";
 
+import type { Conversation } from "@leros/store";
 import { useChatStore, useLayoutStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -20,6 +21,24 @@ import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { cn } from "@leros/ui/lib/utils";
 import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+
+function formatConversationDate(timestamp: number) {
+	const date = new Date(timestamp);
+	const now = new Date();
+	const isToday = date.toDateString() === now.toDateString();
+
+	if (isToday) {
+		return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+	}
+
+	return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+}
+
+function getConversationPreview(conv: Conversation) {
+	if (conv.status === "active") return "正在进行的会话";
+	if (conv.status === "archived") return "已归档";
+	return conv.type === "assistant_instance" ? "AI 助手对话" : "暂无消息预览";
+}
 
 export function ConversationListPanel() {
 	const {
@@ -92,51 +111,73 @@ export function ConversationListPanel() {
 		<>
 			<div
 				data-slot="conversation-list-panel"
-				className="flex h-full w-[260px] flex-col border-r border-slate-200 bg-white transition-all duration-300"
+				className="flex h-full w-[288px] flex-col border-r border-slate-200/50 bg-white/95 transition-all duration-300"
 			>
-				<div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2.5">
-					<div className="relative flex-1">
+				<div className="flex h-14 items-center gap-2 border-b border-slate-200/50 px-3.5">
+					<div className="relative min-w-0 flex-1">
 						<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
 						<input
 							type="text"
 							value={conversationSearchQuery}
 							onChange={(e) => setConversationSearchQuery(e.target.value)}
 							placeholder="搜索会话"
-							className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-7 pr-2 text-xs text-slate-600 placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none transition-colors"
+							className="w-full rounded-xl border-0 bg-slate-100/70 py-2 pl-7 pr-2 text-sm text-slate-600 placeholder:text-slate-400 ring-1 ring-transparent transition-colors focus:bg-white focus:outline-none focus:ring-blue-200"
 						/>
 					</div>
 					<Button
 						variant="ghost"
 						size="icon-sm"
-						className="text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0"
+						className="shrink-0 rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-700"
 						onClick={handleCreateConversation}
 					>
 						<Plus className="size-4" />
 					</Button>
 				</div>
 
-				<ScrollArea className="flex-1">
-					<div className="px-3 pb-2">
+				<ScrollArea className="min-h-0 flex-1 overflow-hidden">
+					<div className="px-2.5 py-3 pb-6">
+						<div className="mb-2 flex items-center justify-between px-2">
+							<span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+								最近会话
+							</span>
+							<span className="text-[11px] text-slate-300">{filteredConversations.length}</span>
+						</div>
 						{filteredConversations.map((conv) => (
-							<button
+							// biome-ignore lint/a11y/useSemanticElements: The row contains a nested menu button, so the row itself cannot be a button.
+							<div
 								key={conv.id}
-								type="button"
+								role="button"
+								tabIndex={0}
 								className={cn(
-									"group relative flex items-center rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors w-full text-left",
+									"group relative mb-1 flex w-full cursor-pointer rounded-2xl px-4 py-3.5 text-left transition-all",
 									activeConversationId === conv.id
-										? "bg-blue-50 text-blue-700"
+										? "bg-slate-100 text-slate-900"
 										: "text-slate-600 hover:bg-slate-50",
 								)}
 								onClick={() => handleConversationClick(conv.id)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter" || e.key === " ") {
+										e.preventDefault();
+										handleConversationClick(conv.id);
+									}
+								}}
 							>
-								<span className="truncate flex-1">{conv.title}</span>
+								<div className="min-w-0 flex-1 pr-9">
+									<span className="block truncate text-sm font-semibold">{conv.title}</span>
+									<div className="mt-0.5 truncate text-xs text-slate-400">
+										{getConversationPreview(conv)}
+									</div>
+								</div>
+								<span className="absolute right-4 top-3.5 shrink-0 text-xs text-slate-400">
+									{formatConversationDate(conv.updatedAt)}
+								</span>
 								<DropdownMenu>
 									<DropdownMenuTrigger
 										render={
 											<Button
 												variant="ghost"
 												size="icon-xs"
-												className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 shrink-0"
+												className="absolute bottom-2.5 right-3 shrink-0 text-slate-400 opacity-0 transition-opacity hover:text-slate-600 group-hover:opacity-100"
 												onClick={(e: React.MouseEvent) => e.stopPropagation()}
 											>
 												<MoreHorizontal className="size-3.5" />
@@ -157,7 +198,7 @@ export function ConversationListPanel() {
 										</DropdownMenuItem>
 									</DropdownMenuContent>
 								</DropdownMenu>
-							</button>
+							</div>
 						))}
 					</div>
 				</ScrollArea>

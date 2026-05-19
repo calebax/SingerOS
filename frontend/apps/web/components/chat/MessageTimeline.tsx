@@ -52,10 +52,10 @@ export function MessageTimeline() {
 			{isEmpty ? (
 				<WelcomeScreen />
 			) : (
-				<div className="mx-auto max-w-[720px] py-4 px-4 space-y-4">
+				<div className="mx-auto flex w-full max-w-[1040px] flex-col gap-4 px-5 py-5 sm:px-6 lg:px-8">
 					{messages.length > 0 && (
-						<div className="flex items-center justify-center py-2">
-							<span className="text-xs text-slate-400 bg-slate-100 rounded-full px-3 py-1">
+						<div className="flex items-center justify-center py-1">
+							<span className="rounded-full bg-white/70 px-3 py-1 text-xs text-slate-400 shadow-sm ring-1 ring-slate-200/50">
 								{formatTime(messages[0]?.timestamp ?? 0)}
 							</span>
 						</div>

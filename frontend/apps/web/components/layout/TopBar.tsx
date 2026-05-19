@@ -8,7 +8,7 @@ export function TopBar() {
 	return (
 		<div
 			data-slot="topbar"
-			className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-4"
+			className="flex h-12 items-center justify-between border-b border-slate-200/60 bg-white px-4"
 		>
 			<div className="flex items-center gap-3">
 				<span className="text-sm font-semibold text-slate-900 tracking-tight">Leros</span>

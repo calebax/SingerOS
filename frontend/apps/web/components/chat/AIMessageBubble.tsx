@@ -42,15 +42,13 @@ export function AIMessageBubble({
 	const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
 
 	return (
-		<div data-slot="ai-message" className="flex items-start gap-3 group">
+		<div data-slot="ai-message" className="group flex items-start gap-3">
 			<Avatar size="sm">
 				<AvatarFallback className="bg-blue-500 text-white text-xs">AI</AvatarFallback>
 			</Avatar>
-			<div className="flex-1 min-w-0">
-				<div className="flex items-center gap-2 mb-1">
-					<span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-						AI 助手
-					</span>
+			<div className="min-w-0 flex-1">
+				<div className="mb-1.5 flex items-center gap-2">
+					<span className="text-xs font-medium text-slate-500">AI 助手</span>
 					<span className="text-xs text-slate-400">{formatTime(message.timestamp)}</span>
 					{isStreaming && <span className="text-xs text-blue-500 animate-pulse">生成中</span>}
 				</div>
@@ -62,8 +60,10 @@ export function AIMessageBubble({
 				)}
 
 				{hasContent && (
-					<div className="rounded-lg bg-white border border-slate-200 px-4 py-3 text-sm leading-relaxed text-slate-700 prose prose-slate prose-sm max-w-none">
-						<Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+					<div className="w-fit max-w-[min(780px,92%)] rounded-2xl rounded-tl-md bg-white/90 px-4 py-3 text-sm leading-7 text-slate-700 shadow-sm ring-1 ring-slate-200/50">
+						<div className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5">
+							<Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+						</div>
 						{isStreaming && (
 							<span className="inline-block w-1.5 h-4 bg-slate-400 animate-pulse ml-0.5 rounded-sm" />
 						)}
@@ -71,7 +71,7 @@ export function AIMessageBubble({
 				)}
 
 				{!hasContent && !hasToolCalls && isStreaming && (
-					<div className="rounded-lg bg-white border border-slate-200 px-4 py-3">
+					<div className="w-fit rounded-2xl rounded-tl-md bg-white/90 px-4 py-3 shadow-sm ring-1 ring-slate-200/50">
 						<div className="flex items-center gap-1">
 							<span className="size-1.5 rounded-full bg-slate-400 animate-pulse" />
 							<span className="size-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:200ms]" />

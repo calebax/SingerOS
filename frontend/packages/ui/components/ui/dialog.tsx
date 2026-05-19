@@ -18,6 +18,33 @@ function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
 	return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
+function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
+	return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
+}
+
+function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
+	return (
+		<DialogPrimitive.Backdrop
+			data-slot="dialog-overlay"
+			className={cn(
+				"fixed inset-0 z-50 bg-black/40 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+function DialogViewport({ className, ...props }: DialogPrimitive.Viewport.Props) {
+	return (
+		<DialogPrimitive.Viewport
+			data-slot="dialog-viewport"
+			className={cn("fixed inset-0 z-50 flex items-center justify-center p-4", className)}
+			{...props}
+		/>
+	);
+}
+
 function DialogContent({
 	className,
 	children,
@@ -27,32 +54,14 @@ function DialogContent({
 	showCloseButton?: boolean;
 }) {
 	return (
-		<DialogPrimitive.Portal>
-			<DialogPrimitive.Backdrop
-				style={{
-					position: "fixed",
-					inset: 0,
-					zIndex: 50,
-					backgroundColor: "rgba(0, 0, 0, 0.4)",
-				}}
-				className="data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-all duration-200"
-			/>
-			<DialogPrimitive.Viewport
-				style={{
-					position: "fixed",
-					inset: 0,
-					zIndex: 50,
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "center",
-					padding: "1rem",
-				}}
-			>
+		<DialogPortal>
+			<DialogOverlay />
+			<DialogViewport>
 				<DialogPrimitive.Popup
 					data-slot="dialog-content"
 					className={cn(
-						"relative w-full max-w-sm rounded-xl border bg-background p-6 shadow-lg",
-						"data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[ending-style]:scale-95 transition-all duration-200",
+						"relative max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-xl border bg-background p-6 shadow-lg outline-none",
+						"transition-[opacity,transform] duration-150 ease-out data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
 						className,
 					)}
 					{...props}
@@ -65,16 +74,17 @@ function DialogContent({
 								<Button
 									variant="ghost"
 									size="icon-sm"
-									className="absolute top-4 right-4 h-6 w-6 opacity-70 hover:opacity-100"
-								>
-									<XIcon className="h-4 w-4" />
-								</Button>
+									className="absolute top-4 right-4 opacity-70 hover:opacity-100"
+								/>
 							}
-						/>
+						>
+							<XIcon className="size-4" />
+							<span className="sr-only">关闭</span>
+						</DialogPrimitive.Close>
 					)}
 				</DialogPrimitive.Popup>
-			</DialogPrimitive.Viewport>
-		</DialogPrimitive.Portal>
+			</DialogViewport>
+		</DialogPortal>
 	);
 }
 
@@ -114,14 +124,6 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
 	);
 }
 
-function DialogViewport({ ...props }: DialogPrimitive.Viewport.Props) {
-	return <DialogPrimitive.Viewport data-slot="dialog-viewport" {...props} />;
-}
-
-function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
-	return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
-}
-
 export {
 	Dialog,
 	DialogClose,
@@ -129,6 +131,7 @@ export {
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
+	DialogOverlay,
 	DialogPortal,
 	DialogTitle,
 	DialogTrigger,

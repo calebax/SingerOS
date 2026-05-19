@@ -16,6 +16,7 @@ import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 export type AssistantCardProps = {
 	assistant: DigitalAssistantItem;
+	onSelect: (assistant: DigitalAssistantItem) => void;
 	onEdit: (assistant: DigitalAssistantItem) => void;
 	onDelete: (assistant: DigitalAssistantItem) => void;
 };
@@ -29,8 +30,8 @@ const statusLabelMap: Record<
 	draft: { label: "草稿", variant: "secondary" },
 };
 
-export function AssistantCard({ assistant, onEdit, onDelete }: AssistantCardProps) {
-	const { switchAssistant, updateAssistantStatus } = useDAStore((s) => s);
+export function AssistantCard({ assistant, onSelect, onEdit, onDelete }: AssistantCardProps) {
+	const { updateAssistantStatus } = useDAStore((s) => s);
 	const statusInfo = statusLabelMap[assistant.status] ?? {
 		label: assistant.status,
 		variant: "secondary" as const,
@@ -48,7 +49,7 @@ export function AssistantCard({ assistant, onEdit, onDelete }: AssistantCardProp
 				"group relative flex gap-4 rounded-lg border p-4 cursor-pointer transition-colors w-full text-left",
 				"border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/30",
 			)}
-			onClick={() => switchAssistant(assistant.id)}
+			onClick={() => onSelect(assistant)}
 		>
 			<div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-lg font-semibold">
 				{assistant.avatar ? (

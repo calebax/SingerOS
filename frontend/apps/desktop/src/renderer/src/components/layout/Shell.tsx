@@ -1,7 +1,6 @@
 "use client";
 
 import { useLayoutStore } from "@leros/store";
-import { AssistantDetailPanel } from "../digitalAssistant/AssistantDetailPanel";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { CenterCanvas } from "./CenterCanvas";
 import { ConversationListPanel } from "./ConversationListPanel";
@@ -24,12 +23,7 @@ export function Shell() {
 					</>
 				)}
 				{currentView === "workbench" && <WorkbenchPanel />}
-				{currentView === "digitalAssistant" && (
-					<>
-						<AssistantListView />
-						<AssistantDetailPanel />
-					</>
-				)}
+				{currentView === "digitalAssistant" && <AssistantListView />}
 			</div>
 		</div>
 	);
