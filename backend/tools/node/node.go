@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/insmtx/Leros/backend/tools"
@@ -74,13 +73,7 @@ func (e localExecutor) Exec(ctx context.Context, req nodeExecRequest) (nodeExecR
 	if req.Stdin != nil {
 		cmd.Stdin = strings.NewReader(*req.Stdin)
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	configureProcessCancellation(cmd)
 	cmd.WaitDelay = 5 * time.Second
 
 	var stdout bytes.Buffer

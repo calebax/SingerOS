@@ -36,14 +36,15 @@ type ModelConfig struct {
 
 // RunRequest 包含执行一次外部 CLI 运行所需的全部输入。
 type RunRequest struct {
-	ExecutionID string        // 执行唯一标识
-	SessionID   string        // provider 原生会话 ID，由上层 runtime 适配层解析
-	Resume      bool          // 是否恢复 provider 原生会话
-	WorkDir     string        // 工作目录
-	Prompt      string        // 输入提示
-	Model       ModelConfig   // 模型配置
-	ExtraEnv    []string      // 额外环境变量
-	Timeout     time.Duration // 超时时间
+	ExecutionID  string        // 执行唯一标识
+	SessionID    string        // provider 原生会话 ID，由上层 runtime 适配层解析
+	Resume       bool          // 是否恢复 provider 原生会话
+	WorkDir      string        // 工作目录
+	SystemPrompt string        // 引擎原生系统提示
+	Prompt       string        // 输入提示
+	Model        ModelConfig   // 模型配置
+	ExtraEnv     []string      // 额外环境变量
+	Timeout      time.Duration // 超时时间
 }
 
 // Process 是运行中的外部 CLI 进程的句柄。

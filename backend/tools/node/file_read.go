@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/tools"
-
+	"github.com/insmtx/Leros/backend/tools/node/security"
 	"github.com/insmtx/Leros/backend/tools/node/util"
 )
 
@@ -78,7 +77,7 @@ func (t *NodeFileReadTool) Execute(ctx context.Context, input map[string]interfa
 	_ = ctx
 
 	path := util.StringValue(input, "path")
-	resolvedPath, err := filepath.Abs(path)
+	resolvedPath, err := security.ResolveExistingWorkspacePath(path)
 	if err != nil {
 		return "", err
 	}

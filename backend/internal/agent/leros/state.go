@@ -8,7 +8,7 @@ import (
 
 type runState struct {
 	req          *agent.RequestContext
-	emitter      *events.Emitter
+	eventSink    events.Sink
 	userInput    string
 	systemPrompt string
 	toolBinding  einoadapter.ToolBinding

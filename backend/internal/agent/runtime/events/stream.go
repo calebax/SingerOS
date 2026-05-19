@@ -31,8 +31,9 @@ type StreamBody struct {
 	Event   StreamEventType `json:"event"`
 	Payload StreamPayload   `json:"payload"`
 
-	Usage *UsagePayload `json:"usage,omitempty"`
-	Error *StreamError  `json:"error,omitempty"`
+	Usage        *UsagePayload        `json:"usage,omitempty"`
+	RunCompleted *RunCompletedPayload `json:"run_completed,omitempty"`
+	Error        *StreamError         `json:"error,omitempty"`
 }
 
 // StreamPayload carries the specific content of streaming events.

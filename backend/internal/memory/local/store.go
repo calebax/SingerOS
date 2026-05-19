@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/insmtx/Leros/backend/pkg/leros"
 )
@@ -412,12 +411,12 @@ func lockFile(path string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("open memory lock: %w", err)
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockOpenFile(file); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("lock memory file: %w", err)
 	}
 	return func() {
-		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		_ = unlockOpenFile(file)
 		_ = file.Close()
 	}, nil
 }

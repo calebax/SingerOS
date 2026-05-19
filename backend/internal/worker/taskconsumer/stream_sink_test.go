@@ -3,6 +3,7 @@ package taskconsumer
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/pkg/dm"
@@ -95,15 +96,30 @@ func TestMQStreamSinkPublishesCompletedEventToSessionCompletedTopic(t *testing.T
 			}
 			publisher := &recordingPublisher{}
 			sink := NewMQStreamSink(publisher, task)
-
-			err := sink.Emit(context.Background(), &events.Event{
+			payload := events.RunCompletedPayload{
+				Status: "completed",
+				Result: events.RunResultPayload{
+					Message: "done",
+				},
+				CompletedAt: time.Now().UTC(),
+			}
+			event := &events.Event{
 				ID:      "event_test",
 				Type:    tt.eventType,
 				RunID:   "run_test",
 				TraceID: "trace_test",
 				Seq:     7,
 				Content: "done",
-			})
+			}
+			if tt.eventType == events.EventCompleted {
+				event = events.NewRunCompleted(payload, "done")
+				event.ID = "event_test"
+				event.RunID = "run_test"
+				event.TraceID = "trace_test"
+				event.Seq = 7
+			}
+
+			err := sink.Emit(context.Background(), event)
 			if err != nil {
 				t.Fatalf("Emit() error = %v", err)
 			}
@@ -128,6 +144,9 @@ func TestMQStreamSinkPublishesCompletedEventToSessionCompletedTopic(t *testing.T
 			}
 			if completedMsg.Trace.TaskID != task.Trace.TaskID || completedMsg.Trace.RunID != task.Trace.RunID {
 				t.Fatalf("completed trace mismatch: got task_id=%q run_id=%q", completedMsg.Trace.TaskID, completedMsg.Trace.RunID)
+			}
+			if tt.eventType == events.EventCompleted && completedMsg.Body.RunCompleted == nil {
+				t.Fatalf("expected completed payload to be forwarded")
 			}
 		})
 	}

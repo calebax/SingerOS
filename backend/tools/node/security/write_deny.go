@@ -69,7 +69,13 @@ func GetSafeWriteRoot() string {
 func IsWriteDenied(path string) error {
 	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
 	if err != nil {
-		return fmt.Errorf("resolve path symlinks: %w", err)
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("resolve path symlinks: %w", err)
+		}
+		resolved, err = filepath.Abs(filepath.Clean(path))
+		if err != nil {
+			return fmt.Errorf("resolve path: %w", err)
+		}
 	}
 
 	if safeRoot := GetSafeWriteRoot(); safeRoot != "" {

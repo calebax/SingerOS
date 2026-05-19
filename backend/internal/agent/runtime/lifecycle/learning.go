@@ -151,6 +151,14 @@ func buildLearningPrompt(req *agent.RequestContext, result *agent.RunResult, tra
 		builder.WriteString("\n- tools: ")
 		builder.WriteString(strings.Join(uniqueStrings(trace.ToolNames), ", "))
 	}
+	if hasToolEvents(trace.Events) {
+		builder.WriteString("\n- tool_trace: ")
+		builder.WriteString(truncateForPrompt(formatToolTrace(trace.Events), 1200))
+	}
+	if len(trace.Events) > 0 {
+		builder.WriteString("\n- process_trace: ")
+		builder.WriteString(truncateForPrompt(formatProcessTrace(trace.Events), 1200))
+	}
 	if strings.TrimSpace(result.Message) != "" {
 		builder.WriteString("\n- final_answer: ")
 		builder.WriteString(truncateForPrompt(result.Message, 1200))
@@ -207,4 +215,89 @@ func uniqueStrings(values []string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+func hasToolEvents(records []events.RunEventRecord) bool {
+	for _, record := range records {
+		switch record.Type {
+		case events.EventToolCallStarted, events.EventToolCallCompleted, events.EventToolCallFailed:
+			return true
+		}
+	}
+	return false
+}
+
+func formatToolTrace(records []events.RunEventRecord) string {
+	if len(records) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(records))
+	for _, record := range records {
+		status := toolEventStatus(record.Type)
+		name := toolNameFromEventRecord(record)
+		if name == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s(%s)", name, status))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func toolEventStatus(eventType events.EventType) string {
+	switch eventType {
+	case events.EventToolCallFailed:
+		return "error"
+	case events.EventToolCallCompleted:
+		return "ok"
+	default:
+		return "started"
+	}
+}
+
+func formatProcessTrace(records []events.RunEventRecord) string {
+	if len(records) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(records))
+	for _, record := range records {
+		switch record.Type {
+		case events.EventMessageDelta, events.EventReasoningDelta, events.EventResult:
+			content := strings.TrimSpace(contentFromEventRecord(record))
+			if content == "" {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s:%s", record.Type, truncateForPrompt(content, 160)))
+		case events.EventToolCallStarted, events.EventToolCallCompleted, events.EventToolCallFailed:
+			if name := toolNameFromEventRecord(record); name != "" {
+				parts = append(parts, fmt.Sprintf("%s:%s", record.Type, name))
+			}
+		default:
+			parts = append(parts, string(record.Type))
+		}
+	}
+	return strings.Join(parts, " | ")
+}
+
+func toolNameFromEventRecord(record events.RunEventRecord) string {
+	event := &events.Event{
+		Type:    record.Type,
+		Payload: record.Payload,
+	}
+	return toolNameFromEvent(event)
+}
+
+func contentFromEventRecord(record events.RunEventRecord) string {
+	switch record.Type {
+	case events.EventMessageDelta, events.EventReasoningDelta:
+		payload, err := events.DecodePayload[events.MessageDeltaPayload](&events.Event{Type: record.Type, Payload: record.Payload})
+		if err == nil {
+			return payload.Content
+		}
+	case events.EventResult:
+		payload, err := events.DecodePayload[events.RunResultPayload](&events.Event{Type: record.Type, Payload: record.Payload})
+		if err == nil {
+			return payload.Message
+		}
+	}
+	return ""
 }

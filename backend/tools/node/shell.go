@@ -104,7 +104,7 @@ func (t *NodeShellTool) Execute(ctx context.Context, input map[string]interface{
 	timeoutSeconds = util.ClampInt(timeoutSeconds, minShellTimeout, maxShellTimeout)
 
 	result, err := t.executor.Exec(ctx, nodeExecRequest{
-		Args:       []string{"sh", "-lc", command},
+		Args:       shellCommandArgs(command),
 		WorkingDir: workingDir,
 		Timeout:    time.Duration(timeoutSeconds) * time.Second,
 	})

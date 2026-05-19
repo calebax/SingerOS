@@ -13,30 +13,22 @@ func buildPrompt(req *agent.RequestContext) string {
 		return ""
 	}
 
-	sections := []string{}
-	if strings.TrimSpace(req.SystemPrompt) != "" {
-		sections = append(sections, strings.TrimSpace(req.SystemPrompt))
-	} else {
-		sections = append(sections, "你是 Leros 智能助手。请基于下面的结构化上下文完成任务，并在最终输出中给出清晰、可执行的结果。")
-	}
-	sections = append(sections, "# Leros Runtime Request")
+	sections := []string{"# Runtime Context"}
 
-	if req.Assistant.ID != "" || req.Assistant.Name != "" || req.Assistant.Role != "" || req.Assistant.SystemPrompt != "" {
-		sections = append(sections, formatJSONSection("Assistant", req.Assistant))
-	}
-	if req.Actor.UserID != "" || req.Actor.Channel != "" || req.Actor.ExternalID != "" || req.Actor.AccountID != "" {
-		sections = append(sections, formatJSONSection("Actor", req.Actor))
-	}
+	// TODO 角色定义上下文
+	// if req.Assistant.ID != "" || req.Assistant.Name != "" || req.Assistant.Role != "" || req.Assistant.SystemPrompt != "" {
+	// 	sections = append(sections, formatJSONSection("Assistant", req.Assistant))
+	// }
+	// if req.Actor.UserID != "" || req.Actor.Channel != "" || req.Actor.ExternalID != "" || req.Actor.AccountID != "" {
+	// 	sections = append(sections, formatJSONSection("Actor", req.Actor))
+	// }
 	if req.Conversation.ID != "" || len(req.Conversation.Messages) > 0 {
-		sections = append(sections, formatJSONSection("Conversation", req.Conversation))
+		sections = append(sections, formatJSONSection("Conversation Context", req.Conversation))
 	}
-	sections = append(sections, formatJSONSection("Input", req.Input))
-	if req.Policy.RequireApproval {
-		sections = append(sections, formatJSONSection("Policy", req.Policy))
-	}
-	if len(req.Metadata) > 0 {
-		sections = append(sections, formatJSONSection("Metadata", req.Metadata))
-	}
+	sections = append(sections, formatCurrentUserTaskSection(req.Input))
+	// if req.Policy.RequireApproval {
+	// 	sections = append(sections, formatJSONSection("Policy", req.Policy))
+	// }
 
 	sections = append(sections, `## Output Contract
 - 使用中文输出最终结果。
@@ -44,6 +36,32 @@ func buildPrompt(req *agent.RequestContext) string {
 - 如果需要执行真实环境操作，请使用 runtime 已配置的工具或 MCP 能力。`)
 
 	return strings.Join(sections, "\n\n")
+}
+
+func formatCurrentUserTaskSection(input agent.InputContext) string {
+	return fmt.Sprintf("## Current User Task\n\n%s", currentUserTaskText(input))
+}
+
+func currentUserTaskText(input agent.InputContext) string {
+	if text := strings.TrimSpace(input.Text); text != "" {
+		return text
+	}
+	if len(input.Messages) > 0 {
+		lines := make([]string, 0, len(input.Messages))
+		for _, message := range input.Messages {
+			content := strings.TrimSpace(message.Content)
+			if content == "" {
+				continue
+			}
+			if role := strings.TrimSpace(message.Role); role != "" {
+				lines = append(lines, fmt.Sprintf("%s: %s", role, content))
+				continue
+			}
+			lines = append(lines, content)
+		}
+		return strings.Join(lines, "\n")
+	}
+	return string(input.Type)
 }
 
 func formatJSONSection(title string, value any) string {

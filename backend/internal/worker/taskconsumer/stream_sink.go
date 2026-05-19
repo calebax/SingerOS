@@ -72,6 +72,12 @@ func (s *MQStreamSink) Emit(ctx context.Context, event *events.Event) error {
 			}
 		}
 	}
+	if msg.Body.Event == events.StreamEventRunCompleted {
+		completedPayload, err := events.DecodePayload[events.RunCompletedPayload](event)
+		if err == nil {
+			msg.Body.RunCompleted = &completedPayload
+		}
+	}
 
 	if err := s.publisher.Publish(ctx, topic, msg); err != nil {
 		logs.WarnContextf(ctx, "Failed to publish worker stream event to %s: %v", topic, err)
@@ -124,8 +130,9 @@ func (s *MQStreamSink) emitCompleted(ctx context.Context, event *events.Event) e
 		},
 		Route: s.task.Route,
 		Body: events.StreamBody{
-			Seq:   event.Seq,
-			Event: streamEvent,
+			Seq:          event.Seq,
+			Event:        streamEvent,
+			RunCompleted: completedPayloadFromEvent(event),
 			Payload: events.StreamPayload{
 				Role:    events.MessageRoleAssistant,
 				Content: event.Content,
@@ -141,6 +148,17 @@ func (s *MQStreamSink) emitCompleted(ctx context.Context, event *events.Event) e
 		return err
 	}
 	return nil
+}
+
+func completedPayloadFromEvent(event *events.Event) *events.RunCompletedPayload {
+	if event == nil || event.Type != events.EventCompleted {
+		return nil
+	}
+	completedPayload, err := events.DecodePayload[events.RunCompletedPayload](event)
+	if err != nil {
+		return nil
+	}
+	return &completedPayload
 }
 
 func streamPayload(event *events.Event) events.StreamPayload {

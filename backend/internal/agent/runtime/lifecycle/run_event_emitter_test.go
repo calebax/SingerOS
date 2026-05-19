@@ -9,7 +9,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
 )
 
-func TestRunnerEmitsSuccessResultAndUsageThroughSink(t *testing.T) {
+func TestRunnerEmitsSuccessResultAndCompletedArchiveThroughSink(t *testing.T) {
 	sink := &recordingSink{}
 	runner := newRunner(successRuntime{}, NewContextBuilder(ContextBuilder{
 		BaseSystemPrompt: "base",
@@ -24,12 +24,11 @@ func TestRunnerEmitsSuccessResultAndUsageThroughSink(t *testing.T) {
 	}
 
 	got := sink.Events()
-	if len(got) != 4 {
-		t.Fatalf("expected started, usage, result, completed events, got %d", len(got))
+	if len(got) != 3 {
+		t.Fatalf("expected started, result, completed events, got %d", len(got))
 	}
 	expectedTypes := []events.EventType{
 		events.EventStarted,
-		events.EventUsage,
 		events.EventResult,
 		events.EventCompleted,
 	}
@@ -41,18 +40,26 @@ func TestRunnerEmitsSuccessResultAndUsageThroughSink(t *testing.T) {
 			t.Fatalf("event %d: expected contiguous seq, got prev=%d current=%d", i, got[i-1].Seq, got[i].Seq)
 		}
 	}
-	usage, err := events.DecodePayload[events.UsagePayload](got[1])
-	if err != nil {
-		t.Fatalf("decode usage payload: %v", err)
-	}
-	if usage.TotalTokens != 3 {
-		t.Fatalf("expected usage payload, got %#v", usage)
+	if got[1].Content != "final answer" {
+		t.Fatalf("expected final result content, got %q", got[1].Content)
 	}
 	if got[2].Content != "final answer" {
-		t.Fatalf("expected final result content, got %q", got[2].Content)
+		t.Fatalf("expected completed content, got %q", got[2].Content)
 	}
-	if got[3].Content != "final answer" {
-		t.Fatalf("expected completed content, got %q", got[3].Content)
+	completed, err := events.DecodePayload[events.RunCompletedPayload](got[2])
+	if err != nil {
+		t.Fatalf("decode completed payload: %v", err)
+	}
+	if completed.Usage == nil || completed.Usage.TotalTokens != 3 {
+		t.Fatalf("expected completed usage payload, got %#v", completed.Usage)
+	}
+	if completed.Result.Message != "final answer" {
+		t.Fatalf("expected completed final result, got %#v", completed.Result)
+	}
+	for _, event := range completed.Events {
+		if event.Type == events.EventCompleted {
+			t.Fatalf("completed archive should not include itself: %#v", completed.Events)
+		}
 	}
 }
 

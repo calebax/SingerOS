@@ -111,6 +111,34 @@ type UsagePayload struct {
 	TotalTokens  int `json:"total_tokens,omitempty"`
 }
 
+// RunResultPayload describes the final assistant result archived in run.completed.
+type RunResultPayload struct {
+	Message string `json:"message,omitempty"`
+}
+
+// RunEventRecord is a normalized, archived runtime event.
+type RunEventRecord struct {
+	ID        string     `json:"id,omitempty"`
+	RunID     string     `json:"run_id,omitempty"`
+	TraceID   string     `json:"trace_id,omitempty"`
+	Seq       int64      `json:"seq,omitempty"`
+	LastSeq   int64      `json:"last_seq,omitempty"`
+	Type      EventType  `json:"type"`
+	CreatedAt time.Time  `json:"created_at,omitempty"`
+	Payload   RawPayload `json:"payload,omitempty"`
+}
+
+// RunCompletedPayload archives the complete successful runtime run.
+type RunCompletedPayload struct {
+	Status      string           `json:"status"`
+	Result      RunResultPayload `json:"result"`
+	Usage       *UsagePayload    `json:"usage,omitempty"`
+	Events      []RunEventRecord `json:"events,omitempty"`
+	StartedAt   time.Time        `json:"started_at,omitempty"`
+	CompletedAt time.Time        `json:"completed_at,omitempty"`
+	Metadata    map[string]any   `json:"metadata,omitempty"`
+}
+
 // NewMessageDelta creates a standard assistant message delta event.
 func NewMessageDelta(messageID string, content string) *Event {
 	return newPayloadEvent(EventMessageDelta, MessageDeltaPayload{
@@ -163,6 +191,11 @@ func NewToolCallFailed(toolCallID string, name string, message string, elapsedMS
 // NewUsage creates a standard runtime usage event.
 func NewUsage(usage *UsagePayload) *Event {
 	return newPayloadEvent(EventUsage, usage, "")
+}
+
+// NewRunCompleted creates a standard completed run archive event.
+func NewRunCompleted(payload RunCompletedPayload, contentFallback string) *Event {
+	return newPayloadEvent(EventCompleted, payload, contentFallback)
 }
 
 // DecodePayload decodes a structured payload from an event.

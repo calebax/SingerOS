@@ -42,7 +42,7 @@ func TestFlowGenerate(t *testing.T) {
 		t.Fatalf("new flow: %v", err)
 	}
 
-	message, err := flow.Generate(context.Background(), "who am I?")
+	message, usage, err := flow.GenerateWithUsage(context.Background(), "who am I?")
 	if err != nil {
 		t.Fatalf("generate response: %v", err)
 	}
@@ -51,6 +51,9 @@ func TestFlowGenerate(t *testing.T) {
 	}
 	if !strings.Contains(message.Content, "test.account.get_current_user") {
 		t.Fatalf("unexpected final content: %s", message.Content)
+	}
+	if usage == nil || usage.InputTokens != 30 || usage.OutputTokens != 3 || usage.TotalTokens != 33 {
+		t.Fatalf("expected aggregated usage from all model messages, got %#v", usage)
 	}
 	if model.state == nil || len(model.state.calls) == 0 {
 		t.Fatalf("expected model calls to be recorded")
@@ -148,7 +151,7 @@ func (m *fakeToolCallingModel) Generate(ctx context.Context, input []*einoschema
 
 	last := input[len(input)-1]
 	if last.Role == einoschema.Tool {
-		return einoschema.AssistantMessage(fmt.Sprintf("final answer: %s", last.Content), nil), nil
+		return messageWithUsage(einoschema.AssistantMessage(fmt.Sprintf("final answer: %s", last.Content), nil), 20, 2), nil
 	}
 
 	toolName := "test.account.get_current_user"
@@ -156,7 +159,7 @@ func (m *fakeToolCallingModel) Generate(ctx context.Context, input []*einoschema
 		toolName = m.boundTools[0].Name
 	}
 
-	return einoschema.AssistantMessage("", []einoschema.ToolCall{
+	return messageWithUsage(einoschema.AssistantMessage("", []einoschema.ToolCall{
 		{
 			ID:   "call_1",
 			Type: "function",
@@ -165,7 +168,7 @@ func (m *fakeToolCallingModel) Generate(ctx context.Context, input []*einoschema
 				Arguments: `{}`,
 			},
 		},
-	}), nil
+	}), 10, 1), nil
 }
 
 func (m *fakeToolCallingModel) Stream(ctx context.Context, input []*einoschema.Message, opts ...einomodel.Option) (*einoschema.StreamReader[*einoschema.Message], error) {
@@ -206,6 +209,20 @@ func (m *streamingTextModel) Stream(ctx context.Context, input []*einoschema.Mes
 
 func (m *streamingTextModel) WithTools(tools []*einoschema.ToolInfo) (einomodel.ToolCallingChatModel, error) {
 	return m, nil
+}
+
+func messageWithUsage(message *einoschema.Message, promptTokens int, completionTokens int) *einoschema.Message {
+	if message == nil {
+		return nil
+	}
+	message.ResponseMeta = &einoschema.ResponseMeta{
+		Usage: &einoschema.TokenUsage{
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      promptTokens + completionTokens,
+		},
+	}
+	return message
 }
 
 type mockTool struct {

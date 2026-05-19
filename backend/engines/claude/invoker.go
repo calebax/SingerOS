@@ -34,6 +34,7 @@ type streamEvent struct {
 	Message   *streamMessage `json:"message,omitempty"`
 	Result    string         `json:"result,omitempty"`
 	IsError   bool           `json:"is_error,omitempty"`
+	Usage     *streamUsage   `json:"usage,omitempty"`
 }
 
 type streamMessage struct {
@@ -54,6 +55,13 @@ type streamContent struct {
 	IsError   bool           `json:"is_error,omitempty"`
 }
 
+type streamUsage struct {
+	InputTokens              int `json:"input_tokens,omitempty"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
+	OutputTokens             int `json:"output_tokens,omitempty"`
+}
+
 // Run 启动 Claude Code 进程并将 stdout/stderr 直接转换为引擎事件。
 func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Process, <-chan events.Event, error) {
 	args := buildArgs(req)
@@ -67,6 +75,9 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Pr
 	cmd := exec.CommandContext(execCtx, inv.binary, args...)
 	cmd.Dir = req.WorkDir
 	cmd.Env = engines.BuildRunEnv(inv.baseEnv, req.ExtraEnv, claudeModelEnv(req.Model))
+	if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
+		cmd.Stdin = strings.NewReader(prompt)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -237,9 +248,30 @@ func parseClaudeLineEvents(line string, state *claudeStreamState) []events.Event
 		if event.IsError || event.Result == "" {
 			return nil
 		}
-		return []events.Event{{Type: events.EventResult, Content: event.Result}}
+		parsed := []events.Event{{Type: events.EventResult, Content: event.Result}}
+		if usage := usagePayloadFromClaudeUsage(event.Usage); usage != nil {
+			parsed = append(parsed, *events.NewUsage(usage))
+		}
+		return parsed
 	}
 	return nil
+}
+
+func usagePayloadFromClaudeUsage(usage *streamUsage) *events.UsagePayload {
+	if usage == nil {
+		return nil
+	}
+	inputTokens := usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+	outputTokens := usage.OutputTokens
+	totalTokens := inputTokens + outputTokens
+	if inputTokens == 0 && outputTokens == 0 {
+		return nil
+	}
+	return &events.UsagePayload{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  totalTokens,
+	}
 }
 
 func claudeToolCallStartedEvent(block streamContent, state *claudeStreamState) events.Event {
@@ -301,6 +333,9 @@ func buildArgs(req engines.RunRequest) []string {
 	if req.Model.Model != "" {
 		args = append(args, "--model", req.Model.Model)
 	}
+	if systemPrompt := strings.TrimSpace(req.SystemPrompt); systemPrompt != "" {
+		args = append(args, "--append-system-prompt", systemPrompt)
+	}
 	if req.SessionID != "" {
 		if req.Resume {
 			args = append(args, "--resume", req.SessionID)
@@ -308,11 +343,7 @@ func buildArgs(req engines.RunRequest) []string {
 			args = append(args, "--session-id", req.SessionID)
 		}
 	}
-	args = append(args, "--print")
-	if req.Prompt != "" {
-		args = append(args, req.Prompt)
-	}
-	return args
+	return append(args, "--print")
 }
 
 func claudeFailureContent(err error, state *claudeStreamState, stderrText string) string {

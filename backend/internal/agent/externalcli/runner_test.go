@@ -2,6 +2,7 @@ package externalcli
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/insmtx/Leros/backend/engines"
@@ -11,14 +12,26 @@ import (
 
 func TestRunnerAdaptsEngineResult(t *testing.T) {
 	SetDefaultProviderSessionStore(NewInMemoryProviderSessionStore())
-	engine := &fakeEngine{result: "done"}
+	engine := &fakeEngine{
+		events: []events.Event{
+			{Type: events.EventStarted},
+			{Type: events.EventResult, Content: "done"},
+			*events.NewUsage(&events.UsagePayload{
+				InputTokens:  12,
+				OutputTokens: 5,
+				TotalTokens:  17,
+			}),
+			{Type: events.EventCompleted},
+		},
+	}
 	runner, err := NewRunner("fake", engine)
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
 
 	result, err := runner.Run(context.Background(), &agent.RequestContext{
-		RunID: "run_cli",
+		RunID:        "run_cli",
+		SystemPrompt: "system only",
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
 			Text: "hello",
@@ -34,11 +47,20 @@ func TestRunnerAdaptsEngineResult(t *testing.T) {
 	if result.Message != "done" {
 		t.Fatalf("expected extracted result, got %q", result.Message)
 	}
+	if result.Usage == nil || result.Usage.InputTokens != 12 || result.Usage.OutputTokens != 5 || result.Usage.TotalTokens != 17 {
+		t.Fatalf("expected usage to be forwarded, got %#v", result.Usage)
+	}
 	if engine.runReq.WorkDir != "/tmp" {
 		t.Fatalf("expected work dir /tmp, got %q", engine.runReq.WorkDir)
 	}
 	if engine.runReq.Prompt == "" {
 		t.Fatal("expected prompt to be built")
+	}
+	if engine.runReq.SystemPrompt != "system only" {
+		t.Fatalf("expected system prompt to be forwarded, got %q", engine.runReq.SystemPrompt)
+	}
+	if strings.Contains(engine.runReq.Prompt, "system only") {
+		t.Fatalf("expected prompt not to contain system prompt, got %q", engine.runReq.Prompt)
 	}
 }
 

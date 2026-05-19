@@ -81,6 +81,59 @@ func TestParseClaudeLineEmitsResultEvent(t *testing.T) {
 	}
 }
 
+func TestParseClaudeLineEmitsUsageEvent(t *testing.T) {
+	state := &claudeStreamState{}
+	parsed := parseClaudeLineEvents(`{"type":"result","result":"final","is_error":false,"usage":{"input_tokens":10,"cache_creation_input_tokens":2,"cache_read_input_tokens":30,"output_tokens":4}}`, state)
+	if len(parsed) != 2 {
+		t.Fatalf("expected result and usage events, got %#v", parsed)
+	}
+	if parsed[0].Type != events.EventResult {
+		t.Fatalf("expected first event result, got %#v", parsed[0])
+	}
+	if parsed[1].Type != events.EventUsage {
+		t.Fatalf("expected second event usage, got %#v", parsed[1])
+	}
+	usage, err := events.DecodePayload[events.UsagePayload](&parsed[1])
+	if err != nil {
+		t.Fatalf("decode usage payload: %v", err)
+	}
+	if usage.InputTokens != 42 || usage.OutputTokens != 4 || usage.TotalTokens != 46 {
+		t.Fatalf("unexpected usage payload: %#v", usage)
+	}
+}
+
+func TestBuildArgsAppendsSystemPrompt(t *testing.T) {
+	args := buildArgs(engines.RunRequest{
+		SystemPrompt: "system only",
+		Prompt:       "user only",
+	})
+
+	value, ok := argValue(args, "--append-system-prompt")
+	if !ok {
+		t.Fatalf("expected --append-system-prompt in args: %#v", args)
+	}
+	if value != "system only" {
+		t.Fatalf("expected system prompt arg value, got %q", value)
+	}
+	if args[len(args)-1] != "--print" {
+		t.Fatalf("expected claude to run in print mode, got %#v", args)
+	}
+	if containsArg(args, "user only") {
+		t.Fatalf("expected user prompt to be passed via stdin, got %#v", args)
+	}
+}
+
+func TestBuildArgsSkipsEmptySystemPrompt(t *testing.T) {
+	args := buildArgs(engines.RunRequest{
+		SystemPrompt: "   ",
+		Prompt:       "user only",
+	})
+
+	if _, ok := argValue(args, "--append-system-prompt"); ok {
+		t.Fatalf("expected empty system prompt to be skipped: %#v", args)
+	}
+}
+
 func TestParseClaudeLineTracksAssistantFallback(t *testing.T) {
 	state := &claudeStreamState{}
 	event := parseClaudeLine(`{"type":"assistant","message":{"content":[{"type":"text","text":"answer"}]}}`, state)
@@ -170,6 +223,24 @@ func firstNonEmptyEnv(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func argValue(args []string, name string) (string, bool) {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == name {
+			return args[i+1], true
+		}
+	}
+	return "", false
+}
+
+func containsArg(args []string, value string) bool {
+	for _, arg := range args {
+		if arg == value {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeEventContent(t *testing.T, content string) map[string]any {

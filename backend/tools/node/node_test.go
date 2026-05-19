@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -60,14 +61,37 @@ func TestNodeShellToolExecute(t *testing.T) {
 		t.Fatalf("expected 1 executor call, got %d", len(executor.calls))
 	}
 	call := executor.calls[0]
-	if len(call.Args) != 3 || call.Args[0] != "sh" || call.Args[1] != "-lc" {
+	expectedArgs := shellCommandArgs("pwd")
+	if !equalStringSlices(call.Args, expectedArgs) {
 		t.Fatalf("unexpected command args: %#v", call.Args)
-	}
-	if call.Args[2] != "pwd" {
-		t.Fatalf("unexpected shell command: %s", call.Args[2])
 	}
 	if call.WorkingDir != workspaceRoot {
 		t.Fatalf("unexpected working dir: %s", call.WorkingDir)
+	}
+}
+
+func TestShellCommandArgs(t *testing.T) {
+	args := shellCommandArgs("pwd")
+
+	if runtime.GOOS == "windows" {
+		expected := []string{
+			"powershell.exe",
+			"-NoProfile",
+			"-NonInteractive",
+			"-ExecutionPolicy",
+			"Bypass",
+			"-Command",
+			"pwd",
+		}
+		if !equalStringSlices(args, expected) {
+			t.Fatalf("unexpected windows shell args: %#v", args)
+		}
+		return
+	}
+
+	expected := []string{"sh", "-lc", "pwd"}
+	if !equalStringSlices(args, expected) {
+		t.Fatalf("unexpected unix shell args: %#v", args)
 	}
 }
 
@@ -119,6 +143,18 @@ func TestNodeFileReadToolExecute(t *testing.T) {
 	if !output["has_more"].(bool) {
 		t.Fatalf("expected has_more to be true")
 	}
+}
+
+func equalStringSlices(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestNodeFileWriteToolExecute(t *testing.T) {
@@ -193,9 +229,7 @@ func TestNodeFileReadRejectsSymlinkOutsideWorkspace(t *testing.T) {
 	if err := os.WriteFile(outsidePath, []byte("secret"), 0644); err != nil {
 		t.Fatalf("write outside file: %v", err)
 	}
-	if err := os.Symlink(outsidePath, filepath.Join(workspaceRoot, "secret-link.txt")); err != nil {
-		t.Fatalf("create symlink: %v", err)
-	}
+	createSymlinkOrSkip(t, outsidePath, filepath.Join(workspaceRoot, "secret-link.txt"))
 
 	tool := newNodeFileReadToolWithExecutor(nil)
 	_, err := tool.Execute(context.Background(), map[string]interface{}{
@@ -218,9 +252,7 @@ func TestNodeFileWriteRejectsSymlinkOutsideWorkspace(t *testing.T) {
 	if err := os.WriteFile(outsidePath, []byte("secret"), 0644); err != nil {
 		t.Fatalf("write outside file: %v", err)
 	}
-	if err := os.Symlink(outsidePath, filepath.Join(workspaceRoot, "secret-link.txt")); err != nil {
-		t.Fatalf("create symlink: %v", err)
-	}
+	createSymlinkOrSkip(t, outsidePath, filepath.Join(workspaceRoot, "secret-link.txt"))
 
 	tool := newNodeFileWriteToolWithExecutor(nil)
 	_, err := tool.Execute(context.Background(), map[string]interface{}{
@@ -248,9 +280,7 @@ func TestNodeFileWriteRejectsSymlinkParentOutsideWorkspace(t *testing.T) {
 	outsideRoot := t.TempDir()
 	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
 
-	if err := os.Symlink(outsideRoot, filepath.Join(workspaceRoot, "outside-link")); err != nil {
-		t.Fatalf("create symlink: %v", err)
-	}
+	createSymlinkOrSkip(t, outsideRoot, filepath.Join(workspaceRoot, "outside-link"))
 
 	tool := newNodeFileWriteToolWithExecutor(nil)
 	_, err := tool.Execute(context.Background(), map[string]interface{}{
@@ -295,4 +325,15 @@ func decodeNodeToolOutput(t *testing.T, output string) map[string]interface{} {
 		t.Fatalf("decode node tool output: %v\n%s", err, output)
 	}
 	return decoded
+}
+
+func createSymlinkOrSkip(t *testing.T, oldname string, newname string) {
+	t.Helper()
+
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("creating symlinks requires elevated privileges on Windows: %v", err)
+		}
+		t.Fatalf("create symlink: %v", err)
+	}
 }

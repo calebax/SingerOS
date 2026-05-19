@@ -55,9 +55,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 	if req == nil {
 		return nil, fmt.Errorf("request context is required")
 	}
-	ensureRunDefaults(req)
-
-	emitter := events.NewEmitter(req.RunID, req.TraceID, sinkForRequest(req))
+	eventSink := sinkForRequest(req)
 
 	workDir := strings.TrimSpace(req.Runtime.WorkDir)
 	if workDir == "" {
@@ -67,14 +65,17 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
 	}
 
+	prompt := buildPrompt(req)
 	sessionPlan := r.resolveProviderSession(ctx, req, workDir)
+
 	handle, err := r.engine.Run(ctx, engines.RunRequest{
-		ExecutionID: req.RunID,
-		SessionID:   sessionPlan.ProviderSessionID,
-		Resume:      sessionPlan.Resume,
-		WorkDir:     workDir,
-		Prompt:      buildPrompt(req),
-		Model:       modelForRequest(req),
+		ExecutionID:  req.RunID,
+		SessionID:    sessionPlan.ProviderSessionID,
+		Resume:       sessionPlan.Resume,
+		WorkDir:      workDir,
+		SystemPrompt: strings.TrimSpace(req.SystemPrompt),
+		Prompt:       prompt,
+		Model:        modelForRequest(req),
 	})
 	if err != nil {
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
@@ -84,7 +85,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		logs.InfoContextf(ctx, "External runtime %s started with pid %d", r.name, handle.Process.PID())
 	}
 
-	consumeResult, err := consumeEvents(ctx, emitter, handle)
+	consumeResult, err := consumeEvents(ctx, eventSink, handle)
 	if err != nil {
 		r.markProviderSessionFailed(ctx, sessionPlan, err)
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
@@ -96,6 +97,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		TraceID:     req.TraceID,
 		Status:      agent.RunStatusCompleted,
 		Message:     strings.TrimSpace(consumeResult.Message),
+		Usage:       consumeResult.Usage,
 		StartedAt:   startedAt,
 		CompletedAt: time.Now().UTC(),
 		Metadata: map[string]any{
@@ -112,11 +114,15 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 type consumeResult struct {
 	Message           string
 	ProviderSessionID string
+	Usage             *events.UsagePayload
 }
 
-func consumeEvents(ctx context.Context, emitter *events.Emitter, handle *engines.RunHandle) (consumeResult, error) {
+func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHandle) (consumeResult, error) {
 	if handle == nil || handle.Events == nil {
 		return consumeResult{}, nil
+	}
+	if sink == nil {
+		sink = events.NewNoopSink()
 	}
 	var result strings.Builder
 	resultSeen := false
@@ -136,6 +142,12 @@ func consumeEvents(ctx context.Context, emitter *events.Emitter, handle *engines
 				result.WriteString(event.Content)
 				resultSeen = true
 			}
+		case events.EventUsage:
+			usage, err := events.DecodePayload[events.UsagePayload](&event)
+			if err == nil {
+				consumed.Usage = &usage
+				_ = sink.Emit(ctx, events.NewUsage(&usage))
+			}
 		case events.EventCompleted:
 			consumed.Message = result.String()
 			return consumed, nil
@@ -148,13 +160,15 @@ func consumeEvents(ctx context.Context, emitter *events.Emitter, handle *engines
 			return consumed, fmt.Errorf("%s", event.Content)
 		case events.EventMessageDelta:
 			if strings.TrimSpace(event.Content) != "" {
-				_ = emitter.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+				_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
 				if !resultSeen {
 					result.WriteString(event.Content)
 				}
 			}
+		case events.EventReasoningDelta:
+			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
 		case events.EventToolCallStarted, events.EventToolCallCompleted, events.EventToolCallFailed:
-			_ = emitter.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
 		default:
 			if strings.TrimSpace(event.Content) != "" {
 				if !resultSeen {
@@ -169,7 +183,7 @@ func consumeEvents(ctx context.Context, emitter *events.Emitter, handle *engines
 
 func normalizeRuntimeEvent(event events.Event, messageIDs *events.MessageIDMapper) *events.Event {
 	switch event.Type {
-	case events.EventMessageDelta, events.EventReasoningDelta:
+	case events.EventMessageDelta:
 		if len(event.Payload) > 0 {
 			payload, err := events.DecodePayload[events.MessageDeltaPayload](&event)
 			if err == nil && strings.TrimSpace(payload.MessageID) != "" {
@@ -181,6 +195,18 @@ func normalizeRuntimeEvent(event events.Event, messageIDs *events.MessageIDMappe
 			return &event
 		}
 		return events.NewMessageDelta(messageIDs.CurrentOrNew(), event.Content)
+	case events.EventReasoningDelta:
+		if len(event.Payload) > 0 {
+			payload, err := events.DecodePayload[events.MessageDeltaPayload](&event)
+			if err == nil && strings.TrimSpace(payload.MessageID) != "" {
+				return events.NewReasoningDelta(messageIDs.ForProvider(payload.MessageID), payload.Content)
+			}
+			if err == nil {
+				return events.NewReasoningDelta(messageIDs.CurrentOrNew(), payload.Content)
+			}
+			return &event
+		}
+		return events.NewReasoningDelta(messageIDs.CurrentOrNew(), event.Content)
 	case events.EventToolCallStarted:
 		payload, err := events.DecodePayload[events.ToolCallPayload](&event)
 		if err != nil {
@@ -358,15 +384,6 @@ func metadataWithRuntime(metadata map[string]any, runtimeName string) map[string
 	}
 	metadata["runtime"] = runtimeName
 	return metadata
-}
-
-func ensureRunDefaults(req *agent.RequestContext) {
-	if req.RunID == "" {
-		req.RunID = fmt.Sprintf("run_%d", time.Now().UTC().UnixNano())
-	}
-	if req.Input.Type == "" {
-		req.Input.Type = agent.InputTypeMessage
-	}
 }
 
 func sinkForRequest(req *agent.RequestContext) events.Sink {

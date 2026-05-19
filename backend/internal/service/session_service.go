@@ -592,8 +592,22 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionID stri
 			se.Type = dto.SessionEventTypeRunStarted
 		case events.StreamEventRunCompleted:
 			se.Type = dto.SessionEventTypeRunCompleted
+			if streamMsg.Body.RunCompleted != nil {
+				se.Payload = streamMsg.Body.RunCompleted
+			} else {
+				se.Payload = dto.RunStatusPayload{
+					Status:  "completed",
+					RunID:   streamMsg.Trace.RunID,
+					Message: streamMsg.Body.Payload.Content,
+				}
+			}
 		case events.StreamEventRunFailed:
 			se.Type = dto.SessionEventTypeRunFailed
+			se.Payload = dto.RunStatusPayload{
+				Status:  "failed",
+				RunID:   streamMsg.Trace.RunID,
+				Message: streamMsg.Body.Payload.Content,
+			}
 		default:
 			logs.WarnContextf(ctx, "unknown stream event type: %v", streamMsg.Body.Event)
 			return

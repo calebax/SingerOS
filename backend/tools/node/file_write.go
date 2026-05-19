@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/insmtx/Leros/backend/tools"
 	"github.com/insmtx/Leros/backend/tools/node/security"
@@ -72,12 +71,14 @@ func (t *NodeFileWriteTool) Execute(ctx context.Context, input map[string]interf
 
 	path := util.StringValue(input, "path")
 
-	if err := security.IsWriteDenied(path); err != nil {
+	resolvedPath, err := security.ResolveWorkspacePath(path)
+	if err != nil {
 		return "", err
 	}
-
-	resolvedPath, err := filepath.Abs(path)
-	if err != nil {
+	if err := security.IsWriteDenied(resolvedPath); err != nil {
+		return "", err
+	}
+	if err := security.ValidateWritableWorkspacePath(resolvedPath); err != nil {
 		return "", err
 	}
 	content := input["content"].(string)

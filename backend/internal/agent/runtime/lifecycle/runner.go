@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
+	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -32,32 +33,42 @@ func newRunner(delegate agent.Runner, builder *ContextBuilder, toolAvailability 
 // Run 构建统一上下文、执行具体运行时，并在结束后触发自我学习检查。
 func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (result *agent.RunResult, runErr error) {
 	startedAt := time.Now().UTC()
-	emitter := NewRunEventEmitter()
+	var journal *RunJournal
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			result, runErr = emitter.EmitPanic(ctx, req, startedAt, recovered)
+			err, ok := recovered.(error)
+			if !ok {
+				err = fmt.Errorf("%v", recovered)
+			}
+			result, runErr = emitFailed(ctx, journal, req, startedAt, RunPhasePanic, fmt.Errorf("agent runtime panic: %w", err), nil)
 		}
 	}()
 
-	result, runErr = r.run(ctx, req, startedAt, emitter)
+	result, journal, runErr = r.run(ctx, req, startedAt)
 	return result, runErr
 }
 
-func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt time.Time, emitter *RunEventEmitter) (*agent.RunResult, error) {
+func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt time.Time) (*agent.RunResult, *RunJournal, error) {
 	if r == nil || r.delegate == nil {
-		return emitter.EmitFailed(ctx, req, startedAt, RunPhasePrepare, fmt.Errorf("delegate runner is required"), nil)
+		result, err := emitFailed(ctx, nil, req, startedAt, RunPhasePrepare, fmt.Errorf("delegate runner is required"), nil)
+		return result, nil, err
 	}
 	if r.builder == nil {
-		return emitter.EmitFailed(ctx, req, startedAt, RunPhasePrepare, fmt.Errorf("context builder is required"), nil)
+		result, err := emitFailed(ctx, nil, req, startedAt, RunPhasePrepare, fmt.Errorf("context builder is required"), nil)
+		return result, nil, err
 	}
 
-	recorder := &traceRecorder{}
 	if req != nil {
-		req.EventSink = wrapSink(req.EventSink, recorder)
+		normalizeRunRequest(req)
 	}
-	emitter.setSequence(recorder.nextSeq)
-	if err := emitter.EmitStarted(ctx, req); err != nil {
-		return emitter.EmitFailed(ctx, req, startedAt, RunPhasePrepare, err, nil)
+	journal := NewRunJournal(req, nil)
+	if req != nil {
+		journal = NewRunJournal(req, req.EventSink)
+		req.EventSink = journal
+	}
+	if err := appendLifecycleEvent(ctx, journal, req, events.EventStarted, ""); err != nil {
+		result, runErr := emitFailed(ctx, journal, req, startedAt, RunPhasePrepare, err, nil)
+		return result, journal, runErr
 	}
 
 	logs.InfoContextf(ctx, "Agent lifecycle run started: run_id=%s trace_id=%s task_id=%s runtime=%s assistant_id=%s input_type=%s",
@@ -73,8 +84,10 @@ func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt t
 	if err != nil {
 		logs.WarnContextf(ctx, "Agent lifecycle context prepare failed: run_id=%s trace_id=%s error=%v",
 			requestRunID(req), requestTraceID(req), err)
-		return emitter.EmitFailed(ctx, req, startedAt, RunPhasePrepare, err, nil)
+		result, runErr := emitFailed(ctx, journal, req, startedAt, RunPhasePrepare, err, nil)
+		return result, journal, runErr
 	}
+	prepared.EventSink = journal
 	logs.InfoContextf(ctx, "Agent lifecycle context prepared: run_id=%s trace_id=%s system_prompt_len=%d skills=%d tools=%d messages=%d attachments=%d",
 		prepared.RunID,
 		prepared.TraceID,
@@ -88,7 +101,8 @@ func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt t
 	if err := EnsureModelConfig(ctx, prepared); err != nil {
 		logs.WarnContextf(ctx, "Agent lifecycle model config failed: run_id=%s trace_id=%s model_id=%d error=%v",
 			prepared.RunID, prepared.TraceID, prepared.Model.ID, err)
-		return emitter.EmitFailed(ctx, prepared, startedAt, RunPhaseModel, err, nil)
+		result, runErr := emitFailed(ctx, journal, prepared, startedAt, RunPhaseModel, err, nil)
+		return result, journal, runErr
 	}
 	logs.InfoContextf(ctx, "Agent lifecycle model config ready: run_id=%s trace_id=%s model_id=%d provider=%s model=%s base_url_set=%t",
 		prepared.RunID,
@@ -109,23 +123,23 @@ func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt t
 	if runErr != nil {
 		logs.WarnContextf(ctx, "Agent lifecycle delegate run failed: run_id=%s trace_id=%s elapsed=%s error=%v",
 			prepared.RunID, prepared.TraceID, time.Since(delegateStartedAt), runErr)
-		result, runErr = emitter.EmitFailed(ctx, prepared, startedAt, RunPhaseRuntime, runErr, metadataFromResult(result))
+		result, runErr = emitFailed(ctx, journal, prepared, startedAt, RunPhaseRuntime, runErr, metadataFromResult(result))
 	} else {
 		logs.InfoContextf(ctx, "Agent lifecycle delegate run completed: run_id=%s trace_id=%s status=%s elapsed=%s",
 			prepared.RunID, prepared.TraceID, resultStatus(result), time.Since(delegateStartedAt))
-		if err := emitter.EmitSucceeded(ctx, prepared, result); err != nil {
+		if err := emitSucceeded(ctx, journal, prepared, result); err != nil {
 			logs.WarnContextf(ctx, "Agent lifecycle success event emit failed: run_id=%s trace_id=%s error=%v",
 				prepared.RunID, prepared.TraceID, err)
-			return result, err
+			return result, journal, err
 		}
 	}
 
-	if err := r.AfterRunLearning(ctx, prepared, result, recorder.trace()); err != nil {
+	if err := r.AfterRunLearning(ctx, prepared, result, journal.Trace()); err != nil {
 		logs.WarnContextf(ctx, "Leros lifecycle learning check failed: %v", err)
 	}
 	logs.InfoContextf(ctx, "Agent lifecycle run finished: run_id=%s trace_id=%s status=%s elapsed=%s",
 		prepared.RunID, prepared.TraceID, resultStatus(result), time.Since(startedAt))
-	return result, runErr
+	return result, journal, runErr
 }
 
 var _ agent.Runner = (*Runner)(nil)

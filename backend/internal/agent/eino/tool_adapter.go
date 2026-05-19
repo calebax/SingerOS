@@ -98,7 +98,7 @@ func (a *ToolAdapter) AvailableToolNames(names []string) []string {
 }
 
 // EinoTools returns Eino wrappers that inject runtime identity at call time.
-func (a *ToolAdapter) EinoTools(binding ToolBinding, emitter *events.Emitter) ([]einotool.BaseTool, error) {
+func (a *ToolAdapter) EinoTools(binding ToolBinding, sink events.Sink) ([]einotool.BaseTool, error) {
 	if a == nil || a.registry == nil {
 		return nil, nil
 	}
@@ -114,7 +114,7 @@ func (a *ToolAdapter) EinoTools(binding ToolBinding, emitter *events.Emitter) ([
 			adapter: a,
 			tool:    tool,
 			binding: binding,
-			emitter: emitter,
+			sink:    sink,
 		})
 	}
 
@@ -195,7 +195,7 @@ type invokableTool struct {
 	adapter *ToolAdapter
 	tool    tools.Tool
 	binding ToolBinding
-	emitter *events.Emitter
+	sink    events.Sink
 }
 
 func (t *invokableTool) Info(ctx context.Context) (*einoschema.ToolInfo, error) {
@@ -244,10 +244,10 @@ func errorOutput(detail, toolName string) string {
 }
 
 func (t *invokableTool) emitToolEvent(ctx context.Context, event *events.Event) error {
-	if t == nil || t.emitter == nil {
+	if t == nil || t.sink == nil {
 		return nil
 	}
-	err := t.emitter.Emit(ctx, event)
+	err := t.sink.Emit(ctx, event)
 	_ = err
 	return nil
 }

@@ -25,7 +25,6 @@ type Flow struct {
 type FlowConfig struct {
 	Model        einomodel.ToolCallingChatModel
 	Tools        []einotool.BaseTool
-	Emitter      *events.Emitter
 	SystemPrompt string
 	MaxStep      int
 }
@@ -78,15 +77,22 @@ func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 }
 
 func (f *Flow) Generate(ctx context.Context, userInput string) (*einoschema.Message, error) {
+	message, _, err := f.GenerateWithUsage(ctx, userInput)
+	return message, err
+}
+
+// GenerateWithUsage returns the final message and aggregated model token usage across all agent turns.
+func (f *Flow) GenerateWithUsage(ctx context.Context, userInput string) (*einoschema.Message, *events.UsagePayload, error) {
 	if f == nil || f.runner == nil {
-		return nil, fmt.Errorf("flow is not initialized")
+		return nil, nil, fmt.Errorf("flow is not initialized")
 	}
 	if strings.TrimSpace(userInput) == "" {
-		return nil, fmt.Errorf("user input is required")
+		return nil, nil, fmt.Errorf("user input is required")
 	}
 
 	iter := f.runner.Query(ctx, userInput)
 	var result *einoschema.Message
+	usage := &usageAccumulator{}
 
 	for {
 		event, ok := iter.Next()
@@ -94,32 +100,44 @@ func (f *Flow) Generate(ctx context.Context, userInput string) (*einoschema.Mess
 			break
 		}
 		if event.Err != nil {
-			return nil, event.Err
+			return nil, nil, event.Err
 		}
 		if event.Output != nil && event.Output.MessageOutput != nil {
 			msg, err := event.Output.MessageOutput.GetMessage()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if msg != nil {
 				result = msg
+				usage.AddMessage(msg)
 			}
 		}
-		logs.DebugContextf(ctx, "received message chunk: content_len=%d reasoning_len=%d tool_calls=%d", len(result.Content), len(result.ReasoningContent), len(result.ToolCalls))
+		if result != nil {
+			logs.DebugContextf(ctx, "received message chunk: content_len=%d reasoning_len=%d tool_calls=%d", len(result.Content), len(result.ReasoningContent), len(result.ToolCalls))
+		}
 	}
 
 	if result == nil {
-		return nil, fmt.Errorf("agent returned no message")
+		return nil, nil, fmt.Errorf("agent returned no message")
 	}
-	return result, nil
+	return result, usage.Payload(), nil
 }
 
-func (f *Flow) Stream(ctx context.Context, userInput string, emitter *events.Emitter) (*einoschema.Message, error) {
+func (f *Flow) Stream(ctx context.Context, userInput string, sink events.Sink) (*einoschema.Message, error) {
+	message, _, err := f.StreamWithUsage(ctx, userInput, sink)
+	return message, err
+}
+
+// StreamWithUsage streams message events and returns aggregated model token usage across all agent turns.
+func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink events.Sink) (*einoschema.Message, *events.UsagePayload, error) {
 	if f == nil || f.streamRunner == nil {
-		return nil, fmt.Errorf("flow is not initialized")
+		return nil, nil, fmt.Errorf("flow is not initialized")
 	}
 	if strings.TrimSpace(userInput) == "" {
-		return nil, fmt.Errorf("user input is required")
+		return nil, nil, fmt.Errorf("user input is required")
+	}
+	if sink == nil {
+		sink = events.NewNoopSink()
 	}
 
 	iter := f.streamRunner.Query(ctx, userInput)
@@ -127,6 +145,7 @@ func (f *Flow) Stream(ctx context.Context, userInput string, emitter *events.Emi
 	var lastMsg *einoschema.Message
 	var currentMessageID string
 	messageIDs := events.NewMessageIDMapper()
+	usage := &usageAccumulator{}
 
 	for {
 		event, ok := iter.Next()
@@ -134,7 +153,7 @@ func (f *Flow) Stream(ctx context.Context, userInput string, emitter *events.Emi
 			break
 		}
 		if event.Err != nil {
-			return nil, event.Err
+			return nil, nil, event.Err
 		}
 		if event.Output != nil && event.Output.MessageOutput != nil {
 			mv := event.Output.MessageOutput
@@ -143,7 +162,7 @@ func (f *Flow) Stream(ctx context.Context, userInput string, emitter *events.Emi
 				continue
 			}
 
-			currentMessageID := messageIDs.StartNew()
+			currentMessageID = messageIDs.StartNew()
 
 			if mv.IsStreaming && mv.MessageStream != nil {
 				streams := mv.MessageStream.Copy(2)
@@ -156,36 +175,76 @@ func (f *Flow) Stream(ctx context.Context, userInput string, emitter *events.Emi
 						break
 					}
 					if err != nil {
-						return nil, fmt.Errorf("read stream chunk: %w", err)
+						return nil, nil, fmt.Errorf("read stream chunk: %w", err)
 					}
 					if chunk.Content != "" {
-						_ = emitter.Emit(ctx, events.NewMessageDelta(currentMessageID, chunk.Content))
+						_ = sink.Emit(ctx, events.NewMessageDelta(currentMessageID, chunk.Content))
 					}
 					if chunk.ReasoningContent != "" {
-						_ = emitter.Emit(ctx, events.NewReasoningDelta(currentMessageID, chunk.ReasoningContent))
+						_ = sink.Emit(ctx, events.NewReasoningDelta(currentMessageID, chunk.ReasoningContent))
 					}
 				}
 				lastMsg, _ = einoschema.ConcatMessageStream(concatStream)
 			} else {
 				msg, err := mv.GetMessage()
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if msg != nil {
 					lastMsg = msg
-					_ = emitter.Emit(ctx, events.NewMessageDelta(currentMessageID, msg.Content))
+					_ = sink.Emit(ctx, events.NewMessageDelta(currentMessageID, msg.Content))
 				}
 			}
 
-			logs.InfoContextf(ctx, "agent msg:msgID=%s, content=%s, reasoning=%s",
-				currentMessageID, lastMsg.Content, lastMsg.ReasoningContent)
+			if lastMsg != nil {
+				usage.AddMessage(lastMsg)
+				logs.InfoContextf(ctx, "agent msg:msgID=%s, content=%s, reasoning=%s",
+					currentMessageID, lastMsg.Content, lastMsg.ReasoningContent)
+			}
 		}
 	}
 
 	if lastMsg == nil {
-		return nil, fmt.Errorf("agent stream returned no messages")
+		return nil, nil, fmt.Errorf("agent stream returned no messages")
 	}
 
 	lastMsg.Extra = map[string]any{"message_id": currentMessageID}
-	return lastMsg, nil
+	return lastMsg, usage.Payload(), nil
+}
+
+type usageAccumulator struct {
+	inputTokens  int
+	outputTokens int
+	totalTokens  int
+}
+
+func (u *usageAccumulator) AddMessage(message *einoschema.Message) {
+	if message == nil {
+		return
+	}
+	u.AddResponseMeta(message.ResponseMeta)
+}
+
+func (u *usageAccumulator) AddResponseMeta(meta *einoschema.ResponseMeta) {
+	if u == nil || meta == nil || meta.Usage == nil {
+		return
+	}
+	u.inputTokens += meta.Usage.PromptTokens
+	u.outputTokens += meta.Usage.CompletionTokens
+	u.totalTokens += meta.Usage.TotalTokens
+}
+
+func (u *usageAccumulator) Payload() *events.UsagePayload {
+	if u == nil || (u.inputTokens == 0 && u.outputTokens == 0 && u.totalTokens == 0) {
+		return nil
+	}
+	totalTokens := u.totalTokens
+	if totalTokens == 0 {
+		totalTokens = u.inputTokens + u.outputTokens
+	}
+	return &events.UsagePayload{
+		InputTokens:  u.inputTokens,
+		OutputTokens: u.outputTokens,
+		TotalTokens:  totalTokens,
+	}
 }

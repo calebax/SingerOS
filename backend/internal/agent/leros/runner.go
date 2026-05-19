@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	einoschema "github.com/cloudwego/eino/schema"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/agent"
 	einoadapter "github.com/insmtx/Leros/backend/internal/agent/eino"
@@ -85,7 +84,7 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 		return nil, err
 	}
 
-	einoTools, err := r.toolAdapter.EinoTools(state.toolBinding, state.emitter)
+	einoTools, err := r.toolAdapter.EinoTools(state.toolBinding, state.eventSink)
 	if err != nil {
 		return nil, fmt.Errorf("build eino tools: %w", err)
 	}
@@ -93,7 +92,6 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 	flow, err := einoadapter.NewFlow(ctx, &einoadapter.FlowConfig{
 		Model:        chatModel,
 		Tools:        einoTools,
-		Emitter:      state.emitter,
 		SystemPrompt: state.systemPrompt,
 		MaxStep:      state.maxStep,
 	})
@@ -107,20 +105,20 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 	var resultMessage string
 	var usage *events.UsagePayload
 	if req.EventSink != nil {
-		streamedMessage, streamErr := flow.Stream(ctx, state.userInput, state.emitter)
+		streamedMessage, streamedUsage, streamErr := flow.StreamWithUsage(ctx, state.userInput, state.eventSink)
 		err = streamErr
 		if streamedMessage != nil {
 			message = streamedMessage
 			resultMessage = strings.TrimSpace(streamedMessage.Content)
-			usage = usageFromResponseMeta(streamedMessage.ResponseMeta)
+			usage = streamedUsage
 		}
 	} else {
-		generatedMessage, generateErr := flow.Generate(ctx, state.userInput)
+		generatedMessage, generatedUsage, generateErr := flow.GenerateWithUsage(ctx, state.userInput)
 		err = generateErr
 		if generatedMessage != nil {
 			message = generatedMessage
 			resultMessage = strings.TrimSpace(generatedMessage.Content)
-			usage = usageFromResponseMeta(generatedMessage.ResponseMeta)
+			usage = generatedUsage
 		}
 	}
 	if err != nil {
@@ -150,8 +148,6 @@ func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
 	if req == nil {
 		return nil, errors.New("request context is required")
 	}
-	ensureRunDefaults(req)
-
 	userInput := buildUserInput(req)
 	if userInput == "" {
 		userInput = string(req.Input.Type)
@@ -162,7 +158,6 @@ func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
 		return nil, err
 	}
 
-	emitter := events.NewEmitter(req.RunID, req.TraceID, sinkForRequest(req))
 	toolCtx := tools.ToolContext{
 		RunID:          req.RunID,
 		TraceID:        req.TraceID,
@@ -177,7 +172,7 @@ func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
 	}
 	return &runState{
 		req:          req,
-		emitter:      emitter,
+		eventSink:    sinkForRequest(req),
 		userInput:    userInput,
 		systemPrompt: systemPrompt,
 		toolBinding: einoadapter.ToolBinding{
@@ -265,15 +260,6 @@ func (r *Runner) systemPromptForRequest(req *agent.RequestContext) string {
 	return prompt
 }
 
-func ensureRunDefaults(req *agent.RequestContext) {
-	if req.RunID == "" {
-		req.RunID = fmt.Sprintf("run_%d", time.Now().UTC().UnixNano())
-	}
-	if req.Input.Type == "" {
-		req.Input.Type = agent.InputTypeMessage
-	}
-}
-
 func maxStepForRequest(req *agent.RequestContext) int {
 	if req != nil && req.Runtime.MaxStep > 0 {
 		return req.Runtime.MaxStep
@@ -286,17 +272,6 @@ func sinkForRequest(req *agent.RequestContext) events.Sink {
 		return events.NewNoopSink()
 	}
 	return req.EventSink
-}
-
-func usageFromResponseMeta(meta *einoschema.ResponseMeta) *events.UsagePayload {
-	if meta == nil || meta.Usage == nil {
-		return nil
-	}
-	return &events.UsagePayload{
-		InputTokens:  meta.Usage.PromptTokens,
-		OutputTokens: meta.Usage.CompletionTokens,
-		TotalTokens:  meta.Usage.TotalTokens,
-	}
 }
 
 func formatLLMResultForLog(message interface{ String() string }) string {

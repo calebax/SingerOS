@@ -150,7 +150,7 @@ func receiveWorkerTaskReply(ctx context.Context, t *testing.T, subscriber mq.Sub
 		// 先发送 ready，表示订阅尝试已开始
 		ready <- nil
 
-		err := subscriber.Subscribe(ctx, streamTopic, func(natsMsg *nats.Msg) {
+		err := subscriber.SubscribeFrom(ctx, streamTopic, 0, func(natsMsg *nats.Msg) {
 			var streamMsg events.MessageStreamMessage
 			if err := json.Unmarshal(natsMsg.Data, &streamMsg); err != nil {
 				t.Logf("\ntopic:\n【%s】\nmalformed:%v\n%s\n\n", streamTopic, err, string(natsMsg.Data))
@@ -173,7 +173,7 @@ func receiveWorkerTaskReply(ctx context.Context, t *testing.T, subscriber mq.Sub
 		// 先发送 ready，表示订阅尝试已开始
 		ready <- nil
 
-		err := subscriber.Subscribe(ctx, completedTopic, func(natsMsg *nats.Msg) {
+		err := subscriber.SubscribeFrom(ctx, completedTopic, 0, func(natsMsg *nats.Msg) {
 			var completedMsg events.MessageStreamMessage
 			if err := json.Unmarshal(natsMsg.Data, &completedMsg); err != nil {
 				t.Logf("\ntopic:\n【%s】\nmalformed:%v\n%s\n\n", completedTopic, err, string(natsMsg.Data))
@@ -187,6 +187,16 @@ func receiveWorkerTaskReply(ctx context.Context, t *testing.T, subscriber mq.Sub
 			)
 			if completedMsg.Trace.TaskID != taskID || completedMsg.Trace.RunID != runID {
 				return
+			}
+			if completedMsg.Body.Event == events.StreamEventRunCompleted {
+				completedPayload, err := runCompletedPayloadFromCompletedMessage(completedMsg)
+				if err != nil {
+					t.Logf("decode run completed payload from %s: %v", completedTopic, err)
+				} else if payloadJSON, err := json.MarshalIndent(completedPayload, "", "  "); err != nil {
+					t.Logf("marshal run completed payload json from %s: %v", completedTopic, err)
+				} else {
+					t.Logf("run completed payload json from %s:\n%s", completedTopic, string(payloadJSON))
+				}
 			}
 			select {
 			case completedCh <- completedMsg:
@@ -219,6 +229,23 @@ func receiveWorkerTaskReply(ctx context.Context, t *testing.T, subscriber mq.Sub
 			return fmt.Errorf("timed out waiting for session completed event on %s: %w", completedTopic, ctx.Err())
 		}
 	}
+}
+
+func runCompletedPayloadFromCompletedMessage(msg events.MessageStreamMessage) (events.RunCompletedPayload, error) {
+	if msg.Body.RunCompleted != nil {
+		return *msg.Body.RunCompleted, nil
+	}
+
+	content := strings.TrimSpace(msg.Body.Payload.Content)
+	if content == "" {
+		return events.RunCompletedPayload{}, fmt.Errorf("run completed payload is empty")
+	}
+
+	var payload events.RunCompletedPayload
+	if err := json.Unmarshal([]byte(content), &payload); err != nil {
+		return events.RunCompletedPayload{}, err
+	}
+	return payload, nil
 }
 
 type workerHealthResponse struct {
