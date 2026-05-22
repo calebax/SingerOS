@@ -13,8 +13,8 @@ import (
 type SessionType string
 
 const (
-	SessionTypeUserChat          SessionType = "user_chat"
-	SessionTypeAssistantInstance SessionType = "assistant_instance"
+	SessionTypeUserChat SessionType = "chat"
+	SessionTypeTask     SessionType = "task"
 )
 
 // SessionStatus 会话状态常量
@@ -61,11 +61,11 @@ const (
 // Session 会话结构体定义了用户与数字助手之间的会话信息
 type Session struct {
 	gorm.Model
-	// session - 会话唯一标识，格式如：sess_xxx，VARCHAR(255)，NOT NULL，UNIQUE
-	SessionID string `gorm:"column:session_id;type:varchar(255);not null;uniqueIndex"`
+	// session - 会话对外唯一标识，格式如：sess_xxx，VARCHAR(255)，NOT NULL，UNIQUE
+	PublicID string `gorm:"column:public_id;type:varchar(255);not null;uniqueIndex"`
 
 	// session - 会话类型，VARCHAR(50)，NOT NULL
-	Type string `gorm:"column:type;type:varchar(50);not null"`
+	Type SessionType `gorm:"column:type;type:varchar(50);not null"`
 
 	// session - 关联用户UIN，0表示不关联，BIGINT，DEFAULT 0
 	Uin uint `gorm:"column:uin;type:bigint;default:0;index"`
@@ -79,6 +79,12 @@ type Session struct {
 	// session - 分配的数字员工ID，0表示未分配，BIGINT，DEFAULT 0
 	AllocatedAssistantID uint `gorm:"column:allocated_assistant_id;type:bigint;default:0;index"`
 
+	// session - 关联任务ID，允许为空，BIGINT，INDEX（scope=task时绑定）
+	TaskID *uint `gorm:"column:task_id;type:bigint;index"`
+
+	// session - 关联项目ID，允许为空，BIGINT，INDEX（scope=project时绑定）
+	ProjectID *uint `gorm:"column:project_id;type:bigint;index"`
+
 	// session - 会话状态，VARCHAR(50)，NOT NULL，DEFAULT 'active'
 	Status string `gorm:"column:status;type:varchar(50);not null;default:'active'"`
 
@@ -89,7 +95,7 @@ type Session struct {
 	TitleManuallySet bool `gorm:"column:title_manually_set;type:boolean;default:false;not null"`
 
 	// session - 元数据，JSON格式存储额外信息，JSONB，允许为空
-	Metadata SessionMetadata `gorm:"column:metadata;type:jsonb"`
+	Metadata ObjectMetadata `gorm:"column:metadata;type:jsonb"`
 
 	// session - 消息数量，INTEGER，DEFAULT 0
 	MessageCount int `gorm:"column:message_count;type:integer;default:0"`
@@ -106,42 +112,11 @@ func (Session) TableName() string {
 	return TableNameSession
 }
 
-// SessionMetadata 会话元数据结构
-type SessionMetadata struct {
-	// 元数据 - 用户代理信息
-	UserAgent string `json:"user_agent,omitempty"`
-	// 元数据 - IP地址
-	IPAddress string `json:"ip_address,omitempty"`
-	// 元数据 - 自定义标签
-	Tags []string `json:"tags,omitempty"`
-	// 元数据 - 其他扩展字段
-	Extra map[string]interface{} `json:"extra,omitempty"`
-}
-
-// Scan 实现 sql.Scanner 接口，用于从数据库中读取 JSON 数据
-func (sm *SessionMetadata) Scan(value interface{}) error {
-	if value == nil {
-		return nil
-	}
-
-	bytes, ok := value.([]byte)
-	if !ok {
-		return fmt.Errorf("cannot scan %T into SessionMetadata", value)
-	}
-
-	return json.Unmarshal(bytes, sm)
-}
-
-// Value 实现 driver.Valuer 接口，用于将元数据转换为 JSON 存储
-func (sm SessionMetadata) Value() (driver.Value, error) {
-	return json.Marshal(sm)
-}
-
 // SessionMessage 会话消息结构体
 type SessionMessage struct {
 	gorm.Model
-	// session_message - 关联会话ID，VARCHAR(255)，NOT NULL，INDEX
-	SessionID string `gorm:"column:session_id;type:varchar(255);not null;index"`
+	// session_message - 关联会话ID（FK -> Session.ID），BIGINT，NOT NULL，INDEX
+	SessionID uint `gorm:"column:session_id;type:bigint;not null;index"`
 
 	// session_message - 消息角色（user/assistant/system/tool），VARCHAR(50)，NOT NULL
 	Role string `gorm:"column:role;type:varchar(50);not null"`
@@ -159,7 +134,7 @@ type SessionMessage struct {
 	Chunks MessageChunkSlice `gorm:"column:chunks;type:jsonb"`
 
 	// session_message - 消息元数据，JSONB，允许为空
-	Metadata MessageMetadata `gorm:"column:metadata;type:jsonb"`
+	Metadata ObjectMetadata `gorm:"column:metadata;type:jsonb"`
 
 	Usage MessageUsage `gorm:"column:usage;type:jsonb"`
 
@@ -173,16 +148,6 @@ type SessionMessage struct {
 // TableName 指定SessionMessage结构体对应的数据库表名
 func (SessionMessage) TableName() string {
 	return TableNameSessionMessage
-}
-
-// MessageMetadata 消息元数据结构
-type MessageMetadata struct {
-	// LLM 模型名称
-	Model string `json:"model,omitempty"`
-	// 延迟（毫秒）
-	Latency int `json:"latency,omitempty"`
-	// 其他扩展字段
-	Extra map[string]interface{} `json:"extra,omitempty"`
 }
 
 // MessageUsage stores model token usage for a session message.
@@ -231,25 +196,6 @@ func (m MessageChunkSlice) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return json.Marshal([]MessageChunk(m))
-}
-
-// Scan 实现 sql.Scanner 接口
-func (mm *MessageMetadata) Scan(value interface{}) error {
-	if value == nil {
-		return nil
-	}
-
-	bytes, ok := value.([]byte)
-	if !ok {
-		return fmt.Errorf("cannot scan %T into MessageMetadata", value)
-	}
-
-	return json.Unmarshal(bytes, mm)
-}
-
-// Value 实现 driver.Valuer 接口
-func (mm MessageMetadata) Value() (driver.Value, error) {
-	return json.Marshal(mm)
 }
 
 // Scan 瀹炵幇 sql.Scanner 鎺ュ彛

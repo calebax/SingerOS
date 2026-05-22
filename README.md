@@ -204,7 +204,10 @@ Complete documentation is available in the `docs/` directory:
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | AI OS architecture design (v2 - Three-Plane Model) |
 | [DESIGN_PHILOSOPHY.md](docs/DESIGN_PHILOSOPHY.md) | Core design philosophy and principles |
-| [PRD.md](docs/PRD.md) | Product requirements (Employee View/AI Workbench) |
+| [PRD.md](docs/PRD.md) | Product requirements — AI Workspace (v3) |
+| [SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | System architecture design — platform engine, connectors |
+| [TECH_DESIGN.md](docs/TECH_DESIGN.md) | Technical design — skill schema, rendering engine |
+| [PLANNING.md](docs/PLANNING.md) | Roadmap — business domains (docs/dev/aiops) |
 | [GITHUB_AUTH_SETUP.md](docs/GITHUB_AUTH_SETUP.md) | GitHub OAuth integration guide |
 | [GITHUB_WEBHOOK_TROUBLESHOOTING.md](docs/GITHUB_WEBHOOK_TROUBLESHOOTING.md) | GitHub webhook troubleshooting |
 | [PR_EVENT_FLOW.md](docs/PR_EVENT_FLOW.md) | GitHub PR event processing verification |

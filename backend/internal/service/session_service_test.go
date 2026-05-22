@@ -191,7 +191,7 @@ func TestCreateSession_DuplicateSessionID(t *testing.T) {
 		t.Error("expected error for duplicate session_id")
 	}
 
-	if err.Error() != "session with this session_id already exists" {
+	if err.Error() != "session with this public_id already exists" {
 		t.Errorf("expected 'session already exists' error, got %s", err.Error())
 	}
 }
@@ -736,7 +736,7 @@ func TestListSessions_FilterByType(t *testing.T) {
 		Type: string(types.SessionTypeUserChat),
 	}
 	req2 := &contract.CreateSessionRequest{
-		Type: string(types.SessionTypeAssistantInstance),
+		Type: string(types.SessionTypeTask),
 	}
 
 	_, err := service.CreateSession(ctx, req1)

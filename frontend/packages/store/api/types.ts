@@ -64,7 +64,7 @@ export type BackendSessionEvent = {
 	payload?: BackendSessionEventPayload;
 };
 
-export type BackendMessageChunk = BackendSessionEvent;
+export type BackendMessageChunk = BackendSessionEvent | string;
 
 export type BackendMessageMetadata = {
 	model?: string;
@@ -80,9 +80,9 @@ export type BackendMessageMetadata = {
 export type BackendToolCall = {
 	id: string;
 	name: string;
-	arguments: Record<string, unknown>;
+	arguments?: Record<string, unknown>;
 	status: string;
-	result?: Record<string, unknown>;
+	result?: unknown;
 	duration?: number;
 };
 
@@ -156,6 +156,7 @@ export type SSEMessageEvent = BackendSessionEvent & {
 };
 
 export type BackendSessionEventPayload = {
+	id?: string;
 	message_id?: string;
 	tool_call_id?: string;
 	role?: string;
@@ -165,9 +166,20 @@ export type BackendSessionEventPayload = {
 	name?: string;
 	arguments?: Record<string, unknown>;
 	result?: unknown;
+	error?: string;
+	is_error?: boolean;
 	status?: string;
+	duration?: number;
+	elapsed_ms?: number;
 	run_id?: string;
 	message?: string;
+	usage?: {
+		input_tokens?: number;
+		output_tokens?: number;
+		total_tokens?: number;
+	};
+	metadata?: BackendMessageMetadata;
+	events?: BackendSessionEvent[];
 	input_tokens?: number;
 	output_tokens?: number;
 	total_tokens?: number;

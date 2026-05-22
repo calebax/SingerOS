@@ -56,6 +56,7 @@ export function ToolCallBlock({ toolCalls }: { toolCalls: ToolCall[] }) {
 function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
 	const [showArgs, setShowArgs] = useState(false);
 	const [showResult, setShowResult] = useState(false);
+	const hasResult = toolCall.result !== undefined && toolCall.result !== null;
 
 	return (
 		<div data-slot="tool-call-item" className="space-y-1">
@@ -83,7 +84,7 @@ function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
 					>
 						<ChevronDown className={cn("size-3 transition-transform", showArgs && "rotate-180")} />
 					</Button>
-					{toolCall.result && (
+					{hasResult && (
 						<Button
 							variant="ghost"
 							size="icon-xs"
@@ -102,11 +103,16 @@ function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
 				</div>
 			)}
 
-			{showResult && toolCall.result && (
+			{showResult && hasResult && (
 				<div className="rounded bg-green-50 px-2 py-1.5 text-xs text-green-700 overflow-x-auto">
-					<pre className="whitespace-pre-wrap">{JSON.stringify(toolCall.result, null, 2)}</pre>
+					<pre className="whitespace-pre-wrap">{formatToolCallValue(toolCall.result)}</pre>
 				</div>
 			)}
 		</div>
 	);
+}
+
+function formatToolCallValue(value: unknown): string {
+	if (typeof value === "string") return value;
+	return JSON.stringify(value, null, 2) ?? String(value);
 }

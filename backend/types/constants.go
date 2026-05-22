@@ -23,6 +23,34 @@ const (
 	DigitalAssistantStatusError DigitalAssistantStatus = "error"
 )
 
+// ProjectStatus 项目生命周期状态
+type ProjectStatus string
+
+const (
+	ProjectStatusActive    ProjectStatus = "active"
+	ProjectStatusPaused    ProjectStatus = "paused"
+	ProjectStatusCompleted ProjectStatus = "completed"
+	ProjectStatusArchived  ProjectStatus = "archived"
+)
+
+// MemberType 成员类型
+type MemberType string
+
+const (
+	MemberTypeUser      MemberType = "user"
+	MemberTypeAssistant MemberType = "assistant"
+)
+
+// MemberRole 成员角色
+type MemberRole string
+
+const (
+	MemberRoleOwner  MemberRole = "owner"
+	MemberRoleAdmin  MemberRole = "admin"
+	MemberRoleMember MemberRole = "member"
+	MemberRoleViewer MemberRole = "viewer"
+)
+
 // SkillCategory 表示技能的类别（如 integration, tool, workflow, ai 等）
 type SkillCategory string
 
@@ -165,4 +193,25 @@ const (
 	EventActionUpdated EventAction = "updated"
 	// EventActionCommented 表示评论事件
 	EventActionCommented EventAction = "commented"
+)
+
+// TaskStatus 表示任务的当前状态
+type TaskStatus string
+
+const (
+	TaskStatusCreated           TaskStatus = "created"
+	TaskStatusPendingAssignment TaskStatus = "pending_assignment"
+	TaskStatusInProgress        TaskStatus = "in_progress"
+	TaskStatusPendingApproval   TaskStatus = "pending_approval"
+	TaskStatusCompleted         TaskStatus = "completed"
+	TaskStatusFailed            TaskStatus = "failed"
+	TaskStatusCancelled         TaskStatus = "cancelled"
+	TaskStatusPaused            TaskStatus = "paused"
+)
+
+type TaskType string
+
+const (
+	TaskTypeGeneral TaskType = "general"
+	TaskTypeCron    TaskType = "cron"
 )

@@ -105,6 +105,21 @@ pnpm install
 
 ### 启动开发
 
+默认 API 地址为 `http://localhost:8080/v1`。如需连接服务器接口，不要修改源码里的
+`packages/store/api/config.ts`，改用应用目录下的 `.env.local`：
+
+```bash
+# Web 应用
+cp apps/web/.env.example apps/web/.env.local
+# 然后设置：
+# NEXT_PUBLIC_LEROS_API_BASE_URL=http://192.144.198.60:8080/v1
+
+# Desktop 应用
+cp apps/desktop/.env.example apps/desktop/.env.local
+# 然后设置：
+# VITE_LEROS_API_BASE_URL=http://192.144.198.60:8080/v1
+```
+
 ```bash
 # Web 应用 (端口 3005)
 pnpm dev:web

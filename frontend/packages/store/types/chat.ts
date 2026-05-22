@@ -7,7 +7,7 @@ export type ToolCall = {
 	name: string;
 	arguments: Record<string, unknown>;
 	status: ToolCallStatus;
-	result?: Record<string, unknown>;
+	result?: unknown;
 	duration?: number;
 };
 

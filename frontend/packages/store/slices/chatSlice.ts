@@ -1,12 +1,19 @@
 import { FetchSSEClient } from "@leros/ui/lib/fetch-sse";
 import { API_BASE_URL } from "../api/config";
 import { sessionApi } from "../api/sessionApi";
-import type { BackendMessage, BackendToolCall, SSEMessageEvent } from "../api/types";
+import type {
+	BackendMessage,
+	BackendMessageChunk,
+	BackendSessionEventPayload,
+	BackendToolCall,
+	SSEMessageEvent,
+} from "../api/types";
 import { mockModelOptions } from "../mocks/chatMocks";
 import type { SliceCreator } from "../types";
 import type {
 	Attachment,
 	Message,
+	MessageMetadata,
 	MessageRole,
 	ModelOption,
 	ToolCall,
@@ -59,20 +66,16 @@ type SetState = (
 type FullStoreGet = () => Record<string, unknown>;
 
 function mapBackendMessage(msg: BackendMessage): Message {
-	return {
+	const message: Message = {
 		id: String(msg.id),
 		conversationId: msg.conversation_id,
 		role: msg.role as MessageRole,
 		content: msg.content ?? "",
 		timestamp: msg.timestamp ?? new Date(msg.created_at).getTime(),
-		metadata: msg.metadata
-			? {
-					model: msg.metadata.model,
-					tokens: msg.metadata.tokens,
-					latency: msg.metadata.latency,
-				}
-			: undefined,
+		metadata: mapMetadata(msg.metadata),
 	};
+
+	return applySessionEventsToMessage(message, msg.chunks, { appendContent: !message.content });
 }
 
 function mapToolCalls(tcList?: BackendToolCall[]): ToolCall[] | undefined {
@@ -81,10 +84,226 @@ function mapToolCalls(tcList?: BackendToolCall[]): ToolCall[] | undefined {
 		id: tc.id,
 		name: tc.name,
 		arguments: tc.arguments ?? {},
-		status: tc.status as ToolCallStatus,
+		status: normalizeToolCallStatus(tc.status),
 		result: tc.result,
 		duration: tc.duration,
 	}));
+}
+
+type NormalizedSessionEvent = Exclude<BackendMessageChunk, string> | SSEMessageEvent;
+type SessionEventLike = BackendMessageChunk | SSEMessageEvent;
+
+function mapMetadata(metadata?: {
+	model?: string;
+	tokens?: number;
+	latency?: number;
+}): MessageMetadata | undefined {
+	if (!metadata) return undefined;
+	return {
+		model: metadata.model,
+		tokens: metadata.tokens,
+		latency: metadata.latency,
+	};
+}
+
+function normalizeToolCallStatus(status?: string): ToolCallStatus {
+	switch (status) {
+		case "success":
+		case "completed":
+			return "success";
+		case "error":
+		case "failed":
+			return "error";
+		case "running":
+		case "in_progress":
+			return "running";
+		default:
+			return "pending";
+	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function normalizeSessionEvent(event: SessionEventLike): NormalizedSessionEvent | undefined {
+	if (typeof event === "string") {
+		try {
+			const parsed = JSON.parse(event) as unknown;
+			if (isRecord(parsed) && typeof parsed.type === "string") {
+				return parsed as NormalizedSessionEvent;
+			}
+		} catch {
+			return undefined;
+		}
+		return undefined;
+	}
+
+	if (typeof event.type !== "string") return undefined;
+	return event as NormalizedSessionEvent;
+}
+
+function getEventPayload(event: NormalizedSessionEvent): BackendSessionEventPayload {
+	return (event.payload ?? event) as BackendSessionEventPayload;
+}
+
+function getEventContent(
+	event: NormalizedSessionEvent,
+	payload: BackendSessionEventPayload,
+): string {
+	return (
+		payload.content ??
+		payload.message ??
+		("content" in event ? event.content : undefined) ??
+		("chunk" in event ? event.chunk : undefined) ??
+		""
+	);
+}
+
+function getRunResultMessage(result: unknown): string | undefined {
+	if (!result || typeof result !== "object") return undefined;
+	const value = result as { message?: unknown };
+	return typeof value.message === "string" ? value.message : undefined;
+}
+
+function metadataFromPayload(payload: BackendSessionEventPayload): MessageMetadata | undefined {
+	const metadata = mapMetadata(payload.metadata);
+	const tokens = metadata?.tokens ?? payload.usage?.total_tokens ?? payload.total_tokens;
+	const model = metadata?.model ?? payload.model;
+	if (!tokens && !model && !metadata?.latency) return metadata;
+	return {
+		...metadata,
+		model,
+		tokens,
+	};
+}
+
+function mergeToolCalls(current: ToolCall[] | undefined, updates: ToolCall[]): ToolCall[] {
+	return updates.reduce((acc, update) => upsertToolCall(acc, update), current ?? []);
+}
+
+function upsertToolCall(current: ToolCall[] | undefined, update: ToolCall): ToolCall[] {
+	const list = current ?? [];
+	const index = list.findIndex((tc) => tc.id === update.id);
+	if (index === -1) return [...list, update];
+
+	const existing = list[index];
+	if (!existing) return [...list, update];
+
+	const next = [...list];
+	next[index] = {
+		...existing,
+		...update,
+		name: update.name || existing.name,
+		arguments: {
+			...existing.arguments,
+			...update.arguments,
+		},
+		result: update.result ?? existing.result,
+		duration: update.duration ?? existing.duration,
+	};
+	return next;
+}
+
+function mapToolCallEvent(
+	eventType: string,
+	payload: BackendSessionEventPayload,
+): ToolCall | undefined {
+	const id = payload.tool_call_id ?? payload.id;
+	if (!id) return undefined;
+
+	const status =
+		eventType === "tool_call.result" || eventType === "tool_call.completed"
+			? normalizeToolCallStatus(payload.status ?? (payload.is_error ? "error" : "success"))
+			: eventType === "tool_call.failed"
+				? "error"
+				: "running";
+
+	return {
+		id,
+		name: payload.name ?? id,
+		arguments: payload.arguments ?? {},
+		status,
+		result: payload.result ?? payload.error,
+		duration: payload.duration ?? payload.elapsed_ms,
+	};
+}
+
+function applySessionEventToMessage(
+	message: Message,
+	event: SessionEventLike,
+	eventType: string | undefined,
+	options: { appendContent: boolean },
+): Message {
+	const normalizedEvent = normalizeSessionEvent(event);
+	if (!normalizedEvent) return message;
+
+	const normalizedEventType = eventType ?? normalizedEvent.type;
+	const payload = getEventPayload(normalizedEvent);
+
+	if (
+		payload.tool_calls?.length ||
+		("tool_calls" in normalizedEvent && normalizedEvent.tool_calls?.length)
+	) {
+		const toolCalls = mapToolCalls(
+			payload.tool_calls ??
+				("tool_calls" in normalizedEvent ? normalizedEvent.tool_calls : undefined),
+		);
+		if (toolCalls?.length) {
+			return { ...message, toolCalls: mergeToolCalls(message.toolCalls, toolCalls) };
+		}
+	}
+
+	switch (normalizedEventType) {
+		case "message.delta":
+		case "message.result": {
+			const content = getEventContent(normalizedEvent, payload);
+			if (!content || !options.appendContent) return message;
+			return { ...message, content: message.content + content };
+		}
+		case "reasoning.delta": {
+			const thinking = payload.thinking ?? getEventContent(normalizedEvent, payload);
+			if (!thinking) return message;
+			return { ...message, thinking: (message.thinking ?? "") + thinking };
+		}
+		case "tool_call.started":
+		case "tool_call.delta":
+		case "tool_call.arguments":
+		case "tool_call.result":
+		case "tool_call.output":
+		case "tool_call.completed":
+		case "tool_call.failed": {
+			const toolCall = mapToolCallEvent(normalizedEventType, payload);
+			if (!toolCall) return message;
+			return { ...message, toolCalls: upsertToolCall(message.toolCalls, toolCall) };
+		}
+		case "run.completed": {
+			const resultMessage = getRunResultMessage(payload.result);
+			const metadata = metadataFromPayload(payload);
+			return {
+				...message,
+				content:
+					options.appendContent && !message.content && resultMessage
+						? resultMessage
+						: message.content,
+				metadata: metadata ? { ...message.metadata, ...metadata } : message.metadata,
+			};
+		}
+		default:
+			return message;
+	}
+}
+
+function applySessionEventsToMessage(
+	message: Message,
+	events: BackendMessageChunk[] | undefined,
+	options: { appendContent: boolean },
+): Message {
+	if (!events?.length) return message;
+	return events.reduce(
+		(current, event) => applySessionEventToMessage(current, event, undefined, options),
+		message,
+	);
 }
 
 export class ChatActionImpl {
@@ -202,102 +421,24 @@ export class ChatActionImpl {
 					const data = JSON.parse(event.data) as SSEMessageEvent;
 					const eventType = event.type ?? data.type;
 
-					if (eventType === "message.delta") {
-						const payload = data.payload ?? data;
-						const content = payload.content ?? data.content ?? data.chunk;
-						if (content) {
-							const msg = this.#get().messagesMap[assistantMsgId];
-							if (msg) {
-								this.#dispatchChat({
-									type: "updateMessage",
-									id: assistantMsgId,
-									value: { ...msg, content: msg.content + content },
-								});
-							}
-						}
-					} else if (eventType === "message.result") {
-						const payload = data.payload ?? data;
-						const content = payload.content ?? data.content;
-						if (content) {
-							const msg = this.#get().messagesMap[assistantMsgId];
-							if (msg) {
-								this.#dispatchChat({
-									type: "updateMessage",
-									id: assistantMsgId,
-									value: { ...msg, content: msg.content + content },
-								});
-							}
-						}
-					} else if (eventType === "run.completed") {
-						const msg = this.#get().messagesMap[assistantMsgId];
-						if (msg) {
+					const msg = this.#get().messagesMap[assistantMsgId];
+					if (msg) {
+						const nextMsg = applySessionEventToMessage(msg, data, eventType, {
+							appendContent: true,
+						});
+						if (nextMsg !== msg) {
 							this.#dispatchChat({
 								type: "updateMessage",
 								id: assistantMsgId,
-								value: {
-									...msg,
-									thinking: data.thinking ?? msg.thinking,
-									toolCalls: mapToolCalls(data.tool_calls ?? data.payload?.tool_calls),
-									metadata: data.metadata
-										? {
-												model: data.metadata.model,
-												tokens: data.metadata.tokens,
-												latency: data.metadata.latency,
-											}
-										: msg.metadata,
-								},
+								value: nextMsg,
 							});
 						}
+					}
+
+					if (eventType === "run.completed" || eventType === "run.failed") {
 						this.#finishStream();
 						this.#sseClient?.close();
 						this.#sseClient = null;
-					} else if (eventType === "run.failed") {
-						const msg = this.#get().messagesMap[assistantMsgId];
-						if (msg) {
-							this.#dispatchChat({
-								type: "updateMessage",
-								id: assistantMsgId,
-								value: { ...msg },
-							});
-						}
-						this.#finishStream();
-						this.#sseClient?.close();
-						this.#sseClient = null;
-					} else if (
-						eventType === "tool_call.started" ||
-						eventType === "tool_call.arguments" ||
-						eventType === "tool_call.output" ||
-						eventType === "tool_call.completed" ||
-						eventType === "tool_call.failed"
-					) {
-						if (data.tool_calls ?? data.payload?.tool_calls) {
-							const msg = this.#get().messagesMap[assistantMsgId];
-							if (msg) {
-								this.#dispatchChat({
-									type: "updateMessage",
-									id: assistantMsgId,
-									value: {
-										...msg,
-										toolCalls: mapToolCalls(data.tool_calls ?? data.payload?.tool_calls),
-									},
-								});
-							}
-						}
-					} else if (eventType === "reasoning.delta") {
-						const payload = data.payload ?? data;
-						if (payload.content ?? data.content) {
-							const msg = this.#get().messagesMap[assistantMsgId];
-							if (msg) {
-								this.#dispatchChat({
-									type: "updateMessage",
-									id: assistantMsgId,
-									value: {
-										...msg,
-										thinking: (msg.thinking ?? "") + (payload.content ?? data.content),
-									},
-								});
-							}
-						}
 					}
 				} catch {
 					const msg = this.#get().messagesMap[assistantMsgId];
@@ -339,7 +480,7 @@ export class ChatActionImpl {
 				this.#dispatchChat({
 					type: "updateMessage",
 					id: streamingId,
-				value: { ...msg },
+					value: { ...msg },
 				});
 			}
 		}

@@ -12,8 +12,8 @@ func TestCreateMessage(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "create_msg_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "create_msg_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -21,7 +21,7 @@ func TestCreateMessage(t *testing.T) {
 	}
 
 	message := &types.SessionMessage{
-		SessionID: session.SessionID,
+		SessionID: session.ID,
 		Role:      string(types.MessageRoleUser),
 		Content:   "Test message",
 		Sequence:  1,
@@ -42,8 +42,8 @@ func TestGetMessageByID(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "get_msg_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "get_msg_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -51,7 +51,7 @@ func TestGetMessageByID(t *testing.T) {
 	}
 
 	message := &types.SessionMessage{
-		SessionID: session.SessionID,
+		SessionID: session.ID,
 		Role:      string(types.MessageRoleUser),
 		Content:   "Get message test",
 		Sequence:  1,
@@ -80,8 +80,8 @@ func TestGetSessionMessages(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "get_messages_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "get_messages_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -90,7 +90,7 @@ func TestGetSessionMessages(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		message := &types.SessionMessage{
-			SessionID: session.SessionID,
+			SessionID: session.ID,
 			Role:      string(types.MessageRoleUser),
 			Content:   "Message " + string(rune(i)),
 			Sequence:  int64(i),
@@ -100,7 +100,7 @@ func TestGetSessionMessages(t *testing.T) {
 		}
 	}
 
-	messages, total, err := GetSessionMessages(ctx, db, session.SessionID, 1, 20)
+	messages, total, err := GetSessionMessages(ctx, db, session.ID, 1, 20)
 	if err != nil {
 		t.Fatalf("GetSessionMessages failed: %v", err)
 	}
@@ -123,8 +123,8 @@ func TestGetSessionMessages_Pagination(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "pagination_msg_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "pagination_msg_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -133,7 +133,7 @@ func TestGetSessionMessages_Pagination(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		message := &types.SessionMessage{
-			SessionID: session.SessionID,
+			SessionID: session.ID,
 			Role:      string(types.MessageRoleUser),
 			Content:   "Message " + string(rune(i)),
 			Sequence:  int64(i),
@@ -143,7 +143,7 @@ func TestGetSessionMessages_Pagination(t *testing.T) {
 		}
 	}
 
-	messages, total, err := GetSessionMessages(ctx, db, session.SessionID, 1, 2)
+	messages, total, err := GetSessionMessages(ctx, db, session.ID, 1, 2)
 	if err != nil {
 		t.Fatalf("GetSessionMessages failed: %v", err)
 	}
@@ -162,8 +162,8 @@ func TestDeleteMessage(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "delete_msg_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "delete_msg_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -171,7 +171,7 @@ func TestDeleteMessage(t *testing.T) {
 	}
 
 	message := &types.SessionMessage{
-		SessionID: session.SessionID,
+		SessionID: session.ID,
 		Role:      string(types.MessageRoleUser),
 		Content:   "Delete message test",
 		Sequence:  1,
@@ -201,8 +201,8 @@ func TestClearSessionMessages(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "clear_msg_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "clear_msg_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -211,7 +211,7 @@ func TestClearSessionMessages(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		message := &types.SessionMessage{
-			SessionID: session.SessionID,
+			SessionID: session.ID,
 			Role:      string(types.MessageRoleUser),
 			Content:   "Message " + string(rune(i)),
 			Sequence:  int64(i),
@@ -221,12 +221,12 @@ func TestClearSessionMessages(t *testing.T) {
 		}
 	}
 
-	err := ClearSessionMessages(ctx, db, session.SessionID)
+	err := ClearSessionMessages(ctx, db, session.ID)
 	if err != nil {
 		t.Fatalf("ClearSessionMessages failed: %v", err)
 	}
 
-	count, err := GetMessageCount(ctx, db, session.SessionID)
+	count, err := GetMessageCount(ctx, db, session.ID)
 	if err != nil {
 		t.Fatalf("GetMessageCount failed: %v", err)
 	}
@@ -241,8 +241,8 @@ func TestGetLatestMessage(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "latest_msg_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "latest_msg_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -251,7 +251,7 @@ func TestGetLatestMessage(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		message := &types.SessionMessage{
-			SessionID: session.SessionID,
+			SessionID: session.ID,
 			Role:      string(types.MessageRoleUser),
 			Content:   "Message " + string(rune(i)),
 			Sequence:  int64(i),
@@ -261,7 +261,7 @@ func TestGetLatestMessage(t *testing.T) {
 		}
 	}
 
-	latest, err := GetLatestMessage(ctx, db, session.SessionID)
+	latest, err := GetLatestMessage(ctx, db, session.ID)
 	if err != nil {
 		t.Fatalf("GetLatestMessage failed: %v", err)
 	}
@@ -280,8 +280,8 @@ func TestGetMessageCount(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "count_msg_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "count_msg_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -290,7 +290,7 @@ func TestGetMessageCount(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		message := &types.SessionMessage{
-			SessionID: session.SessionID,
+			SessionID: session.ID,
 			Role:      string(types.MessageRoleUser),
 			Content:   "Message " + string(rune(i)),
 			Sequence:  int64(i),
@@ -300,7 +300,7 @@ func TestGetMessageCount(t *testing.T) {
 		}
 	}
 
-	count, err := GetMessageCount(ctx, db, session.SessionID)
+	count, err := GetMessageCount(ctx, db, session.ID)
 	if err != nil {
 		t.Fatalf("GetMessageCount failed: %v", err)
 	}
@@ -315,8 +315,8 @@ func TestGetNextSequence(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "sequence_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "sequence_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
@@ -325,7 +325,7 @@ func TestGetNextSequence(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		message := &types.SessionMessage{
-			SessionID: session.SessionID,
+			SessionID: session.ID,
 			Role:      string(types.MessageRoleUser),
 			Content:   "Message " + string(rune(i)),
 			Sequence:  int64(i),
@@ -335,7 +335,7 @@ func TestGetNextSequence(t *testing.T) {
 		}
 	}
 
-	nextSequence, err := GetNextSequence(ctx, db, session.SessionID)
+	nextSequence, err := GetNextSequence(ctx, db, session.ID)
 	if err != nil {
 		t.Fatalf("GetNextSequence failed: %v", err)
 	}
@@ -350,15 +350,15 @@ func TestGetNextSequence_EmptySession(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "empty_sequence_session",
-		Type:      string(types.SessionTypeUserChat),
+		PublicID: "empty_sequence_session",
+		Type:      types.SessionTypeUserChat,
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
 
-	nextSequence, err := GetNextSequence(ctx, db, session.SessionID)
+	nextSequence, err := GetNextSequence(ctx, db, session.ID)
 	if err != nil {
 		t.Fatalf("GetNextSequence failed: %v", err)
 	}
