@@ -42,11 +42,7 @@ func (d *openAIResponsesDecoder) DecodeRequest(body map[string]interface{}) (*IR
 	}
 
 	if tc, ok := body["tool_choice"]; ok {
-		if tcm, ok := tc.(map[string]interface{}); ok {
-			t := getString(tcm, "type")
-			n := getString(tcm, "name")
-			ir.ToolChoice = &IRToolChoice{Type: t, Name: n}
-		}
+		ir.ToolChoice = decodeResponsesToolChoice(tc)
 	}
 
 	ir.User = getString(body, "user")
@@ -153,6 +149,20 @@ func decodeResponsesTools(raw []interface{}) []IRToolDecl {
 	return tools
 }
 
+func decodeResponsesToolChoice(tc interface{}) *IRToolChoice {
+	switch v := tc.(type) {
+	case string:
+		return &IRToolChoice{Type: v}
+	case map[string]interface{}:
+		t := getString(v, "type")
+		if t == "function" {
+			return &IRToolChoice{Type: "specific", Name: getString(v, "name")}
+		}
+		return &IRToolChoice{Type: t, Name: getString(v, "name")}
+	}
+	return nil
+}
+
 func (d *openAIResponsesDecoder) DecodeResponse(body map[string]interface{}) (*IRResponse, error) {
 	ir := &IRResponse{
 		ID:      getString(body, "id"),
@@ -163,6 +173,7 @@ func (d *openAIResponsesDecoder) DecodeResponse(body map[string]interface{}) (*I
 	ir.StopReason = mapResponsesStatus(getString(body, "status"))
 
 	if output, ok := getList(body, "output"); ok {
+		hasFunctionCall := false
 		for _, item := range output {
 			m, _ := item.(map[string]interface{})
 			switch getString(m, "type") {
@@ -171,6 +182,7 @@ func (d *openAIResponsesDecoder) DecodeResponse(body map[string]interface{}) (*I
 					ir.Content = append(ir.Content, decodeResponsesContent(content)...)
 				}
 			case "function_call":
+				hasFunctionCall = true
 				input := make(map[string]interface{})
 				if args := getString(m, "arguments"); args != "" {
 					parseJSONString(args, &input)
@@ -182,6 +194,9 @@ func (d *openAIResponsesDecoder) DecodeResponse(body map[string]interface{}) (*I
 					ToolUseInput: input,
 				})
 			}
+		}
+		if hasFunctionCall {
+			ir.StopReason = IRStopToolUse
 		}
 	}
 
@@ -264,13 +279,27 @@ func (e *openAIResponsesEncoder) EncodeRequest(ir *IRRequest) (map[string]interf
 	}
 
 	if ir.ToolChoice != nil {
-		body["tool_choice"] = map[string]interface{}{
-			"type": ir.ToolChoice.Type,
-			"name": ir.ToolChoice.Name,
-		}
+		body["tool_choice"] = encodeResponsesToolChoice(ir.ToolChoice)
 	}
 
 	return body, nil
+}
+
+func encodeResponsesToolChoice(tc *IRToolChoice) interface{} {
+	switch tc.Type {
+	case "auto":
+		return "auto"
+	case "none":
+		return "none"
+	case "required":
+		return "required"
+	case "specific":
+		return map[string]interface{}{
+			"type": "function",
+			"name": tc.Name,
+		}
+	}
+	return "auto"
 }
 
 func (e *openAIResponsesEncoder) encodeInput(msgs []IRMessage, skipSystemMessages bool) []map[string]interface{} {

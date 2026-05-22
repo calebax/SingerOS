@@ -52,7 +52,7 @@ type codexTodoItem struct {
 	Completed bool   `json:"completed"`
 }
 
-// Run starts the CLI process and converts stdout/stderr into engine events.
+// Run starts the CLI process and converts stdout into engine events.
 func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Process, <-chan events.Event, error) {
 	threadID, resume := resolveThread(req.SessionID, req.Resume)
 	args := buildArgs(threadID, resume, req)
@@ -66,7 +66,7 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Pr
 	cmd := exec.CommandContext(execCtx, inv.binary, args...)
 	cmd.Dir = req.WorkDir
 	cmd.Env = engines.BuildRunEnv(inv.baseEnv, req.ExtraEnv, codexModelEnv(req.Model))
-	if !resume {
+	if req.Prompt != "" {
 		cmd.Stdin = strings.NewReader(req.Prompt)
 	}
 
@@ -102,7 +102,7 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Pr
 		}()
 		go func() {
 			defer wg.Done()
-			scanPlainOutput(ctx, stderr, evtChan, events.EventMessageDelta)
+			logPlainOutput(ctx, stderr)
 		}()
 
 		err := cmd.Wait()
@@ -153,7 +153,8 @@ func parseCodexLineWithState(line string, state *codexStreamState) events.Event 
 	}
 	var event codexEvent
 	if json.Unmarshal([]byte(line), &event) != nil {
-		return *events.NewMessageDelta("", line)
+		return events.Event{}
+		// return *events.NewMessageDelta("", line)
 	}
 	if event.Type == "thread.started" && event.ThreadID != "" {
 		return events.Event{Type: engines.EventProviderSessionStarted, Content: event.ThreadID}
@@ -245,17 +246,14 @@ func decodeCodexText(raw json.RawMessage) string {
 	return ""
 }
 
-func scanPlainOutput(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- events.Event, eventType events.EventType) {
-	messageIDs := events.NewMessageIDMapper()
+func logPlainOutput(ctx context.Context, r interface{ Read([]byte) (int, error) }) {
 	engines.ScanJSONLines(r, func(line string) bool {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			return true
 		}
-		if eventType == events.EventMessageDelta {
-			return sendEvent(ctx, evtChan, *events.NewMessageDelta(messageIDs.CurrentOrNew(), line))
-		}
-		return sendEvent(ctx, evtChan, events.Event{Type: eventType, Content: line})
+		logs.WarnContextf(ctx, "Codex stderr: %s", line)
+		return true
 	})
 }
 
@@ -284,7 +282,7 @@ func buildArgs(threadID string, resume bool, req engines.RunRequest) []string {
 	if resume && threadID != "" {
 		args = append(args, "resume", threadID, "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox")
 		if req.Prompt != "" {
-			args = append(args, req.Prompt)
+			args = append(args, "-")
 		}
 		return args
 	}

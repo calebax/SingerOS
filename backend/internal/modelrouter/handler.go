@@ -43,6 +43,7 @@ type openAIModelsResponse struct {
 
 type openAIModelResponse struct {
 	ID      string `json:"id"`
+	Slug    string `json:"slug"`
 	Object  string `json:"object"`
 	Created int64  `json:"created"`
 	OwnedBy string `json:"owned_by"`
@@ -66,8 +67,9 @@ func handleListModels(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		status := string(types.LLMModelStatusActive)
-		models, _, err := infradb.ListLLMModels(c.Request.Context(), db, &orgID, nil, &status, nil, 0, 1000)
+		opt := types.NewPageQuery(types.Caller{OrgID: orgID}, 0, types.PageMaxCount)
+		opt.AddFilter("status", string(types.LLMModelStatusActive))
+		models, _, err := infradb.ListLLMModels(c.Request.Context(), db, opt)
 		if err != nil {
 			logs.Warnf("modelrouter: list models failed: %v", err)
 			c.JSON(http.StatusInternalServerError, newEntryError(ProtocolOpenAIChat, "failed to list models"))
@@ -92,6 +94,7 @@ func newOpenAIModelsResponse(models []*types.LLMModel) openAIModelsResponse {
 		seen[id] = struct{}{}
 		data = append(data, openAIModelResponse{
 			ID:      id,
+			Slug:    id,
 			Object:  "model",
 			Created: 0,
 			OwnedBy: "",
@@ -130,6 +133,9 @@ func handleModelRoute(resolver *Resolver, entryProtocol Protocol) gin.HandlerFun
 
 		isStream := isStreamRequest(body)
 
+		// logs.Infof("modelrouter: request before protocol conversion entry_protocol=%s upstream_protocol=%s body=%s",
+		// entryProtocol, cfg.Protocol, compactJSONForLog(body))
+
 		upstreamBody, err := convertRequest(body, entryProtocol, cfg.Protocol, cfg.ModelName)
 		if err != nil {
 			logs.Errorf("modelrouter: convert request failed: %v", err)
@@ -140,6 +146,9 @@ func handleModelRoute(resolver *Resolver, entryProtocol Protocol) gin.HandlerFun
 			c.JSON(status, newEntryError(entryProtocol, fmt.Sprintf("request conversion failed: %v", err)))
 			return
 		}
+
+		// logs.Infof("modelrouter: request after protocol conversion entry_protocol=%s upstream_protocol=%s body=%s",
+		// entryProtocol, cfg.Protocol, compactJSONForLog(upstreamBody))
 
 		if isStream {
 			handleStreamResponse(c, cfg, upstreamBody, entryProtocol)
@@ -333,11 +342,21 @@ func isStreamRequest(body []byte) bool {
 	return raw.Stream
 }
 
+func compactJSONForLog(body []byte) string {
+	var raw interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return string(body)
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return string(body)
+	}
+	return string(encoded)
+}
+
 func handleUpstreamError(c *gin.Context, entryProtocol Protocol, err error) {
 	var upErr *upstreamError
-	if as, ok := err.(*upstreamError); ok {
-		upErr = as
-	} else {
+	if !errors.As(err, &upErr) {
 		c.JSON(http.StatusBadGateway, newEntryError(entryProtocol, fmt.Sprintf("upstream request failed: %v", err)))
 		return
 	}

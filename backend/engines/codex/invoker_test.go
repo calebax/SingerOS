@@ -116,6 +116,19 @@ func TestBuildArgsInjectsLerosProviderConfig(t *testing.T) {
 	}
 }
 
+func TestBuildArgsResumeReadsPromptFromStdin(t *testing.T) {
+	args := buildArgs("thread-1", true, engines.RunRequest{
+		Prompt: "continue the task",
+	})
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "continue the task") {
+		t.Fatalf("expected prompt not to be injected into args: %v", args)
+	}
+	if args[len(args)-1] != "-" {
+		t.Fatalf("expected resume prompt marker to read stdin, got %v", args)
+	}
+}
+
 func TestCodexModelEnvUsesOpenAIEnvKeys(t *testing.T) {
 	env := codexModelEnv(engines.ModelConfig{
 		APIKey:  "sk-test",

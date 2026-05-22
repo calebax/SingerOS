@@ -130,6 +130,181 @@ func TestEncodeResponsesRequestUsesSystemRoleInputText(t *testing.T) {
 	}
 }
 
+func TestConvertChatRequestToResponsesPreservesToolsAndToolChoice(t *testing.T) {
+	input := []byte(`{
+		"model": "alias",
+		"messages": [{"role": "user", "content": "Search for project status"}],
+		"tools": [{
+			"type": "function",
+			"function": {
+				"name": "search_project",
+				"description": "Search project records",
+				"parameters": {
+					"type": "object",
+					"properties": {"query": {"type": "string"}},
+					"required": ["query"]
+				}
+			}
+		}],
+		"tool_choice": {
+			"type": "function",
+			"function": {"name": "search_project"}
+		}
+	}`)
+
+	converted, err := convertRequest(input, ProtocolOpenAIChat, ProtocolOpenAIResponses, "gpt-5")
+	if err != nil {
+		t.Fatalf("convertRequest() error = %v", err)
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(converted, &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	tools, ok := body["tools"].([]interface{})
+	if !ok || len(tools) != 1 {
+		t.Fatalf("tools = %#v, want one Responses tool", body["tools"])
+	}
+	tool, ok := tools[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tool = %T, want map[string]interface{}", tools[0])
+	}
+	if got := tool["type"]; got != "function" {
+		t.Fatalf("tool.type = %v, want function", got)
+	}
+	if got := tool["name"]; got != "search_project" {
+		t.Fatalf("tool.name = %v, want search_project", got)
+	}
+	if _, ok := tool["parameters"].(map[string]interface{}); !ok {
+		t.Fatalf("tool.parameters = %#v, want object schema", tool["parameters"])
+	}
+
+	choice, ok := body["tool_choice"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tool_choice = %#v, want object", body["tool_choice"])
+	}
+	if got := choice["type"]; got != "function" {
+		t.Fatalf("tool_choice.type = %v, want function", got)
+	}
+	if got := choice["name"]; got != "search_project" {
+		t.Fatalf("tool_choice.name = %v, want search_project", got)
+	}
+}
+
+func TestConvertResponsesRequestToChatPreservesToolsAndStringToolChoice(t *testing.T) {
+	input := []byte(`{
+		"model": "alias",
+		"input": "Search for project status",
+		"tools": [{
+			"type": "function",
+			"name": "search_project",
+			"description": "Search project records",
+			"parameters": {
+				"type": "object",
+				"properties": {"query": {"type": "string"}},
+				"required": ["query"]
+			}
+		}],
+		"tool_choice": "required"
+	}`)
+
+	converted, err := convertRequest(input, ProtocolOpenAIResponses, ProtocolOpenAIChat, "gpt-5")
+	if err != nil {
+		t.Fatalf("convertRequest() error = %v", err)
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(converted, &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	tools, ok := body["tools"].([]interface{})
+	if !ok || len(tools) != 1 {
+		t.Fatalf("tools = %#v, want one Chat tool", body["tools"])
+	}
+	tool, ok := tools[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tool = %T, want map[string]interface{}", tools[0])
+	}
+	fn, ok := tool["function"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tool.function = %#v, want function object", tool["function"])
+	}
+	if got := fn["name"]; got != "search_project" {
+		t.Fatalf("function.name = %v, want search_project", got)
+	}
+	if got := body["tool_choice"]; got != "required" {
+		t.Fatalf("tool_choice = %#v, want required", got)
+	}
+}
+
+func TestConvertResponsesFunctionCallResponseToChatToolCalls(t *testing.T) {
+	input := []byte(`{
+		"id": "resp_123",
+		"object": "response",
+		"created_at": 123,
+		"model": "gpt-5",
+		"status": "completed",
+		"output": [{
+			"type": "function_call",
+			"id": "fc_123",
+			"call_id": "call_123",
+			"name": "search_project",
+			"arguments": "{\"query\":\"status\"}",
+			"status": "completed"
+		}]
+	}`)
+
+	converted, err := convertResponse(input, ProtocolOpenAIChat, ProtocolOpenAIResponses)
+	if err != nil {
+		t.Fatalf("convertResponse() error = %v", err)
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(converted, &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	choices, ok := body["choices"].([]interface{})
+	if !ok || len(choices) != 1 {
+		t.Fatalf("choices = %#v, want one choice", body["choices"])
+	}
+	choice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("choice = %T, want map[string]interface{}", choices[0])
+	}
+	if got := choice["finish_reason"]; got != "tool_calls" {
+		t.Fatalf("finish_reason = %v, want tool_calls", got)
+	}
+
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("message = %#v, want object", choice["message"])
+	}
+	toolCalls, ok := message["tool_calls"].([]interface{})
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("message.tool_calls = %#v, want one tool call", message["tool_calls"])
+	}
+	toolCall, ok := toolCalls[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tool_call = %T, want map[string]interface{}", toolCalls[0])
+	}
+	if got := toolCall["id"]; got != "call_123" {
+		t.Fatalf("tool_call.id = %v, want call_123", got)
+	}
+	fn, ok := toolCall["function"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tool_call.function = %#v, want object", toolCall["function"])
+	}
+	if got := fn["name"]; got != "search_project" {
+		t.Fatalf("function.name = %v, want search_project", got)
+	}
+	if got := fn["arguments"]; got != `{"query":"status"}` {
+		t.Fatalf("function.arguments = %v, want query JSON", got)
+	}
+}
+
 func TestConvertChatStreamToResponsesStartsTextItemBeforeDelta(t *testing.T) {
 	state := newStreamConversionState()
 	start := []byte(`{"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`)
