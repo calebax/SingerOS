@@ -37,6 +37,10 @@ cd apps/desktop && pnpm preview  # electron-vite preview
 cd packages/ui && pnpm typecheck # tsc --noEmit
 cd packages/ui && pnpm lint      # biome check
 
+# 应用级 UI 包
+cd packages/app-ui && pnpm typecheck
+cd packages/app-ui && pnpm lint
+
 # Store 包
 cd packages/store && pnpm typecheck
 cd packages/store && pnpm lint
@@ -67,6 +71,7 @@ cd packages/store && pnpm lint
 turbo build --filter=@leros/web       # 只构建 Web
 turbo dev --filter=@leros/desktop     # 只启动 Desktop
 turbo typecheck --filter=@leros/ui    # 只检查 UI 包
+turbo typecheck --filter=@leros/app-ui # 只检查应用级 UI 包
 ```
 
 ## 路径别名与导入
@@ -92,9 +97,41 @@ import { ThemeProvider } from "@leros/ui/components/common/theme-provider";
 import { useAppStore, useChatStore } from "@leros/store";
 import type { Message, ToolCall } from "@leros/store/types/chat";
 
+// 导入应用级共享 UI
+import { Shell } from "@leros/app-ui/components/layout/Shell";
+import { ChatInput } from "@leros/app-ui/components/input/ChatInput";
+
 // 导入 Hooks
 import { useMobile } from "@leros/ui/hooks/use-mobile";
 import { useSSE } from "@leros/ui/hooks/use-sse";
+```
+
+### 共享包职责边界
+
+| 包 | 职责 | 可依赖 |
+|----|------|--------|
+| `@leros/app-ui` | Leros 产品级业务组合组件，如 Shell、Chat、DigitalAssistant | `@leros/ui`, `@leros/store` |
+| `@leros/ui` | 基础 UI 原语、通用 hooks、lib 工具、设计系统样式 | 第三方 UI/工具库 |
+| `@leros/store` | Zustand 状态、领域类型、API client、mock 数据 | `@leros/ui` 中的纯工具（如需要） |
+
+新增双端共享业务组件时，优先放入 `packages/app-ui`。仅 Web 或 Desktop 独有的入口、路由、资源路径或平台能力适配，才放在对应 `apps/*` 目录。
+
+### @leros/app-ui 导出路径
+
+应用级 UI 包按组件目录暴露子路径：
+
+```json
+// packages/app-ui/package.json exports
+{
+  ".": "./index.ts",
+  "./components/*": "./components/*.tsx"
+}
+```
+
+推荐从明确子路径导入页面入口组件：
+
+```ts
+import { Shell } from "@leros/app-ui/components/layout/Shell";
 ```
 
 ### @leros/ui 导出路径
@@ -136,7 +173,7 @@ UI 包使用细粒度 `exports` 映射，确保按需加载：
 |------|------|----------|
 | `base.json` | strict + ESNext + bundler | 所有子包基线 |
 | `next.json` | 继承 base + Next.js 插件 | `apps/web` |
-| `react-library.json` | 继承 base + react-jsx | `packages/ui`, `packages/store` |
+| `react-library.json` | 继承 base + react-jsx | `packages/app-ui`, `packages/ui`, `packages/store` |
 
 ### base.json 关键规则
 
@@ -159,6 +196,9 @@ UI 包使用细粒度 `exports` 映射，确保按需加载：
 { "extends": "@leros/tsconfig/next.json" }
 
 // packages/ui/tsconfig.json
+{ "extends": "@leros/tsconfig/react-library.json" }
+
+// packages/app-ui/tsconfig.json
 { "extends": "@leros/tsconfig/react-library.json" }
 
 // packages/store/tsconfig.json
@@ -250,9 +290,20 @@ Web 应用使用 PostCSS 方式：
 @import "tailwindcss";
 @import "@leros/ui/styles/tokens.css";
 @import "@leros/ui/styles/base.css";
+@source "../../../packages/app-ui/**/*.tsx";
 ```
 
 Desktop 应用使用 Vite 插件方式（`@tailwindcss/vite`），在 `electron.vite.config.ts` 中配置。
+
+TailwindCSS 4 需要通过 `@source` 扫描 workspace 里的应用级组件。若 `@leros/app-ui` 中新增了 Tailwind class，需要确认 Web 与 Desktop 的全局 CSS 都包含对应 `@source`：
+
+```css
+/* apps/web/app/globals.css */
+@source "../../../packages/app-ui/**/*.tsx";
+
+/* apps/desktop/src/renderer/src/globals.css */
+@source "../../../../../packages/app-ui/**/*.tsx";
+```
 
 ### 设计系统
 

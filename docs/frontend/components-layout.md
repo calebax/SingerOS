@@ -52,19 +52,17 @@
 ## 布局组件目录
 
 ```
-components/layout/
-├── Shell.tsx           # 三栏布局容器
-├── BasicLayout.tsx     # 主布局：侧边栏 + 头部 + 标签页 + 内容 + AI浮动
-├── BlankLayout.tsx     # 空白布局（登录/原型编辑器）
-├── LeftRail.tsx        # 左栏 - 会话导航
+packages/app-ui/components/layout/
+├── Shell.tsx           # 双端共享三栏布局容器
+├── LeftRail.tsx        # 左栏 - 工作台/任务/技能/知识库/AI队友导航
 ├── CenterCanvas.tsx    # 中栏 - 聊天交互区
+├── ConversationListPanel.tsx # 会话列表面板
 ├── RightRail.tsx       # 右栏 - 快捷/收件/工件
-├── Sidebar.tsx         # 侧边栏导航
-├── Header.tsx          # 顶部栏
-├── PageTabs.tsx        # 多标签页切换
-├── NotificationPopover.tsx # 通知弹出面板
+├── WorkbenchPanel.tsx  # 工作台占位/入口面板
 └── index.ts            # barrel 导出
 ```
+
+`Shell`、`LeftRail`、`CenterCanvas`、`ChatInput`、消息时间轴和 DigitalAssistant 相关组件位于 `@leros/app-ui`，由 Web 与 Desktop 共同复用。应用目录只保留入口、路由、全局样式和必要的平台适配。
 
 ## UI 原语组件层 (`components/ui/`)
 
@@ -93,34 +91,19 @@ const buttonVariants = cva('基础样式', {
 
 accordion, alert, alert-dialog, aspect-ratio, avatar, badge, breadcrumb, button, button-group, calendar, card, carousel, chart, checkbox, collapsible, combobox, command, context-menu, dialog, drawer, dropdown-menu, empty, field, form, hover-card, input, input-group, input-otp, item, kbd, label, menubar, navigation-menu, pagination, popover, progress, radio-group, resizable, scroll-area, select, separator, sheet, sidebar, skeleton, slider, sonner, spinner, switch, table, tabs, textarea, toggle, toggle-group, tooltip
 
-## 业务组件库 (`components/business/`)
+## 应用级业务组件库 (`packages/app-ui/components/`)
 
-基于 ui 原语组合的业务 UI 库：
+`@leros/app-ui` 基于 `@leros/ui` 原语和 `@leros/store` 状态组合 Leros 产品级业务 UI：
 
 ```
-components/business/
-├── index.ts           # 统一导出
-├── ProTable.tsx       # 高级数据表格
-├── DialogForm.tsx     # 对话框表单
-├── PopForm.tsx        # 弹出式表单
-├── SearchToolbar.tsx  # 搜索工具栏
-├── TableActions.tsx   # 表格操作列
-├── DeleteRecord.tsx   # 删除确认
-├── DeptTree.tsx       # 部门树
-├── MemberPicker.tsx   # 成员选择器
-├── MemberWizard.tsx   # 成员向导
-├── PopoverSelect.tsx  # 弹出选择器
-├── Editor.tsx         # TipTap 富文本编辑器
-├── Icon.tsx           # 图标组件
-├── AiAssistButton.tsx # AI 辅助按钮
-├── BugTracking.tsx    # Bug 追踪
-├── StoryTracking.tsx  # Story 追踪
-├── WorkItem.tsx       # 工作项
-├── ActiveTaskIndicator.tsx # 全局任务执行指示器
-├── BrowserPreview.tsx # 浏览器预览
-├── DockerTerminal.tsx # Docker 终端 (xterm.js)
-└── utils/             # 业务工具函数
+packages/app-ui/components/
+├── chat/              # AI/User 消息气泡、时间轴、工具调用、欢迎页
+├── input/             # ChatInput
+├── layout/            # Shell、LeftRail、CenterCanvas、WorkbenchPanel
+└── digitalAssistant/  # Assistant 列表、卡片、详情、创建/编辑/删除弹窗
 ```
+
+新增双端共享业务组件时，优先放入 `packages/app-ui/components`。只有平台专属能力（如 Electron 资源路径、Web 专属路由入口）才放入 `apps/web` 或 `apps/desktop`。
 
 ## AI 浮动助手组件 (`components/ai-float/`)
 
@@ -136,22 +119,20 @@ components/ai-float/
 ## 依赖关系图
 
 ```
-App.tsx
-  └─ Provider (主题注入 + Store Provider)
-  └─ RouterProvider
-      ├─ BlankLayout → login
-      ├─ Shell (三栏布局) → chat 页面
-      └─ BasicLayout
-          ├─ Sidebar (menus.ts 菜单配置 + pluginStore 动态菜单)
-          ├─ Header (用户信息 · 通知 · 任务指示器)
-          ├─ PageTabs (tabsStore)
-          ├─ Content → Outlet (各业务页面)
-          ├─ AiFloat (全局 AI 浮动助手)
-          └─ 强制改密码弹窗 (userStore.mustChangePassword)
+apps/web/app/page.tsx
+  └─ @leros/app-ui Shell
+      ├─ LeftRail
+      ├─ CenterCanvas
+      │   ├─ ChatHeader
+      │   ├─ MessageTimeline
+      │   └─ ChatInput
+      └─ WorkbenchPanel / AssistantListView
 
-每个业务页面:
-  └─ business 组件 (ProTable · DialogForm · SearchToolbar)
-  └─ hooks (useCrudPage · useDialogForm)
-  └─ API 模块
-  └─ Slice 模块
+apps/desktop/src/renderer/src/routes.tsx
+  └─ @leros/app-ui Shell
+      └─ 同一套 layout/chat/input/digitalAssistant 组件
+
+@leros/app-ui
+  └─ @leros/store (状态)
+  └─ @leros/ui (基础 UI 原语)
 ```

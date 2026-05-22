@@ -38,7 +38,7 @@ frontend/
 ├── apps/                          # 应用入口
 │   ├── web/                       # @leros/web — Next.js Web 应用
 │   │   ├── app/                   # App Router 页面 (layout + page + globals.css)
-│   │   ├── components/            # Web 业务组件 (chat/input/layout)
+│   │   ├── components/            # Web 专属组件/平台适配
 │   │   ├── next.config.ts         # transpilePackages 配置
 │   │   └── tsconfig.json
 │   │
@@ -58,6 +58,11 @@ frontend/
 │   │   ├── lib/                   # request, sse, websocket, utils
 │   │   ├── styles/                # tokens.css, base.css (设计系统)
 │   │   └── package.json           # 细粒度 exports 路径映射
+│   │
+│   ├── app-ui/                    # @leros/app-ui — 双端共享应用级业务 UI
+│   │   ├── components/            # chat / input / layout / digitalAssistant
+│   │   ├── index.ts               # 统一导出应用级组件
+│   │   └── package.json           # 子路径 exports
 │   │
 │   ├── store/                     # @leros/store — Zustand 状态管理
 │   │   ├── appStore.ts            # 合并 layoutSlice + topicSlice + chatSlice
@@ -91,11 +96,12 @@ frontend/
 │  @leros/web (Next.js)    @leros/desktop (Electron) │
 ├──────────────────────────────────────────────────────────┤
 │              Packages (共享层)                              │
-│  @leros/ui (组件+Hooks+工具库)   @leros/store (状态) │
+│  @leros/app-ui (应用级业务UI)    @leros/store (状态) │
+│  @leros/ui (基础UI+Hooks+工具库)                           │
 │  @leros/tsconfig (TS配置)  @leros/biome (Lint配置)   │
 ├──────────────────────────────────────────────────────────┤
-│               App 组件 (各端业务)                           │
-│  chat (气泡+时间轴) · input (输入框) · layout (Shell布局)  │
+│               App 入口 (平台差异)                           │
+│  Next.js App Router · Electron BrowserRouter · 资源路径适配 │
 ├──────────────────────────────────────────────────────────┤
 │               Store (Zustand Slice 模式)                  │
 │  layout · topic · chat  (合并为 AppStore)                │
@@ -132,9 +138,20 @@ Web 应用需显式配置 `transpilePackages` 以正确引用 workspace 包：
 ```ts
 // apps/web/next.config.ts
 const nextConfig: NextConfig = {
-  transpilePackages: ["@leros/ui", "@leros/store"],
+  transpilePackages: ["@leros/ui", "@leros/store", "@leros/app-ui"],
 };
 ```
+
+### 应用级 UI 共享包
+
+`@leros/app-ui` 承载 Web 与 Desktop 共用的业务组合组件：
+
+- `components/layout`：`Shell`、`LeftRail`、`CenterCanvas`、`WorkbenchPanel`
+- `components/chat`：消息气泡、时间轴、欢迎页、工具调用展示
+- `components/input`：`ChatInput`
+- `components/digitalAssistant`：列表、详情、创建/编辑/删除弹窗
+
+该包位于 `packages/app-ui`，依赖 `@leros/ui` 与 `@leros/store`。应用入口只负责路由、主题、平台资源注入和运行时差异；双端复用的业务 UI 不应再在 `apps/web` 与 `apps/desktop` 中重复实现。
 
 ### Electron-Vite React 去重
 
@@ -153,14 +170,14 @@ renderer: {
 
 ### Web 入口层
 
-`app/layout.tsx` (RootLayout) → `app/page.tsx` (→ Shell)
+`app/layout.tsx` (RootLayout) → `app/page.tsx` (→ `@leros/app-ui` Shell)
 
 - ThemeProvider + Toaster 包裹全局
 - Next.js App Router 自动处理路由
 
 ### Desktop 入口层
 
-`main/index.ts` (Electron 主进程) → `preload/index.ts` → `renderer/src/main.tsx` → `App.tsx` → `routes.tsx` (→ Shell)
+`main/index.ts` (Electron 主进程) → `preload/index.ts` → `renderer/src/main.tsx` → `App.tsx` → `routes.tsx` (→ `@leros/app-ui` Shell)
 
 - BrowserRouter + ThemeProvider + Toaster 包裹渲染进程
 - Electron 主进程通过 `electron-vite` 管理
