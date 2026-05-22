@@ -9,6 +9,14 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
+// DigitalAssistantQuery 数字助手列表查询参数
+type DigitalAssistantQuery struct {
+	PageQuery
+	OwnerID *uint
+	Status  *string
+	Keyword *string
+}
+
 // CreateDigitalAssistant 创建数字助手
 func CreateDigitalAssistant(ctx context.Context, db *gorm.DB, da *types.DigitalAssistant) error {
 	return db.WithContext(ctx).Create(da).Error
@@ -64,33 +72,38 @@ func DigitalAssistantCodeExists(ctx context.Context, db *gorm.DB, code string, e
 	return count > 0, nil
 }
 
-// ListDigitalAssistant 分页查询数字助手列表
-func ListDigitalAssistant(ctx context.Context, db *gorm.DB, orgID *uint, ownerID *uint, status *string, keyword *string, offset, limit int) ([]*types.DigitalAssistant, int64, error) {
+// ListDigitalAssistant 查询数字助手列表
+func ListDigitalAssistant(ctx context.Context, db *gorm.DB, opt *DigitalAssistantQuery) ([]*types.DigitalAssistant, int64, error) {
 	var entities []*types.DigitalAssistant
 	var total int64
 
 	query := db.WithContext(ctx).Model(&types.DigitalAssistant{})
 
-	if orgID != nil {
-		query = query.Where("org_id = ?", *orgID)
+	if opt.OrgID > 0 {
+		query = query.Where("org_id = ?", opt.OrgID)
 	}
-	if ownerID != nil {
-		query = query.Where("owner_id = ?", *ownerID)
+	if opt.OwnerID != nil {
+		query = query.Where("owner_id = ?", *opt.OwnerID)
 	}
-	if status != nil {
-		query = query.Where("status = ?", *status)
+	if opt.Status != nil {
+		query = query.Where("status = ?", *opt.Status)
 	}
-	if keyword != nil && *keyword != "" {
-		query = query.Where("name LIKE ? OR code LIKE ? OR description LIKE ?", "%"+*keyword+"%", "%"+*keyword+"%", "%"+*keyword+"%")
+	if opt.Keyword != nil && *opt.Keyword != "" {
+		query = query.Where("name LIKE ? OR code LIKE ? OR description LIKE ?", "%"+*opt.Keyword+"%", "%"+*opt.Keyword+"%", "%"+*opt.Keyword+"%")
 	}
 
-	err := query.Count(&total).Error
-	if err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	err = query.Offset(offset).Limit(limit).Order("created_at DESC").Find(&entities).Error
-	if err != nil {
+	query = query.Order("created_at DESC").Offset(opt.Offset)
+	if !opt.ListAll && opt.Limit > 0 {
+		query = query.Limit(opt.Limit)
+	} else {
+		query = query.Limit(150)
+	}
+
+	if err := query.Find(&entities).Error; err != nil {
 		return nil, 0, err
 	}
 

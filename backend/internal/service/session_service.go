@@ -156,19 +156,15 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 	}
 
 	sessionType := (*types.SessionType)(req.Type)
-	sessions, total, err := db.ListSessions(
-		ctx,
-		s.db,
-		sessionType,
-		req.Status,
-		uin,
-		orgID,
-		req.AssistantID,
-		req.AssistantCode,
-		req.Keyword,
-		req.Offset,
-		req.Limit,
-	)
+	sessions, total, err := db.ListSessions(ctx, s.db, &db.SessionQuery{
+		PageQuery:     db.PageQuery{OrgID: *orgID, Offset: req.Offset, Limit: req.Limit},
+		Type:          sessionType,
+		Status:        req.Status,
+		UserID:        uin,
+		AssistantID:   req.AssistantID,
+		AssistantCode: req.AssistantCode,
+		Keyword:       req.Keyword,
+	})
 	if err != nil {
 		return nil, err
 	}

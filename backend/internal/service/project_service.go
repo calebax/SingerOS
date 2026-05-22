@@ -175,11 +175,11 @@ func (s *projectService) ListProjects(ctx context.Context, req *contract.ListPro
 	}
 	req.Fill()
 
-	opt := &db.ProjectQuery{
-		OrgID:   caller.OrgID,
-		Uin:     caller.Uin,
-		Offset:  req.Offset,
-		Limit:   req.Limit,
+	opt := &db.PageQuery{
+		OrgID:  caller.OrgID,
+		Uin:    caller.Uin,
+		Offset: req.Offset,
+		Limit:  req.Limit,
 		ListAll: req.ListAll,
 	}
 	if req.Keyword != nil && *req.Keyword != "" {
@@ -189,17 +189,17 @@ func (s *projectService) ListProjects(ctx context.Context, req *contract.ListPro
 		opt.Filters = append(opt.Filters, db.Filter{Field: "status", Value: []string{*req.Status}})
 	}
 
-	var ret db.ListProjectsResponse
-	if err := db.ListProjects(ctx, s.db, opt, &ret); err != nil {
+	projects, total, err := db.ListProjects(ctx, s.db, opt)
+	if err != nil {
 		return nil, err
 	}
 
-	items := make([]contract.Project, 0, len(ret.Items))
-	for _, project := range ret.Items {
+	items := make([]contract.Project, 0, len(projects))
+	for _, project := range projects {
 		items = append(items, *convertToContractProject(project))
 	}
 	return &contract.ProjectList{
-		Total:  ret.Total,
+		Total:  total,
 		Offset: req.Offset,
 		Limit:  req.Limit,
 		Items:  items,

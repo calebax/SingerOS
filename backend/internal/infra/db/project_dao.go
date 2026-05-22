@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
@@ -12,24 +11,6 @@ import (
 
 	"github.com/insmtx/Leros/backend/types"
 )
-
-// ProjectQuery 项目列表查询参数
-type ProjectQuery struct {
-	Filters []Filter
-	OrderBy []string
-	OrgID   uint
-	Uin     uint
-	Offset  int
-	Limit   int
-	ListAll bool
-}
-
-// Filter 过滤条件
-type Filter struct {
-	Field      string
-	Value      []string
-	ExactMatch bool
-}
 
 // CreateProject 创建项目
 func CreateProject(ctx context.Context, db *gorm.DB, project *types.Project) error {
@@ -79,16 +60,11 @@ func GetProjectSession(ctx context.Context, db *gorm.DB, projectID uint) (*types
 	return &entity, nil
 }
 
-// ListProjectsResponse 项目列表查询结果
-type ListProjectsResponse struct {
-	Total  int64            `json:"total"`
-	Offset int              `json:"offset"`
-	Limit  int              `json:"limit"`
-	Items  []*types.Project `json:"items"`
-}
+// ListProjects 查询项目列表，使用 PageQuery 作为查询参数
+func ListProjects(ctx context.Context, d *gorm.DB, opt *PageQuery) ([]*types.Project, int64, error) {
+	var entities []*types.Project
+	var total int64
 
-// ListProjects 查询项目列表，使用 ProjectQuery 作为查询参数
-func ListProjects(ctx context.Context, d *gorm.DB, opt *ProjectQuery, ret *ListProjectsResponse) error {
 	query := d.WithContext(ctx).Table(types.TableNameProject).
 		Where("org_id = ? AND deleted_at IS NULL", opt.OrgID)
 
@@ -98,13 +74,7 @@ func ListProjects(ctx context.Context, d *gorm.DB, opt *ProjectQuery, ret *ListP
 			if filter.ExactMatch {
 				query = query.Where("name IN (?)", filter.Value)
 			} else {
-				conds := make([]string, len(filter.Value))
-				vals := make([]interface{}, len(filter.Value))
-				for i, v := range filter.Value {
-					conds[i] = "name LIKE ?"
-					vals[i] = "%" + v + "%"
-				}
-				query = query.Where(strings.Join(conds, " OR "), vals...)
+				query = query.Where("name LIKE ?", "%"+filter.Value[0]+"%")
 			}
 		case "status":
 			query = query.Where("status IN (?)", filter.Value)
@@ -112,15 +82,14 @@ func ListProjects(ctx context.Context, d *gorm.DB, opt *ProjectQuery, ret *ListP
 			query = query.Where("public_id IN (?)", filter.Value)
 		default:
 			logs.WarnContextf(ctx, "[project][ListProjects] invalid filter field: %s", filter.Field)
-			return fmt.Errorf("invalid filter field: %s", filter.Field)
 		}
 	}
 
-	if err := query.Count(&ret.Total).Error; err != nil {
-		return err
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	if ret.Total == 0 {
-		return nil
+	if total == 0 {
+		return nil, 0, nil
 	}
 
 	if len(opt.OrderBy) > 0 {
@@ -136,9 +105,8 @@ func ListProjects(ctx context.Context, d *gorm.DB, opt *ProjectQuery, ret *ListP
 		query = query.Limit(150)
 	}
 
-	err := query.Find(&ret.Items).Error
-	if err != nil {
-		return err
+	if err := query.Find(&entities).Error; err != nil {
+		return nil, 0, err
 	}
-	return nil
+	return entities, total, nil
 }

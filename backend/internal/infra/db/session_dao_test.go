@@ -373,7 +373,7 @@ func TestListSessions_ByType(t *testing.T) {
 	}
 
 	typeFilter := types.SessionTypeUserChat
-	sessions, total, err := ListSessions(ctx, db, &typeFilter, nil, nil, nil, nil, nil, nil, 0, 20)
+	sessions, total, err := ListSessions(ctx, db, &SessionQuery{Type: &typeFilter, PageQuery: PageQuery{Limit: 20}})
 	if err != nil {
 		t.Fatalf("ListSessions failed: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestListSessions_ByStatus(t *testing.T) {
 	}
 
 	statusFilter := string(types.SessionStatusActive)
-	sessions, total, err := ListSessions(ctx, db, nil, &statusFilter, nil, nil, nil, nil, nil, 0, 20)
+	sessions, total, err := ListSessions(ctx, db, &SessionQuery{Status: &statusFilter, PageQuery: PageQuery{Limit: 20}})
 	if err != nil {
 		t.Fatalf("ListSessions failed: %v", err)
 	}
@@ -451,7 +451,7 @@ func TestListSessions_ByKeyword(t *testing.T) {
 	}
 
 	keyword := "Alpha"
-	sessions, total, err := ListSessions(ctx, db, nil, nil, nil, nil, nil, nil, &keyword, 0, 20)
+	sessions, total, err := ListSessions(ctx, db, &SessionQuery{Keyword: &keyword, PageQuery: PageQuery{Limit: 20}})
 	if err != nil {
 		t.Fatalf("ListSessions failed: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestListSessions_Pagination(t *testing.T) {
 		}
 	}
 
-	sessions, total, err := ListSessions(ctx, db, nil, nil, nil, nil, nil, nil, nil, 0, 2)
+	sessions, total, err := ListSessions(ctx, db, &SessionQuery{PageQuery: PageQuery{Limit: 2}})
 	if err != nil {
 		t.Fatalf("ListSessions failed: %v", err)
 	}

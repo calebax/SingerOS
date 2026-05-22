@@ -10,6 +10,17 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
+// SessionQuery 会话列表查询参数
+type SessionQuery struct {
+	PageQuery
+	Type          *types.SessionType
+	Status        *string
+	UserID        *uint
+	AssistantID   *uint
+	AssistantCode *string
+	Keyword       *string
+}
+
 // CreateSession 创建会话
 func CreateSession(ctx context.Context, db *gorm.DB, session *types.Session) error {
 	return db.WithContext(ctx).Create(session).Error
@@ -80,42 +91,47 @@ func ExpireSessions(ctx context.Context, db *gorm.DB) error {
 		Update("status", string(types.SessionStatusExpired)).Error
 }
 
-// ListSessions 分页查询会话列表
-func ListSessions(ctx context.Context, db *gorm.DB, sessionType *types.SessionType, status *string, userID *uint, orgID *uint, assistantID *uint, assistantCode *string, keyword *string, offset, limit int) ([]*types.Session, int64, error) {
+// ListSessions 查询会话列表
+func ListSessions(ctx context.Context, db *gorm.DB, opt *SessionQuery) ([]*types.Session, int64, error) {
 	var entities []*types.Session
 	var total int64
 
 	query := db.WithContext(ctx).Model(&types.Session{})
 
-	if sessionType != nil && *sessionType != "" {
-		query = query.Where("type = ?", *sessionType)
+	if opt.Type != nil && *opt.Type != "" {
+		query = query.Where("type = ?", *opt.Type)
 	}
-	if status != nil && *status != "" {
-		query = query.Where("status = ?", *status)
+	if opt.Status != nil && *opt.Status != "" {
+		query = query.Where("status = ?", *opt.Status)
 	}
-	if userID != nil && *userID > 0 {
-		query = query.Where("uin = ?", *userID)
+	if opt.UserID != nil && *opt.UserID > 0 {
+		query = query.Where("uin = ?", *opt.UserID)
 	}
-	if orgID != nil && *orgID > 0 {
-		query = query.Where("org_id = ?", *orgID)
+	if opt.OrgID > 0 {
+		query = query.Where("org_id = ?", opt.OrgID)
 	}
-	if assistantID != nil && *assistantID > 0 {
-		query = query.Where("assistant_id = ?", *assistantID)
+	if opt.AssistantID != nil && *opt.AssistantID > 0 {
+		query = query.Where("assistant_id = ?", *opt.AssistantID)
 	}
-	if assistantCode != nil && *assistantCode != "" {
-		query = query.Where("assistant_code = ?", *assistantCode)
+	if opt.AssistantCode != nil && *opt.AssistantCode != "" {
+		query = query.Where("assistant_code = ?", *opt.AssistantCode)
 	}
-	if keyword != nil && *keyword != "" {
-		query = query.Where("title LIKE ? OR public_id LIKE ?", "%"+*keyword+"%", "%"+*keyword+"%")
+	if opt.Keyword != nil && *opt.Keyword != "" {
+		query = query.Where("title LIKE ? OR public_id LIKE ?", "%"+*opt.Keyword+"%", "%"+*opt.Keyword+"%")
 	}
 
-	err := query.Count(&total).Error
-	if err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	err = query.Offset(offset).Limit(limit).Order("created_at DESC").Find(&entities).Error
-	if err != nil {
+	query = query.Order("created_at DESC").Offset(opt.Offset)
+	if !opt.ListAll && opt.Limit > 0 {
+		query = query.Limit(opt.Limit)
+	} else {
+		query = query.Limit(150)
+	}
+
+	if err := query.Find(&entities).Error; err != nil {
 		return nil, 0, err
 	}
 

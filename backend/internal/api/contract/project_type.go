@@ -34,22 +34,7 @@ type UpdateProjectRequest struct {
 type ListProjectsRequest struct {
 	Keyword *string `json:"keyword,omitempty"`
 	Status  *string `json:"status,omitempty"`
-	Offset  int     `json:"offset,omitempty"`
-	Limit   int     `json:"limit,omitempty"`
-	ListAll bool    `json:"list_all,omitempty"`
-}
-
-// Fill 设置分页默认值
-func (r *ListProjectsRequest) Fill() {
-	if r.Offset < 0 {
-		r.Offset = 0
-	}
-	if r.Limit <= 0 || r.Limit > 150 {
-		r.Limit = 10
-	}
-	if r.ListAll {
-		r.Limit = 150
-	}
+	Pagination
 }
 
 // ProjectList 项目列表响应

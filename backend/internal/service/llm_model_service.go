@@ -219,7 +219,12 @@ func (s *llmModelService) ListLLMModels(ctx context.Context, req *contract.ListL
 		return nil, err
 	}
 
-	models, total, err := db.ListLLMModels(ctx, s.db, &caller.OrgID, req.Provider, req.Status, req.Keyword, req.Offset, req.Limit)
+	models, total, err := db.ListLLMModels(ctx, s.db, &db.LLMModelQuery{
+		PageQuery: db.PageQuery{OrgID: caller.OrgID, Offset: req.Offset, Limit: req.Limit},
+		Provider:  req.Provider,
+		Status:    req.Status,
+		Keyword:   req.Keyword,
+	})
 	if err != nil {
 		return nil, err
 	}

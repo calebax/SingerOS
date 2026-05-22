@@ -192,7 +192,11 @@ func (s *digitalAssistantService) ListDigitalAssistant(ctx context.Context, req 
 		return nil, err
 	}
 
-	entities, total, err := db.ListDigitalAssistant(ctx, s.db, &orgID, nil, req.Status, req.Keyword, req.Offset, req.Limit)
+	entities, total, err := db.ListDigitalAssistant(ctx, s.db, &db.DigitalAssistantQuery{
+		PageQuery: db.PageQuery{OrgID: orgID, Offset: req.Offset, Limit: req.Limit},
+		Status:    req.Status,
+		Keyword:   req.Keyword,
+	})
 
 	if err != nil {
 		return nil, err

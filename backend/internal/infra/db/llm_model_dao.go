@@ -9,6 +9,14 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
+// LLMModelQuery LLM模型配置列表查询参数
+type LLMModelQuery struct {
+	PageQuery
+	Provider *string
+	Status   *string
+	Keyword  *string
+}
+
 // CreateLLMModel 创建LLM模型配置
 func CreateLLMModel(ctx context.Context, db *gorm.DB, model *types.LLMModel) error {
 	return db.WithContext(ctx).Create(model).Error
@@ -66,34 +74,39 @@ func DeleteLLMModel(ctx context.Context, db *gorm.DB, id uint) error {
 	return db.WithContext(ctx).Delete(&types.LLMModel{}, id).Error
 }
 
-// ListLLMModels 分页查询LLM模型配置列表
-func ListLLMModels(ctx context.Context, db *gorm.DB, orgID *uint, provider *string, status *string, keyword *string, offset, limit int) ([]*types.LLMModel, int64, error) {
+// ListLLMModels 查询LLM模型配置列表
+func ListLLMModels(ctx context.Context, db *gorm.DB, opt *LLMModelQuery) ([]*types.LLMModel, int64, error) {
 	var entities []*types.LLMModel
 	var total int64
 
 	query := db.WithContext(ctx).Model(&types.LLMModel{})
 
-	if orgID != nil && *orgID > 0 {
-		query = query.Where("org_id = ?", *orgID)
+	if opt.OrgID > 0 {
+		query = query.Where("org_id = ?", opt.OrgID)
 	}
-	if provider != nil && *provider != "" {
-		query = query.Where("provider = ?", *provider)
+	if opt.Provider != nil && *opt.Provider != "" {
+		query = query.Where("provider = ?", *opt.Provider)
 	}
-	if status != nil && *status != "" {
-		query = query.Where("status = ?", *status)
+	if opt.Status != nil && *opt.Status != "" {
+		query = query.Where("status = ?", *opt.Status)
 	}
-	if keyword != nil && *keyword != "" {
+	if opt.Keyword != nil && *opt.Keyword != "" {
 		query = query.Where("name LIKE ? OR code LIKE ? OR model LIKE ? OR description LIKE ?",
-			"%"+*keyword+"%", "%"+*keyword+"%", "%"+*keyword+"%", "%"+*keyword+"%")
+			"%"+*opt.Keyword+"%", "%"+*opt.Keyword+"%", "%"+*opt.Keyword+"%", "%"+*opt.Keyword+"%")
 	}
 
-	err := query.Count(&total).Error
-	if err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	err = query.Offset(offset).Limit(limit).Order("is_default DESC, created_at DESC").Find(&entities).Error
-	if err != nil {
+	query = query.Order("is_default DESC, created_at DESC").Offset(opt.Offset)
+	if !opt.ListAll && opt.Limit > 0 {
+		query = query.Limit(opt.Limit)
+	} else {
+		query = query.Limit(150)
+	}
+
+	if err := query.Find(&entities).Error; err != nil {
 		return nil, 0, err
 	}
 
