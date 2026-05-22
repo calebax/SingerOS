@@ -11,6 +11,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
+	"github.com/ygpkg/yg-go/apis/apiobj"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
 
@@ -168,17 +169,27 @@ func (s *projectService) DeleteProject(ctx context.Context, publicID string) err
 	})
 }
 
-func (s *projectService) ListProjects(ctx context.Context, opt *contract.ListProjectQuery) (*contract.ProjectList, error) {
+func (s *projectService) ListProjects(ctx context.Context, req *contract.ListProjectsRequest) (*contract.ProjectList, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := opt.Validate(); err != nil {
-		return nil, err
+	req.Fill()
+
+	opt := &apiobj.PageQuery{
+		Offset:  req.Offset,
+		Limit:   req.Limit,
+		ListAll: req.ListAll,
+	}
+	if req.Keyword != nil && *req.Keyword != "" {
+		opt.Filters = append(opt.Filters, apiobj.Filter{Field: "name", Value: []string{*req.Keyword}})
+	}
+	if req.Status != nil && *req.Status != "" {
+		opt.Filters = append(opt.Filters, apiobj.Filter{Field: "status", Value: []string{*req.Status}})
 	}
 
 	var ret db.ListProjectsResponse
-	if err := db.ListProjects(ctx, s.db, caller.OrgID, &opt.PageQuery, &ret); err != nil {
+	if err := db.ListProjects(ctx, s.db, caller.OrgID, opt, &ret); err != nil {
 		return nil, err
 	}
 
@@ -188,8 +199,8 @@ func (s *projectService) ListProjects(ctx context.Context, opt *contract.ListPro
 	}
 	return &contract.ProjectList{
 		Total:  ret.Total,
-		Offset: opt.Offset,
-		Limit:  opt.Limit,
+		Offset: req.Offset,
+		Limit:  req.Limit,
 		Items:  items,
 	}, nil
 }

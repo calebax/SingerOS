@@ -1,12 +1,6 @@
 package contract
 
-import (
-	"fmt"
-	"net/http"
-	"time"
-
-	"github.com/ygpkg/yg-go/apis/apiobj"
-)
+import "time"
 
 // Project 项目响应结构
 type Project struct {
@@ -36,38 +30,26 @@ type UpdateProjectRequest struct {
 	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// ListProjectQuery 查询项目列表请求，基于 apiobj.PageQuery
-type ListProjectQuery struct {
-	apiobj.PageQuery
-}
-
-// AllowFilterFields 实现 apiobj.allowFilterFielder 接口
-func (ListProjectQuery) AllowFilterFields() []string {
-	return []string{"name", "status", "public_id"}
-}
-
-// AllowOrderFields 实现 apiobj.allowOrderFielder 接口
-func (ListProjectQuery) AllowOrderFields() []string {
-	return []string{"created_at", "updated_at", "name"}
+// ListProjectsRequest 查询项目列表请求
+type ListProjectsRequest struct {
+	Keyword *string `json:"keyword,omitempty"`
+	Status  *string `json:"status,omitempty"`
+	Offset  int     `json:"offset,omitempty"`
+	Limit   int     `json:"limit,omitempty"`
+	ListAll bool    `json:"list_all,omitempty"`
 }
 
 // Fill 设置分页默认值
-func (q *ListProjectQuery) Fill(req *http.Request) {
-	q.PageQuery.Fill(req)
-	if err := q.PageQuery.IsValite(q); err != nil {
-		// 校验错误在 handler 层处理
+func (r *ListProjectsRequest) Fill() {
+	if r.Offset < 0 {
+		r.Offset = 0
 	}
-}
-
-// Validate 校验查询参数
-func (q *ListProjectQuery) Validate() error {
-	if err := q.PageQuery.IsValite(q); err != nil {
-		return err
+	if r.Limit <= 0 || r.Limit > 150 {
+		r.Limit = 10
 	}
-	if q.Offset <= 0 {
-		q.Offset = 0
+	if r.ListAll {
+		r.Limit = 150
 	}
-	return nil
 }
 
 // ProjectList 项目列表响应
@@ -76,15 +58,4 @@ type ProjectList struct {
 	Offset int       `json:"offset"`
 	Limit  int       `json:"limit"`
 	Items  []Project `json:"items"`
-}
-
-// Validate 校验项目名称
-func (p *Project) Validate() error {
-	if p.Name == "" {
-		return fmt.Errorf("project name is required")
-	}
-	if p.PublicID == "" {
-		return fmt.Errorf("project public_id is required")
-	}
-	return nil
 }

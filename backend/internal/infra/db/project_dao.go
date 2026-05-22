@@ -50,7 +50,7 @@ type ListProjectsResponse struct {
 	Items  []*types.Project `json:"items"`
 }
 
-// ListProjects 使用 apiobj.PageQuery 风格的过滤器和排序分页查询项目列表
+// ListProjects 查询项目列表，使用 apiobj.PageQuery 作为查询参数
 func ListProjects(ctx context.Context, d *gorm.DB, orgID uint, opt *apiobj.PageQuery, ret *ListProjectsResponse) error {
 	query := d.WithContext(ctx).Table(types.TableNameProject).
 		Where("org_id = ? AND deleted_at IS NULL", orgID)

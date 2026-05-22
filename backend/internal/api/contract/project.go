@@ -17,5 +17,5 @@ type ProjectService interface {
 	DeleteProject(ctx context.Context, publicID string) error
 
 	// 查询项目列表
-	ListProjects(ctx context.Context, opt *ListProjectQuery) (*ProjectList, error)
+	ListProjects(ctx context.Context, req *ListProjectsRequest) (*ProjectList, error)
 }

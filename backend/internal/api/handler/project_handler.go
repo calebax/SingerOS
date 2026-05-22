@@ -166,22 +166,20 @@ func (h *ProjectHandler) DeleteProject(ctx *gin.Context) {
 // @Tags Project
 // @Accept json
 // @Produce json
-// @Param body body contract.ListProjectQuery true "查询列表请求"
+// @Param body body contract.ListProjectsRequest true "查询列表请求"
 // @Success 200 {object} dto.Response "成功响应"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"
 // @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
 // @Router /ListProjects [post]
 func (h *ProjectHandler) ListProjects(ctx *gin.Context) {
-	var req contract.ListProjectQuery
+	var req contract.ListProjectsRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	if err := req.Validate(); err != nil {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
-		return
-	}
+
+	req.Fill()
 
 	result, err := h.service.ListProjects(ctx, &req)
 	if err != nil {
