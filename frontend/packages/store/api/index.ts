@@ -9,6 +9,14 @@ export type {
 } from "./digitalAssistantApi";
 export { digitalAssistantApi } from "./digitalAssistantApi";
 export type {
+	CreateProjectParams,
+	DeleteProjectParams,
+	GetProjectParams,
+	ListProjectsParams,
+	UpdateProjectParams,
+} from "./projectApi";
+export { projectApi } from "./projectApi";
+export type {
 	AddMessageParams,
 	CreateSessionParams,
 	GetSessionParams,
@@ -16,6 +24,14 @@ export type {
 	UpdateSessionParams,
 } from "./sessionApi";
 export { sessionApi } from "./sessionApi";
+export type {
+	CreateTaskParams,
+	DeleteTaskParams,
+	GetTaskParams,
+	ListTasksParams,
+	UpdateTaskParams,
+} from "./taskApi";
+export { taskApi } from "./taskApi";
 export type {
 	BackendAssistantConfig,
 	BackendBaseResponse,
@@ -30,11 +46,13 @@ export type {
 	BackendMessageMetadata,
 	BackendPaginatedResponse,
 	BackendPolicyConfig,
+	BackendProject,
 	BackendRuntimeConfig,
 	BackendRuntimeTodoItem,
 	BackendSession,
 	BackendSessionMetadata,
 	BackendSkillRef,
+	BackendTask,
 	BackendTodoStatus,
 	BackendToolCall,
 	SSEEventPayload,

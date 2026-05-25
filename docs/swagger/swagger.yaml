@@ -71,6 +71,27 @@ definitions:
     required:
     - type
     type: object
+  contract.CreateTaskRequest:
+    properties:
+      assignee_id:
+        type: integer
+      deadline:
+        type: string
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      project_id:
+        type: integer
+      task_type:
+        type: string
+      title:
+        type: string
+    required:
+    - project_id
+    - title
+    type: object
   contract.DigitalAssistant:
     properties:
       avatar:
@@ -156,6 +177,25 @@ definitions:
       status:
         type: string
       type:
+        type: string
+    type: object
+  contract.ListTasksRequest:
+    properties:
+      assignee_id:
+        type: integer
+      keyword:
+        type: string
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      offset:
+        type: integer
+      project_id:
+        type: integer
+      status:
+        type: string
+      task_type:
         type: string
     type: object
   contract.NewMessageRequest:
@@ -288,6 +328,13 @@ definitions:
     required:
     - session_id
     type: object
+  handler.DeleteTaskRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
   handler.GetDigitalAssistantRequest:
     properties:
       code:
@@ -324,6 +371,11 @@ definitions:
         type: string
     required:
     - session_id
+    type: object
+  handler.GetTaskRequest:
+    properties:
+      public_id:
+        type: string
     type: object
   handler.SessionEventsRequest:
     properties:
@@ -415,6 +467,30 @@ definitions:
         type: string
     required:
     - session_id
+    type: object
+  handler.UpdateTaskRequest:
+    properties:
+      assignee_id:
+        type: integer
+      deadline:
+        type: string
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      project_id:
+        type: integer
+      public_id:
+        type: string
+      status:
+        type: string
+      task_type:
+        type: string
+      title:
+        type: string
+    required:
+    - public_id
     type: object
   types.MessageChunk:
     properties:
@@ -672,6 +748,40 @@ paths:
       summary: 创建会话
       tags:
       - Session
+  /CreateTask:
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新任务
+      parameters:
+      - description: 创建任务请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 创建任务
+      tags:
+      - Task
   /DeleteDigitalAssistant:
     post:
       consumes:
@@ -870,6 +980,44 @@ paths:
       summary: 删除会话
       tags:
       - Session
+  /DeleteTask:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicId删除任务（软删除）
+      parameters:
+      - description: 删除任务请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.DeleteTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 删除任务
+      tags:
+      - Task
   /GetDefaultLLMModel:
     post:
       consumes:
@@ -1095,6 +1243,44 @@ paths:
       summary: 获取会话消息列表
       tags:
       - Session
+  /GetTask:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicId获取任务详情
+      parameters:
+      - description: 获取任务请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.GetTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取任务详情
+      tags:
+      - Task
   /ListDigitalAssistant:
     post:
       consumes:
@@ -1231,6 +1417,40 @@ paths:
       summary: 查询会话列表
       tags:
       - Session
+  /ListTasks:
+    post:
+      consumes:
+      - application/json
+      description: 分页查询任务列表
+      parameters:
+      - description: 查询列表请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListTasksRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询任务列表
+      tags:
+      - Task
   /NewMessage:
     post:
       consumes:
@@ -1539,6 +1759,44 @@ paths:
       summary: 更新会话
       tags:
       - Session
+  /UpdateTask:
+    post:
+      consumes:
+      - application/json
+      description: 更新任务信息
+      parameters:
+      - description: 更新任务请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpdateTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新任务
+      tags:
+      - Task
 schemes:
 - http
 - https
