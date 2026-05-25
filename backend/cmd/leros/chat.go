@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/ygpkg/yg-go/lifecycle"
 	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/Leros/backend/internal/cli"
@@ -27,9 +28,13 @@ Set LEROS_DEV=true if the server is running in development mode.`,
 			initialMessage = args[0]
 		}
 
-		if err := cli.Chat(chatServerAddr, initialMessage); err != nil {
-			logs.Fatalf("chat failed: %v", err)
-		}
+		go func() {
+			if err := cli.Chat(lifecycle.Std().Context(), chatServerAddr, initialMessage); err != nil {
+				logs.Errorf("chat: %v", err)
+			}
+			lifecycle.Std().Exit()
+		}()
+		lifecycle.Std().WaitExit()
 	},
 }
 

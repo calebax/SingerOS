@@ -26,8 +26,7 @@ const (
 
 // Chat 启动交互式聊天会话，连接至指定的 Leros 服务端。
 // 如果 initialMessage 为非空字符串，则将其作为首条消息发送，否则提示用户输入。
-func Chat(serverAddr string, initialMessage string) error {
-	ctx := context.Background()
+func Chat(ctx context.Context, serverAddr string, initialMessage string) error {
 	httpClient := &http.Client{Timeout: defaultHTTPTimeout}
 
 	var projectID, taskID string
