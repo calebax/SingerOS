@@ -539,6 +539,9 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 	if message.Chunks != nil && len(message.Chunks) > 0 {
 		result.Chunks = make([]contract.SessionEvent, 0, len(message.Chunks))
 		for _, chunk := range message.Chunks {
+			if isHiddenSessionHistoryChunk(chunk.Type) {
+				continue
+			}
 			event, ok := ProjectRunEventRecord(publicID, chunk)
 			if !ok {
 				logs.Warnf("skipping unknown or invalid session message chunk: public_id=%s message_id=%d type=%s seq=%d", publicID, message.ID, chunk.Type, chunk.Seq)
@@ -557,6 +560,15 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 	}
 
 	return result
+}
+
+func isHiddenSessionHistoryChunk(eventType string) bool {
+	switch events.EventType(eventType) {
+	case events.EventTodoSnapshot, events.EventTodoUpdated:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contract.CompleteSessionMessageRequest) error {

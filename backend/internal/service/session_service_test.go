@@ -927,6 +927,61 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 	}
 }
 
+func TestGetSessionMessagesFiltersTodoChunks(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
+		Type: string(types.SessionTypeUserChat),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	deltaPayload, err := json.Marshal(events.MessageDeltaPayload{
+		MessageID: "msg_1",
+		Role:      string(protocol.MessageRoleAssistant),
+		Content:   "done",
+	})
+	if err != nil {
+		t.Fatalf("marshal delta payload: %v", err)
+	}
+	todoPayload, err := json.Marshal([]events.RuntimeTodoItem{
+		{ID: "todo_1", Title: "Inspect code", Status: "completed"},
+	})
+	if err != nil {
+		t.Fatalf("marshal todo payload: %v", err)
+	}
+
+	err = service.CompleteSessionMessage(ctx, &contract.CompleteSessionMessageRequest{
+		SessionID: session.SessionID,
+		Content:   "done",
+		Chunks: []types.MessageChunk{
+			{Seq: 1, Type: string(events.EventMessageDelta), Timestamp: 1779243000000, Payload: deltaPayload},
+			{Seq: 2, Type: string(events.EventTodoSnapshot), Timestamp: 1779243000001, Payload: todoPayload},
+			{Seq: 3, Type: string(events.EventTodoUpdated), Timestamp: 1779243000002, Payload: todoPayload},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompleteSessionMessage failed: %v", err)
+	}
+
+	result, err := service.GetSessionMessages(ctx, session.SessionID, 1, 20)
+	if err != nil {
+		t.Fatalf("GetSessionMessages failed: %v", err)
+	}
+	if result.Total != 1 || len(result.Items) != 1 {
+		t.Fatalf("expected one message, got total=%d len=%d", result.Total, len(result.Items))
+	}
+	chunks := result.Items[0].Chunks
+	if len(chunks) != 1 {
+		t.Fatalf("expected only non-todo chunk, got %#v", chunks)
+	}
+	if chunks[0].Type != string(events.EventMessageDelta) || chunks[0].Sequence != 1 {
+		t.Fatalf("unexpected remaining chunk: %#v", chunks[0])
+	}
+}
+
 func TestClearSessionMessages(t *testing.T) {
 	service := setupTestService(t)
 	ctx := setupTestContextWithCaller(t)
