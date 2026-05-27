@@ -218,10 +218,18 @@ func (s *streamConversionState) prepareAnthropicIRStreamEvents(events []*IRStrea
 
 func (s *streamConversionState) prepareAnthropicContentStart(event *IRStreamEvent) []*IRStreamEvent {
 	if event.ContentBlock != nil && event.ContentBlock.Type == IRBlockToolUse {
+		if s.hasToolStarted(event.Index) && !s.hasToolStopped(event.Index) {
+			logs.Infof("modelrouter: anthropic duplicate tool block start ignored index=%d", event.Index)
+			return nil
+		}
 		s.markToolStarted(event.Index)
 		s.clearToolStopped(event.Index)
 		logs.Infof("modelrouter: anthropic tool block started index=%d", event.Index)
 		return []*IRStreamEvent{event}
+	}
+	if s.hasTextStarted(event.Index) && !s.hasTextStopped(event.Index) {
+		logs.Infof("modelrouter: anthropic duplicate text block start ignored index=%d", event.Index)
+		return nil
 	}
 	s.markTextStarted(event.Index)
 	s.clearTextStopped(event.Index)

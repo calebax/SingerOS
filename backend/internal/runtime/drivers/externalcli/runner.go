@@ -13,7 +13,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	runtimetodo "github.com/insmtx/Leros/backend/internal/runtime/todo"
-	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -60,7 +59,6 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 	eventSink := sinkForRequest(req)
 
 	workDir := strings.TrimSpace(req.Runtime.WorkDir)
-	workspaceEnv := workspaceEnvForRequest(ctx, req)
 	if err := r.engine.Prepare(ctx, engines.PrepareRequest{WorkDir: workDir}); err != nil {
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
 	}
@@ -76,7 +74,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		SystemPrompt: strings.TrimSpace(req.SystemPrompt),
 		Prompt:       prompt,
 		Model:        modelForRequest(req),
-		ExtraEnv:     workspaceEnv,
+		ExtraEnv:     nil,
 	})
 	if err != nil {
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
@@ -110,18 +108,6 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		},
 	}
 	return result, nil
-}
-
-func workspaceEnvForRequest(ctx context.Context, req *agent.RequestContext) []string {
-	plan, ok, err := agentworkspace.FromAgentRequest(req)
-	if err != nil {
-		logs.WarnContextf(ctx, "Resolve task workspace env failed: %v", err)
-		return nil
-	}
-	if !ok {
-		return nil
-	}
-	return plan.ArtifactEnv()
 }
 
 type consumeResult struct {

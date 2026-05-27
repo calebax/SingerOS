@@ -135,11 +135,11 @@ func (c *Consumer) schedule(ctx context.Context, taskMsg protocol.WorkerTaskMess
 
 func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessage) error {
 	req := RequestFromWorkerTask(taskMsg)
-	workspacePlan, err := c.prepareWorkspace(ctx, taskMsg, req)
+	_, err := c.prepareWorkspace(ctx, taskMsg, req)
 	if err != nil {
 		return err
 	}
-	req.EventSink = newArtifactStreamSink(NewMQStreamSink(c.publisher, taskMsg), workspacePlan)
+	req.EventSink = NewMQStreamSink(c.publisher, taskMsg)
 
 	logs.InfoContextf(ctx,
 		"Starting worker task run: task_id=%s run_id=%s runtime=%s assistant_id=%s",

@@ -75,7 +75,7 @@ func (s *artifactService) GetArtifactDownload(ctx context.Context, artifactPubli
 		return nil, fmt.Errorf("open artifact file: %w", err)
 	}
 	return &contract.ArtifactDownload{
-		FileName: artifact.Title,
+		FileName: artifactDownloadName(artifact),
 		MimeType: artifact.MimeType,
 		Size:     artifact.FileSize,
 		Reader:   file,
@@ -89,6 +89,7 @@ func convertToContractArtifact(artifact *types.Artifact) contract.Artifact {
 	return contract.Artifact{
 		ArtifactID:   artifact.PublicID,
 		Title:        artifact.Title,
+		Filename:     artifact.Filename,
 		Description:  artifact.Description,
 		ArtifactType: artifact.ArtifactType,
 		MimeType:     artifact.MimeType,
@@ -96,6 +97,19 @@ func convertToContractArtifact(artifact *types.Artifact) contract.Artifact {
 		Sha256:       artifact.Sha256,
 		DownloadURL:  "/v1/artifacts/" + artifact.PublicID + "/download",
 	}
+}
+
+func artifactDownloadName(artifact *types.Artifact) string {
+	if artifact == nil {
+		return ""
+	}
+	if strings.TrimSpace(artifact.Filename) != "" {
+		return strings.TrimSpace(artifact.Filename)
+	}
+	if strings.TrimSpace(artifact.Title) != "" {
+		return strings.TrimSpace(artifact.Title)
+	}
+	return filepath.Base(strings.TrimSpace(artifact.RelativePath))
 }
 
 func storagePath(storageKey string) (string, error) {

@@ -53,7 +53,7 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 			SessionID: sessionID,
 			Content:   completed.Result.Message,
 			Chunks:    runEventChunks(completed.Events),
-			Artifacts: artifactsFromRunCompleted(completed.Artifacts),
+			Artifacts: messageArtifactsFromRunCompleted(completed.Artifacts),
 			Metadata:  messageMetadataFromRunCompleted(completed),
 			Usage:     messageUsageFromRuntime(completed.Usage),
 			Seq:       streamMsg.Body.Seq,
@@ -115,6 +115,23 @@ func runEventChunks(records []events.RunEventRecord) []types.MessageChunk {
 	return chunks
 }
 
+func messageArtifactsFromRunCompleted(artifacts []events.ArtifactPayload) []types.MessageArtifact {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	result := make([]types.MessageArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		result = append(result, types.MessageArtifact{
+			ArtifactID:   artifact.ArtifactID,
+			Title:        artifact.Title,
+			Filename:     artifact.Filename,
+			MimeType:     artifact.MimeType,
+			ArtifactType: artifact.ArtifactType,
+		})
+	}
+	return result
+}
+
 func messageUsageFromRuntime(usage *events.UsagePayload) *types.MessageUsage {
 	if usage == nil {
 		return nil
@@ -124,28 +141,6 @@ func messageUsageFromRuntime(usage *events.UsagePayload) *types.MessageUsage {
 		OutputTokens: usage.OutputTokens,
 		TotalTokens:  usage.TotalTokens,
 	}
-}
-
-func artifactsFromRunCompleted(artifacts []events.ArtifactPayload) []contract.CompleteSessionArtifact {
-	if len(artifacts) == 0 {
-		return nil
-	}
-	result := make([]contract.CompleteSessionArtifact, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		result = append(result, contract.CompleteSessionArtifact{
-			Title:        artifact.Title,
-			Description:  artifact.Description,
-			ArtifactType: artifact.ArtifactType,
-			MimeType:     artifact.MimeType,
-			FileSize:     artifact.FileSize,
-			Sha256:       artifact.Sha256,
-			RelativePath: artifact.RelativePath,
-			StorageKey:   artifact.StorageKey,
-			Source:       artifact.Source,
-			Status:       artifact.Status,
-		})
-	}
-	return result
 }
 
 func messageMetadataFromRunCompleted(completed *events.RunCompletedPayload) *types.ObjectMetadata {

@@ -23,6 +23,7 @@ type Artifact struct {
 	MessageID *uint `gorm:"column:message_id;type:bigint;index"`
 
 	Title       string `gorm:"column:title;type:varchar(500);not null"`
+	Filename    string `gorm:"column:filename;type:varchar(500)"`
 	Description string `gorm:"column:description;type:text"`
 
 	// ArtifactType 产出物类型，使用 ArtifactType 常量值

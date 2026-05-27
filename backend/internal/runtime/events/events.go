@@ -59,6 +59,9 @@ const (
 	EventTodoSnapshot EventType = "todo.snapshot"
 	// EventTodoUpdated 包含更新后的完整运行时待办列表。
 	EventTodoUpdated EventType = "todo.updated"
+
+	// EventArtifactDeclared indicates a generated artifact was declared and persisted.
+	EventArtifactDeclared EventType = "artifact.declared"
 )
 
 // MessageDeltaPayload 是助手文本增量的标准负载。
@@ -125,18 +128,13 @@ type RunCompletedPayload struct {
 	Metadata    map[string]any    `json:"metadata,omitempty"`
 }
 
-// ArtifactPayload describes a finalized file produced by one run.
+// ArtifactPayload references a persisted artifact produced by one run.
 type ArtifactPayload struct {
+	ArtifactID   string `json:"artifact_id,omitempty"`
 	Title        string `json:"title,omitempty"`
-	Description  string `json:"description,omitempty"`
-	ArtifactType string `json:"artifact_type,omitempty"`
-	RelativePath string `json:"relative_path,omitempty"`
-	StorageKey   string `json:"storage_key,omitempty"`
+	Filename     string `json:"filename,omitempty"`
 	MimeType     string `json:"mime_type,omitempty"`
-	FileSize     int64  `json:"file_size,omitempty"`
-	Sha256       string `json:"sha256,omitempty"`
-	Source       string `json:"source,omitempty"`
-	Status       string `json:"status,omitempty"`
+	ArtifactType string `json:"artifact_type,omitempty"`
 }
 
 // NewMessageDelta 创建标准的助手消息增量事件。
@@ -186,6 +184,11 @@ func NewToolCallFailed(toolCallID string, name string, message string, elapsedMS
 		IsError:    true,
 		ElapsedMS:  elapsedMS,
 	}, "")
+}
+
+// NewArtifactDeclared creates a semantic artifact declaration event.
+func NewArtifactDeclared(payload ArtifactPayload) *Event {
+	return newPayloadEvent(EventArtifactDeclared, payload, "")
 }
 
 // NewMessageResult 创建标准的最终助手结果事件。

@@ -153,14 +153,6 @@ func FromAgentRequest(req *agent.RequestContext) (*TaskWorkspace, bool, error) {
 	return plan, true, nil
 }
 
-// ArtifactEnv returns the minimal CLI env needed for final artifact declaration.
-func (p *TaskWorkspace) ArtifactEnv() []string {
-	if p == nil || strings.TrimSpace(p.ArtifactManifestPath) == "" {
-		return nil
-	}
-	return []string{"LEROS_ARTIFACT_FILE=" + p.ArtifactManifestPath}
-}
-
 // StorageKey returns a workspace-root-relative path suitable for persistence.
 func (p *TaskWorkspace) StorageKey(relativePath string) (string, error) {
 	if p == nil {

@@ -550,6 +550,9 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 			result.Chunks = append(result.Chunks, *event)
 		}
 	}
+	if len(message.Artifacts) > 0 {
+		result.Artifacts = append([]types.MessageArtifact{}, message.Artifacts...)
+	}
 
 	if message.Metadata.Extra != nil {
 		result.Metadata = &message.Metadata
@@ -602,6 +605,9 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 	if req.Chunks != nil && len(req.Chunks) > 0 {
 		msgEntity.Chunks = req.Chunks
 	}
+	if len(req.Artifacts) > 0 {
+		msgEntity.Artifacts = req.Artifacts
+	}
 
 	if req.Metadata != nil {
 		msgEntity.Metadata = *req.Metadata
@@ -614,13 +620,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 		if err := db.CreateMessage(ctx, tx, msgEntity); err != nil {
 			return fmt.Errorf("create message for %s: %w", req.SessionID, err)
 		}
-		artifacts, err := buildCompletedArtifacts(req.Artifacts, session, msgEntity)
-		if err != nil {
-			return err
-		}
-		if err := db.CreateArtifacts(ctx, tx, artifacts); err != nil {
-			return fmt.Errorf("create artifacts for %s: %w", req.SessionID, err)
-		}
+		bindDeclaredArtifacts(ctx, tx, req.Artifacts, session, msgEntity)
 		return nil
 	}); err != nil {
 		return err
@@ -635,65 +635,27 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 	return nil
 }
 
-func buildCompletedArtifacts(inputs []contract.CompleteSessionArtifact, session *types.Session, message *types.SessionMessage) ([]*types.Artifact, error) {
-	if len(inputs) == 0 {
-		return nil, nil
+func bindDeclaredArtifacts(ctx context.Context, tx *gorm.DB, artifacts []types.MessageArtifact, session *types.Session, message *types.SessionMessage) {
+	if len(artifacts) == 0 || session == nil || message == nil {
+		return
 	}
-	if session == nil || message == nil {
-		return nil, errors.New("session and message are required for artifacts")
+	for _, item := range artifacts {
+		artifactID := strings.TrimSpace(item.ArtifactID)
+		if artifactID == "" {
+			continue
+		}
+		artifact, err := db.GetArtifactByPublicID(ctx, tx, session.OrgID, artifactID)
+		if err != nil {
+			logs.WarnContextf(ctx, "find declared artifact %s failed: %v", artifactID, err)
+			continue
+		}
+		if artifact == nil {
+			continue
+		}
+		if err := db.BindArtifactMessage(ctx, tx, artifact.ID, session.ID, message.ID); err != nil {
+			logs.WarnContextf(ctx, "bind declared artifact %s to message failed: %v", artifactID, err)
+		}
 	}
-	if session.ProjectID == nil || *session.ProjectID == 0 {
-		return nil, errors.New("session project_id is required for artifacts")
-	}
-	if session.TaskID == nil || *session.TaskID == 0 {
-		return nil, errors.New("session task_id is required for artifacts")
-	}
-	artifacts := make([]*types.Artifact, 0, len(inputs))
-	for _, input := range inputs {
-		title := strings.TrimSpace(input.Title)
-		if title == "" {
-			title = strings.TrimSpace(input.RelativePath)
-		}
-		if title == "" {
-			return nil, errors.New("artifact title is required")
-		}
-		artifactType := strings.TrimSpace(input.ArtifactType)
-		if artifactType == "" {
-			artifactType = string(types.ArtifactTypeFile)
-		}
-		status := strings.TrimSpace(input.Status)
-		if status == "" {
-			status = string(types.ArtifactStatusCompleted)
-		}
-		source := strings.TrimSpace(input.Source)
-		if source == "" {
-			source = string(types.ArtifactSourceAgentDeclared)
-		}
-		messageID := message.ID
-		sessionID := session.ID
-		publicID := fmt.Sprintf("art_%s", snowflake.GenerateIDBase58())
-		artifacts = append(artifacts, &types.Artifact{
-			PublicID:     publicID,
-			OrgID:        session.OrgID,
-			OwnerID:      session.Uin,
-			TaskID:       *session.TaskID,
-			ProjectID:    *session.ProjectID,
-			SessionID:    &sessionID,
-			MessageID:    &messageID,
-			Title:        title,
-			Description:  strings.TrimSpace(input.Description),
-			ArtifactType: artifactType,
-			FileURL:      "/v1/artifacts/" + publicID + "/download",
-			MimeType:     strings.TrimSpace(input.MimeType),
-			FileSize:     input.FileSize,
-			RelativePath: strings.TrimSpace(input.RelativePath),
-			StorageKey:   strings.TrimSpace(input.StorageKey),
-			Sha256:       strings.TrimSpace(input.Sha256),
-			Source:       source,
-			Status:       status,
-		})
-	}
-	return artifacts, nil
 }
 
 func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract.FailedSessionMessageRequest) error {

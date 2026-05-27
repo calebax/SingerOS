@@ -15,7 +15,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -29,8 +28,23 @@ type ManifestArtifact struct {
 	IsFinal      bool   `json:"is_final,omitempty"`
 }
 
+// ArtifactRecord is the validated, storage-ready form of a manifest artifact.
+type ArtifactRecord struct {
+	Title        string
+	Filename     string
+	Description  string
+	ArtifactType string
+	RelativePath string
+	StorageKey   string
+	MimeType     string
+	FileSize     int64
+	Sha256       string
+	Source       string
+	Status       string
+}
+
 // CollectFinalArtifacts reads and validates the final artifact manifest.
-func CollectFinalArtifacts(ctx context.Context, plan *TaskWorkspace) ([]events.ArtifactPayload, error) {
+func CollectFinalArtifacts(ctx context.Context, plan *TaskWorkspace) ([]ArtifactRecord, error) {
 	if plan == nil || strings.TrimSpace(plan.ArtifactManifestPath) == "" {
 		return nil, nil
 	}
@@ -80,10 +94,10 @@ func CollectFinalArtifacts(ctx context.Context, plan *TaskWorkspace) ([]events.A
 	}
 	sort.Strings(paths)
 
-	artifacts := make([]events.ArtifactPayload, 0, len(declared))
+	artifacts := make([]ArtifactRecord, 0, len(declared))
 	for _, path := range paths {
 		item := declared[path]
-		artifact, err := buildArtifactPayload(plan, item)
+		artifact, err := BuildArtifactRecord(plan, item)
 		if err != nil {
 			return nil, err
 		}
@@ -92,25 +106,26 @@ func CollectFinalArtifacts(ctx context.Context, plan *TaskWorkspace) ([]events.A
 	return artifacts, nil
 }
 
-func buildArtifactPayload(plan *TaskWorkspace, item ManifestArtifact) (events.ArtifactPayload, error) {
+// BuildArtifactRecord validates an artifact declaration and builds its storage record.
+func BuildArtifactRecord(plan *TaskWorkspace, item ManifestArtifact) (ArtifactRecord, error) {
 	absolute, err := SafeJoin(plan.RepoDir, item.Path)
 	if err != nil {
-		return events.ArtifactPayload{}, fmt.Errorf("validate artifact path %q: %w", item.Path, err)
+		return ArtifactRecord{}, fmt.Errorf("validate artifact path %q: %w", item.Path, err)
 	}
 	info, err := os.Stat(absolute)
 	if err != nil {
-		return events.ArtifactPayload{}, fmt.Errorf("stat artifact %q: %w", item.Path, err)
+		return ArtifactRecord{}, fmt.Errorf("stat artifact %q: %w", item.Path, err)
 	}
 	if info.IsDir() {
-		return events.ArtifactPayload{}, fmt.Errorf("artifact %q is a directory", item.Path)
+		return ArtifactRecord{}, fmt.Errorf("artifact %q is a directory", item.Path)
 	}
 	sha, err := sha256File(absolute)
 	if err != nil {
-		return events.ArtifactPayload{}, err
+		return ArtifactRecord{}, err
 	}
 	storageKey, err := plan.StorageKey(item.Path)
 	if err != nil {
-		return events.ArtifactPayload{}, err
+		return ArtifactRecord{}, err
 	}
 	title := strings.TrimSpace(item.Title)
 	if title == "" {
@@ -120,8 +135,9 @@ func buildArtifactPayload(plan *TaskWorkspace, item ManifestArtifact) (events.Ar
 	if artifactType == "" {
 		artifactType = string(types.ArtifactTypeFile)
 	}
-	return events.ArtifactPayload{
+	return ArtifactRecord{
 		Title:        title,
+		Filename:     filepath.Base(item.Path),
 		Description:  strings.TrimSpace(item.Description),
 		ArtifactType: artifactType,
 		RelativePath: item.Path,
@@ -149,11 +165,11 @@ func sha256File(path string) (string, error) {
 
 func detectMimeType(path string, declared string) string {
 	if strings.TrimSpace(declared) != "" {
-		return strings.TrimSpace(declared)
+		return normalizeMimeType(declared)
 	}
 	if ext := filepath.Ext(path); ext != "" {
 		if value := mime.TypeByExtension(ext); value != "" {
-			return value
+			return normalizeMimeType(value)
 		}
 	}
 	file, err := os.Open(path)
@@ -166,5 +182,19 @@ func detectMimeType(path string, declared string) string {
 	if err != nil && err != io.EOF {
 		return ""
 	}
-	return http.DetectContentType(buf[:n])
+	return normalizeMimeType(http.DetectContentType(buf[:n]))
+}
+
+func normalizeMimeType(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if mediaType, _, err := mime.ParseMediaType(value); err == nil {
+		return mediaType
+	}
+	if index := strings.Index(value, ";"); index >= 0 {
+		return strings.TrimSpace(value[:index])
+	}
+	return value
 }

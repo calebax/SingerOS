@@ -17,6 +17,14 @@ func CreateArtifacts(ctx context.Context, db *gorm.DB, artifacts []*types.Artifa
 	return db.WithContext(ctx).Create(&artifacts).Error
 }
 
+// CreateArtifact persists one artifact record.
+func CreateArtifact(ctx context.Context, db *gorm.DB, artifact *types.Artifact) error {
+	if artifact == nil {
+		return nil
+	}
+	return db.WithContext(ctx).Create(artifact).Error
+}
+
 // GetArtifactByPublicID returns one artifact in an organization.
 func GetArtifactByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publicID string) (*types.Artifact, error) {
 	var entity types.Artifact
@@ -30,6 +38,19 @@ func GetArtifactByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publicI
 		return nil, err
 	}
 	return &entity, nil
+}
+
+// BindArtifactMessage attaches an existing artifact to a session message.
+func BindArtifactMessage(ctx context.Context, db *gorm.DB, artifactID uint, sessionID uint, messageID uint) error {
+	updates := &types.Artifact{
+		SessionID: &sessionID,
+		MessageID: &messageID,
+	}
+	return db.WithContext(ctx).
+		Model(&types.Artifact{}).
+		Where("id = ?", artifactID).
+		Select("session_id", "message_id").
+		Updates(updates).Error
 }
 
 // ListTaskArtifacts returns completed artifacts for a task.
