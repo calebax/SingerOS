@@ -70,7 +70,7 @@ var projectGetCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		go func() {
 			publicID := args[0]
-			result, err := cli.GetProject(lifecycle.Std().Context(), projectServerAddr, publicID)
+			result, err := cli.DetailProject(lifecycle.Std().Context(), projectServerAddr, publicID)
 			if err != nil {
 				logs.Errorf("get project: %v", err)
 				lifecycle.Std().Exit()
@@ -106,24 +106,85 @@ func printProjects(list *contract.ProjectList) {
 	fmt.Fprintf(os.Stderr, "\nTotal: %d, Offset: %d, Limit: %d\n", list.Total, list.Offset, list.Limit)
 }
 
-func printProjectDetail(p *contract.Project) {
+func printProjectDetail(d *contract.ProjectDetail) {
 	if projectJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(p)
+		enc.Encode(d)
 		return
 	}
 
+	ownerName := resolveOwnerName(d.OwnerID, d.Members)
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintf(w, "PublicID:\t%s\n", p.PublicID)
-	fmt.Fprintf(w, "Name:\t%s\n", p.Name)
-	fmt.Fprintf(w, "Description:\t%s\n", p.Description)
-	fmt.Fprintf(w, "Objective:\t%s\n", p.Objective)
-	fmt.Fprintf(w, "Status:\t%s\n", p.Status)
-	fmt.Fprintf(w, "OwnerID:\t%d\n", p.OwnerID)
-	fmt.Fprintf(w, "CreatedAt:\t%s\n", p.CreatedAt.Format("2006-01-02T15:04:05Z"))
-	fmt.Fprintf(w, "UpdatedAt:\t%s\n", p.UpdatedAt.Format("2006-01-02T15:04:05Z"))
+	fmt.Fprintf(w, "PublicID:\t%s\n", d.PublicID)
+	fmt.Fprintf(w, "Name:\t%s\n", d.Name)
+	fmt.Fprintf(w, "Description:\t%s\n", d.Description)
+	fmt.Fprintf(w, "Objective:\t%s\n", d.Objective)
+	fmt.Fprintf(w, "Status:\t%s\n", d.Status)
+	fmt.Fprintf(w, "Owner:\t%s\n", ownerName)
+	fmt.Fprintf(w, "CreatedAt:\t%s\n", d.CreatedAt.Format("2006-01-02T15:04:05Z"))
+	fmt.Fprintf(w, "UpdatedAt:\t%s\n", d.UpdatedAt.Format("2006-01-02T15:04:05Z"))
+
+	if d.Session != nil {
+		fmt.Fprintf(w, "--- Session ---\t\n")
+		fmt.Fprintf(w, "  SessionID:\t%s\n", d.Session.SessionID)
+		fmt.Fprintf(w, "  Type:\t%s\n", d.Session.Type)
+		fmt.Fprintf(w, "  Status:\t%s\n", d.Session.Status)
+		fmt.Fprintf(w, "  Title:\t%s\n", d.Session.Title)
+		fmt.Fprintf(w, "  MessageCount:\t%d\n", d.Session.MessageCount)
+	}
+
+	if len(d.Tasks) > 0 {
+		fmt.Fprintf(w, "--- Tasks (%d) ---\t\n", len(d.Tasks))
+		for i, t := range d.Tasks {
+			fmt.Fprintf(w, "  [%d] %s\t%s\n", i+1, t.Title, t.Status)
+			if t.Session != nil {
+				fmt.Fprintf(w, "    Session:\t%s (%s, %d msgs)\n", t.Session.SessionID, t.Session.Status, t.Session.MessageCount)
+			}
+		}
+	}
+
+	if len(d.Artifacts) > 0 {
+		fmt.Fprintf(w, "--- Artifacts (%d) ---\t\n", len(d.Artifacts))
+		for i, a := range d.Artifacts {
+			size := formatSize(a.FileSize)
+			fmt.Fprintf(w, "  [%d] %s\t%s\n", i+1, a.ArtifactID, a.Title)
+			fmt.Fprintf(w, "    Type: %s\tFile: %s (%s)\n", a.ArtifactType, a.Filename, size)
+		}
+	}
+
+	if len(d.Members) > 0 {
+		fmt.Fprintf(w, "--- Members (%d) ---\t\n", len(d.Members))
+		for _, m := range d.Members {
+			fmt.Fprintf(w, "  %s\t%s\t%s\n", m.Name, m.MemberRole, m.MemberType)
+		}
+	}
+
 	w.Flush()
+}
+
+func resolveOwnerName(ownerID uint, members []contract.ProjectMemberItem) string {
+	for _, m := range members {
+		if m.MemberID == ownerID {
+			if m.Name != "" {
+				return m.Name
+			}
+			return fmt.Sprintf("%d", ownerID)
+		}
+	}
+	return fmt.Sprintf("%d", ownerID)
+}
+
+func formatSize(bytes int64) string {
+	switch {
+	case bytes >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/(1<<20))
+	case bytes >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }
 
 func init() {

@@ -25,6 +25,13 @@ var (
 	sessionLimit       int
 )
 
+type sessionDetailOutput struct {
+	Session   *contract.Session                `json:"session,omitempty"`
+	Assistant *contract.DigitalAssistantDetail `json:"assistant,omitempty"`
+	Allocated *contract.DigitalAssistantDetail `json:"allocated_assistant,omitempty"`
+	Messages  *contract.MessageList            `json:"messages,omitempty"`
+}
+
 var sessionCmd = &cobra.Command{
 	Use:   "session",
 	Short: "Manage sessions",
@@ -77,14 +84,43 @@ var sessionGetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		go func() {
+			ctx := lifecycle.Std().Context()
 			sessionID := args[0]
-			result, err := cli.GetSession(lifecycle.Std().Context(), sessionServerAddr, sessionID)
+
+			sess, err := cli.GetSession(ctx, sessionServerAddr, sessionID)
 			if err != nil {
 				logs.Errorf("get session: %v", err)
 				lifecycle.Std().Exit()
 				return
 			}
-			printSessionDetail(result)
+
+			out := sessionDetailOutput{Session: sess}
+
+			if sess.AssistantID > 0 {
+				ast, err := cli.GetDigitalAssistantByID(ctx, sessionServerAddr, sess.AssistantID)
+				if err != nil {
+					logs.Warnf("get assistant: %v", err)
+				} else {
+					out.Assistant = ast
+				}
+			}
+			if sess.AllocatedAssistantID > 0 && sess.AllocatedAssistantID != sess.AssistantID {
+				ast, err := cli.GetDigitalAssistantByID(ctx, sessionServerAddr, sess.AllocatedAssistantID)
+				if err != nil {
+					logs.Warnf("get allocated assistant: %v", err)
+				} else {
+					out.Allocated = ast
+				}
+			}
+
+			msgs, err := cli.GetSessionMessages(ctx, sessionServerAddr, sessionID, 1, 10)
+			if err != nil {
+				logs.Warnf("get session messages: %v", err)
+			} else {
+				out.Messages = msgs
+			}
+
+			printSessionDetail(&out)
 			lifecycle.Std().Exit()
 		}()
 		lifecycle.Std().WaitExit()
@@ -116,14 +152,15 @@ func printSessions(list *contract.SessionList) {
 	fmt.Fprintf(os.Stderr, "\nTotal: %d, Offset: %d, Limit: %d\n", list.Total, list.Offset, list.Limit)
 }
 
-func printSessionDetail(s *contract.Session) {
+func printSessionDetail(out *sessionDetailOutput) {
 	if sessionJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(s)
+		enc.Encode(out)
 		return
 	}
 
+	s := out.Session
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	fmt.Fprintf(w, "SessionID:\t%s\n", s.SessionID)
 	fmt.Fprintf(w, "Type:\t%s\n", s.Type)
@@ -132,8 +169,19 @@ func printSessionDetail(s *contract.Session) {
 	fmt.Fprintf(w, "TitleManuallySet:\t%v\n", s.TitleManuallySet)
 	fmt.Fprintf(w, "Uin:\t%d\n", s.Uin)
 	fmt.Fprintf(w, "OrgID:\t%d\n", s.OrgID)
-	fmt.Fprintf(w, "AssistantID:\t%d\n", s.AssistantID)
-	fmt.Fprintf(w, "AllocatedAssistantID:\t%d\n", s.AllocatedAssistantID)
+
+	if out.Assistant != nil {
+		fmt.Fprintf(w, "Assistant:\t%s (ID=%d, Code=%s)\n", out.Assistant.Name, out.Assistant.ID, out.Assistant.Code)
+	} else {
+		fmt.Fprintf(w, "AssistantID:\t%d\n", s.AssistantID)
+	}
+
+	if out.Allocated != nil {
+		fmt.Fprintf(w, "AllocatedAssistant:\t%s (ID=%d, Code=%s)\n", out.Allocated.Name, out.Allocated.ID, out.Allocated.Code)
+	} else if s.AllocatedAssistantID > 0 {
+		fmt.Fprintf(w, "AllocatedAssistantID:\t%d\n", s.AllocatedAssistantID)
+	}
+
 	fmt.Fprintf(w, "AssistantCode:\t%s\n", s.AssistantCode)
 	fmt.Fprintf(w, "MessageCount:\t%d\n", s.MessageCount)
 	if s.LastMessageAt != nil {
@@ -144,7 +192,23 @@ func printSessionDetail(s *contract.Session) {
 	}
 	fmt.Fprintf(w, "CreatedAt:\t%s\n", s.CreatedAt.Format("2006-01-02T15:04:05Z"))
 	fmt.Fprintf(w, "UpdatedAt:\t%s\n", s.UpdatedAt.Format("2006-01-02T15:04:05Z"))
+
+	if out.Messages != nil && len(out.Messages.Items) > 0 {
+		fmt.Fprintf(w, "--- Messages (last %d/%d) ---\t\n", len(out.Messages.Items), out.Messages.Total)
+		for i, m := range out.Messages.Items {
+			content := truncateContent(m.Content, 120)
+			fmt.Fprintf(w, "  [%d] %s\t%s\n", i+1, m.Role, content)
+		}
+	}
+
 	w.Flush()
+}
+
+func truncateContent(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 func init() {

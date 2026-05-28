@@ -26,6 +26,13 @@ var (
 	taskLimit      int
 )
 
+type taskDetailOutput struct {
+	Task      *contract.Task                   `json:"task,omitempty"`
+	Project   *contract.Project                `json:"project,omitempty"`
+	Artifacts []contract.Artifact              `json:"artifacts,omitempty"`
+	Assignee  *contract.DigitalAssistantDetail `json:"assignee,omitempty"`
+}
+
 var taskCmd = &cobra.Command{
 	Use:   "task",
 	Short: "Manage tasks",
@@ -81,14 +88,44 @@ var taskGetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		go func() {
+			ctx := lifecycle.Std().Context()
 			publicID := args[0]
-			result, err := cli.GetTask(lifecycle.Std().Context(), taskServerAddr, publicID)
+
+			task, err := cli.GetTask(ctx, taskServerAddr, publicID)
 			if err != nil {
 				logs.Errorf("get task: %v", err)
 				lifecycle.Std().Exit()
 				return
 			}
-			printTaskDetail(result)
+
+			out := taskDetailOutput{Task: task}
+
+			if task.ProjectID != "" {
+				prj, err := cli.GetProject(ctx, taskServerAddr, task.ProjectID)
+				if err != nil {
+					logs.Warnf("get project: %v", err)
+				} else {
+					out.Project = prj
+				}
+			}
+
+			artifacts, err := cli.ListTaskArtifacts(ctx, taskServerAddr, publicID)
+			if err != nil {
+				logs.Warnf("list task artifacts: %v", err)
+			} else {
+				out.Artifacts = artifacts
+			}
+
+			if task.AssigneeID != nil && *task.AssigneeID > 0 {
+				ast, err := cli.GetDigitalAssistantByID(ctx, taskServerAddr, *task.AssigneeID)
+				if err != nil {
+					logs.Warnf("get assignee: %v", err)
+				} else {
+					out.Assignee = ast
+				}
+			}
+
+			printTaskDetail(&out)
 			lifecycle.Std().Exit()
 		}()
 		lifecycle.Std().WaitExit()
@@ -120,14 +157,15 @@ func printTasks(list *contract.TaskList) {
 	fmt.Fprintf(os.Stderr, "\nTotal: %d, Offset: %d, Limit: %d\n", list.Total, list.Offset, list.Limit)
 }
 
-func printTaskDetail(t *contract.Task) {
+func printTaskDetail(out *taskDetailOutput) {
 	if taskJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(t)
+		enc.Encode(out)
 		return
 	}
 
+	t := out.Task
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	fmt.Fprintf(w, "PublicID:\t%s\n", t.PublicID)
 	fmt.Fprintf(w, "Title:\t%s\n", t.Title)
@@ -136,19 +174,48 @@ func printTaskDetail(t *contract.Task) {
 	fmt.Fprintf(w, "TaskType:\t%s\n", t.TaskType)
 	fmt.Fprintf(w, "OrgID:\t%d\n", t.OrgID)
 	fmt.Fprintf(w, "OwnerID:\t%d\n", t.OwnerID)
-	fmt.Fprintf(w, "ProjectID:\t%s\n", t.ProjectID)
-	if t.AssigneeID != nil {
+
+	if out.Project != nil {
+		fmt.Fprintf(w, "Project:\t%s (%s)\n", out.Project.Name, t.ProjectID)
+	} else {
+		fmt.Fprintf(w, "ProjectID:\t%s\n", t.ProjectID)
+	}
+
+	if out.Assignee != nil {
+		fmt.Fprintf(w, "Assignee:\t%s (ID=%d, Code=%s)\n", out.Assignee.Name, out.Assignee.ID, out.Assignee.Code)
+	} else if t.AssigneeID != nil {
 		fmt.Fprintf(w, "AssigneeID:\t%d\n", *t.AssigneeID)
 	}
+
 	if t.SessionID != nil {
-		fmt.Fprintf(w, "SessionID:\t%d\n", *t.SessionID)
+		fmt.Fprintf(w, "SessionID:\t%d (internal)\n", *t.SessionID)
 	}
 	if t.Deadline != nil {
 		fmt.Fprintf(w, "Deadline:\t%s\n", t.Deadline.Format("2006-01-02T15:04:05Z"))
 	}
 	fmt.Fprintf(w, "CreatedAt:\t%s\n", t.CreatedAt.Format("2006-01-02T15:04:05Z"))
 	fmt.Fprintf(w, "UpdatedAt:\t%s\n", t.UpdatedAt.Format("2006-01-02T15:04:05Z"))
+
+	if len(out.Artifacts) > 0 {
+		fmt.Fprintf(w, "--- Artifacts (%d) ---\t\n", len(out.Artifacts))
+		for i, a := range out.Artifacts {
+			fmt.Fprintf(w, "  [%d] %s\t%s\n", i+1, a.ArtifactID, a.Title)
+			fmt.Fprintf(w, "    Type: %s\tFile: %s (%s)\n", a.ArtifactType, a.Filename, formatTaskSize(a.FileSize))
+		}
+	}
+
 	w.Flush()
+}
+
+func formatTaskSize(bytes int64) string {
+	switch {
+	case bytes >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/(1<<20))
+	case bytes >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }
 
 func init() {

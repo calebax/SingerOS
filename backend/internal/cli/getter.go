@@ -15,7 +15,7 @@ import (
 // GetSession 调用服务端 GetSession API 并返回解析后的结果。
 func GetSession(ctx context.Context, serverAddr, sessionID string) (*contract.Session, error) {
 	var result contract.Session
-	if err := doGetRequest(ctx, serverAddr, "GetSession",
+	if err := doPostRequest(ctx, serverAddr, "GetSession",
 		map[string]string{"session_id": sessionID}, &result); err != nil {
 		return nil, err
 	}
@@ -25,7 +25,7 @@ func GetSession(ctx context.Context, serverAddr, sessionID string) (*contract.Se
 // GetTask 调用服务端 GetTask API 并返回解析后的结果。
 func GetTask(ctx context.Context, serverAddr, publicID string) (*contract.Task, error) {
 	var result contract.Task
-	if err := doGetRequest(ctx, serverAddr, "GetTask",
+	if err := doPostRequest(ctx, serverAddr, "GetTask",
 		map[string]string{"public_id": publicID}, &result); err != nil {
 		return nil, err
 	}
@@ -35,15 +35,58 @@ func GetTask(ctx context.Context, serverAddr, publicID string) (*contract.Task, 
 // GetProject 调用服务端 GetProject API 并返回解析后的结果。
 func GetProject(ctx context.Context, serverAddr, publicID string) (*contract.Project, error) {
 	var result contract.Project
-	if err := doGetRequest(ctx, serverAddr, "GetProject",
+	if err := doPostRequest(ctx, serverAddr, "GetProject",
 		map[string]string{"public_id": publicID}, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-// doGetRequest 发送获取单条记录 API 请求的通用封装。
-func doGetRequest(ctx context.Context, serverAddr, endpoint string, reqBody, target interface{}) error {
+// DetailProject 调用服务端 DetailProject API 并返回解析后的结果。
+func DetailProject(ctx context.Context, serverAddr, publicID string) (*contract.ProjectDetail, error) {
+	var result contract.ProjectDetail
+	if err := doPostRequest(ctx, serverAddr, "DetailProject",
+		map[string]string{"public_id": publicID}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetSessionMessages 调用服务端 GetSessionMessages API 并返回解析后的结果。
+func GetSessionMessages(ctx context.Context, serverAddr, sessionID string, page, perPage int) (*contract.MessageList, error) {
+	var result contract.MessageList
+	if err := doPostRequest(ctx, serverAddr, "GetSessionMessages",
+		map[string]interface{}{
+			"session_id": sessionID,
+			"page":       page,
+			"per_page":   perPage,
+		}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetDigitalAssistantByID 调用服务端 GetDigitalAssistant API 并返回解析后的结果。
+func GetDigitalAssistantByID(ctx context.Context, serverAddr string, id uint) (*contract.DigitalAssistantDetail, error) {
+	var result contract.DigitalAssistantDetail
+	if err := doPostRequest(ctx, serverAddr, "GetDigitalAssistant",
+		map[string]interface{}{"id": id}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ListTaskArtifacts 调用服务端 ListTaskArtifacts API 并返回解析后的结果。
+func ListTaskArtifacts(ctx context.Context, serverAddr, taskID string) ([]contract.Artifact, error) {
+	var result []contract.Artifact
+	if err := doGetRequest(ctx, serverAddr, fmt.Sprintf("tasks/%s/artifacts", taskID), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// doPostRequest 发送 POST JSON API 请求的通用封装。
+func doPostRequest(ctx context.Context, serverAddr, endpoint string, reqBody, target interface{}) error {
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -57,6 +100,22 @@ func doGetRequest(ctx context.Context, serverAddr, endpoint string, reqBody, tar
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	return doRequest(client, req, target)
+}
+
+// doGetRequest 发送 GET API 请求的通用封装（用于 REST 风格端点）。
+func doGetRequest(ctx context.Context, serverAddr, path string, target interface{}) error {
+	client := &http.Client{Timeout: defaultHTTPTimeout}
+	url := fmt.Sprintf("http://%s/v1/%s", serverAddr, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	return doRequest(client, req, target)
+}
+
+func doRequest(client *http.Client, req *http.Request, target interface{}) error {
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
