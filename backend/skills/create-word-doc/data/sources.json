@@ -1,0 +1,64 @@
+{
+  "libraries": {
+    "python-docx": {
+      "name": "python-docx",
+      "url": "https://python-docx.readthedocs.io/",
+      "description": "Python library for creating and editing Microsoft Word .docx files",
+      "language": "Python"
+    },
+    "docxtpl": {
+      "name": "docxtpl",
+      "url": "https://docxtpl.readthedocs.io/",
+      "description": "Python library for templating Microsoft Word .docx files using Jinja2",
+      "language": "Python"
+    },
+    "docx": {
+      "name": "docx",
+      "url": "https://docx.js.org/",
+      "description": "Node.js library for generating Microsoft Word documents",
+      "language": "JavaScript"
+    },
+    "mammoth": {
+      "name": "mammoth",
+      "url": "https://github.com/mammothjs/mammoth",
+      "description": "Converts DOCX to HTML, also extracts raw text",
+      "language": "JavaScript"
+    }
+  },
+  "official_docs": {
+    "office_open_xml": {
+      "name": "Office Open XML",
+      "url": "https://en.wikipedia.org/wiki/Office_Open_XML",
+      "description": "The ECMA-376 standard for Office document formats"
+    },
+    "microsoft_word": {
+      "name": "Microsoft Word",
+      "url": "https://support.microsoft.com/word",
+      "description": "Official Microsoft Word support and documentation"
+    },
+    "w3c_wcag": {
+      "name": "WCAG 2.2 Guidelines",
+      "url": "https://www.w3.org/TR/WCAG22/",
+      "description": "Web Content Accessibility Guidelines"
+    }
+  },
+  "tools": {
+    "libreoffice": {
+      "name": "LibreOffice",
+      "url": "https://www.libreoffice.org/",
+      "description": "Free and open-source office suite, can convert DOCX to PDF"
+    },
+    "pandoc": {
+      "name": "Pandoc",
+      "url": "https://pandoc.org/",
+      "description": "Universal document converter"
+    }
+  },
+  "community": {
+    "stackoverflow_docx": {
+      "name": "Stack Overflow - python-docx",
+      "url": "https://stackoverflow.com/questions/tagged/python-docx",
+      "description": "Community Q&A for DOCX manipulation"
+    }
+  }
+}
