@@ -30,6 +30,15 @@ func ListTasks(ctx context.Context, serverAddr string, req *contract.ListTasksRe
 	return &result, nil
 }
 
+// ListSessions 调用服务端 ListSessions API 并返回解析后的结果。
+func ListSessions(ctx context.Context, serverAddr string, req *contract.ListSessionsRequest) (*contract.SessionList, error) {
+	var result contract.SessionList
+	if err := doListRequest(ctx, serverAddr, "ListSessions", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // doListRequest 发送列表类 API 请求的通用封装。
 func doListRequest(ctx context.Context, serverAddr, endpoint string, reqBody, target interface{}) error {
 	payload, err := json.Marshal(reqBody)
