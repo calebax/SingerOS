@@ -35,7 +35,9 @@ func TestWorkerTaskMessageJSONShape(t *testing.T) {
 			},
 			Input: TaskInput{
 				Type: InputTypeMessage,
-				Text: "hello",
+				Messages: []ChatMessage{
+					{Role: MessageRoleUser, Content: "hello"},
+				},
 			},
 		},
 	}

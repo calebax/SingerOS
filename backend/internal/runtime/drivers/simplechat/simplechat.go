@@ -134,12 +134,8 @@ func buildUserInput(req *agent.RequestContext) string {
 		return ""
 	}
 
-	switch {
-	case req.Input.Text != "":
-		return req.Input.Text
-	case len(req.Input.Messages) > 0:
+	if len(req.Input.Messages) > 0 {
 		return req.Input.Messages[len(req.Input.Messages)-1].Content
-	default:
-		return ""
 	}
+	return ""
 }

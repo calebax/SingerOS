@@ -244,11 +244,7 @@ func buildUserInput(req *agent.RequestContext) string {
 		return ""
 	}
 
-	// 构建当前输入
-	switch {
-	case strings.TrimSpace(req.Input.Text) != "":
-		return strings.TrimSpace(req.Input.Text)
-	case len(req.Input.Messages) > 0:
+	if len(req.Input.Messages) > 0 {
 		lines := make([]string, 0, len(req.Input.Messages))
 		for _, message := range req.Input.Messages {
 			if strings.TrimSpace(message.Content) == "" {
@@ -261,9 +257,8 @@ func buildUserInput(req *agent.RequestContext) string {
 			lines = append(lines, fmt.Sprintf("%s: %s", role, message.Content))
 		}
 		return strings.Join(lines, "\n")
-	default:
-		return string(req.Input.Type)
 	}
+	return ""
 }
 
 func (r *Runner) buildSystemPrompt(req *agent.RequestContext) (string, error) {

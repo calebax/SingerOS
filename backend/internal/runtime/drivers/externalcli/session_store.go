@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/ygpkg/yg-go/logs"
 )
 
 const (
@@ -49,23 +51,40 @@ type ProviderSessionStore interface {
 }
 
 var (
-	defaultProviderSessionStoreMu sync.RWMutex
-	defaultProviderSessionStore   ProviderSessionStore = NewInMemoryProviderSessionStore()
+	defaultStoreMu    sync.Mutex
+	defaultStore      ProviderSessionStore
+	defaultStoreReady bool
 )
 
-// DefaultProviderSessionStore 返回包级提供者会话存储。
+// DefaultProviderSessionStore 返回包级提供者会话存储，首次调用时自动初始化 SQLite。
 func DefaultProviderSessionStore() ProviderSessionStore {
-	defaultProviderSessionStoreMu.RLock()
-	defer defaultProviderSessionStoreMu.RUnlock()
-	return defaultProviderSessionStore
+	defaultStoreMu.Lock()
+	defer defaultStoreMu.Unlock()
+
+	if defaultStoreReady {
+		return defaultStore
+	}
+	defaultStoreReady = true
+
+	var store ProviderSessionStore
+	sqliteStore, err := newSQLiteProviderSessionStore()
+	if err != nil {
+		logs.Warnf("Provider session store unavailable, falling back to in-memory: %v", err)
+		store = NewInMemoryProviderSessionStore()
+	} else {
+		store = sqliteStore
+	}
+	defaultStore = store
+	return defaultStore
 }
 
-// SetDefaultProviderSessionStore 替换包级提供者会话存储。
+// SetDefaultProviderSessionStore 替换包级提供者会话存储（主要用于测试）。
 func SetDefaultProviderSessionStore(store ProviderSessionStore) {
 	if store == nil {
 		return
 	}
-	defaultProviderSessionStoreMu.Lock()
-	defer defaultProviderSessionStoreMu.Unlock()
-	defaultProviderSessionStore = store
+	defaultStoreMu.Lock()
+	defer defaultStoreMu.Unlock()
+	defaultStore = store
+	defaultStoreReady = true
 }

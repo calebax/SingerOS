@@ -12,7 +12,7 @@ func TestTrailingDebouncerRunsLatestAfterQuietWindow(t *testing.T) {
 	debouncer, err := NewTrailingDebouncer(30*time.Millisecond, func(ctx context.Context, value int) error {
 		handled <- value
 		return nil
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTrailingDebouncer() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestTrailingDebouncerKeepsKeysIndependent(t *testing.T) {
 	debouncer, err := NewTrailingDebouncer(20*time.Millisecond, func(ctx context.Context, value result) error {
 		handled <- value
 		return nil
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTrailingDebouncer() error = %v", err)
 	}

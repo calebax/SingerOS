@@ -13,11 +13,16 @@ type DebouncedHandler[T any] func(ctx context.Context, value T) error
 // ErrorHandler observes handler errors without coupling callers to background execution.
 type ErrorHandler func(ctx context.Context, err error)
 
+// MergeFunc merges an incoming value into the existing pending value.
+// Return the merged result. If nil, the incoming value replaces the existing one.
+type MergeFunc[T any] func(existing T, incoming T) T
+
 // TrailingDebouncer keeps the latest call for each key and runs it after the window is quiet.
 type TrailingDebouncer[T any] struct {
 	window  time.Duration
 	handler DebouncedHandler[T]
 	onError ErrorHandler
+	merge   MergeFunc[T]
 
 	mu      sync.Mutex
 	entries map[string]*debounceEntry[T]
@@ -33,7 +38,8 @@ type debounceEntry[T any] struct {
 }
 
 // NewTrailingDebouncer creates a keyed trailing-edge debouncer.
-func NewTrailingDebouncer[T any](window time.Duration, handler DebouncedHandler[T], onError ErrorHandler) (*TrailingDebouncer[T], error) {
+// If merge is nil, Call replaces the pending value; otherwise it merges via merge(existing, incoming).
+func NewTrailingDebouncer[T any](window time.Duration, handler DebouncedHandler[T], onError ErrorHandler, merge MergeFunc[T]) (*TrailingDebouncer[T], error) {
 	if window <= 0 {
 		return nil, fmt.Errorf("debounce window must be positive")
 	}
@@ -44,11 +50,13 @@ func NewTrailingDebouncer[T any](window time.Duration, handler DebouncedHandler[
 		window:  window,
 		handler: handler,
 		onError: onError,
+		merge:   merge,
 		entries: map[string]*debounceEntry[T]{},
 	}, nil
 }
 
 // Call resets the key's debounce window and keeps value as the latest pending work.
+// If a merge function is configured, the incoming value is merged into the existing pending value.
 func (d *TrailingDebouncer[T]) Call(ctx context.Context, key string, value T) {
 	d.mu.Lock()
 	entry := d.entries[key]
@@ -57,7 +65,11 @@ func (d *TrailingDebouncer[T]) Call(ctx context.Context, key string, value T) {
 		d.entries[key] = entry
 	}
 	entry.ctx = ctx
-	entry.pending = value
+	if entry.hasPending && d.merge != nil {
+		entry.pending = d.merge(entry.pending, value)
+	} else {
+		entry.pending = value
+	}
 	entry.hasPending = true
 	entry.seq++
 	seq := entry.seq

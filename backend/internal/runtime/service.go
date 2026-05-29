@@ -8,7 +8,6 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/engines/builtin"
 	"github.com/insmtx/Leros/backend/internal/agent"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/runtime/deps"
 	"github.com/insmtx/Leros/backend/internal/runtime/drivers/externalcli"
 	"github.com/insmtx/Leros/backend/internal/runtime/drivers/native"
@@ -69,7 +68,7 @@ func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, 
 	lifecycleBuilder := lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
 		BaseSystemPrompt: native.DefaultSystemPrompt(),
 		Runtime:          s.env,
-		SessionMessages:  lifecyclecontext.NewDBSessionMessageProvider(infradb.GetDB(), 20),
+		SessionMessages:  lifecyclecontext.NewPassthroughSessionMessageProvider(),
 	})
 	router := agent.NewRuntimeRouter(agent.RuntimeKindLeros)
 
@@ -102,9 +101,6 @@ func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, 
 			runner, err := externalcli.NewRunner(name, engine)
 			if err != nil {
 				return nil, err
-			}
-			if db := infradb.GetDB(); db != nil {
-				runner.SetSessionStore(externalcli.NewSessionMetadataProviderSessionStore(db))
 			}
 			if err := router.Register(name, runner); err != nil {
 				return nil, err

@@ -53,7 +53,7 @@ func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, 
 	}
 	window := cfg.DebounceWindow
 	if window <= 0 {
-		window = time.Second
+		window = 1500 * time.Millisecond
 	}
 	consumer := &Consumer{
 		cfg:        cfg,
@@ -63,7 +63,7 @@ func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, 
 	}
 	debouncer, err := utils.NewTrailingDebouncer(window, consumer.runTask, func(ctx context.Context, err error) {
 		logs.ErrorContextf(ctx, "Failed to run worker task: %v", err)
-	})
+	}, mergeWorkerTaskMessages)
 	if err != nil {
 		return nil, err
 	}
@@ -229,4 +229,15 @@ func (c *Consumer) validateRoute(msg protocol.WorkerTaskMessage) error {
 		return fmt.Errorf("task worker_id %q does not match worker_id %q", msg.Route.WorkerID, c.cfg.WorkerID)
 	}
 	return nil
+}
+
+// mergeWorkerTaskMessages merges the incoming task's Input.Messages into the existing pending task's Input.Messages.
+func mergeWorkerTaskMessages(existing protocol.WorkerTaskMessage, incoming protocol.WorkerTaskMessage) protocol.WorkerTaskMessage {
+	if len(incoming.Body.Input.Messages) > 0 {
+		existing.Body.Input.Messages = append(existing.Body.Input.Messages, incoming.Body.Input.Messages...)
+	}
+	if len(incoming.Body.Input.Attachments) > 0 {
+		existing.Body.Input.Attachments = append(existing.Body.Input.Attachments, incoming.Body.Input.Attachments...)
+	}
+	return existing
 }

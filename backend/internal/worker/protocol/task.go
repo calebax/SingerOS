@@ -68,12 +68,12 @@ type ExecutionTarget struct {
 // WorkspaceOptions identifies the isolated project workspace for a task run.
 type WorkspaceOptions struct {
 	ProjectID string `json:"project_id,omitempty"`
+	TaskID    string `json:"task_id,omitempty"`
 }
 
 // TaskInput is the standardized task input consumed by Worker Runtime.
 type TaskInput struct {
 	Type        InputType      `json:"type"`
-	Text        string         `json:"text,omitempty"`
 	Messages    []ChatMessage  `json:"messages,omitempty"`
 	Attachments []Attachment   `json:"attachments,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`

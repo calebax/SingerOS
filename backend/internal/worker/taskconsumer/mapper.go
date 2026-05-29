@@ -36,7 +36,6 @@ func RequestFromWorkerTask(msg protocol.WorkerTaskMessage) *agent.RequestContext
 		},
 		Input: agent.InputContext{
 			Type:        agent.InputType(msg.Body.Input.Type),
-			Text:        msg.Body.Input.Text,
 			Messages:    inputMessagesFromTask(msg.Body.Input.Messages),
 			Attachments: attachmentsFromTask(msg.Body.Input.Attachments),
 		},

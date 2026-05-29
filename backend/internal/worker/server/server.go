@@ -11,7 +11,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/internal/worker/wsproto"
 	"github.com/ygpkg/yg-go/logs"
-	"gorm.io/gorm"
 )
 
 var upgrader = websocket.Upgrader{
@@ -26,14 +25,12 @@ type WorkerManager struct {
 	workers   map[string]*WorkerConnection
 	mu        sync.RWMutex
 	scheduler worker.WorkerScheduler
-	db        *gorm.DB
 }
 
-func NewServer(scheduler worker.WorkerScheduler, db *gorm.DB) *WorkerManager {
+func NewServer(scheduler worker.WorkerScheduler) *WorkerManager {
 	return &WorkerManager{
 		workers:   make(map[string]*WorkerConnection),
 		scheduler: scheduler,
-		db:        db,
 	}
 }
 

@@ -33,7 +33,9 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 			},
 			Input: protocol.TaskInput{
 				Type: protocol.InputTypeMessage,
-				Text: "hello",
+				Messages: []protocol.ChatMessage{
+					{Role: protocol.MessageRoleUser, Content: "hello"},
+				},
 			},
 		},
 		Metadata: map[string]any{

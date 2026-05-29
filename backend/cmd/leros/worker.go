@@ -12,7 +12,6 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/engines/builtin"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	agentruntime "github.com/insmtx/Leros/backend/internal/runtime"
 	runtimemcp "github.com/insmtx/Leros/backend/internal/runtime/mcp"
@@ -23,7 +22,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
 	"github.com/ygpkg/yg-go/logs"
-	"gorm.io/gorm"
 )
 
 var (
@@ -98,21 +96,11 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Invalid worker workspace config: %v", err)
 		return
 	}
-
-	var db *gorm.DB
-	if cfg.Database != nil && cfg.Database.URL != "" {
-		db, err = infradb.InitDB(*cfg.Database, cfg.LLM)
-		if err != nil {
-			logs.Fatalf("Failed to initialize database: %v", err)
-			return
-		}
-		if sqlDB, err := db.DB(); err == nil {
-			lifecycle.Std().AddCloseFunc(sqlDB.Close)
-		}
-		logs.Info("Worker database initialized successfully")
-	} else {
-		logs.Warn("No database configuration provided for worker")
+	if _, err := leros.EnsureStateDir(); err != nil {
+		logs.Fatalf("Failed to ensure state dir: %v", err)
+		return
 	}
+
 	identity.Set(identity.Profile{
 		OrgID:    cfg.OrgID,
 		WorkerID: cfg.WorkerID,
@@ -224,9 +212,6 @@ func validateTaskWorkerConfig(cfg *config.WorkerConfig) error {
 	}
 	if cfg.OrgID == 0 {
 		return fmt.Errorf("worker.org_id is required")
-	}
-	if cfg.Database == nil || strings.TrimSpace(cfg.Database.URL) == "" {
-		return fmt.Errorf("worker.database.url is required")
 	}
 	return nil
 }

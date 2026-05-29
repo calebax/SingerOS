@@ -13,19 +13,19 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// ContextBuilder 缁熶竴涓哄唴閮?Agent 鍜屽閮?CLI 鏋勫缓杩愯涓婁笅鏂囥€?
+// ContextBuilder 统一为内部 Agent 和外部 CLI 构建运行上下文。
 type ContextBuilder struct {
 	BaseSystemPrompt string
 	Runtime          RuntimeProvider
 	SessionMessages  SessionMessageProvider
 }
 
-// RuntimeProvider 鑱氬悎杩愯鏃朵緷璧栦緵 ContextBuilder 浣跨敤銆?
+// RuntimeProvider 聚合运行时依赖供 ContextBuilder 使用。
 type RuntimeProvider interface {
 	SkillsProvider() skillcatalog.CatalogProvider
 }
 
-// NewContextBuilder 鍒涘缓缁熶竴涓婁笅鏂囨瀯寤哄櫒銆?
+// NewContextBuilder 创建统一上下文构建器。
 func NewContextBuilder(cfg ContextBuilder) *ContextBuilder {
 	base := strings.TrimSpace(cfg.BaseSystemPrompt)
 	if base == "" {
@@ -38,7 +38,7 @@ func NewContextBuilder(cfg ContextBuilder) *ContextBuilder {
 	}
 }
 
-// SkillsProvider 杩斿洖杩愯鏃朵笂涓嬫枃涓殑鎶€鑳芥彁渚涜€呫€?
+// SkillsProvider 返回运行时上下文中的技能提供者。
 func (b *ContextBuilder) SkillsProvider() skillcatalog.CatalogProvider {
 	if b == nil || b.Runtime == nil {
 		return nil
@@ -46,20 +46,19 @@ func (b *ContextBuilder) SkillsProvider() skillcatalog.CatalogProvider {
 	return b.Runtime.SkillsProvider()
 }
 
-// Prepare 鍏嬮殕璇锋眰骞舵敞鍏?memory銆乻kill銆乻ession 涓婁笅鏂囥€?
+// Prepare 克隆请求并注入 memory、skill、session 上下文。
 func (b *ContextBuilder) Prepare(ctx context.Context, req *agent.RequestContext) (*agent.RequestContext, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request context is required")
 	}
 
 	startedAt := time.Now()
-	logs.InfoContextf(ctx, "Agent context prepare started: run_id=%s trace_id=%s assistant_id=%s conversation_id=%s input_type=%s input_text_len=%d messages=%d attachments=%d",
+	logs.InfoContextf(ctx, "Agent context prepare started: run_id=%s trace_id=%s assistant_id=%s conversation_id=%s input_type=%s messages=%d attachments=%d",
 		req.RunID,
 		req.TraceID,
 		req.Assistant.ID,
 		req.Conversation.ID,
 		req.Input.Type,
-		len(strings.TrimSpace(req.Input.Text)),
 		len(req.Input.Messages),
 		len(req.Input.Attachments),
 	)
@@ -85,7 +84,7 @@ func (b *ContextBuilder) Prepare(ctx context.Context, req *agent.RequestContext)
 	return cloned, nil
 }
 
-// BuildSystemPrompt 鐢熸垚缁熶竴绯荤粺鎻愮ず璇嶏紝渚涙墍鏈夎繍琛屾椂澶嶇敤銆?
+// BuildSystemPrompt 生成统一系统提示词，供所有运行时复用。
 func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agent.RequestContext) (string, error) {
 	sections := make([]string, 0, 6)
 	sectionNames := make([]string, 0, 5)
@@ -115,6 +114,7 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agent.Reque
 	return prompt, nil
 }
 
+// basePromptForRequest 取基础 system prompt，若请求中有 Assistant 级别的 prompt 则追加。
 func (b *ContextBuilder) basePromptForRequest(req *agent.RequestContext) string {
 	prompt := strings.TrimSpace(b.BaseSystemPrompt)
 	if req != nil && strings.TrimSpace(req.Assistant.SystemPrompt) != "" {
@@ -127,6 +127,7 @@ func (b *ContextBuilder) basePromptForRequest(req *agent.RequestContext) string 
 	return prompt
 }
 
+// buildSkillsContext 从技能目录构建技能上下文文本，包含摘要和 always-on 技能的完整内容。
 func (b *ContextBuilder) buildSkillsContext() string {
 	if b == nil || b.SkillsProvider() == nil {
 		logs.Debug("Agent skills context skipped: skills provider unavailable")
@@ -161,6 +162,7 @@ func (b *ContextBuilder) buildSkillsContext() string {
 	return strings.Join(filterEmpty(sections), "\n\n")
 }
 
+// buildSkillSummarySection 将技能摘要格式化为 prompt 中的可用技能列表。
 func buildSkillSummarySection(summaries []skillcatalog.Summary) string {
 	var builder strings.Builder
 	builder.WriteString("Available skills:\n")
@@ -185,6 +187,7 @@ func buildSkillSummarySection(summaries []skillcatalog.Summary) string {
 	return strings.TrimSpace(builder.String())
 }
 
+// buildMemoryContext 从本地记忆存储器中拉取记忆块作为 prompt 上下文。
 func buildMemoryContext(ctx context.Context) string {
 	store, err := localmemory.NewStore(localmemory.Options{})
 	if err != nil {
@@ -205,6 +208,7 @@ func buildMemoryContext(ctx context.Context) string {
 	return block
 }
 
+// buildSessionSummaryContext 将最近对话记录（最多10条）压缩为 session-summary 块。
 func buildSessionSummaryContext(req *agent.RequestContext) string {
 	if req == nil || len(req.Conversation.Messages) == 0 {
 		return ""
@@ -236,14 +240,12 @@ func buildSessionSummaryContext(req *agent.RequestContext) string {
 	return strings.Join(lines, "\n")
 }
 
+// BuildUserInput 将请求中的用户输入消息拼接为格式化文本。
 func BuildUserInput(req *agent.RequestContext) string {
 	if req == nil {
 		return ""
 	}
-	switch {
-	case strings.TrimSpace(req.Input.Text) != "":
-		return strings.TrimSpace(req.Input.Text)
-	case len(req.Input.Messages) > 0:
+	if len(req.Input.Messages) > 0 {
 		lines := make([]string, 0, len(req.Input.Messages))
 		for _, message := range req.Input.Messages {
 			if strings.TrimSpace(message.Content) == "" {
@@ -256,11 +258,11 @@ func BuildUserInput(req *agent.RequestContext) string {
 			lines = append(lines, fmt.Sprintf("%s: %s", role, message.Content))
 		}
 		return strings.Join(lines, "\n")
-	default:
-		return string(req.Input.Type)
 	}
+	return ""
 }
 
+// CloneRequest 深拷贝一份 RequestContext，防止 Prepare 过程污染原始请求。
 func CloneRequest(req *agent.RequestContext) *agent.RequestContext {
 	if req == nil {
 		return nil
@@ -282,6 +284,7 @@ func CloneRequest(req *agent.RequestContext) *agent.RequestContext {
 	return &cloned
 }
 
+// filterEmpty 过滤切片中的空白字符串，返回所有非空值。
 func filterEmpty(values []string) []string {
 	result := make([]string, 0, len(values))
 	for _, value := range values {
@@ -292,6 +295,7 @@ func filterEmpty(values []string) []string {
 	return result
 }
 
+// TruncateForPrompt 将字符串截断到指定长度，超长时追加截断标记。
 func TruncateForPrompt(value string, limit int) string {
 	value = strings.TrimSpace(value)
 	if limit <= 0 || len(value) <= limit {
@@ -300,6 +304,7 @@ func TruncateForPrompt(value string, limit int) string {
 	return value[:limit] + "...(truncated)"
 }
 
+// learningGuidance 返回自学习规则指引，指导 Agent 何时使用 memory 和 skill_manage。
 func learningGuidance() string {
 	return `## Self-learning rules
 - Use memory for stable user preferences, project facts, or explicit remember requests.
@@ -307,6 +312,7 @@ func learningGuidance() string {
 - Do not save transient task progress, ordinary logs, or one-off results.`
 }
 
+// requestRunID 安全取出 Request 中的 RunID，nil 时返回空。
 func requestRunID(req *agent.RequestContext) string {
 	if req == nil {
 		return ""
@@ -314,6 +320,7 @@ func requestRunID(req *agent.RequestContext) string {
 	return req.RunID
 }
 
+// requestTraceID 安全取出 Request 中的 TraceID，nil 时返回空。
 func requestTraceID(req *agent.RequestContext) string {
 	if req == nil {
 		return ""

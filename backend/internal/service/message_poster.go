@@ -369,10 +369,13 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 			},
 			Workspace: protocol.WorkspaceOptions{
 				ProjectID: projectPublicID,
+				TaskID:    taskPublicID,
 			},
 			Input: protocol.TaskInput{
 				Type: protocol.InputTypeMessage,
-				Text: message.Content,
+				Messages: []protocol.ChatMessage{
+					{Role: protocol.MessageRoleUser, Content: message.Content},
+				},
 			},
 			Model: modelOptions,
 		},

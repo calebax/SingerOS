@@ -67,7 +67,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 	{
 		workerScheduler := scheduler.NewProcessScheduler(cfg.Scheduler)
 
-		workerManager := workerserver.NewServer(workerScheduler, db)
+		workerManager := workerserver.NewServer(workerScheduler)
 		workerManager.RegisterRoutes(r)
 		logs.Info("Worker server routes registered successfully")
 
