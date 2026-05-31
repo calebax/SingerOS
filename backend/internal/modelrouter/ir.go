@@ -18,6 +18,8 @@ type IRThinkingBlock struct {
 }
 
 // IRContentBlock is a single content block in the canonical IR.
+//
+// Deprecated: Use modelrouter/v2 instead.
 type IRContentBlock struct {
 	Type    IRBlockType      `json:"type"`
 	Text    string           `json:"text,omitempty"`
@@ -154,6 +156,8 @@ type IRStreamEvent struct {
 }
 
 // IRMessage is a message in the canonical IR.
+//
+// Deprecated: Use modelrouter/v2 instead.
 type IRMessage struct {
 	Role     IRRole                    `json:"role"`
 	Content  []IRContentBlock          `json:"content,omitempty"`
@@ -173,6 +177,8 @@ func (m IRMessage) getTextContent() string {
 }
 
 // IRRequest is the canonical request in the Intermediate Representation.
+//
+// Deprecated: Use modelrouter/v2 instead.
 type IRRequest struct {
 	Model           string                 `json:"model"`
 	Messages        []IRMessage            `json:"messages,omitempty"`
@@ -202,6 +208,8 @@ type IRResponseFormat struct {
 }
 
 // IRResponse is the canonical response in the Intermediate Representation.
+//
+// Deprecated: Use modelrouter/v2 instead.
 type IRResponse struct {
 	ID           string           `json:"id"`
 	Model        string           `json:"model"`

@@ -13,6 +13,7 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
+// Deprecated: Use modelrouter/v2 instead.
 // RegisterRoutes registers model routing endpoints backed by the worker-local model store.
 func RegisterRoutes(r gin.IRouter) {
 	resolver := NewResolver()
