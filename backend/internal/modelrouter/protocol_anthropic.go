@@ -67,7 +67,7 @@ func (a *anthropicMessagesAdapter) DecodeRequest(raw map[string]interface{}) (*I
 
 	// Messages.
 	if msgs, ok := getList(raw, "messages"); ok {
-		ir.Messages = decodeAnthropicMessagesV2(msgs)
+		ir.Messages = decodeAnthropicMessages(msgs)
 	}
 
 	// Temperature.
@@ -85,7 +85,7 @@ func (a *anthropicMessagesAdapter) DecodeRequest(raw map[string]interface{}) (*I
 
 	// Tools.
 	if tools, ok := getList(raw, "tools"); ok {
-		ir.Tools = decodeAnthropicToolsV2(tools)
+		ir.Tools = decodeAnthropicTools(tools)
 	}
 
 	// Tool choice.
@@ -96,7 +96,7 @@ func (a *anthropicMessagesAdapter) DecodeRequest(raw map[string]interface{}) (*I
 	return ir, nil
 }
 
-func decodeAnthropicMessagesV2(raw []interface{}) []IRMessage {
+func decodeAnthropicMessages(raw []interface{}) []IRMessage {
 	var msgs []IRMessage
 	for _, r := range raw {
 		m, ok := r.(map[string]interface{})
@@ -105,10 +105,10 @@ func decodeAnthropicMessagesV2(raw []interface{}) []IRMessage {
 		}
 
 		role := getString(m, "role")
-		msg := IRMessage{Role: mapAnthropicRoleV2(role)}
+		msg := IRMessage{Role: mapAnthropicRole(role)}
 
 		if content := m["content"]; content != nil {
-			msg.Parts = decodeAnthropicContentV2(content)
+			msg.Parts = decodeAnthropicContent(content)
 		}
 
 		msgs = append(msgs, msg)
@@ -116,7 +116,7 @@ func decodeAnthropicMessagesV2(raw []interface{}) []IRMessage {
 	return msgs
 }
 
-func decodeAnthropicContentV2(content interface{}) []IRContentPart {
+func decodeAnthropicContent(content interface{}) []IRContentPart {
 	switch v := content.(type) {
 	case string:
 		return []IRContentPart{{Type: IRPartText, Text: v}}
@@ -161,7 +161,7 @@ func decodeAnthropicContentV2(content interface{}) []IRContentPart {
 					},
 				})
 			case "tool_result":
-				resultContent := decodeToolResultContentV2(m["content"])
+				resultContent := decodeToolResultContent(m["content"])
 				parts = append(parts, IRContentPart{
 					Type: IRPartToolResult,
 					ToolResult: &IRToolResultPart{
@@ -177,7 +177,7 @@ func decodeAnthropicContentV2(content interface{}) []IRContentPart {
 	return nil
 }
 
-func decodeToolResultContentV2(content interface{}) []IRContentPart {
+func decodeToolResultContent(content interface{}) []IRContentPart {
 	switch v := content.(type) {
 	case string:
 		return []IRContentPart{{Type: IRPartText, Text: v}}
@@ -199,7 +199,7 @@ func decodeToolResultContentV2(content interface{}) []IRContentPart {
 	}
 }
 
-func decodeAnthropicToolsV2(raw []interface{}) []IRToolDecl {
+func decodeAnthropicTools(raw []interface{}) []IRToolDecl {
 	var tools []IRToolDecl
 	for _, r := range raw {
 		m, ok := r.(map[string]interface{})
@@ -235,7 +235,7 @@ func decodeAnthropicToolChoice(tc interface{}) *IRToolChoice {
 	return nil
 }
 
-func mapAnthropicRoleV2(role string) IRRole {
+func mapAnthropicRole(role string) IRRole {
 	switch role {
 	case "user":
 		return IRRoleUser
@@ -258,7 +258,7 @@ func (a *anthropicMessagesAdapter) EncodeRequest(ir *IRRequest) (map[string]inte
 	body := map[string]interface{}{
 		"model":      ir.Model,
 		"max_tokens": maxTokens,
-		"messages":   encodeAnthropicMessagesV2(ir.Messages),
+		"messages":   encodeAnthropicMessages(ir.Messages),
 	}
 
 	if ir.System != "" {
@@ -290,13 +290,13 @@ func (a *anthropicMessagesAdapter) EncodeRequest(ir *IRRequest) (map[string]inte
 	}
 
 	if ir.ToolChoice != nil {
-		body["tool_choice"] = encodeAnthropicToolChoiceV2(ir.ToolChoice)
+		body["tool_choice"] = encodeAnthropicToolChoice(ir.ToolChoice)
 	}
 
 	return body, nil
 }
 
-func encodeAnthropicMessagesV2(msgs []IRMessage) []map[string]interface{} {
+func encodeAnthropicMessages(msgs []IRMessage) []map[string]interface{} {
 	var result []map[string]interface{}
 
 	for _, m := range msgs {
@@ -304,7 +304,7 @@ func encodeAnthropicMessagesV2(msgs []IRMessage) []map[string]interface{} {
 		case IRRoleSystem, IRRoleTool:
 			// System and tool roles map to "user" in Anthropic.
 			em := map[string]interface{}{"role": "user"}
-			content := encodeAnthropicPartsV2(m.Parts)
+			content := encodeAnthropicParts(m.Parts)
 			if len(content) > 0 {
 				em["content"] = content
 			}
@@ -315,7 +315,7 @@ func encodeAnthropicMessagesV2(msgs []IRMessage) []map[string]interface{} {
 				role = "user"
 			}
 			em := map[string]interface{}{"role": role}
-			content := encodeAnthropicPartsV2(m.Parts)
+			content := encodeAnthropicParts(m.Parts)
 			if len(content) > 0 {
 				em["content"] = content
 			}
@@ -326,7 +326,7 @@ func encodeAnthropicMessagesV2(msgs []IRMessage) []map[string]interface{} {
 	return result
 }
 
-func encodeAnthropicPartsV2(parts []IRContentPart) []map[string]interface{} {
+func encodeAnthropicParts(parts []IRContentPart) []map[string]interface{} {
 	var content []map[string]interface{}
 	for _, part := range parts {
 		switch part.Type {
@@ -363,7 +363,7 @@ func encodeAnthropicPartsV2(parts []IRContentPart) []map[string]interface{} {
 				"tool_use_id":  part.ToolResult.ToolCallID,
 			}
 			if len(part.ToolResult.Content) > 0 {
-				resultContent := encodeAnthropicPartsV2(part.ToolResult.Content)
+				resultContent := encodeAnthropicParts(part.ToolResult.Content)
 				if len(resultContent) > 0 {
 					tb["content"] = resultContent
 				}
@@ -378,7 +378,7 @@ func encodeAnthropicPartsV2(parts []IRContentPart) []map[string]interface{} {
 	return content
 }
 
-func encodeAnthropicToolChoiceV2(tc *IRToolChoice) interface{} {
+func encodeAnthropicToolChoice(tc *IRToolChoice) interface{} {
 	switch tc.Type {
 	case "auto":
 		return map[string]interface{}{"type": "auto"}
@@ -403,10 +403,10 @@ func (a *anthropicMessagesAdapter) DecodeResponse(raw map[string]interface{}) (*
 	}
 
 	if content, ok := getList(raw, "content"); ok {
-		ir.Content = decodeAnthropicContentV2(content)
+		ir.Content = decodeAnthropicContent(content)
 	}
 
-	ir.StopReason = mapAnthropicStopReasonV2(getString(raw, "stop_reason"))
+	ir.StopReason = mapAnthropicStopReason(getString(raw, "stop_reason"))
 
 	// Usage: input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens.
 	if u, ok := raw["usage"].(map[string]interface{}); ok {
@@ -425,7 +425,7 @@ func (a *anthropicMessagesAdapter) DecodeResponse(raw map[string]interface{}) (*
 	return ir, nil
 }
 
-func mapAnthropicStopReasonV2(reason string) IRStopReason {
+func mapAnthropicStopReason(reason string) IRStopReason {
 	switch reason {
 	case "end_turn":
 		return IRStopEndTurn
@@ -444,11 +444,11 @@ func mapAnthropicStopReasonV2(reason string) IRStopReason {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 func (a *anthropicMessagesAdapter) EncodeResponse(ir *IRResponse) (map[string]interface{}, error) {
-	content := encodeAnthropicPartsV2(ir.Content)
+	content := encodeAnthropicParts(ir.Content)
 
 	// Auto-detect stop_reason from content when IR stop_reason is end_turn.
 	// If any block is a tool_use, the actual stop reason is tool_use.
-	stopReason := mapAnthropicEncodedStopReasonV2(ir.StopReason)
+	stopReason := mapAnthropicEncodedStopReason(ir.StopReason)
 	if stopReason == "end_turn" {
 		for _, block := range content {
 			if getString(block, "type") == "tool_use" {
@@ -485,7 +485,7 @@ func (a *anthropicMessagesAdapter) EncodeResponse(ir *IRResponse) (map[string]in
 	return resp, nil
 }
 
-func mapAnthropicEncodedStopReasonV2(reason IRStopReason) string {
+func mapAnthropicEncodedStopReason(reason IRStopReason) string {
 	switch reason {
 	case IRStopEndTurn:
 		return "end_turn"
@@ -658,7 +658,7 @@ func (a *anthropicMessagesAdapter) DecodeStreamEvent(raw map[string]interface{},
 		}
 		return []*IRStreamEvent{{
 			Type:       IRStreamMessageDelta,
-			StopReason: mapAnthropicStopReasonV2(getString(delta, "stop_reason")),
+			StopReason: mapAnthropicStopReason(getString(delta, "stop_reason")),
 			Usage:      usage,
 		}}, nil
 
@@ -883,7 +883,7 @@ func (a *anthropicMessagesAdapter) EncodeStreamEvent(ir *IRStreamEvent, state in
 		evt := map[string]interface{}{
 			"type": "message_delta",
 			"delta": map[string]interface{}{
-				"stop_reason":   mapAnthropicEncodedStopReasonV2(ir.StopReason),
+				"stop_reason":   mapAnthropicEncodedStopReason(ir.StopReason),
 				"stop_sequence": nil,
 			},
 		}

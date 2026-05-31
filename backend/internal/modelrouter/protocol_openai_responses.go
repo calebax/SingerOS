@@ -48,7 +48,7 @@ func (a *openAIResponsesAdapter) DecodeRequest(raw map[string]interface{}) (*IRR
 	ir.System = ir.Instructions
 
 	if input, ok := raw["input"]; ok {
-		ir.Messages = decodeResponsesInputV2(input)
+		ir.Messages = decodeResponsesInput(input)
 	}
 
 	if t, ok := getFloat(raw, "temperature"); ok {
@@ -77,19 +77,19 @@ func (a *openAIResponsesAdapter) DecodeRequest(raw map[string]interface{}) (*IRR
 	}
 
 	if tools, ok := getList(raw, "tools"); ok {
-		ir.Tools = decodeResponsesToolsV2(tools)
+		ir.Tools = decodeResponsesTools(tools)
 	}
 
 	if tc, ok := raw["tool_choice"]; ok {
-		ir.ToolChoice = decodeResponsesToolChoiceV2(tc)
+		ir.ToolChoice = decodeResponsesToolChoice(tc)
 	}
 
 	return ir, nil
 }
 
-// decodeResponsesInputV2 converts a Responses API input (string or typed items array)
-// into IR messages with v2 ContentParts.
-func decodeResponsesInputV2(input interface{}) []IRMessage {
+// decodeResponsesInput converts a Responses API input (string or typed items array)
+// into IR messages with ContentParts.
+func decodeResponsesInput(input interface{}) []IRMessage {
 	switch v := input.(type) {
 	case string:
 		if v != "" {
@@ -116,9 +116,9 @@ func decodeResponsesInputV2(input interface{}) []IRMessage {
 			switch itemType {
 			case "message":
 				role := getString(m, "role")
-				msg := IRMessage{Role: decodeResponsesRoleV2(role)}
+				msg := IRMessage{Role: decodeResponsesRole(role)}
 				if content := m["content"]; content != nil {
-					msg.Parts = decodeResponsesContentV2(content)
+					msg.Parts = decodeResponsesContent(content)
 				}
 				msgs = append(msgs, msg)
 			case "function_call":
@@ -171,8 +171,8 @@ func decodeResponsesInputV2(input interface{}) []IRMessage {
 	return nil
 }
 
-// decodeResponsesRoleV2 maps Responses API roles to IR roles.
-func decodeResponsesRoleV2(role string) IRRole {
+// decodeResponsesRole maps Responses API roles to IR roles.
+func decodeResponsesRole(role string) IRRole {
 	switch role {
 	case "user":
 		return IRRoleUser
@@ -185,9 +185,9 @@ func decodeResponsesRoleV2(role string) IRRole {
 	}
 }
 
-// decodeResponsesContentV2 converts Responses API content (string or typed array)
-// into v2 IRContentParts.
-func decodeResponsesContentV2(content interface{}) []IRContentPart {
+// decodeResponsesContent converts Responses API content (string or typed array)
+// into IRContentParts.
+func decodeResponsesContent(content interface{}) []IRContentPart {
 	switch v := content.(type) {
 	case string:
 		return []IRContentPart{{Type: IRPartText, Text: v}}
@@ -230,8 +230,8 @@ func decodeContentItems(items []interface{}) []IRContentPart {
 	return parts
 }
 
-// decodeResponsesToolsV2 converts Responses API flat tools into IRToolDecls.
-func decodeResponsesToolsV2(raw []interface{}) []IRToolDecl {
+// decodeResponsesTools converts Responses API flat tools into IRToolDecls.
+func decodeResponsesTools(raw []interface{}) []IRToolDecl {
 	var tools []IRToolDecl
 	for _, r := range raw {
 		m, ok := r.(map[string]interface{})
@@ -252,8 +252,8 @@ func decodeResponsesToolsV2(raw []interface{}) []IRToolDecl {
 	return tools
 }
 
-// decodeResponsesToolChoiceV2 converts Responses API tool_choice to IRToolChoice.
-func decodeResponsesToolChoiceV2(tc interface{}) *IRToolChoice {
+// decodeResponsesToolChoice converts Responses API tool_choice to IRToolChoice.
+func decodeResponsesToolChoice(tc interface{}) *IRToolChoice {
 	switch v := tc.(type) {
 	case string:
 		return &IRToolChoice{Type: v}
@@ -281,11 +281,11 @@ func (a *openAIResponsesAdapter) EncodeRequest(ir *IRRequest) (map[string]interf
 	skipSystemMessages := ir.Instructions != "" || ir.System != ""
 
 	// Encode input
-	if len(ir.Messages) == 1 && ir.Messages[0].Role == IRRoleUser && !hasToolContentV2(ir.Messages[0]) {
+	if len(ir.Messages) == 1 && ir.Messages[0].Role == IRRoleUser && !hasToolContent(ir.Messages[0]) {
 		// Single user text-only message → string input
 		body["input"] = ir.Messages[0].GetTextContent()
 	} else {
-		body["input"] = encodeResponsesInputV2(ir.Messages, skipSystemMessages)
+		body["input"] = encodeResponsesInput(ir.Messages, skipSystemMessages)
 	}
 
 	// Instructions
@@ -337,14 +337,14 @@ func (a *openAIResponsesAdapter) EncodeRequest(ir *IRRequest) (map[string]interf
 	}
 
 	if ir.ToolChoice != nil {
-		body["tool_choice"] = encodeResponsesToolChoiceV2(ir.ToolChoice)
+		body["tool_choice"] = encodeResponsesToolChoice(ir.ToolChoice)
 	}
 
 	return body, nil
 }
 
-// encodeResponsesToolChoiceV2 converts IRToolChoice to Responses API format.
-func encodeResponsesToolChoiceV2(tc *IRToolChoice) interface{} {
+// encodeResponsesToolChoice converts IRToolChoice to Responses API format.
+func encodeResponsesToolChoice(tc *IRToolChoice) interface{} {
 	switch tc.Type {
 	case "auto":
 		return "auto"
@@ -361,8 +361,8 @@ func encodeResponsesToolChoiceV2(tc *IRToolChoice) interface{} {
 	return "auto"
 }
 
-// encodeResponsesInputV2 converts IR messages to Responses API input items.
-func encodeResponsesInputV2(msgs []IRMessage, skipSystemMessages bool) []map[string]interface{} {
+// encodeResponsesInput converts IR messages to Responses API input items.
+func encodeResponsesInput(msgs []IRMessage, skipSystemMessages bool) []map[string]interface{} {
 	var items []map[string]interface{}
 
 	for _, m := range msgs {
@@ -449,8 +449,8 @@ func encodeResponsesInputV2(msgs []IRMessage, skipSystemMessages bool) []map[str
 	return items
 }
 
-// hasToolContentV2 checks if an IRMessage has tool-related parts.
-func hasToolContentV2(m IRMessage) bool {
+// hasToolContent checks if an IRMessage has tool-related parts.
+func hasToolContent(m IRMessage) bool {
 	for _, p := range m.Parts {
 		if p.Type == IRPartToolCall || p.Type == IRPartToolResult {
 			return true
@@ -471,7 +471,7 @@ func (a *openAIResponsesAdapter) DecodeResponse(raw map[string]interface{}) (*IR
 		Created: getInt64(raw, "created_at"),
 	}
 
-	ir.StopReason = mapResponsesStatusV2(getString(raw, "status"))
+	ir.StopReason = mapResponsesStatus(getString(raw, "status"))
 
 		if output, ok := getList(raw, "output"); ok {
 		hasFunctionCall := false
@@ -481,7 +481,7 @@ func (a *openAIResponsesAdapter) DecodeResponse(raw map[string]interface{}) (*IR
 			switch itemType {
 			case "message":
 				if content, ok := m["content"]; ok {
-					parts := decodeResponsesContentV2(content)
+					parts := decodeResponsesContent(content)
 					ir.Content = append(ir.Content, parts...)
 				}
 			case "function_call":
@@ -516,14 +516,14 @@ func (a *openAIResponsesAdapter) DecodeResponse(raw map[string]interface{}) (*IR
 	}
 
 	if u, ok := raw["usage"].(map[string]interface{}); ok {
-		ir.Usage = decodeResponsesUsageV2(u)
+		ir.Usage = decodeResponsesUsage(u)
 	}
 
 	return ir, nil
 }
 
-// mapResponsesStatusV2 maps Responses API status to IR stop reason.
-func mapResponsesStatusV2(status string) IRStopReason {
+// mapResponsesStatus maps Responses API status to IR stop reason.
+func mapResponsesStatus(status string) IRStopReason {
 	switch status {
 	case "completed":
 		return IRStopEndTurn
@@ -535,8 +535,8 @@ func mapResponsesStatusV2(status string) IRStopReason {
 	return IRStopEndTurn
 }
 
-// decodeResponsesUsageV2 converts Responses API usage to IRUsage.
-func decodeResponsesUsageV2(u map[string]interface{}) *IRUsage {
+// decodeResponsesUsage converts Responses API usage to IRUsage.
+func decodeResponsesUsage(u map[string]interface{}) *IRUsage {
 	usage := &IRUsage{
 		InputTokens:  getIntDefault(u, "input_tokens"),
 		OutputTokens: getIntDefault(u, "output_tokens"),
@@ -775,9 +775,9 @@ func (a *openAIResponsesAdapter) DecodeStreamEvent(raw map[string]interface{}, s
 		status := getString(resp, "status")
 		var usage *IRUsage
 		if u, ok := resp["usage"].(map[string]interface{}); ok {
-			usage = decodeResponsesUsageV2(u)
+			usage = decodeResponsesUsage(u)
 		}
-		st.updateStopReason(mapResponsesStatusV2(status))
+		st.updateStopReason(mapResponsesStatus(status))
 		st.updateUsage(usage)
 		return []*IRStreamEvent{{
 			Type:       IRStreamMessageDelta,
@@ -898,14 +898,43 @@ func (a *openAIResponsesAdapter) EncodeStreamEvent(ir *IRStreamEvent, state inte
 	case IRStreamContentDelta:
 		if ir.DeltaText != "" {
 			itemID := st.itemID(ir.Index)
+			// Auto-start text item if upstream skipped IRStreamContentStart.
+			// Without this guard, Codex CLI logs "OutputTextDelta without active item"
+			// when a protocol adapter omits the item.added + content_part.added preamble.
+			var startPayloads []map[string]interface{}
+			if !st.hasStartedText(ir.Index) {
+				st.markStartedText(ir.Index)
+				startPayloads = []map[string]interface{}{{
+					"type":         "response.output_item.added",
+					"output_index": ir.Index,
+					"item": map[string]interface{}{
+						"id":      itemID,
+						"type":    "message",
+						"status":  "in_progress",
+						"role":    "assistant",
+						"content": []interface{}{},
+					},
+				}, {
+					"type":          "response.content_part.added",
+					"item_id":       itemID,
+					"output_index":  ir.Index,
+					"content_index": 0,
+					"part": map[string]interface{}{
+						"type":        "output_text",
+						"text":        "",
+						"annotations": []interface{}{},
+					},
+				}}
+			}
 			st.appendText(ir.Index, ir.DeltaText)
-			return []map[string]interface{}{{
+			deltaPayload := []map[string]interface{}{{
 				"type":          "response.output_text.delta",
 				"item_id":       itemID,
 				"output_index":  ir.Index,
 				"content_index": 0,
 				"delta":         ir.DeltaText,
-			}}, nil
+			}}
+			return append(startPayloads, deltaPayload...), nil
 		}
 		if ir.DeltaJSON != "" {
 			st.appendToolArg(ir.Index, ir.DeltaJSON)

@@ -614,8 +614,14 @@ func TestOpenAIChatDecodeStreamEvent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("DecodeStreamEvent() error = %v", err)
 		}
-		if len(events) == 0 || events[0].Type != IRStreamContentDelta || events[0].DeltaText != "Hello" {
-			t.Errorf("events = %v", events)
+		if len(events) != 2 {
+			t.Fatalf("expected 2 events (content_start + text_delta), got %d: %v", len(events), events)
+		}
+		if events[0].Type != IRStreamContentStart || events[0].Index != 0 {
+			t.Errorf("events[0] = %v, want content_part_start at index 0", events[0])
+		}
+		if events[1].Type != IRStreamContentDelta || events[1].DeltaText != "Hello" {
+			t.Errorf("events[1] = %v, want content_part_delta with 'Hello'", events[1])
 		}
 	})
 

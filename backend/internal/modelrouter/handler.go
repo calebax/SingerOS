@@ -49,25 +49,25 @@ func (s *ModelStore) Resolve(model string) (*UpstreamConfig, error) {
 	return cfg, nil
 }
 
-// defaultStoreV2 is the package-level singleton ModelStore.
+// defaultStore is the package-level singleton ModelStore.
 // RegisterRoutes and lifecycle steps share this same instance.
-var defaultStoreV2 = &ModelStore{configs: make(map[string]*UpstreamConfig)}
+var defaultStore = &ModelStore{configs: make(map[string]*UpstreamConfig)}
 
 // DefaultStore returns the singleton ModelStore.
 func DefaultStore() *ModelStore {
-	return defaultStoreV2
+	return defaultStore
 }
 
 // ResetStore replaces the singleton store with a fresh instance. Use only in tests.
 func ResetStore() {
-	defaultStoreV2 = &ModelStore{configs: make(map[string]*UpstreamConfig)}
+	defaultStore = &ModelStore{configs: make(map[string]*UpstreamConfig)}
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Route Registration
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// RegisterRoutes registers v2 model routing endpoints on the given Gin router.
+// RegisterRoutes registers model routing endpoints on the given Gin router.
 // Each endpoint supports all entry protocols and transparently converts
 // between protocols when upstream targets a different protocol.
 func RegisterRoutes(r gin.IRouter) {
@@ -87,7 +87,7 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 	return func(c *gin.Context) {
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, newEntryErrorV2(entryProtocol, "failed to read request body"))
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, "failed to read request body"))
 			return
 		}
 
@@ -98,41 +98,41 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 
 		dl.LogOriginalRequest(body)
 
-		model := extractModelFieldV2(body)
+		model := extractModelField(body)
 		// Gemini: model name may come from URL path instead of request body
 		if model == "" && entryProtocol == ProtocolGemini {
 			model = extractGeminiModelFromPath(c.Param("modelAction"))
 		}
 		if model == "" {
-			c.JSON(http.StatusBadRequest, newEntryErrorV2(entryProtocol, "model field is required"))
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, "model field is required"))
 			return
 		}
 
 		cfg, err := store.Resolve(model)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, newEntryErrorV2(entryProtocol, err.Error()))
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, err.Error()))
 			return
 		}
 
-		isStream := isStreamRequestV2(body)
+		isStream := isStreamRequest(body)
 		dl.LogRequestMeta(entryProtocol, cfg.Protocol, model, isStream)
 
 		// ── Normalize request against target capabilities ──
 		var raw map[string]interface{}
 		if err := json.Unmarshal(body, &raw); err != nil {
-			c.JSON(http.StatusBadRequest, newEntryErrorV2(entryProtocol, "invalid JSON request body"))
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, "invalid JSON request body"))
 			return
 		}
 
 		entryAdapter, err := GetAdapter(entryProtocol)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, newEntryErrorV2(entryProtocol, "entry protocol adapter not available"))
+			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "entry protocol adapter not available"))
 			return
 		}
 
 		ir, err := entryAdapter.DecodeRequest(raw)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, newEntryErrorV2(entryProtocol, fmt.Sprintf("decode request: %v", err)))
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, fmt.Sprintf("decode request: %v", err)))
 			return
 		}
 		dl.LogIRDecoded(ir)
@@ -141,7 +141,7 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 		targetCaps := capabilitiesForProtocol(upstreamProtocol)
 		normalizedIR, _, err := NormalizeRequest(ir, targetCaps)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, newEntryErrorV2(entryProtocol, fmt.Sprintf("request incompatible with target protocol: %v", err)))
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, fmt.Sprintf("request incompatible with target protocol: %v", err)))
 			return
 		}
 		dl.LogIRNormalized(normalizedIR)
@@ -151,27 +151,27 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 
 		upstreamAdapter, err := GetAdapter(upstreamProtocol)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, newEntryErrorV2(entryProtocol, "upstream protocol adapter not available"))
+			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "upstream protocol adapter not available"))
 			return
 		}
 
 		upstreamBody, err := upstreamAdapter.EncodeRequest(normalizedIR)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, newEntryErrorV2(entryProtocol, fmt.Sprintf("encode upstream request: %v", err)))
+			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, fmt.Sprintf("encode upstream request: %v", err)))
 			return
 		}
 
 		upstreamBodyBytes, err := marshalJSON(upstreamBody)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, newEntryErrorV2(entryProtocol, "marshal upstream body failed"))
+			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "marshal upstream body failed"))
 			return
 		}
 		dl.LogUpstreamRequest(upstreamBodyBytes)
 
 		if isStream {
-			handleStreamResponseV2(c, cfg, upstreamBodyBytes, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
+			handleStreamResponse(c, cfg, upstreamBodyBytes, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
 		} else {
-			handleNonStreamResponseV2(c, cfg, upstreamBodyBytes, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
+			handleNonStreamResponse(c, cfg, upstreamBodyBytes, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
 		}
 	}
 }
@@ -180,7 +180,7 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 // Non-stream response handling
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-func handleNonStreamResponseV2(
+func handleNonStreamResponse(
 	c *gin.Context,
 	cfg *UpstreamConfig,
 	body []byte,
@@ -188,10 +188,10 @@ func handleNonStreamResponseV2(
 	entryAdapter, upstreamAdapter ProtocolAdapter,
 	dl *DebugLogger,
 ) {
-	respBody, err := doUpstreamCallV2(c.Request.Context(), cfg, body)
+	respBody, err := doUpstreamCall(c.Request.Context(), cfg, body)
 	if err != nil {
 		dl.LogError("upstream_call", err)
-		handleUpstreamErrorV2(c, entryProtocol, err)
+		handleUpstreamError(c, entryProtocol, err)
 		return
 	}
 
@@ -199,25 +199,25 @@ func handleNonStreamResponseV2(
 
 	var rawResp map[string]interface{}
 	if err := json.Unmarshal(respBody, &rawResp); err != nil {
-		c.JSON(http.StatusBadGateway, newEntryErrorV2(entryProtocol, "invalid upstream response"))
+		c.JSON(http.StatusBadGateway, newEntryError(entryProtocol, "invalid upstream response"))
 		return
 	}
 
 	irResp, err := upstreamAdapter.DecodeResponse(rawResp)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, newEntryErrorV2(entryProtocol, fmt.Sprintf("decode upstream response: %v", err)))
+		c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, fmt.Sprintf("decode upstream response: %v", err)))
 		return
 	}
 
 	entryBody, err := entryAdapter.EncodeResponse(irResp)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, newEntryErrorV2(entryProtocol, fmt.Sprintf("encode entry response: %v", err)))
+		c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, fmt.Sprintf("encode entry response: %v", err)))
 		return
 	}
 
 	entryBytes, err := marshalJSON(entryBody)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, newEntryErrorV2(entryProtocol, "marshal entry response failed"))
+		c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "marshal entry response failed"))
 		return
 	}
 
@@ -229,7 +229,7 @@ func handleNonStreamResponseV2(
 // Stream response handling
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-func handleStreamResponseV2(
+func handleStreamResponse(
 	c *gin.Context,
 	cfg *UpstreamConfig,
 	body []byte,
@@ -237,10 +237,10 @@ func handleStreamResponseV2(
 	entryAdapter, upstreamAdapter ProtocolAdapter,
 	dl *DebugLogger,
 ) {
-	reader, err := doUpstreamStreamCallV2(c.Request.Context(), cfg, body)
+	reader, err := doUpstreamStreamCall(c.Request.Context(), cfg, body)
 	if err != nil {
 		dl.LogError("upstream_stream_call", err)
-		handleUpstreamErrorV2(c, entryProtocol, err)
+		handleUpstreamError(c, entryProtocol, err)
 		return
 	}
 	defer reader.Close()
@@ -254,13 +254,13 @@ func handleStreamResponseV2(
 	c.Writer.Flush()
 
 	if entryProtocol == cfg.Protocol {
-		pipeRawSSEV2(c, reader, dl)
+		pipeRawSSE(c, reader, dl)
 	} else {
-		pipeConvertedSSEV2(c, reader, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
+		pipeConvertedSSE(c, reader, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
 	}
 }
 
-func pipeRawSSEV2(c *gin.Context, reader io.Reader, dl *DebugLogger) {
+func pipeRawSSE(c *gin.Context, reader io.Reader, dl *DebugLogger) {
 	buf := make([]byte, 4096)
 	for {
 		n, err := reader.Read(buf)
@@ -281,7 +281,7 @@ func pipeRawSSEV2(c *gin.Context, reader io.Reader, dl *DebugLogger) {
 	}
 }
 
-func pipeConvertedSSEV2(
+func pipeConvertedSSE(
 	c *gin.Context,
 	reader io.Reader,
 	entryProtocol, upstreamProtocol Protocol,
@@ -293,9 +293,48 @@ func pipeConvertedSSEV2(
 
 	upstreamState := upstreamAdapter.NewStreamState()
 	entryState := entryAdapter.NewStreamState()
+	aggregator := NewStreamAggregator()
 
 	var currentEventType string
 	var currentData strings.Builder
+
+	// writeIREvents encodes a slice of IR stream events through the entry
+	// adapter and writes the resulting SSE payloads to the client.
+	// All writes are logged via the debug logger.  If an IRStreamDone event
+	// is encountered and the entry protocol is Chat, a trailing [DONE] is
+	// appended automatically.
+	writeIREvents := func(events []*IRStreamEvent) {
+		for _, evt := range events {
+			payloads, err := entryAdapter.EncodeStreamEvent(evt, entryState)
+			if err != nil {
+				continue
+			}
+			for _, payload := range payloads {
+				payloadBytes, err := marshalJSON(payload)
+				if err != nil {
+					continue
+				}
+				evtType := currentEventType
+				if evtType == "" {
+					if v, ok := payload["type"].(string); ok {
+						evtType = v
+					}
+				}
+				formatted := formatSSE(entryProtocol, evtType, payloadBytes)
+				dl.LogEntryStreamChunk(formatted)
+				if _, err := c.Writer.Write(formatted); err != nil {
+					return
+				}
+				c.Writer.Flush()
+			}
+
+			if evt.Type == IRStreamDone && entryProtocol == ProtocolOpenAIChat {
+				dl.LogEntryStreamChunk([]byte("data: [DONE]\n\n"))
+				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+				c.Writer.Flush()
+			}
+		}
+	}
 
 	flushEvent := func() {
 		if currentData.Len() == 0 {
@@ -316,63 +355,18 @@ func pipeConvertedSSEV2(
 		}
 
 		for _, irEvt := range irEvents {
-			if irEvt.Type == IRStreamDone {
-				payloads, err := entryAdapter.EncodeStreamEvent(irEvt, entryState)
-				if err == nil {
-					for _, payload := range payloads {
-						payloadBytes, err := marshalJSON(payload)
-						if err != nil {
-							continue
-						}
-						evtType := ""
-						if v, ok := payload["type"].(string); ok {
-							evtType = v
-						}
-						formatted := formatSSEV2(entryProtocol, evtType, payloadBytes)
-						dl.LogEntryStreamChunk(formatted)
-						_, _ = c.Writer.Write(formatted)
-						c.Writer.Flush()
-					}
-				}
-				// Anthropic 协议用 message_stop 终止，不需要 [DONE]
-				// OpenAI Chat 协议需要 data: [DONE] 作为流结束标志
-				if entryProtocol != ProtocolAnthropicMessages {
-					dl.LogEntryStreamChunk([]byte("data: [DONE]\n\n"))
-					dl.LogStreamChunkSeparator()
-					_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
-					c.Writer.Flush()
-				}
-				return
-			}
-
-			payloads, err := entryAdapter.EncodeStreamEvent(irEvt, entryState)
-			if err != nil {
-				continue
-			}
-
-			for _, payload := range payloads {
-				payloadBytes, err := marshalJSON(payload)
-				if err != nil {
-					continue
-				}
-
-				evtType := currentEventType
-				if evtType == "" {
-					if v, ok := payload["type"].(string); ok {
-						evtType = v
-					}
-				}
-
-				formatted := formatSSEV2(entryProtocol, evtType, payloadBytes)
-				dl.LogEntryStreamChunk(formatted)
-				if _, err := c.Writer.Write(formatted); err != nil {
-					return
-				}
-				c.Writer.Flush()
-			}
+			fixedEvents := aggregator.ProcessIREvent(irEvt)
+			writeIREvents(fixedEvents)
 		}
 
 		currentEventType = ""
+	}
+
+	// finalizeStream commits the target protocol stream.
+	// The [DONE] marker (if needed) is emitted by writeIREvents when it
+	// encounters IRStreamDone for a Chat entry protocol.
+	finalizeStream := func() {
+		writeIREvents(aggregator.Finalize())
 	}
 
 	for scanner.Scan() {
@@ -391,11 +385,15 @@ func pipeConvertedSSEV2(
 				dl.LogUpstreamStreamChunk([]byte("data: [DONE]\n\n"))
 				dl.LogStreamChunkSeparator()
 				flushEvent()
-				// Emit terminal [DONE]
-				dl.LogEntryStreamChunk([]byte("data: [DONE]\n\n"))
-				dl.LogStreamChunkSeparator()
-				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
-				c.Writer.Flush()
+				finalizeStream()
+
+				// Upstream is Chat SSE — client expects [DONE] regardless
+				// of entry protocol.
+				if upstreamProtocol == ProtocolOpenAIChat {
+					dl.LogEntryStreamChunk([]byte("data: [DONE]\n\n"))
+					_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+					c.Writer.Flush()
+				}
 				return
 			}
 
@@ -411,14 +409,20 @@ func pipeConvertedSSEV2(
 			dl.LogStreamChunkSeparator()
 		}
 	}
+
+	// Upstream stream ended without [DONE] (e.g. connection dropped).
+	// Finalize is idempotent — safe to call even if [DONE] was already processed.
+	if !aggregator.IsDone() {
+		finalizeStream()
+	}
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SSE formatting
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// formatSSEV2 formats an SSE message according to the protocol.
-func formatSSEV2(proto Protocol, eventType string, data []byte) []byte {
+// formatSSE formats an SSE message according to the protocol.
+func formatSSE(proto Protocol, eventType string, data []byte) []byte {
 	switch proto {
 	case ProtocolOpenAIChat:
 		return []byte(fmt.Sprintf("data: %s\n\n", string(data)))
@@ -428,11 +432,11 @@ func formatSSEV2(proto Protocol, eventType string, data []byte) []byte {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Upstream HTTP calls (v2-independent)
+// Upstream HTTP calls
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// setUpstreamRequestV2 creates an HTTP request for the upstream call.
-func setUpstreamRequestV2(ctx context.Context, cfg *UpstreamConfig, body []byte) (*http.Request, error) {
+// setUpstreamRequest creates an HTTP request for the upstream call.
+func setUpstreamRequest(ctx context.Context, cfg *UpstreamConfig, body []byte) (*http.Request, error) {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	apiPath := UpstreamAPIPath(cfg.Protocol, cfg.BaseURLHasV1)
 	url := baseURL + apiPath
@@ -455,15 +459,15 @@ func setUpstreamRequestV2(ctx context.Context, cfg *UpstreamConfig, body []byte)
 	return req, nil
 }
 
-// doUpstreamCallV2 executes a non-streaming upstream call.
-func doUpstreamCallV2(ctx context.Context, cfg *UpstreamConfig, body []byte) ([]byte, error) {
+// doUpstreamCall executes a non-streaming upstream call.
+func doUpstreamCall(ctx context.Context, cfg *UpstreamConfig, body []byte) ([]byte, error) {
 	timeout := time.Duration(cfg.TimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
 
 	client := &http.Client{Timeout: timeout}
-	req, err := setUpstreamRequestV2(ctx, cfg, body)
+	req, err := setUpstreamRequest(ctx, cfg, body)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +484,7 @@ func doUpstreamCallV2(ctx context.Context, cfg *UpstreamConfig, body []byte) ([]
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, &upstreamErrorV2{
+		return nil, &upstreamError{
 			StatusCode: resp.StatusCode,
 			Body:       respBody,
 		}
@@ -489,15 +493,15 @@ func doUpstreamCallV2(ctx context.Context, cfg *UpstreamConfig, body []byte) ([]
 	return respBody, nil
 }
 
-// doUpstreamStreamCallV2 executes a streaming upstream call.
-func doUpstreamStreamCallV2(ctx context.Context, cfg *UpstreamConfig, body []byte) (io.ReadCloser, error) {
+// doUpstreamStreamCall executes a streaming upstream call.
+func doUpstreamStreamCall(ctx context.Context, cfg *UpstreamConfig, body []byte) (io.ReadCloser, error) {
 	timeout := time.Duration(cfg.TimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 180 * time.Second
 	}
 
 	client := &http.Client{Timeout: timeout}
-	req, err := setUpstreamRequestV2(ctx, cfg, body)
+	req, err := setUpstreamRequest(ctx, cfg, body)
 	if err != nil {
 		return nil, err
 	}
@@ -510,7 +514,7 @@ func doUpstreamStreamCallV2(ctx context.Context, cfg *UpstreamConfig, body []byt
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, &upstreamErrorV2{
+		return nil, &upstreamError{
 			StatusCode: resp.StatusCode,
 			Body:       respBody,
 		}
@@ -523,21 +527,21 @@ func doUpstreamStreamCallV2(ctx context.Context, cfg *UpstreamConfig, body []byt
 // Error handling
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// upstreamErrorV2 represents an error from an upstream provider.
-type upstreamErrorV2 struct {
+// upstreamError represents an error from an upstream provider.
+type upstreamError struct {
 	StatusCode int
 	Body       []byte
 }
 
-func (e *upstreamErrorV2) Error() string {
+func (e *upstreamError) Error() string {
 	return fmt.Sprintf("upstream returned status %d: %s", e.StatusCode, string(e.Body))
 }
 
-// handleUpstreamErrorV2 maps upstream errors to entry protocol error responses.
-func handleUpstreamErrorV2(c *gin.Context, entryProtocol Protocol, err error) {
-	var upErr *upstreamErrorV2
-	if !isUpstreamErrorV2(err, &upErr) {
-		c.JSON(http.StatusBadGateway, newEntryErrorV2(entryProtocol, fmt.Sprintf("upstream request failed: %v", err)))
+// handleUpstreamError maps upstream errors to entry protocol error responses.
+func handleUpstreamError(c *gin.Context, entryProtocol Protocol, err error) {
+	var upErr *upstreamError
+	if !isUpstreamError(err, &upErr) {
+		c.JSON(http.StatusBadGateway, newEntryError(entryProtocol, fmt.Sprintf("upstream request failed: %v", err)))
 		return
 	}
 
@@ -546,26 +550,26 @@ func handleUpstreamErrorV2(c *gin.Context, entryProtocol Protocol, err error) {
 		statusCode = http.StatusBadGateway
 	}
 
-	entryBody := parseAndEncodeErrorV2(upErr.Body, upErr.StatusCode, entryProtocol)
+	entryBody := parseAndEncodeError(upErr.Body, upErr.StatusCode, entryProtocol)
 	c.JSON(statusCode, entryBody)
 }
 
-func isUpstreamErrorV2(err error, target **upstreamErrorV2) bool {
+func isUpstreamError(err error, target **upstreamError) bool {
 	if target == nil {
 		return false
 	}
-	var ue *upstreamErrorV2
-	ok := fmt.Sprintf("%T", err) == "*modelrouter.upstreamErrorV2"
+	var ue *upstreamError
+	ok := fmt.Sprintf("%T", err) == "*modelrouter.upstreamError"
 	if !ok {
 		return false
 	}
-	ue = err.(*upstreamErrorV2)
+	ue = err.(*upstreamError)
 	*target = ue
 	return true
 }
 
-// parseAndEncodeErrorV2 parses an upstream error body and encodes it for the entry protocol.
-func parseAndEncodeErrorV2(body []byte, statusCode int, entryProtocol Protocol) interface{} {
+// parseAndEncodeError parses an upstream error body and encodes it for the entry protocol.
+func parseAndEncodeError(body []byte, statusCode int, entryProtocol Protocol) interface{} {
 	message := fmt.Sprintf("upstream returned status %d", statusCode)
 	errType := "upstream_error"
 
@@ -595,11 +599,11 @@ func parseAndEncodeErrorV2(body []byte, statusCode int, entryProtocol Protocol) 
 		errType = "upstream_error"
 	}
 
-	return encodeErrorForProtocolV2(message, errType, entryProtocol)
+	return encodeErrorForProtocol(message, errType, entryProtocol)
 }
 
-// encodeErrorForProtocolV2 encodes an error message and type into the entry protocol's error format.
-func encodeErrorForProtocolV2(message, errType string, proto Protocol) interface{} {
+// encodeErrorForProtocol encodes an error message and type into the entry protocol's error format.
+func encodeErrorForProtocol(message, errType string, proto Protocol) interface{} {
 	switch proto {
 	case ProtocolAnthropicMessages:
 		return map[string]interface{}{
@@ -619,16 +623,16 @@ func encodeErrorForProtocolV2(message, errType string, proto Protocol) interface
 	}
 }
 
-// newEntryErrorV2 creates an entry protocol error response.
-func newEntryErrorV2(proto Protocol, message string) interface{} {
-	return encodeErrorForProtocolV2(message, "invalid_request_error", proto)
+// newEntryError creates an entry protocol error response.
+func newEntryError(proto Protocol, message string) interface{} {
+	return encodeErrorForProtocol(message, "invalid_request_error", proto)
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Request parsing helpers
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-func extractModelFieldV2(body []byte) string {
+func extractModelField(body []byte) string {
 	var raw struct {
 		Model string `json:"model"`
 	}
@@ -649,7 +653,7 @@ func extractGeminiModelFromPath(action string) string {
 	return action[:colonIdx]
 }
 
-func isStreamRequestV2(body []byte) bool {
+func isStreamRequest(body []byte) bool {
 	var raw struct {
 		Stream bool `json:"stream"`
 	}

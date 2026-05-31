@@ -213,7 +213,7 @@ func (a *openAIChatAdapter) DecodeResponse(raw map[string]interface{}) (*IRRespo
 			})
 		}
 
-		ir.StopReason = mapOpenAIFinishReasonV2(getString(choice, "finish_reason"))
+		ir.StopReason = mapOpenAIFinishReason(getString(choice, "finish_reason"))
 	}
 
 	if u, ok := raw["usage"].(map[string]interface{}); ok {
@@ -298,7 +298,7 @@ func (a *openAIChatAdapter) EncodeResponse(ir *IRResponse) (map[string]interface
 	}
 
 	if ir.Usage != nil {
-		resp["usage"] = encodeOpenAIUsageV2(ir.Usage)
+		resp["usage"] = encodeOpenAIUsage(ir.Usage)
 	}
 
 	return resp, nil
@@ -379,7 +379,18 @@ func (a *openAIChatAdapter) DecodeStreamEvent(raw map[string]interface{}, state 
 	}
 
 	// text delta: delta.content
+	// Emit IRStreamContentStart before first text delta so that downstream
+	// adapters (e.g. OpenAI Responses) emit the required output_item.added +
+	// content_part.added events before output_text.delta events.
+	// Without this, Codex CLI logs "OutputTextDelta without active item".
 	if content := getString(delta, "content"); content != "" {
+		if !st.textStarted[0] {
+			events = append(events, &IRStreamEvent{
+				Type:  IRStreamContentStart,
+				Index: 0,
+				Part:  &IRContentPart{Type: IRPartText},
+			})
+		}
 		events = append(events, &IRStreamEvent{
 			Type:      IRStreamContentDelta,
 			DeltaText: content,
@@ -485,7 +496,7 @@ func (a *openAIChatAdapter) DecodeStreamEvent(raw map[string]interface{}, state 
 
 		events = append(events, &IRStreamEvent{
 			Type:       IRStreamMessageDelta,
-			StopReason: mapOpenAIFinishReasonV2(finishReason),
+			StopReason: mapOpenAIFinishReason(finishReason),
 			Usage:      chunkUsage,
 		})
 	}
@@ -583,7 +594,7 @@ func (a *openAIChatAdapter) EncodeStreamEvent(ir *IRStreamEvent, state interface
 		if ir.Usage != nil {
 			// Usage-only chunk
 			chunk["choices"] = []interface{}{}
-			chunk["usage"] = encodeOpenAIUsageV2(ir.Usage)
+			chunk["usage"] = encodeOpenAIUsage(ir.Usage)
 		} else {
 			chunk["choices"] = []interface{}{
 				map[string]interface{}{
@@ -638,7 +649,7 @@ func decodeOpenAIChatMessages(raw []interface{}) []IRMessage {
 		}
 
 		role := getString(m, "role")
-		msg := IRMessage{Role: mapOpenAIRoleV2(role)}
+		msg := IRMessage{Role: mapOpenAIRole(role)}
 
 		// Assistant tool_calls → IRPartToolCall
 		if tcs, ok := getList(m, "tool_calls"); ok && role == "assistant" {
@@ -690,7 +701,7 @@ func decodeOpenAIChatMessages(raw []interface{}) []IRMessage {
 
 		// Content (string or array) → IRPartText / IRPartRefusal
 		if content := m["content"]; content != nil {
-			parts := decodeOpenAIChatContentV2(content)
+			parts := decodeOpenAIChatContent(content)
 			msg.Parts = append(msg.Parts, parts...)
 		}
 
@@ -699,7 +710,7 @@ func decodeOpenAIChatMessages(raw []interface{}) []IRMessage {
 	return msgs
 }
 
-func decodeOpenAIChatContentV2(content interface{}) []IRContentPart {
+func decodeOpenAIChatContent(content interface{}) []IRContentPart {
 	switch v := content.(type) {
 	case string:
 		if v != "" {
@@ -935,7 +946,7 @@ func encodeOpenAIChatToolChoice(tc *IRToolChoice) interface{} {
 // Helpers — Role & Finish Reason Mapping
 // =============================================================================
 
-func mapOpenAIRoleV2(role string) IRRole {
+func mapOpenAIRole(role string) IRRole {
 	switch role {
 	case "system", "developer":
 		return IRRoleSystem
@@ -949,7 +960,7 @@ func mapOpenAIRoleV2(role string) IRRole {
 	return IRRoleUser
 }
 
-func mapOpenAIFinishReasonV2(reason string) IRStopReason {
+func mapOpenAIFinishReason(reason string) IRStopReason {
 	switch reason {
 	case "stop":
 		return IRStopEndTurn
@@ -991,7 +1002,7 @@ func mapIRStopReasonToOpenAIFinish(reason IRStopReason) string {
 // Helpers — Usage Encoding
 // =============================================================================
 
-func encodeOpenAIUsageV2(u *IRUsage) map[string]interface{} {
+func encodeOpenAIUsage(u *IRUsage) map[string]interface{} {
 	usage := map[string]interface{}{
 		"prompt_tokens":     u.InputTokens,
 		"completion_tokens": u.OutputTokens,

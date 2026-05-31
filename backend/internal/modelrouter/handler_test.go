@@ -662,7 +662,7 @@ func TestModelStore_ResolveNotFound(t *testing.T) {
 // Format test
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-func TestFormatSSEV2(t *testing.T) {
+func TestFormatSSE(t *testing.T) {
 	tests := []struct {
 		name      string
 		proto     Protocol
@@ -702,9 +702,9 @@ func TestFormatSSEV2(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatSSEV2(tt.proto, tt.eventType, tt.data)
+			result := formatSSE(tt.proto, tt.eventType, tt.data)
 			if string(result) != tt.expected {
-				t.Errorf("formatSSEV2() = %q, want %q", string(result), tt.expected)
+				t.Errorf("formatSSE() = %q, want %q", string(result), tt.expected)
 			}
 		})
 	}
