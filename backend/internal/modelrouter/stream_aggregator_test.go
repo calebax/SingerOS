@@ -467,3 +467,158 @@ func TestAggregator_FinalizeEmptyResponse(t *testing.T) {
 		t.Error("Finalize on empty stream should emit IRStreamDone")
 	}
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// P1: Critical path tests — index collision, multi-segment tool args,
+//      ContentDelta without Start, DONE→Finalize→completed, EOF→Finalize
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+func TestAggregator_TextAndToolSameIndex(t *testing.T) {
+	ag := NewStreamAggregator()
+
+	// Text delta at index 0
+	ag.ProcessIREvent(&IRStreamEvent{Type: IRStreamContentDelta, DeltaText: "hello", Index: 0})
+
+	// Tool call delta at index 1 (already remapped by ChatAdapter from OpenAI tool_call.index=0)
+	// Even if OpenAI returns text and tool_call both with local index 0,
+	// the ChatAdapter remaps tool to IR global index 1.
+	ag.ProcessIREvent(&IRStreamEvent{Type: IRStreamContentDelta, DeltaJSON: "{}", Index: 1})
+
+	// Verify both items exist independently with correct types
+	if len(ag.items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(ag.items))
+	}
+	if ag.items[0] == nil || ag.items[0].itemType != ItemText {
+		t.Errorf("item[0] should be ItemText, got %v", ag.items[0])
+	}
+	if ag.items[1] == nil || ag.items[1].itemType != ItemToolCall {
+		t.Errorf("item[1] should be ItemToolCall, got %v", ag.items[1])
+	}
+}
+
+func TestAggregator_MultiSegmentToolArgs(t *testing.T) {
+	ag := NewStreamAggregator()
+
+	// Segment 1: tool content_start with id/name
+	ag.ProcessIREvent(&IRStreamEvent{
+		Type:  IRStreamContentStart,
+		Index: 1,
+		Part: &IRContentPart{
+			Type: IRPartToolCall,
+			ToolCall: &IRToolCallPart{
+				ID:   "call_001",
+				Name: "get_weather",
+			},
+		},
+	})
+
+	// Segment 2: tool args delta via DeltaJSON
+	ag.ProcessIREvent(&IRStreamEvent{
+		Type:      IRStreamContentDelta,
+		Index:     1,
+		DeltaJSON: `{"city":"Tokyo"}`,
+	})
+
+	// Segment 3: more args (should NOT emit another ContentStart)
+	ag.ProcessIREvent(&IRStreamEvent{
+		Type:      IRStreamContentDelta,
+		Index:     1,
+		DeltaJSON: `"`,
+	})
+
+	// Item 1 should still exist and be tool type
+	if ag.items[1] == nil || ag.items[1].itemType != ItemToolCall {
+		t.Fatalf("item[1] should be ItemToolCall, got %v", ag.items[1])
+	}
+}
+
+func TestAggregator_ContentDeltaWithoutStartAutoComplete(t *testing.T) {
+	ag := NewStreamAggregator()
+
+	// Delta arrives with no preceding ContentStart — Aggregator must synthesize it.
+	events := ag.ProcessIREvent(&IRStreamEvent{
+		Type:      IRStreamContentDelta,
+		DeltaText: "data",
+		Index:     0,
+	})
+
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events (message_start or content_start + delta), got %d", len(events))
+	}
+
+	hasStart := false
+	for _, e := range events {
+		if e.Type == IRStreamContentStart && e.Index == 0 {
+			hasStart = true
+		}
+	}
+	if !hasStart {
+		t.Error("Aggregator should have synthesized IRStreamContentStart for index 0")
+	}
+
+	hasDelta := false
+	for _, e := range events {
+		if e.Type == IRStreamContentDelta && e.DeltaText == "data" {
+			hasDelta = true
+		}
+	}
+	if !hasDelta {
+		t.Error("Aggregator should have forwarded the original delta")
+	}
+}
+
+func TestAggregator_DONETriggersFinalizeWithCompleted(t *testing.T) {
+	ag := NewStreamAggregator()
+
+	// Simulate full stream lifecycle via ProcessIREvent:
+	// message_start → text delta → content_stop → message_delta → [DONE] via Finalize()
+	ag.ProcessIREvent(&IRStreamEvent{Type: IRStreamMessageStart, ResponseID: "r", ResponseModel: "m"})
+	ag.ProcessIREvent(&IRStreamEvent{Type: IRStreamContentDelta, DeltaText: "done", Index: 0})
+	ag.ProcessIREvent(&IRStreamEvent{Type: IRStreamContentStop, Index: 0})
+	ag.ProcessIREvent(&IRStreamEvent{Type: IRStreamMessageDelta, StopReason: IRStopEndTurn})
+
+	events := ag.Finalize()
+
+	if len(events) < 1 {
+		t.Fatal("Finalize should emit events")
+	}
+
+	last := events[len(events)-1]
+	if last.Type != IRStreamDone {
+		t.Errorf("last event should be IRStreamDone, got %v", last.Type)
+	}
+	if !ag.IsDone() {
+		t.Error("IsDone should be true after Finalize")
+	}
+}
+
+func TestAggregator_EOFWithoutDoneStillCompletes(t *testing.T) {
+	ag := NewStreamAggregator()
+
+	// Stream drops mid-way — no ContentStop or MessageDelta.
+	ag.ProcessIREvent(&IRStreamEvent{Type: IRStreamContentDelta, DeltaText: "mid", Index: 0})
+
+	// EOF — Finalize must produce a valid completion.
+	events := ag.Finalize()
+
+	if len(events) == 0 {
+		t.Fatal("Finalize after EOF mid-stream should emit events")
+	}
+
+	hasStop := false
+	hasDone := false
+	for _, e := range events {
+		if e.Type == IRStreamContentStop {
+			hasStop = true
+		}
+		if e.Type == IRStreamDone {
+			hasDone = true
+		}
+	}
+	if !hasStop {
+		t.Error("Finalize after EOF should emit ContentStop for dangling item")
+	}
+	if !hasDone {
+		t.Error("Finalize after EOF should emit IRStreamDone")
+	}
+}

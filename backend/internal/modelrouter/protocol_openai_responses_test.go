@@ -828,7 +828,7 @@ func TestOpenAIResponsesNewStreamState(t *testing.T) {
 	if !ok {
 		t.Fatalf("NewStreamState() returned %T, want *responsesStreamState", state)
 	}
-	if st.textStarted == nil || st.textStopped == nil || st.itemIDs == nil {
+	if st.itemIDs == nil || st.itemTypes == nil {
 		t.Error("Maps should be initialized")
 	}
 }

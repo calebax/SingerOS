@@ -10,13 +10,12 @@ import (
 type responsesStreamState struct {
 	responseID    string
 	model         string
-	textStarted   map[int]bool
-	textStopped   map[int]bool
 	toolCallIDs   map[int]string
 	toolCallNames map[int]string
 	toolCallArgs  map[int]string
 	textByIndex   map[int]string
 	itemIDs       map[int]string
+	itemTypes     map[int]IRPartType // index → text / tool_call / reasoning (protocol encoding state)
 	stopReason    IRStopReason
 	usage         *IRUsage
 }
@@ -659,13 +658,12 @@ func (a *openAIResponsesAdapter) EncodeResponse(ir *IRResponse) (map[string]inte
 // NewStreamState creates a new responsesStreamState.
 func (a *openAIResponsesAdapter) NewStreamState() interface{} {
 	return &responsesStreamState{
-		textStarted:   make(map[int]bool),
-		textStopped:   make(map[int]bool),
 		toolCallIDs:   make(map[int]string),
 		toolCallNames: make(map[int]string),
 		toolCallArgs:  make(map[int]string),
 		textByIndex:   make(map[int]string),
 		itemIDs:       make(map[int]string),
+		itemTypes:     make(map[int]IRPartType),
 	}
 }
 
@@ -810,13 +808,12 @@ func (a *openAIResponsesAdapter) EncodeStreamEvent(ir *IRStreamEvent, state inte
 	st, _ := state.(*responsesStreamState)
 	if st == nil {
 		st = &responsesStreamState{
-			textStarted:   make(map[int]bool),
-			textStopped:   make(map[int]bool),
 			toolCallIDs:   make(map[int]string),
 			toolCallNames: make(map[int]string),
 			toolCallArgs:  make(map[int]string),
 			textByIndex:   make(map[int]string),
 			itemIDs:       make(map[int]string),
+			itemTypes:     make(map[int]IRPartType),
 		}
 	}
 
@@ -856,6 +853,7 @@ func (a *openAIResponsesAdapter) EncodeStreamEvent(ir *IRStreamEvent, state inte
 				callID = fmt.Sprintf("call_%d", ir.Index)
 				st.toolCallIDs[ir.Index] = callID
 			}
+			st.itemTypes[ir.Index] = IRPartToolCall
 			return []map[string]interface{}{{
 				"type":         "response.output_item.added",
 				"output_index": ir.Index,
@@ -870,9 +868,11 @@ func (a *openAIResponsesAdapter) EncodeStreamEvent(ir *IRStreamEvent, state inte
 			}}, nil
 		}
 
-		// Text content start
-		st.markStartedText(ir.Index)
+		// Text or reasoning content start
 		itemID := st.itemID(ir.Index)
+		if ir.Part != nil {
+			st.itemTypes[ir.Index] = ir.Part.Type
+		}
 		return []map[string]interface{}{{
 			"type":         "response.output_item.added",
 			"output_index": ir.Index,
@@ -898,43 +898,16 @@ func (a *openAIResponsesAdapter) EncodeStreamEvent(ir *IRStreamEvent, state inte
 	case IRStreamContentDelta:
 		if ir.DeltaText != "" {
 			itemID := st.itemID(ir.Index)
-			// Auto-start text item if upstream skipped IRStreamContentStart.
-			// Without this guard, Codex CLI logs "OutputTextDelta without active item"
-			// when a protocol adapter omits the item.added + content_part.added preamble.
-			var startPayloads []map[string]interface{}
-			if !st.hasStartedText(ir.Index) {
-				st.markStartedText(ir.Index)
-				startPayloads = []map[string]interface{}{{
-					"type":         "response.output_item.added",
-					"output_index": ir.Index,
-					"item": map[string]interface{}{
-						"id":      itemID,
-						"type":    "message",
-						"status":  "in_progress",
-						"role":    "assistant",
-						"content": []interface{}{},
-					},
-				}, {
-					"type":          "response.content_part.added",
-					"item_id":       itemID,
-					"output_index":  ir.Index,
-					"content_index": 0,
-					"part": map[string]interface{}{
-						"type":        "output_text",
-						"text":        "",
-						"annotations": []interface{}{},
-					},
-				}}
-			}
+			// StreamAggregator guarantees ContentStart precedes every ContentDelta.
+			// No auto-start logic needed here.
 			st.appendText(ir.Index, ir.DeltaText)
-			deltaPayload := []map[string]interface{}{{
+			return []map[string]interface{}{{
 				"type":          "response.output_text.delta",
 				"item_id":       itemID,
 				"output_index":  ir.Index,
 				"content_index": 0,
 				"delta":         ir.DeltaText,
-			}}
-			return append(startPayloads, deltaPayload...), nil
+			}}, nil
 		}
 		if ir.DeltaJSON != "" {
 			st.appendToolArg(ir.Index, ir.DeltaJSON)
@@ -947,11 +920,16 @@ func (a *openAIResponsesAdapter) EncodeStreamEvent(ir *IRStreamEvent, state inte
 		return nil, nil
 
 	case IRStreamContentStop:
-		// Check if this is a text stop
-		if st.hasStartedText(ir.Index) {
+		itemType, ok := st.itemTypes[ir.Index]
+		if !ok {
+			// No type recorded — upstream adapter or aggregator may have skipped ContentStart.
+			// Safe fallback: skip encoding (won't panic, won't emit garbage).
+			return nil, nil
+		}
+
+		if itemType == IRPartText || itemType == IRPartReasoning {
 			itemID := st.itemID(ir.Index)
 			text := st.text(ir.Index)
-			st.markStoppedText(ir.Index)
 			part := map[string]interface{}{
 				"type":        "output_text",
 				"text":        text,
@@ -1118,28 +1096,6 @@ func (s *responsesStreamState) responseIDValue() string {
 		return "resp_stream"
 	}
 	return s.responseID
-}
-
-func (s *responsesStreamState) hasStartedText(index int) bool {
-	return s.textStarted != nil && s.textStarted[index]
-}
-
-func (s *responsesStreamState) markStartedText(index int) {
-	if s.textStarted == nil {
-		s.textStarted = make(map[int]bool)
-	}
-	s.textStarted[index] = true
-}
-
-func (s *responsesStreamState) hasStoppedText(index int) bool {
-	return s.textStopped != nil && s.textStopped[index]
-}
-
-func (s *responsesStreamState) markStoppedText(index int) {
-	if s.textStopped == nil {
-		s.textStopped = make(map[int]bool)
-	}
-	s.textStopped[index] = true
 }
 
 func (s *responsesStreamState) itemID(index int) string {

@@ -614,14 +614,12 @@ func TestOpenAIChatDecodeStreamEvent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("DecodeStreamEvent() error = %v", err)
 		}
-		if len(events) != 2 {
-			t.Fatalf("expected 2 events (content_start + text_delta), got %d: %v", len(events), events)
+		// Adapter emits plain text delta — StreamAggregator handles ContentStart autocomplete.
+		if len(events) != 1 {
+			t.Fatalf("expected 1 event (text_delta), got %d: %v", len(events), events)
 		}
-		if events[0].Type != IRStreamContentStart || events[0].Index != 0 {
-			t.Errorf("events[0] = %v, want content_part_start at index 0", events[0])
-		}
-		if events[1].Type != IRStreamContentDelta || events[1].DeltaText != "Hello" {
-			t.Errorf("events[1] = %v, want content_part_delta with 'Hello'", events[1])
+		if events[0].Type != IRStreamContentDelta || events[0].DeltaText != "Hello" {
+			t.Errorf("events[0] = %v, want content_part_delta with 'Hello'", events[0])
 		}
 	})
 
@@ -644,9 +642,17 @@ func TestOpenAIChatDecodeStreamEvent(t *testing.T) {
 	})
 
 	t.Run("tool_call_delta", func(t *testing.T) {
-		raw := parseJSON(t, `{"id":"chatcmpl-s2","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"Tokyo\"}"}}]},"finish_reason":null}]}`)
+		// Tool delta with args only (no id) — depends on ContentStart arriving first.
+		// Simulate: ContentStart sets up toolStartEmitted + toolIndexToGlobalIndex.
+		rawStart := parseJSON(t, `{"id":"chatcmpl-s2","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_001","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}`)
+		rawDelta := parseJSON(t, `{"id":"chatcmpl-s2","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"Tokyo\"}"}}]},"finish_reason":null}]}`)
+
 		st := testAdapter.NewStreamState()
-		events, err := testAdapter.DecodeStreamEvent(raw, st)
+		// First chunk: ContentStart
+		startEvents, _ := testAdapter.DecodeStreamEvent(rawStart, st)
+		_ = startEvents
+		// Second chunk: arguments delta — should produce delta at the mapped global index
+		events, err := testAdapter.DecodeStreamEvent(rawDelta, st)
 		if err != nil {
 			t.Fatalf("DecodeStreamEvent() error = %v", err)
 		}

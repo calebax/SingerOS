@@ -309,19 +309,18 @@ func (a *openAIChatAdapter) EncodeResponse(ir *IRResponse) (map[string]interface
 // =============================================================================
 
 type chatStreamState struct {
-	textStarted      map[int]bool
-	toolStarted      map[int]bool
-	textStopped      bool              // 文本 block 是否已关闭
-	toolBlockIndices []int             // 活跃的工具调用 block 编号列表，用于 finish_reason 时统一关闭
-	nextBlockIdx     int               // 全局 block 编号计数器
-	responseID       string
-	model            string
+	toolStartEmitted       map[int]bool // OpenAI tool_calls[index] 的 ContentStart 是否已从协议分片中 emit
+	toolIndexToGlobalIndex map[int]int  // OpenAI tool_call.index → IR global index
+	toolGlobalIndices      []int        // 所有 tool 的 IR global indices，finish_reason 遍历用
+	nextGlobalIndex        int          // IR 全局 index 分配器
+	responseID             string
+	model                  string
 }
 
 func (a *openAIChatAdapter) NewStreamState() interface{} {
 	return &chatStreamState{
-		textStarted: make(map[int]bool),
-		toolStarted: make(map[int]bool),
+		toolStartEmitted:       make(map[int]bool),
+		toolIndexToGlobalIndex: make(map[int]int),
 	}
 }
 
@@ -334,7 +333,6 @@ func (a *openAIChatAdapter) DecodeStreamEvent(raw map[string]interface{}, state 
 
 	choices, ok := getList(raw, "choices")
 	if !ok || len(choices) == 0 {
-		// Usage-only chunk (final chunk with no choices)
 		if usage, ok := raw["usage"].(map[string]interface{}); ok {
 			irUsage := &IRUsage{
 				InputTokens:  getIntDefault(usage, "prompt_tokens"),
@@ -361,7 +359,6 @@ func (a *openAIChatAdapter) DecodeStreamEvent(raw map[string]interface{}, state 
 
 	var events []*IRStreamEvent
 
-	// Capture response ID and model for context
 	if id := getString(raw, "id"); id != "" && st.responseID == "" {
 		st.responseID = id
 	}
@@ -379,25 +376,13 @@ func (a *openAIChatAdapter) DecodeStreamEvent(raw map[string]interface{}, state 
 	}
 
 	// text delta: delta.content
-	// Emit IRStreamContentStart before first text delta so that downstream
-	// adapters (e.g. OpenAI Responses) emit the required output_item.added +
-	// content_part.added events before output_text.delta events.
-	// Without this, Codex CLI logs "OutputTextDelta without active item".
+	// StreamAggregator handles ContentStart autocomplete — adapter emits plain delta only.
 	if content := getString(delta, "content"); content != "" {
-		if !st.textStarted[0] {
-			events = append(events, &IRStreamEvent{
-				Type:  IRStreamContentStart,
-				Index: 0,
-				Part:  &IRContentPart{Type: IRPartText},
-			})
-		}
 		events = append(events, &IRStreamEvent{
 			Type:      IRStreamContentDelta,
 			DeltaText: content,
 			Index:     0,
 		})
-		st.textStarted[0] = true
-		st.nextBlockIdx = 1 // 文本占用了 index 0，工具调用从 1 开始
 	}
 
 	// Reasoning content delta (DeepSeek thinking mode)
@@ -412,31 +397,31 @@ func (a *openAIChatAdapter) DecodeStreamEvent(raw map[string]interface{}, state 
 
 	// tool_calls from delta
 	if tcs, ok := getList(delta, "tool_calls"); ok {
-		hasTextBlock := st.textStarted[0] && !st.textStopped
-
 		for _, tc := range tcs {
 			tcm, _ := tc.(map[string]interface{})
 			fn, _ := tcm["function"].(map[string]interface{})
+			chatIdx := 0
+			if f, ok := getFloat(tcm, "index"); ok {
+				chatIdx = int(f)
+			}
+			id := getString(tcm, "id")
+			args := getString(fn, "arguments")
 
-			// content_part_start: tool_call with id present
-			if id := getString(tcm, "id"); id != "" {
-				// 工具调用到达前，如果文本 block 还在活跃，先关闭它
-				if hasTextBlock {
-					events = append(events, &IRStreamEvent{
-						Type:  IRStreamContentStop,
-						Index: 0,
-					})
-					st.textStopped = true
-					hasTextBlock = false
+			// content_part_start: tool_call with id present (first segment)
+			if id != "" {
+				if st.toolStartEmitted[chatIdx] {
+					continue // already emitted — dedup
 				}
+				st.toolStartEmitted[chatIdx] = true
 
-				toolIdx := st.nextBlockIdx
-				st.nextBlockIdx++
-				st.toolBlockIndices = append(st.toolBlockIndices, toolIdx)
+				globalIdx := st.nextGlobalIndex
+				st.nextGlobalIndex++
+				st.toolIndexToGlobalIndex[chatIdx] = globalIdx
+				st.toolGlobalIndices = append(st.toolGlobalIndices, globalIdx)
 
 				events = append(events, &IRStreamEvent{
 					Type:  IRStreamContentStart,
-					Index: toolIdx,
+					Index: globalIdx,
 					Part: &IRContentPart{
 						Type: IRPartToolCall,
 						ToolCall: &IRToolCallPart{
@@ -448,57 +433,52 @@ func (a *openAIChatAdapter) DecodeStreamEvent(raw map[string]interface{}, state 
 			}
 
 			// content_part_delta: function.arguments
-			if args := getString(fn, "arguments"); args != "" {
+			if args != "" {
+				globalIdx, ok := st.toolIndexToGlobalIndex[chatIdx]
+				if !ok {
+					continue // no start yet — skip orphan delta
+				}
 				events = append(events, &IRStreamEvent{
 					Type:      IRStreamContentDelta,
-					Index:     st.nextBlockIdx - 1,
+					Index:     globalIdx,
 					DeltaJSON: args,
 				})
 			}
 		}
 	}
 
-	// Extract usage from this chunk (may appear alongside choices or standalone).
-	// Some providers send usage in the same chunk as finish_reason.
-	var chunkUsage *IRUsage
-	if u, ok := raw["usage"].(map[string]interface{}); ok {
-		chunkUsage = &IRUsage{
-			InputTokens:  getIntDefault(u, "prompt_tokens"),
-			OutputTokens: getIntDefault(u, "completion_tokens"),
-			TotalTokens:  getIntDefault(u, "total_tokens"),
-		}
-		if promptDetails, ok := u["prompt_tokens_details"].(map[string]interface{}); ok {
-			chunkUsage.CacheReadInputTokens = getIntDefault(promptDetails, "cached_tokens")
-		}
-		if completionDetails, ok := u["completion_tokens_details"].(map[string]interface{}); ok {
-			chunkUsage.ReasoningTokens = getIntDefault(completionDetails, "reasoning_tokens")
-		}
-	}
-
 	// message_delta: finish_reason present
+	// StreamAggregator handles ContentStop cleanup — adapter emits MessageDelta only.
 	if finishReason != "" {
-		// 关闭文本 block（如果还在活跃）
-		if st.textStarted[0] && !st.textStopped {
-			events = append(events, &IRStreamEvent{
-				Type:  IRStreamContentStop,
-				Index: 0,
-			})
-			st.textStopped = true
-		}
-		// 关闭所有工具调用 block
-		for _, idx := range st.toolBlockIndices {
-			events = append(events, &IRStreamEvent{
-				Type:  IRStreamContentStop,
-				Index: idx,
-			})
-		}
-		st.toolBlockIndices = nil
-
 		events = append(events, &IRStreamEvent{
 			Type:       IRStreamMessageDelta,
 			StopReason: mapOpenAIFinishReason(finishReason),
-			Usage:      chunkUsage,
 		})
+	}
+
+	// Attach usage if present
+	if len(events) > 0 {
+		var chunkUsage *IRUsage
+		if u, ok := raw["usage"].(map[string]interface{}); ok {
+			chunkUsage = &IRUsage{
+				InputTokens:  getIntDefault(u, "prompt_tokens"),
+				OutputTokens: getIntDefault(u, "completion_tokens"),
+				TotalTokens:  getIntDefault(u, "total_tokens"),
+			}
+			if promptDetails, ok := u["prompt_tokens_details"].(map[string]interface{}); ok {
+				chunkUsage.CacheReadInputTokens = getIntDefault(promptDetails, "cached_tokens")
+			}
+			if completionDetails, ok := u["completion_tokens_details"].(map[string]interface{}); ok {
+				chunkUsage.ReasoningTokens = getIntDefault(completionDetails, "reasoning_tokens")
+			}
+		}
+		if chunkUsage != nil {
+			// Attach usage to last event (typically the MessageDelta or latest delta)
+			last := events[len(events)-1]
+			if last.Usage == nil {
+				last.Usage = chunkUsage
+			}
+		}
 	}
 
 	return events, nil
