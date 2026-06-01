@@ -1,25 +1,38 @@
 "use client";
 
 import { useLayoutStore } from "@leros/store";
+import type { ReactNode } from "react";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { CenterCanvas } from "./CenterCanvas";
-import { LeftRail } from "./LeftRail";
+import { type AppNavigation, LeftRail } from "./LeftRail";
 import { ProjectPage } from "./ProjectPage";
 import { TaskDetailPage } from "./TaskDetailPage";
 import { WorkbenchPanel } from "./WorkbenchPanel";
 
-export function Shell({ logoSrc }: { logoSrc?: string }) {
+export function Shell({
+	logoSrc,
+	navigation,
+	children,
+}: {
+	logoSrc?: string;
+	navigation?: AppNavigation;
+	children?: ReactNode;
+}) {
 	const currentView = useLayoutStore((s) => s.currentView);
 
 	return (
 		<div className="leros-app-shell">
-			<LeftRail logoSrc={logoSrc} />
-			{currentView === "chat" && <CenterCanvas />}
-			{currentView === "workbench" && <WorkbenchPanel />}
-			{currentView === "tasks" && <EmptyPage />}
-			{currentView === "project" && <ProjectPage />}
-			{currentView === "taskDetail" && <TaskDetailPage />}
-			{currentView === "digitalAssistant" && <AssistantListView />}
+			<LeftRail logoSrc={logoSrc} navigation={navigation} />
+			{children ?? (
+				<>
+					{currentView === "chat" && <CenterCanvas />}
+					{currentView === "workbench" && <WorkbenchPanel />}
+					{currentView === "tasks" && <EmptyPage />}
+					{currentView === "project" && <ProjectPage />}
+					{currentView === "taskDetail" && <TaskDetailPage />}
+					{currentView === "digitalAssistant" && <AssistantListView />}
+				</>
+			)}
 		</div>
 	);
 }

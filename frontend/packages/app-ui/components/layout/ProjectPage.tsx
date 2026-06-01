@@ -31,7 +31,17 @@ const projectTabs = [
 	{ id: "files" as const, label: "文件" },
 ];
 
-export function ProjectPage() {
+type ProjectTab = (typeof projectTabs)[number]["id"];
+
+export function ProjectPage({
+	projectId,
+	tab,
+	onTabChange,
+}: {
+	projectId?: string;
+	tab?: ProjectTab;
+	onTabChange?: (tab: ProjectTab) => void;
+}) {
 	const {
 		projects,
 		activeProjectId,
@@ -39,6 +49,8 @@ export function ProjectPage() {
 		projectDetailLoading,
 		projectDetailError,
 		projectSessionId,
+		fetchProjects,
+		setProjectRoute,
 		setActiveProjectTab,
 		fetchProjectDetail,
 	} = useLayoutStore((s) => s);
@@ -46,14 +58,28 @@ export function ProjectPage() {
 	const { setActiveSession, loadConversationMessages, resetLocalMessages } = useChatStore((s) => s);
 	const [taskArtifacts, setTaskArtifacts] = useState<ProjectArtifact[]>([]);
 
-	const project = projects.find((item) => item.id === activeProjectId) ?? projects[0];
+	const resolvedProjectId = projectId ?? activeProjectId;
+	const resolvedTab = tab ?? activeProjectTab;
+	const project =
+		projects.find((item) => item.id === resolvedProjectId) ??
+		(resolvedProjectId ? undefined : projects[0]);
 	const taskIds = useMemo(() => project?.tasks.map((task) => task.id).join("|") ?? "", [project]);
 
 	useEffect(() => {
-		if (activeProjectId) {
-			fetchProjectDetail(activeProjectId);
+		fetchProjects();
+	}, [fetchProjects]);
+
+	useEffect(() => {
+		if (projectId) {
+			setProjectRoute(projectId, tab ?? "chat");
 		}
-	}, [activeProjectId]);
+	}, [projectId, tab, setProjectRoute]);
+
+	useEffect(() => {
+		if (resolvedProjectId) {
+			fetchProjectDetail(resolvedProjectId);
+		}
+	}, [resolvedProjectId, fetchProjectDetail, projects.length]);
 
 	useEffect(() => {
 		if (!taskIds) {
@@ -168,16 +194,22 @@ export function ProjectPage() {
 					<button
 						key={tab.id}
 						type="button"
-						onClick={() => setActiveProjectTab(tab.id)}
+						onClick={() => {
+							if (onTabChange) {
+								onTabChange(tab.id);
+								return;
+							}
+							setActiveProjectTab(tab.id);
+						}}
 						className={cn(
 							"relative h-full px-1 pb-2 text-sm font-semibold transition-colors",
-							activeProjectTab === tab.id
+							resolvedTab === tab.id
 								? "text-[var(--leros-primary)]"
 								: "text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]",
 						)}
 					>
 						{tab.label}
-						{activeProjectTab === tab.id && (
+						{resolvedTab === tab.id && (
 							<span className="absolute bottom-0 left-0 h-0.5 w-full rounded-full bg-[var(--leros-primary)]" />
 						)}
 					</button>
@@ -188,14 +220,14 @@ export function ProjectPage() {
 				<main
 					className={cn(
 						"min-w-0 flex-1",
-						activeProjectTab === "chat"
+						resolvedTab === "chat"
 							? "flex min-h-0 flex-col bg-[var(--leros-surface)]"
 							: "overflow-y-auto px-10 py-8",
 					)}
 				>
-					{activeProjectTab === "chat" && <ProjectChat />}
-					{activeProjectTab === "tasks" && <ProjectTasks tasks={project.tasks} />}
-					{activeProjectTab === "files" && <ProjectFiles files={taskArtifacts} />}
+					{resolvedTab === "chat" && <ProjectChat />}
+					{resolvedTab === "tasks" && <ProjectTasks tasks={project.tasks} />}
+					{resolvedTab === "files" && <ProjectFiles files={taskArtifacts} />}
 				</main>
 
 				<aside className="flex w-[300px] shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6">

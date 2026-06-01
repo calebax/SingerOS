@@ -284,6 +284,15 @@ export class LayoutActionImpl {
 		});
 	};
 
+	setProjectRoute = (projectId: string, tab: "chat" | "tasks" | "files" = "chat") => {
+		this.#set({
+			activeProjectId: projectId,
+			activeProjectTab: tab,
+			currentView: "project",
+			conversationListOpen: false,
+		});
+	};
+
 	selectWorkbenchProject = (projectId: string | null) => {
 		this.#set({ activeProjectId: projectId, activeWorkbenchTaskId: null });
 		if (projectId) {
@@ -326,8 +335,10 @@ export class LayoutActionImpl {
 					conversationListOpen: false,
 				});
 			}
+			return data ?? null;
 		} catch (err) {
 			console.error("sendWorkbenchMessage error:", err);
+			return null;
 		}
 	};
 
@@ -337,6 +348,17 @@ export class LayoutActionImpl {
 			activeTaskDetailTaskId: taskId,
 			activeTaskDetailSessionId: sessionId,
 			currentView: "taskDetail",
+		});
+	};
+
+	setTaskDetailRoute = (projectId: string, taskId: string, sessionId: string | null = null) => {
+		this.#set({
+			activeProjectId: projectId,
+			activeTaskDetailProjectId: projectId,
+			activeTaskDetailTaskId: taskId,
+			activeTaskDetailSessionId: sessionId,
+			currentView: "taskDetail",
+			conversationListOpen: false,
 		});
 	};
 

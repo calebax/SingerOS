@@ -25,6 +25,14 @@ import {
 	UserRound,
 	Zap,
 } from "lucide-react";
+import { useEffect } from "react";
+
+export type AppNavigation = {
+	currentPath: string;
+	goToRoute: (route: ViewMode) => void;
+	goToProject: (projectId: string) => void;
+	goToTaskDetail: (projectId: string, taskId: string, sessionId?: string | null) => void;
+};
 
 const avatarMap: Record<string, string> = {
 	"Ada AI":
@@ -52,17 +60,41 @@ const navIdToView: Record<string, ViewMode> = {
 	"ai-3": "digitalAssistant",
 };
 
-export function LeftRail({ logoSrc = "/logo.svg" }: { logoSrc?: string }) {
-	const { navGroups, projects, currentView, activeProjectId, switchView, switchProject } =
-		useLayoutStore((s) => s);
+export function LeftRail({
+	logoSrc = "/logo.svg",
+	navigation,
+}: {
+	logoSrc?: string;
+	navigation?: AppNavigation;
+}) {
+	const {
+		navGroups,
+		projects,
+		currentView,
+		activeProjectId,
+		fetchProjects,
+		switchView,
+		switchProject,
+	} = useLayoutStore((s) => s);
+
+	useEffect(() => {
+		fetchProjects();
+	}, [fetchProjects]);
 
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
+		if (navigation) {
+			navigation.goToRoute(view);
+			return;
+		}
 		switchView(view);
 	};
 
 	const isItemActive = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
+		if (navigation) {
+			return getRouteActive(navigation.currentPath, view);
+		}
 		return currentView === view;
 	};
 
@@ -106,7 +138,14 @@ export function LeftRail({ logoSrc = "/logo.svg" }: { logoSrc?: string }) {
 										projects={projects}
 										activeProjectId={activeProjectId}
 										currentView={currentView}
-										onProjectClick={switchProject}
+										currentPath={navigation?.currentPath}
+										onProjectClick={(projectId) => {
+											if (navigation) {
+												navigation.goToProject(projectId);
+												return;
+											}
+											switchProject(projectId);
+										}}
 									/>
 								) : (
 									<div className="space-y-1">
@@ -180,21 +219,37 @@ export function LeftRail({ logoSrc = "/logo.svg" }: { logoSrc?: string }) {
 	);
 }
 
+function getRouteActive(path: string, view: ViewMode) {
+	if (view === "workbench") return path === "/" || path.startsWith("/workbench");
+	if (view === "chat") return path.startsWith("/chat");
+	if (view === "digitalAssistant") return path.startsWith("/assistants");
+	if (view === "skills") return path.startsWith("/skills");
+	if (view === "knowledge") return path.startsWith("/knowledge");
+	if (view === "settings") return path.startsWith("/settings");
+	if (view === "tasks") return path.startsWith("/tasks");
+	return false;
+}
+
 function ProjectList({
 	projects,
 	activeProjectId,
 	currentView,
+	currentPath,
 	onProjectClick,
 }: {
 	projects: Project[];
 	activeProjectId: string | null;
 	currentView: ViewMode;
+	currentPath?: string;
 	onProjectClick: (projectId: string) => void;
 }) {
 	return (
 		<div className="space-y-1">
 			{projects.map((project) => {
-				const active = currentView === "project" && activeProjectId === project.id;
+				const active = currentPath
+					? currentPath === `/projects/${project.id}` ||
+						currentPath.startsWith(`/projects/${project.id}/`)
+					: currentView === "project" && activeProjectId === project.id;
 				return (
 					<button
 						key={project.id}

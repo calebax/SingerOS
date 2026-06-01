@@ -1,7 +1,5 @@
-"use client";
-
-import { Shell } from "@leros/app-ui/components/layout/Shell";
+import { redirect } from "next/navigation";
 
 export default function HomePage() {
-	return <Shell />;
+	redirect("/workbench");
 }

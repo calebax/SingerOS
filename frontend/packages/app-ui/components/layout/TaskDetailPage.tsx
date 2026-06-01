@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { ChatInput } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
+import type { AppNavigation } from "./LeftRail";
 
 const STATUS_LABEL: Record<string, string> = {
 	todo: "待办",
@@ -28,12 +29,24 @@ const STATUS_LABEL: Record<string, string> = {
 	done: "已完成",
 };
 
-export function TaskDetailPage() {
+export function TaskDetailPage({
+	projectId,
+	taskId,
+	sessionId,
+	navigation,
+}: {
+	projectId?: string;
+	taskId?: string;
+	sessionId?: string | null;
+	navigation?: AppNavigation;
+}) {
 	const {
 		activeTaskDetailProjectId,
 		activeTaskDetailTaskId,
 		activeTaskDetailSessionId,
 		projects,
+		fetchProjects,
+		setTaskDetailRoute,
 		switchView,
 		switchProject,
 	} = useLayoutStore((s) => s);
@@ -50,7 +63,10 @@ export function TaskDetailPage() {
 	const [artifacts, setArtifacts] = useState<ProjectArtifact[]>([]);
 	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
 
-	const project = projects.find((p) => p.id === activeTaskDetailProjectId);
+	const resolvedProjectId = projectId ?? activeTaskDetailProjectId;
+	const resolvedTaskId = taskId ?? activeTaskDetailTaskId;
+	const resolvedSessionId = sessionId ?? activeTaskDetailSessionId;
+	const project = projects.find((p) => p.id === resolvedProjectId);
 
 	const fetchArtifacts = useCallback(async (taskId: string) => {
 		try {
@@ -63,13 +79,22 @@ export function TaskDetailPage() {
 	}, []);
 
 	useEffect(() => {
-		if (!activeTaskDetailSessionId) return;
+		fetchProjects();
+	}, [fetchProjects]);
 
-		setActiveSession(activeTaskDetailSessionId);
-		if (activeSessionId === activeTaskDetailSessionId && isGenerating) return;
-		loadConversationMessages(activeTaskDetailSessionId);
+	useEffect(() => {
+		if (!projectId || !taskId) return;
+		setTaskDetailRoute(projectId, taskId, sessionId ?? null);
+	}, [projectId, taskId, sessionId, setTaskDetailRoute]);
+
+	useEffect(() => {
+		if (!resolvedSessionId) return;
+
+		setActiveSession(resolvedSessionId);
+		if (activeSessionId === resolvedSessionId && isGenerating) return;
+		loadConversationMessages(resolvedSessionId);
 	}, [
-		activeTaskDetailSessionId,
+		resolvedSessionId,
 		activeSessionId,
 		isGenerating,
 		setActiveSession,
@@ -77,10 +102,10 @@ export function TaskDetailPage() {
 	]);
 
 	useEffect(() => {
-		if (!activeTaskDetailTaskId) return;
+		if (!resolvedTaskId) return;
 
 		taskApi
-			.get({ public_id: activeTaskDetailTaskId })
+			.get({ public_id: resolvedTaskId })
 			.then((res) => {
 				const bt = res.data.data;
 				if (bt) {
@@ -99,13 +124,13 @@ export function TaskDetailPage() {
 				console.error("TaskDetailPage fetch task error:", err);
 			});
 
-		fetchArtifacts(activeTaskDetailTaskId);
-	}, [activeTaskDetailTaskId, fetchArtifacts]);
+		fetchArtifacts(resolvedTaskId);
+	}, [resolvedTaskId, fetchArtifacts]);
 
 	useEffect(() => {
-		if (!activeTaskDetailTaskId || isGenerating) return;
-		fetchArtifacts(activeTaskDetailTaskId);
-	}, [activeTaskDetailTaskId, fetchArtifacts, isGenerating]);
+		if (!resolvedTaskId || isGenerating) return;
+		fetchArtifacts(resolvedTaskId);
+	}, [resolvedTaskId, fetchArtifacts, isGenerating]);
 
 	useEffect(() => {
 		return () => {
@@ -113,7 +138,7 @@ export function TaskDetailPage() {
 		};
 	}, [resetLocalMessages]);
 
-	if (!activeTaskDetailProjectId || !activeTaskDetailTaskId || !activeTaskDetailSessionId) {
+	if (!resolvedProjectId || !resolvedTaskId) {
 		return (
 			<div className="flex h-full flex-1 items-center justify-center bg-[var(--leros-app-bg)] text-[var(--leros-text-muted)]">
 				无任务详情
@@ -132,9 +157,13 @@ export function TaskDetailPage() {
 						<>
 							<button
 								type="button"
-								onClick={() =>
-									activeTaskDetailProjectId && switchProject(activeTaskDetailProjectId)
-								}
+								onClick={() => {
+									if (navigation && resolvedProjectId) {
+										navigation.goToProject(resolvedProjectId);
+										return;
+									}
+									resolvedProjectId && switchProject(resolvedProjectId);
+								}}
 								className="text-xs font-semibold uppercase tracking-widest hover:text-[var(--leros-text-strong)]"
 							>
 								{project.name}
@@ -149,7 +178,13 @@ export function TaskDetailPage() {
 				<div className="flex items-center gap-3">
 					<button
 						type="button"
-						onClick={() => switchView("workbench")}
+						onClick={() => {
+							if (navigation) {
+								navigation.goToRoute("workbench");
+								return;
+							}
+							switchView("workbench");
+						}}
 						className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 					>
 						<ArrowLeft className="size-3.5" />

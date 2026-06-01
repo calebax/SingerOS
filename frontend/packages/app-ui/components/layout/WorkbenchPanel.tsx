@@ -16,6 +16,7 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { AppNavigation } from "./LeftRail";
 
 const mockActivities = [
 	{
@@ -38,7 +39,7 @@ const mockActivities = [
 	},
 ];
 
-export function WorkbenchPanel() {
+export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const {
 		projects,
 		activeProjectId,
@@ -59,9 +60,12 @@ export function WorkbenchPanel() {
 		fetchProjects();
 	}, [fetchProjects]);
 
-	const handleSend = () => {
+	const handleSend = async () => {
 		if (!input.trim()) return;
-		sendWorkbenchMessage(input, activeProjectId);
+		const data = await sendWorkbenchMessage(input, activeProjectId);
+		if (navigation && data?.project_id && data?.task_id && data?.session_id) {
+			navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
+		}
 		setInput("");
 	};
 	const activeProject = projects.find((project) => project.id === activeProjectId);
@@ -97,6 +101,10 @@ export function WorkbenchPanel() {
 	const handleOpenActivityProject = (projectName: string) => {
 		const project = projects.find((item) => item.id === projectName || item.name === projectName);
 		if (project) {
+			if (navigation) {
+				navigation.goToProject(project.id);
+				return;
+			}
 			switchProject(project.id);
 		}
 	};
