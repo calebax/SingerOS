@@ -10,10 +10,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/insmtx/Leros/backend/internal/api/connectors"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/ygpkg/yg-go/logs"
 )
+
+type channelConnector interface {
+	ChannelCode() string
+	RegisterRoutes(r gin.IRouter)
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -21,8 +25,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// 确保 Connector 实现了 connectors.Connector 接口
-var _ connectors.Connector = (*Connector)(nil)
+var _ channelConnector = (*Connector)(nil)
 
 // Connection represents a single WebSocket connection
 type Connection struct {

@@ -1,0 +1,105 @@
+# SingerOS Message Gateway Configuration
+# ============================================
+#
+# This file configures the gateway process. Each channel section defines
+# an adapter with its own settings. Channels with `enabled: false` are
+# skipped at startup.
+
+# HTTP server settings (for webhook-receiving adapters)
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+# NATS event bus connection
+nats:
+  url: "nats://localhost:4222"
+
+# Streaming response configuration
+stream:
+  enabled: true
+  chunk_size: 80 # characters per delivery chunk
+
+# Global authorization policies
+auth:
+  # global_allowlist:
+  #   - "superadmin"
+  global_denylist: []
+
+# --- Channel Adapters ---
+
+channels:
+  # GitHub webhook receiver
+  github:
+    enabled: false
+    extra:
+      webhook_secret: "your-github-webhook-secret"
+      bind_host: "0.0.0.0"
+      bind_port: "8081"
+
+  # Feishu / Lark IM bot
+  feishu:
+    enabled: false
+    extra:
+      app_id: "cli_xxxxxxxxxxxx"
+      app_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      verification_token: "xxxxxxxxxxxxxxxx"
+      encrypt_key: "" # optional, for encrypted events
+      base_url: "https://open.feishu.cn" # or https://open.larksuite.com for Lark
+      require_mention: true # in group chats, bot only responds when @mentioned
+      allowed_chats:
+        - "oc_xxxxxxxxxxxx" # specific group/department IDs (empty = all allowed)
+      allowed_users:
+        - "ou_xxxxxxxxxxxx"
+      home_channel: "oc_xxxxxxxxxxxx" # default outbound channel
+
+  # WeCom (企业微信) bot
+  wecom:
+    enabled: false
+    extra:
+      corp_id: "wwxxxxxxxxxxxx"
+      agent_id: 1000002
+      secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      token: "your-callback-token"
+      encoding_aes_key: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxx"
+      require_mention: false
+      max_message_length: 2048
+
+  # WeChat Official Account
+  wechat:
+    enabled: false
+    extra:
+      app_id: "wx_xxxxxxxxxxxx"
+      app_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      token: "your-token"
+      encoding_aes_key: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+  # DingTalk (钉钉) bot
+  dingtalk:
+    enabled: false
+    extra:
+      app_key: "dingxxxxxxxxxxxx"
+      app_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      robot_code: "robot_xxxxxxxxxxxx"
+      allowed_users: []
+
+  # Slack app
+  slack:
+    enabled: false
+    extra:
+      bot_token: "xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx"
+      signing_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      app_token: "xapp-1-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx" # for socket mode
+      socket_mode: true
+
+  # QQ Bot (WebSocket gateway)
+  qqbot:
+    enabled: false
+    extra:
+      app_id: "your-qq-bot-app-id"
+      client_secret: "your-qq-bot-client-secret"
+      dm_policy: "open"           # open | allowlist | disabled
+      group_policy: "open"        # open | allowlist | disabled
+      allow_from: []              # DM user openid allowlist (when dm_policy=allowlist)
+      group_allow_from: []        # group openid allowlist (when group_policy=allowlist)
+      max_message_length: 4000

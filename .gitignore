@@ -52,3 +52,7 @@ frontend/.pnpm-store
 leros
 logs/
 .omo/
+
+# Gateway local runtime config
+backend/gateway/gateway.yaml
+backend/gateway/bundles/
