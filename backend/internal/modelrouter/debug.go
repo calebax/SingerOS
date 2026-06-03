@@ -1,7 +1,7 @@
 package modelrouter
 
 import (
-	"encoding/json"
+	"github.com/bytedance/sonic"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -180,7 +180,7 @@ func (dl *DebugLogger) writeEvent(event string, data map[string]interface{}) {
 
 	summary := eventSummary(event, data)
 
-	b, err := json.Marshal(record)
+	b, err := sonic.Marshal(record)
 	if err != nil {
 		return
 	}
@@ -230,7 +230,7 @@ func (dl *DebugLogger) writeJSONEvent(event string, body []byte) {
 	}
 
 	var parsed interface{}
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	if err := sonic.Unmarshal(body, &parsed); err != nil {
 		parsed = string(body)
 	}
 
@@ -245,13 +245,13 @@ func (dl *DebugLogger) writeStructEvent(event string, v interface{}) {
 		return
 	}
 
-	b, err := json.Marshal(v)
+	b, err := sonic.Marshal(v)
 	if err != nil {
 		return
 	}
 
 	var parsed interface{}
-	json.Unmarshal(b, &parsed)
+	sonic.Unmarshal(b, &parsed)
 
 	dl.writeEvent(event, map[string]interface{}{
 		"body": parsed,
