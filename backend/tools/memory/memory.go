@@ -60,8 +60,8 @@ func NewToolWithStore(store *localmemory.Store) *Tool {
 					},
 					"target": {
 						Type:        "string",
-						Description: "记忆目标：user 表示用户画像；memory 表示 worker/assistant 的长期事实和经验。",
-						Enum:        []string{"user", "memory"},
+						Description: "记忆目标：user 表示用户画像；memory 表示 worker/assistant 的长期事实和经验；project 表示项目级记忆。",
+						Enum:        []string{"user", "memory", "project"},
 					},
 					"content": {
 						Type:        "string",
@@ -88,8 +88,8 @@ func (t *Tool) Validate(input map[string]interface{}) error {
 	if target == "" {
 		return fmt.Errorf("target is required")
 	}
-	if target != localmemory.TargetUser && target != localmemory.TargetMemory {
-		return fmt.Errorf("invalid target %q: use user or memory", target)
+	if target != localmemory.TargetUser && target != localmemory.TargetMemory && target != "project" {
+		return fmt.Errorf("invalid target %q: use user, memory, or project", target)
 	}
 
 	switch action {
@@ -129,15 +129,33 @@ func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (strin
 	content := stringValue(input, "content")
 	oldText := stringValue(input, "old_text")
 
+	// 当 target == "project" 时，从 ToolContext 提取 WorkDir 作为存储根目录
+	store := t.store
+	storeTarget := target
+	if target == "project" {
+		toolCtx, ok := tools.ToolContextFrom(ctx)
+		if !ok || toolCtx.WorkDir == "" {
+			return "", fmt.Errorf("project memory requires a work directory in tool context")
+		}
+		projStore, err := localmemory.NewStore(localmemory.Options{
+			RootDir: toolCtx.WorkDir,
+		})
+		if err != nil {
+			return "", fmt.Errorf("create project memory store: %w", err)
+		}
+		store = projStore
+		storeTarget = localmemory.TargetMemory // 写入 WorkDir/MEMORY.md
+	}
+
 	var result *localmemory.Result
 	var err error
 	switch action {
 	case "add":
-		result, err = t.store.Add(ctx, target, content)
+		result, err = store.Add(ctx, storeTarget, content)
 	case "replace":
-		result, err = t.store.Replace(ctx, target, oldText, content)
+		result, err = store.Replace(ctx, storeTarget, oldText, content)
 	case "remove":
-		result, err = t.store.Remove(ctx, target, oldText)
+		result, err = store.Remove(ctx, storeTarget, oldText)
 	default:
 		return "", fmt.Errorf("unknown action %q", action)
 	}

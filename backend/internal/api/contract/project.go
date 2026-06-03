@@ -21,4 +21,7 @@ type ProjectService interface {
 
 	// 获取项目详情（含任务、会话、产物、成员）
 	DetailProject(ctx context.Context, publicID string) (*ProjectDetail, error)
+
+	// 获取项目记忆
+	GetProjectMemory(ctx context.Context, publicID string) (*ProjectMemory, error)
 }

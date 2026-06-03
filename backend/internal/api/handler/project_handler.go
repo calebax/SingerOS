@@ -28,6 +28,7 @@ func (h *ProjectHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/UpdateProject", h.UpdateProject)
 	r.POST("/DeleteProject", h.DeleteProject)
 	r.POST("/ListProjects", h.ListProjects)
+	r.POST("/GetProjectMemory", h.GetProjectMemory)
 }
 
 func RegisterProjectRoutes(r gin.IRouter, service contract.ProjectService) {
@@ -224,6 +225,37 @@ func (h *ProjectHandler) ListProjects(ctx *gin.Context) {
 // ================================================================
 // Error Handling
 // ================================================================
+
+type GetProjectMemoryRequest struct {
+	PublicID string `json:"public_id" binding:"required"`
+}
+
+// @Summary 获取项目记忆
+// @Description 根据PublicId获取项目的持久记忆条目
+// @Tags Project
+// @Accept json
+// @Produce json
+// @Param body body GetProjectMemoryRequest true "获取项目记忆请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /GetProjectMemory [post]
+func (h *ProjectHandler) GetProjectMemory(ctx *gin.Context) {
+	var req GetProjectMemoryRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.GetProjectMemory(ctx, req.PublicID)
+	if err != nil {
+		handleProjectServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
 
 func handleProjectServiceError(ctx *gin.Context, err error) {
 	errMsg := err.Error()

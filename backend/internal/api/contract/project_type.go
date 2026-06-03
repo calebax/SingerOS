@@ -76,3 +76,9 @@ type ProjectMemberItem struct {
 	Name       string    `json:"name,omitempty"`
 	AvatarURL  string    `json:"avatar_url,omitempty"`
 }
+
+// ProjectMemory 项目记忆响应
+type ProjectMemory struct {
+	Entries []string `json:"entries"`
+	Total   int      `json:"total"`
+}

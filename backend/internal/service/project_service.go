@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
@@ -364,6 +368,57 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	}
 
 	return result, nil
+}
+
+func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) (*contract.ProjectMemory, error) {
+	// 1. 鉴权
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(publicID) == "" {
+		return nil, errors.New("public_id is required")
+	}
+
+	// 2. 查项目（org 隔离）
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+
+	// 3. 拼 repo 路径: {workspaceRoot}/projects/{orgID}/{publicID}/repo/
+	workspaceRoot, err := leros.WorkspaceRoot()
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace root: %w", err)
+	}
+	repoDir := filepath.Join(workspaceRoot, "projects",
+		fmt.Sprintf("%d", project.OrgID), publicID, "repo")
+
+	// 4. 读取 MEMORY.md
+	memoryPath := filepath.Join(repoDir, "MEMORY.md")
+	entries, err := localmemory.ReadEntries(memoryPath)
+	if err != nil {
+		// 文件不存在或不可读时返回空列表而非报错
+		if os.IsNotExist(err) {
+			return &contract.ProjectMemory{
+				Entries: []string{},
+				Total:   0,
+			}, nil
+		}
+		return nil, fmt.Errorf("read project memory: %w", err)
+	}
+
+	if entries == nil {
+		entries = []string{}
+	}
+
+	return &contract.ProjectMemory{
+		Entries: entries,
+		Total:   len(entries),
+	}, nil
 }
 
 func generateProjectPublicID() string {

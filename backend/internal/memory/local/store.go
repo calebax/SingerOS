@@ -19,7 +19,8 @@ const (
 )
 
 const (
-	entryDelimiter         = "\n§\n"
+	// EntryDelimiter separates individual memory entries within a file.
+	EntryDelimiter         = "\n§\n"
 	defaultMemoryCharLimit = 2200
 	defaultUserCharLimit   = 1375
 )
@@ -212,7 +213,7 @@ func (s *Store) Load(ctx context.Context, target string) (*EntrySet, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries, err := readEntries(s.pathFor(target))
+	entries, err := ReadEntries(s.pathFor(target))
 	if err != nil {
 		return nil, err
 	}
@@ -228,11 +229,11 @@ func (s *Store) BuildPromptBlock(ctx context.Context) (string, error) {
 		return "", nil
 	}
 
-	userEntries, err := readEntries(s.pathFor(TargetUser))
+	userEntries, err := ReadEntries(s.pathFor(TargetUser))
 	if err != nil {
 		return "", err
 	}
-	memoryEntries, err := readEntries(s.pathFor(TargetMemory))
+	memoryEntries, err := ReadEntries(s.pathFor(TargetMemory))
 	if err != nil {
 		return "", err
 	}
@@ -276,7 +277,7 @@ func (s *Store) mutate(ctx context.Context, target string, update func([]string,
 	}
 	defer unlock()
 
-	entries, err := readEntries(path)
+	entries, err := ReadEntries(path)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +345,8 @@ func normalizeTarget(target string) (string, error) {
 	}
 }
 
-func readEntries(path string) ([]string, error) {
+// ReadEntries reads and parses memory entries from a file.
+func ReadEntries(path string) ([]string, error) {
 	content, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -356,7 +358,7 @@ func readEntries(path string) ([]string, error) {
 	if raw == "" {
 		return nil, nil
 	}
-	parts := strings.Split(raw, entryDelimiter)
+	parts := strings.Split(raw, EntryDelimiter)
 	entries := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, part := range parts {
@@ -425,7 +427,7 @@ func joinEntries(entries []string) string {
 	if len(entries) == 0 {
 		return ""
 	}
-	return strings.Join(entries, entryDelimiter)
+	return strings.Join(entries, EntryDelimiter)
 }
 
 func usage(entries []string, limit int) string {
