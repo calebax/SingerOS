@@ -121,29 +121,6 @@ type RunEventRecord struct {
 	Payload   RawPayload `json:"payload,omitempty"`
 }
 
-// ApprovalRequestPayload describes a tool call that needs user approval.
-type ApprovalRequestPayload struct {
-	RequestID   string         `json:"request_id"`
-	Engine      string         `json:"engine"`       // "claude" | "codex"
-	ActionType  string         `json:"action_type"`  // "tool_use" | "command" | "file" | "permissions"
-	Description string         `json:"description"`
-	ToolCallID  string         `json:"tool_call_id,omitempty"`
-	ToolName    string         `json:"tool_name,omitempty"`
-	Arguments   map[string]any `json:"arguments,omitempty"`
-	Command     string         `json:"command,omitempty"`
-	FilePath    string         `json:"file_path,omitempty"`
-	FileDiff    string         `json:"file_diff,omitempty"`
-	Permissions []string       `json:"permissions,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-}
-
-// ApprovalDecisionPayload describes the outcome of an approval request.
-type ApprovalDecisionPayload struct {
-	RequestID string `json:"request_id"`
-	Action    string `json:"action"`   // "approved" | "rejected"
-	Reason    string `json:"reason,omitempty"`
-}
-
 // RunCompletedPayload 归档完整的成功运行时运行。
 type RunCompletedPayload struct {
 	Status      string            `json:"status"`
