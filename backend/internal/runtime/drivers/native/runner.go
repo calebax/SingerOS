@@ -37,11 +37,6 @@ var defaultToolNames = []string{
 	artifactdeclare.ToolNameArtifactDeclare,
 }
 
-// DefaultSystemPrompt 返回 Leros 内置 Agent 的基础系统提示词。
-func DefaultSystemPrompt() string {
-	return prompts.Get(prompts.KeyAgentSystemDefault)
-}
-
 // Runner 是 Leros 内置 Eino 运行时入口。
 type Runner struct {
 	toolAdapter  *einoadapter.ToolAdapter

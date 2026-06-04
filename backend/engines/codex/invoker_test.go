@@ -46,7 +46,6 @@ func TestSayHi(t *testing.T) {
 			Model:    "aliyun/deepseek-v4-flash",
 			BaseURL:  "http://127.0.0.1:8081",
 		},
-		Timeout: 2 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("run codex adapter: %v", err)

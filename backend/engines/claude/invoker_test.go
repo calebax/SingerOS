@@ -41,7 +41,6 @@ func TestAdapterAskCurrentTime(t *testing.T) {
 			Model:    firstNonEmptyEnv("LEROS_LLM_MODEL"),
 			BaseURL:  firstNonEmptyEnv("LEROS_LLM_BASE_URL"),
 		},
-		Timeout: 2 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("run claude adapter: %v", err)
