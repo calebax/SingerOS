@@ -8,6 +8,8 @@ import (
 )
 
 const (
+	// EngineNative 是内置 Eino 引擎的注册名称。
+	EngineNative = "leros"
 	// EngineClaude 是 Claude Code 的注册名称。
 	EngineClaude = "claude"
 	// EngineCodex 是 Codex CLI 的注册名称。

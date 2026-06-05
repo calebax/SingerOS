@@ -129,11 +129,15 @@ func runTaskWorker(defaultRuntime string) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var cliSkillDirs []string
-	// Bootstrap external CLI engines before runtime initialization:
-	// sync built-in skills to .leros/skills so the runtime catalog loads non-empty.
-	if cfg.CLI != nil {
+	// Bootstrap engines: always sync built-in skills to .leros/skills (serves native engine).
+	// If CLI engines are configured, also sync symlinks and register MCP.
+	{
+		var cliCfg *config.CLIEnginesConfig
+		if cfg.CLI != nil {
+			cliCfg = cfg.CLI
+		}
 		var mcpCfg engines.MCPServerConfig
-		if cfg.CLI.MCP != nil {
+		if cfg.CLI != nil && cfg.CLI.MCP != nil {
 			mcpCfg = engines.MCPServerConfig{
 				URL:         cfg.CLI.MCP.URL,
 				BearerToken: cfg.CLI.MCP.BearerToken,
@@ -143,11 +147,14 @@ func runTaskWorker(defaultRuntime string) {
 			mcpCfg.URL = buildWorkerMCPURL(workerListenAddr)
 		}
 		bootstrapSvc := builtin.NewBootstrapService()
-		_, err := bootstrapSvc.Bootstrap(ctx, cfg.CLI, builtin.BootstrapOptions{
+		updatedCLICfg, err := bootstrapSvc.Bootstrap(ctx, cliCfg, builtin.BootstrapOptions{
 			MCP: mcpCfg,
 		})
 		if err != nil {
-			logs.Warnf("Bootstrap CLI engines failed: %v", err)
+			logs.Warnf("Bootstrap engines failed: %v", err)
+		}
+		if updatedCLICfg != nil {
+			cfg.CLI = updatedCLICfg
 		}
 		cliSkillDirs = bootstrapSvc.GetSkillDirs()
 	}
