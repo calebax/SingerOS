@@ -8,7 +8,6 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/engines/builtin"
-	enginenative "github.com/insmtx/Leros/backend/engines/native"
 	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/insmtx/Leros/backend/internal/runtime/deps"
 	"github.com/insmtx/Leros/backend/internal/runtime/drivers/externalcli"
@@ -89,22 +88,15 @@ func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, 
 			continue
 		}
 
-		var runner agent.Runner
-		// 若引擎提供直接的 Runner（native），直接使用；
-		// 否则通过 externalcli 桥接（claude、codex）。
-		if nr, ok := engine.(interface{ Runner() agent.Runner }); ok {
-			runner = nr.Runner()
-			logs.Infof("Registering native agent runtime: %s", name)
-		} else {
-			cliRunner, err := externalcli.NewRunner(name, engine)
-			if err != nil {
-				return nil, err
-			}
-			// 注入审批路由器（channel 等待 HTTP 回传）
-			cliRunner.SetApprovalHandler(engines.DefaultApprovalRouter)
-			runner = cliRunner
-			logs.Infof("Registering external agent CLI runtime: %s", name)
+		runner, err := externalcli.NewRunner(name, engine)
+		if err != nil {
+			return nil, err
 		}
+		// 仅外部 CLI 引擎需要审批路由器；native 的 Approver 是 noop。
+		if name != engines.EngineNative {
+			runner.SetApprovalHandler(engines.DefaultApprovalRouter)
+		}
+		logs.Infof("Registering agent runtime: %s", name)
 
 		if err := router.Register(name, runner); err != nil {
 			return nil, err
@@ -120,7 +112,7 @@ func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, 
 	engineNames := engineRegistry.Names()
 	selectedDefault := s.selectDefaultRuntime(opts.DefaultRuntime, opts, engineNames)
 	if selectedDefault == "" {
-		selectedDefault = enginenative.EngineName
+		selectedDefault = engines.EngineNative
 	}
 	normalizedDefault := strings.ToLower(strings.TrimSpace(selectedDefault))
 	if _, ok := registeredKinds[normalizedDefault]; !ok {

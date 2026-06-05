@@ -84,12 +84,6 @@ func (a *Adapter) Run(ctx context.Context, req engines.RunRequest) (*engines.Run
 	}, nil
 }
 
-// Runner returns the direct agent.Runner for efficient in-process execution
-// with full RequestContext access.
-func (a *Adapter) Runner() agent.Runner {
-	return a.runner
-}
-
 // execute runs the Eino flow and feeds events into the channel.
 func (a *Adapter) execute(ctx context.Context, req engines.RunRequest, eventsCh chan<- events.Event) {
 	// Emit run.started.
