@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -25,6 +26,41 @@ func WorkerMountedWorkspacePath(orgID uint, workerID uint) (string, error) {
 		return "", err
 	}
 	return filepath.Join(rootAbs, fmt.Sprintf("%d", orgID), fmt.Sprintf("%d", workerID), "workspace"), nil
+}
+
+// ProjectRepoPath 返回项目 repo 在 worker workspace 下的绝对路径。
+// 路径格式：{workspaceRoot}/{orgID}/{workerID}/workspace/projects/{orgID}/{publicID}/repo
+func ProjectRepoPath(orgID uint, workerID uint, publicID string) (string, error) {
+	workspacePath, err := WorkerMountedWorkspacePath(orgID, workerID)
+	if err != nil {
+		return "", fmt.Errorf("resolve worker workspace: %w", err)
+	}
+	if strings.TrimSpace(publicID) == "" {
+		return "", fmt.Errorf("public_id is required")
+	}
+	return filepath.Join(workspacePath, "projects", fmt.Sprintf("%d", orgID), publicID, "repo"), nil
+}
+
+// FindRepoRoot 从给定的工作目录向上查找包含 .leros 目录的 repo 根目录。
+func FindRepoRoot(workDir string) (string, error) {
+	dir := filepath.Clean(workDir)
+	for {
+		lerosDir := filepath.Join(dir, ".leros")
+		if info, err := os.Stat(lerosDir); err == nil && info.IsDir() {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("repo root not found from %s", workDir)
+		}
+		dir = parent
+	}
+}
+
+// ProjectMemoryPath 返回项目记忆文件的绝对路径。
+// repoDir 是项目 repo 根目录的绝对路径。
+func ProjectMemoryPath(repoDir string) string {
+	return filepath.Join(repoDir, ".leros", "memory", "project_memory.md")
 }
 
 // ArtifactStoragePath 从 server 侧解析 worker workspace 相对的 storage key。

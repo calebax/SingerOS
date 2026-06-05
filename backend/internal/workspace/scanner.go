@@ -170,7 +170,7 @@ func diffFiles(baseline map[string]FileSnapshot, current []FileSnapshot) []FileS
 
 // scanRepoFiles walks repoDir and returns file snapshots for every file not excluded by ignore rules.
 func scanRepoFiles(ctx context.Context, repoDir string) ([]FileSnapshot, error) {
-	checker, err := newIgnoreChecker(repoDir)
+	checker, err := NewIgnoreChecker(repoDir)
 	if err != nil {
 		return nil, err
 	}
@@ -183,12 +183,12 @@ func scanRepoFiles(ctx context.Context, repoDir string) ([]FileSnapshot, error) 
 			return err
 		}
 		if d.IsDir() {
-			if checker.shouldSkipDir(path) {
+			if checker.ShouldSkipDir(path) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		ignored, err := checker.isIgnored(path)
+		ignored, err := checker.IsIgnored(path)
 		if err != nil || ignored {
 			return nil
 		}
@@ -209,8 +209,8 @@ func scanRepoFiles(ctx context.Context, repoDir string) ([]FileSnapshot, error) 
 	return snapshots, nil
 }
 
-// ignoreChecker applies gitignore rules and Leros built-in excludes.
-type ignoreChecker struct {
+// IgnoreChecker applies gitignore rules and Leros built-in excludes.
+type IgnoreChecker struct {
 	repoDir   string
 	gitDir    string
 	lerosDir  string
@@ -218,7 +218,8 @@ type ignoreChecker struct {
 	useGit    bool
 }
 
-func newIgnoreChecker(repoDir string) (*ignoreChecker, error) {
+// NewIgnoreChecker creates an IgnoreChecker for the given repo directory.
+func NewIgnoreChecker(repoDir string) (*IgnoreChecker, error) {
 	absRepo, err := filepath.Abs(repoDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve repo dir: %w", err)
@@ -227,7 +228,7 @@ func newIgnoreChecker(repoDir string) (*ignoreChecker, error) {
 	lerosDir := filepath.Join(absRepo, ".leros")
 	_, gitErr := os.Stat(gitDir)
 	useGit := gitErr == nil
-	return &ignoreChecker{
+	return &IgnoreChecker{
 		repoDir:  absRepo,
 		gitDir:   gitDir,
 		lerosDir: lerosDir,
@@ -236,8 +237,8 @@ func newIgnoreChecker(repoDir string) (*ignoreChecker, error) {
 	}, nil
 }
 
-// shouldSkipDir returns true when a directory should be excluded from scanning entirely.
-func (c *ignoreChecker) shouldSkipDir(absPath string) bool {
+// ShouldSkipDir returns true when a directory should be excluded from scanning entirely.
+func (c *IgnoreChecker) ShouldSkipDir(absPath string) bool {
 	if absPath == c.gitDir || absPath == c.lerosDir {
 		return true
 	}
@@ -247,7 +248,7 @@ func (c *ignoreChecker) shouldSkipDir(absPath string) bool {
 	return false
 }
 
-func (c *ignoreChecker) isBuiltinExcludedDir(absPath string) bool {
+func (c *IgnoreChecker) isBuiltinExcludedDir(absPath string) bool {
 	name := filepath.Base(absPath)
 	switch strings.ToLower(name) {
 	case "tmp", "temp", "logs", "log", ".cache", "node_modules", "vendor", "dist", "build", "target":
@@ -256,7 +257,8 @@ func (c *ignoreChecker) isBuiltinExcludedDir(absPath string) bool {
 	return false
 }
 
-func (c *ignoreChecker) isIgnored(absPath string) (bool, error) {
+// IsIgnored returns true when a file should be excluded from scanning.
+func (c *IgnoreChecker) IsIgnored(absPath string) (bool, error) {
 	if cached, ok := c.cache[absPath]; ok {
 		return cached, nil
 	}
@@ -277,7 +279,7 @@ func (c *ignoreChecker) isIgnored(absPath string) (bool, error) {
 	return false, nil
 }
 
-func (c *ignoreChecker) isBuiltinExcludedFile(absPath string) bool {
+func (c *IgnoreChecker) isBuiltinExcludedFile(absPath string) bool {
 	base := filepath.Base(absPath)
 	if base == ".DS_Store" || base == "Thumbs.db" || base == ".gitignore" {
 		return true
@@ -289,7 +291,7 @@ func (c *ignoreChecker) isBuiltinExcludedFile(absPath string) bool {
 	return false
 }
 
-func (c *ignoreChecker) gitCheckIgnore(absPath string) (bool, error) {
+func (c *IgnoreChecker) gitCheckIgnore(absPath string) (bool, error) {
 	rel, err := filepath.Rel(c.repoDir, absPath)
 	if err != nil {
 		return false, err

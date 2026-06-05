@@ -1,6 +1,9 @@
 package contract
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 // ProjectService 定义项目服务接口
 type ProjectService interface {
@@ -24,4 +27,13 @@ type ProjectService interface {
 
 	// 获取项目记忆
 	GetProjectMemory(ctx context.Context, publicID string) (*ProjectMemory, error)
+
+	// 获取项目文件树
+	GetProjectFileTree(ctx context.Context, publicID string, parentPath string, depth int) ([]*FileTreeNode, error)
+
+	// 下载项目文件（返回文件流、MIME类型、文件大小）
+	DownloadProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
+
+	// 上传项目文件
+	UploadProjectFile(ctx context.Context, publicID string, reader io.Reader, filename string) (*FileUploadResult, error)
 }

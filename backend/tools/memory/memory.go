@@ -4,9 +4,11 @@ package memory
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
+	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/tools"
 )
 
@@ -129,7 +131,7 @@ func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (strin
 	content := stringValue(input, "content")
 	oldText := stringValue(input, "old_text")
 
-	// 当 target == "project" 时，从 ToolContext 提取 WorkDir 作为存储根目录
+	// 当 target == "project" 时，写入项目 repo 下的 .leros/memory/project_memory.md
 	store := t.store
 	storeTarget := target
 	if target == "project" {
@@ -137,14 +139,19 @@ func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (strin
 		if !ok || toolCtx.WorkDir == "" {
 			return "", fmt.Errorf("project memory requires a work directory in tool context")
 		}
+		repoDir, err := workspace.FindRepoRoot(toolCtx.WorkDir)
+		if err != nil {
+			return "", fmt.Errorf("find project repo root: %w", err)
+		}
+		memoryDir := filepath.Join(repoDir, ".leros", "memory")
 		projStore, err := localmemory.NewStore(localmemory.Options{
-			RootDir: toolCtx.WorkDir,
+			RootDir: memoryDir,
 		})
 		if err != nil {
 			return "", fmt.Errorf("create project memory store: %w", err)
 		}
 		store = projStore
-		storeTarget = localmemory.TargetMemory // 写入 WorkDir/MEMORY.md
+		storeTarget = localmemory.TargetProjectMemory
 	}
 
 	var result *localmemory.Result

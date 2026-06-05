@@ -16,6 +16,8 @@ const (
 	TargetMemory = "memory"
 	// TargetUser stores user preferences and profile facts.
 	TargetUser = "user"
+	// TargetProjectMemory stores project-level persistent memory.
+	TargetProjectMemory = "project_memory"
 )
 
 const (
@@ -301,8 +303,11 @@ func (s *Store) mutate(ctx context.Context, target string, update func([]string,
 
 func (s *Store) pathFor(target string) string {
 	fileName := "MEMORY.md"
-	if target == TargetUser {
+	switch target {
+	case TargetUser:
 		fileName = "USER.md"
+	case TargetProjectMemory:
+		fileName = "project_memory.md"
 	}
 	return filepath.Join(s.rootDir, fileName)
 }
@@ -338,10 +343,10 @@ func (s *Store) result(target string, entries []string, message string) *Result 
 func normalizeTarget(target string) (string, error) {
 	target = strings.ToLower(strings.TrimSpace(target))
 	switch target {
-	case TargetUser, TargetMemory:
+	case TargetUser, TargetMemory, TargetProjectMemory:
 		return target, nil
 	default:
-		return "", fmt.Errorf("invalid memory target %q: use user or memory", target)
+		return "", fmt.Errorf("invalid memory target %q: use user, memory, or project_memory", target)
 	}
 }
 
