@@ -169,9 +169,19 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create agent runtime service: %v", err)
 		return
 	}
+	// Use shared leros.db for seq tracking (coexists with provider_session_bindings table).
+	seqTrackerPath, err := leros.StateDBPath()
+	if err != nil {
+		cancel()
+		_ = bus.Close()
+		logs.Fatalf("Failed to resolve state db path: %v", err)
+		return
+	}
+
 	consumer, err := taskconsumer.New(taskconsumer.Config{
-		OrgID:    cfg.OrgID,
-		WorkerID: cfg.WorkerID,
+		OrgID:           cfg.OrgID,
+		WorkerID:        cfg.WorkerID,
+		SeqTrackerPath:  seqTrackerPath,
 	}, bus, bus, runtimeService)
 	if err != nil {
 		cancel()
@@ -200,6 +210,13 @@ func runTaskWorker(defaultRuntime string) {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)
+	})
+	lifecycle.Std().AddCloseFunc(func() error {
+		logs.Info("Shutting down task consumer...")
+		if err := consumer.Close(); err != nil {
+			logs.Errorf("Failed to close task consumer: %v", err)
+		}
+		return nil
 	})
 	lifecycle.Std().AddCloseFunc(bus.Close)
 	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, consumer.TaskTopic())
