@@ -44,7 +44,8 @@ export type BackendSessionMetadata = {
 
 export type BackendMessage = {
 	id: string;
-	conversation_id: string;
+	session_id?: string;
+	conversation_id?: string;
 	role: string;
 	content: string;
 	timestamp: number;
@@ -103,6 +104,21 @@ export type BackendSessionArtifactPayload = {
 	mime_type?: string;
 	file_size?: number;
 	sha256?: string;
+};
+
+export type BackendApprovalRequestPayload = {
+	request_id?: string;
+	tool_name?: string;
+	tool_call_id?: string;
+	description?: string;
+	arguments?: Record<string, unknown>;
+	metadata?: Record<string, unknown>;
+};
+
+export type BackendApprovalDecisionPayload = {
+	request_id?: string;
+	action?: string;
+	reason?: string;
 };
 
 export type BackendDigitalAssistant = {
@@ -178,7 +194,10 @@ export type SSEMessageEvent = BackendSessionEvent & {
 export type BackendSessionEventPayload = {
 	id?: string;
 	message_id?: string;
+	request_id?: string;
+	tool_name?: string;
 	tool_call_id?: string;
+	action?: string;
 	role?: string;
 	content?: string;
 	thinking?: string;
@@ -202,6 +221,8 @@ export type BackendSessionEventPayload = {
 	metadata?: BackendMessageMetadata;
 	events?: BackendSessionEvent[];
 	artifacts?: BackendSessionArtifactPayload[];
+	approval_request?: BackendApprovalRequestPayload;
+	approval_decision?: BackendApprovalDecisionPayload;
 	artifact_id?: string;
 	title?: string;
 	filename?: string;

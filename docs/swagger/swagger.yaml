@@ -42,6 +42,32 @@ definitions:
     - base_url
     - model
     type: object
+  contract.CreateOrgMemberRequest:
+    properties:
+      is_default:
+        type: boolean
+      org_id:
+        type: string
+      user_id:
+        type: string
+    required:
+    - org_id
+    - user_id
+    type: object
+  contract.CreateOrgRequest:
+    properties:
+      code:
+        type: string
+      name:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    required:
+    - code
+    - name
+    type: object
   contract.CreateProjectRequest:
     properties:
       description:
@@ -50,6 +76,8 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        type: string
+      objective:
         type: string
     required:
     - name
@@ -83,7 +111,7 @@ definitions:
         additionalProperties: true
         type: object
       project_id:
-        type: integer
+        type: string
       task_type:
         type: string
       title:
@@ -91,6 +119,28 @@ definitions:
     required:
     - project_id
     - title
+    type: object
+  contract.CreateUserRequest:
+    properties:
+      avatar_url:
+        type: string
+      bio:
+        type: string
+      company:
+        type: string
+      email:
+        type: string
+      github_login:
+        type: string
+      location:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+    required:
+    - github_login
+    - name
     type: object
   contract.DigitalAssistant:
     properties:
@@ -147,6 +197,32 @@ definitions:
       status:
         type: string
     type: object
+  contract.ListOrgMembersRequest:
+    properties:
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      offset:
+        type: integer
+      org_id:
+        type: string
+      user_id:
+        type: string
+    type: object
+  contract.ListOrgsRequest:
+    properties:
+      keyword:
+        type: string
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      offset:
+        type: integer
+      status:
+        type: string
+    type: object
   contract.ListProjectsRequest:
     properties:
       keyword:
@@ -192,11 +268,34 @@ definitions:
       offset:
         type: integer
       project_id:
-        type: integer
+        type: string
       status:
         type: string
       task_type:
         type: string
+    type: object
+  contract.ListUsersRequest:
+    properties:
+      github_login:
+        type: string
+      keyword:
+        type: string
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      offset:
+        type: integer
+    type: object
+  contract.LoginByEmailRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
     type: object
   contract.NewMessageRequest:
     properties:
@@ -206,12 +305,36 @@ definitions:
         type: string
       message_type:
         type: string
+      objective:
+        type: string
       project_id:
         type: string
       task_id:
         type: string
     required:
     - content
+    type: object
+  contract.RefreshTokenRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  contract.RegisterByEmailRequest:
+    properties:
+      confirm_password:
+        type: string
+      email:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+    required:
+    - confirm_password
+    - email
+    - password
     type: object
   contract.TestLLMModelRequest:
     properties:
@@ -314,6 +437,20 @@ definitions:
     required:
     - message_id
     type: object
+  handler.DeleteOrgMemberRequest:
+    properties:
+      id:
+        type: integer
+    required:
+    - id
+    type: object
+  handler.DeleteOrgRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
   handler.DeleteProjectRequest:
     properties:
       public_id:
@@ -335,6 +472,13 @@ definitions:
     required:
     - public_id
     type: object
+  handler.DeleteUserRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
   handler.GetDigitalAssistantRequest:
     properties:
       code:
@@ -348,6 +492,20 @@ definitions:
         type: string
       id:
         type: integer
+    type: object
+  handler.GetOrgMemberRequest:
+    properties:
+      id:
+        type: integer
+      uin:
+        type: integer
+    type: object
+  handler.GetOrgRequest:
+    properties:
+      code:
+        type: string
+      public_id:
+        type: string
     type: object
   handler.GetProjectRequest:
     properties:
@@ -374,6 +532,13 @@ definitions:
     type: object
   handler.GetTaskRequest:
     properties:
+      public_id:
+        type: string
+    type: object
+  handler.GetUserRequest:
+    properties:
+      github_login:
+        type: string
       public_id:
         type: string
     type: object
@@ -437,6 +602,30 @@ definitions:
     required:
     - id
     type: object
+  handler.UpdateOrgMemberRequest:
+    properties:
+      id:
+        type: integer
+      is_default:
+        type: boolean
+      org_id:
+        type: string
+    required:
+    - id
+    type: object
+  handler.UpdateOrgRequest:
+    properties:
+      name:
+        type: string
+      public_id:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    required:
+    - public_id
+    type: object
   handler.UpdateProjectRequest:
     properties:
       description:
@@ -445,6 +634,8 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        type: string
+      objective:
         type: string
       owner_id:
         type: integer
@@ -480,7 +671,7 @@ definitions:
         additionalProperties: true
         type: object
       project_id:
-        type: integer
+        type: string
       public_id:
         type: string
       status:
@@ -488,6 +679,29 @@ definitions:
       task_type:
         type: string
       title:
+        type: string
+    required:
+    - public_id
+    type: object
+  handler.UpdateUserRequest:
+    properties:
+      avatar_url:
+        type: string
+      bio:
+        type: string
+      company:
+        type: string
+      email:
+        type: string
+      github_login:
+        type: string
+      location:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+      public_id:
         type: string
     required:
     - public_id
@@ -680,6 +894,74 @@ paths:
       summary: 创建LLM模型
       tags:
       - LLMModel
+  /CreateOrg:
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新组织
+      parameters:
+      - description: 创建组织请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateOrgRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 创建组织
+      tags:
+      - Organization
+  /CreateOrgMember:
+    post:
+      consumes:
+      - application/json
+      description: 添加用户到组织
+      parameters:
+      - description: 创建组织成员请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateOrgMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 创建组织成员
+      tags:
+      - OrgMember
   /CreateProject:
     post:
       consumes:
@@ -782,6 +1064,40 @@ paths:
       summary: 创建任务
       tags:
       - Task
+  /CreateUser:
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新用户
+      parameters:
+      - description: 创建用户请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 创建用户
+      tags:
+      - User
   /DeleteDigitalAssistant:
     post:
       consumes:
@@ -904,6 +1220,82 @@ paths:
       summary: 删除会话消息
       tags:
       - Session
+  /DeleteOrg:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicID删除组织（软删除）
+      parameters:
+      - description: 删除组织请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.DeleteOrgRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 删除组织
+      tags:
+      - Organization
+  /DeleteOrgMember:
+    post:
+      consumes:
+      - application/json
+      description: 根据ID从组织中移除成员
+      parameters:
+      - description: 删除组织成员请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.DeleteOrgMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 删除组织成员
+      tags:
+      - OrgMember
   /DeleteProject:
     post:
       consumes:
@@ -1018,6 +1410,82 @@ paths:
       summary: 删除任务
       tags:
       - Task
+  /DeleteUser:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicID删除用户（软删除）
+      parameters:
+      - description: 删除用户请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.DeleteUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 删除用户
+      tags:
+      - User
+  /DetailProject:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicId获取项目完整详情
+      parameters:
+      - description: 获取项目详情请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.GetProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取项目详情（含任务、会话、产物、成员）
+      tags:
+      - Project
   /GetDefaultLLMModel:
     post:
       consumes:
@@ -1129,6 +1597,82 @@ paths:
       summary: 获取LLM模型详情
       tags:
       - LLMModel
+  /GetOrg:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicID或Code获取组织详情
+      parameters:
+      - description: 获取组织请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.GetOrgRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取组织详情
+      tags:
+      - Organization
+  /GetOrgMember:
+    post:
+      consumes:
+      - application/json
+      description: 根据ID或Uin获取组织成员详情
+      parameters:
+      - description: 获取组织成员请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.GetOrgMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取组织成员
+      tags:
+      - OrgMember
   /GetProject:
     post:
       consumes:
@@ -1281,6 +1825,44 @@ paths:
       summary: 获取任务详情
       tags:
       - Task
+  /GetUser:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicID或GithubLogin获取用户详情
+      parameters:
+      - description: 获取用户请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.GetUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取用户详情
+      tags:
+      - User
   /ListDigitalAssistant:
     post:
       consumes:
@@ -1349,6 +1931,74 @@ paths:
       summary: 查询LLM模型列表
       tags:
       - LLMModel
+  /ListOrgMembers:
+    post:
+      consumes:
+      - application/json
+      description: 分页查询组织成员列表
+      parameters:
+      - description: 查询列表请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListOrgMembersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询组织成员列表
+      tags:
+      - OrgMember
+  /ListOrgs:
+    post:
+      consumes:
+      - application/json
+      description: 分页查询组织列表
+      parameters:
+      - description: 查询列表请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListOrgsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询组织列表
+      tags:
+      - Organization
   /ListProjects:
     post:
       consumes:
@@ -1451,6 +2101,78 @@ paths:
       summary: 查询任务列表
       tags:
       - Task
+  /ListUsers:
+    post:
+      consumes:
+      - application/json
+      description: 分页查询用户列表
+      parameters:
+      - description: 查询列表请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询用户列表
+      tags:
+      - User
+  /LoginByEmail:
+    post:
+      consumes:
+      - application/json
+      description: 使用邮箱和密码登录并获取访问令牌
+      parameters:
+      - description: 邮箱登录请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.LoginByEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "429":
+          description: 登录失败次数过多
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 邮箱登录
+      tags:
+      - Auth
   /NewMessage:
     post:
       consumes:
@@ -1489,6 +2211,70 @@ paths:
       summary: 首页新建消息
       tags:
       - Work
+  /RefreshToken:
+    post:
+      consumes:
+      - application/json
+      description: 使用 refresh token 换取新的访问令牌
+      parameters:
+      - description: 刷新令牌请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.RefreshTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 刷新令牌
+      tags:
+      - Auth
+  /RegisterByEmail:
+    post:
+      consumes:
+      - application/json
+      description: 使用邮箱和密码注册本地用户
+      parameters:
+      - description: 邮箱注册请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.RegisterByEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 邮箱注册
+      tags:
+      - Auth
   /SessionEvents:
     post:
       consumes:
@@ -1683,6 +2469,82 @@ paths:
       summary: 更新LLM模型
       tags:
       - LLMModel
+  /UpdateOrg:
+    post:
+      consumes:
+      - application/json
+      description: 更新组织信息
+      parameters:
+      - description: 更新组织请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpdateOrgRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新组织
+      tags:
+      - Organization
+  /UpdateOrgMember:
+    post:
+      consumes:
+      - application/json
+      description: 更新组织成员信息
+      parameters:
+      - description: 更新组织成员请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpdateOrgMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新组织成员
+      tags:
+      - OrgMember
   /UpdateProject:
     post:
       consumes:
@@ -1797,6 +2659,44 @@ paths:
       summary: 更新任务
       tags:
       - Task
+  /UpdateUser:
+    post:
+      consumes:
+      - application/json
+      description: 更新用户信息
+      parameters:
+      - description: 更新用户请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新用户
+      tags:
+      - User
 schemes:
 - http
 - https

@@ -12,22 +12,23 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@leros/ui": "workspace:*",
-    "@leros/store": "workspace:*",
+    "@eigenpal/docx-editor-react": "^1.1.0",
     "@leros/app-ui": "workspace:*",
+    "@leros/store": "workspace:*",
     "@leros/styles": "workspace:*",
+    "@leros/ui": "workspace:*",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
+    "lucide-react": "catalog:",
     "next": "^16.2.3",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "lucide-react": "catalog:",
-    "class-variance-authority": "catalog:",
-    "clsx": "catalog:",
-    "tailwind-merge": "catalog:",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.7",
+    "tailwind-merge": "catalog:"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "catalog:",
     "@leros/tsconfig": "workspace:*",
+    "@tailwindcss/postcss": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "tailwindcss": "catalog:",
