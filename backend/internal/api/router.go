@@ -33,7 +33,7 @@ import (
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
 func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gin.Engine {
 	r := gin.New()
-	r.Use(ygmiddleware.CORS())
+	r.Use(middleware.CORS())
 	r.Use(middleware.CallerMiddleware(cfg.Server.JWT.Secret, db))
 	r.Use(middleware.Logger(".Ping", "metrics"))
 	r.Use(ygmiddleware.Recovery())
@@ -69,6 +69,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		projectService := service.NewProjectService(db)
 		handler.RegisterProjectRoutes(v1, projectService)
 		logs.Info("Project routes registered successfully")
+
+		projectFileHandler := handler.NewProjectFileHandler(projectService)
+		projectFileHandler.RegisterRoutes(v1)
+		logs.Info("Project file routes registered successfully")
 
 		workService := service.NewWorkService(db, eventbus, inferrer)
 		handler.RegisterWorkRoutes(v1, workService)

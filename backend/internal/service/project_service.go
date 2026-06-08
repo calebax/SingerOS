@@ -4,18 +4,42 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"mime"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
 
 type projectService struct {
 	db *gorm.DB
+}
+
+// fileTreeEntry 文件树 walk 阶段收集的扁平条目
+type fileTreeEntry struct {
+	absPath string
+	isDir   bool
+	size    int64
+	modTime int64
+}
+
+// getWorkerIDByProjectID 根据项目 publicID 获取对应的 worker ID。
+// TODO: 实现根据项目查询实际 worker 的逻辑，当前固定返回 1。
+func getWorkerIDByProjectID(publicID string) uint {
+	// TODO: 从项目-worker 映射表查询
+	return 1
 }
 
 // NewProjectService 创建项目服务实例
@@ -364,6 +388,395 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	}
 
 	return result, nil
+}
+
+func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) (*contract.ProjectMemory, error) {
+	// 1. 鉴权
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(publicID) == "" {
+		return nil, errors.New("public_id is required")
+	}
+
+	// 2. 查项目（org 隔离）
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+
+	// 3. 拼 repo 路径: {workspaceRoot}/projects/{orgID}/{publicID}/repo/
+	workerID := getWorkerIDByProjectID(publicID)
+	repoDir, err := workspace.ProjectRepoPath(project.OrgID, workerID, publicID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. 读取 MEMORY.md
+	memoryPath := workspace.ProjectMemoryPath(repoDir)
+	entries, err := localmemory.ReadEntries(memoryPath)
+	if err != nil {
+		// 文件不存在或不可读时返回空列表而非报错
+		if os.IsNotExist(err) {
+			return &contract.ProjectMemory{
+				Entries: []string{},
+				Total:   0,
+			}, nil
+		}
+		return nil, fmt.Errorf("read project memory: %w", err)
+	}
+
+	if entries == nil {
+		entries = []string{}
+	}
+
+	return &contract.ProjectMemory{
+		Entries: entries,
+		Total:   len(entries),
+	}, nil
+	}
+
+func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, parentPath string, depth int) ([]*contract.FileTreeNode, error) {
+	// 1. 鉴权
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(publicID) == "" {
+		return nil, errors.New("public_id is required")
+	}
+
+	// 2. 查项目
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+
+	// 3. 解析 repo 路径
+	workerID := getWorkerIDByProjectID(publicID)
+	repoDir, err := workspace.ProjectRepoPath(project.OrgID, workerID, publicID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. 确定起始目录
+	startDir := repoDir
+	parentPath = strings.TrimSpace(parentPath)
+	if parentPath != "" {
+		cleanPath := filepath.Clean(filepath.FromSlash(parentPath))
+		if strings.HasPrefix(cleanPath, "..") || filepath.IsAbs(cleanPath) {
+			return nil, errors.New("invalid parent path")
+		}
+		startDir = filepath.Join(repoDir, cleanPath)
+		// 确保起始目录存在
+		if info, statErr := os.Stat(startDir); statErr != nil || !info.IsDir() {
+			return nil, errors.New("directory not found")
+		}
+	}
+
+	// 5. 默认 depth=2
+	if depth <= 0 {
+		depth = 2
+	}
+
+	// 6. 构建 IgnoreChecker
+	checker, err := workspace.NewIgnoreChecker(repoDir)
+	if err != nil {
+		return nil, fmt.Errorf("init ignore checker: %w", err)
+	}
+
+	// 7. Walk 收集扁平条目（带深度控制）
+	var entries []fileTreeEntry
+
+	err = filepath.WalkDir(startDir, func(absPath string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		// 跳过起始目录自身
+		if absPath == startDir {
+			return nil
+		}
+
+		// 计算相对深度
+		relFromStart, _ := filepath.Rel(startDir, absPath)
+		currentDepth := strings.Count(relFromStart, string(filepath.Separator)) + 1
+
+		if d.IsDir() {
+			if checker.ShouldSkipDir(absPath) {
+				return filepath.SkipDir
+			}
+			if currentDepth > depth {
+				return filepath.SkipDir
+			}
+			dirModTime := int64(0)
+			if dirInfo, statErr := d.Info(); statErr == nil {
+				dirModTime = dirInfo.ModTime().Unix()
+			}
+			entries = append(entries, fileTreeEntry{absPath: absPath, isDir: true, modTime: dirModTime})
+			return nil
+		}
+
+		// 文件：检查是否被忽略
+		ignored, ignoreErr := checker.IsIgnored(absPath)
+		if ignoreErr != nil || ignored {
+			return nil
+		}
+
+		if currentDepth > depth {
+			return nil
+		}
+
+		info, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
+
+		entries = append(entries, fileTreeEntry{
+			absPath: absPath,
+			isDir:   false,
+			size:    info.Size(),
+			modTime: info.ModTime().Unix(),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk repo: %w", err)
+	}
+
+	// 8. 构建树
+	return buildFileTree(entries, repoDir, startDir), nil
+}
+
+// buildFileTree 将扁平条目构建为递归文件树。
+// entries 按路径排序以确保父节点先于子节点处理。
+func buildFileTree(entries []fileTreeEntry, repoDir string, startDir string) []*contract.FileTreeNode {
+	if len(entries) == 0 {
+		return []*contract.FileTreeNode{}
+	}
+
+	// 排序：目录优先 → 按深度 → 字典序
+	sort.Slice(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		if a.isDir != b.isDir {
+			return a.isDir
+		}
+		depthA := strings.Count(a.absPath, string(filepath.Separator))
+		depthB := strings.Count(b.absPath, string(filepath.Separator))
+		if depthA != depthB {
+			return depthA < depthB
+		}
+		return a.absPath < b.absPath
+	})
+
+	nodeIndex := make(map[string]*contract.FileTreeNode)
+	var roots []*contract.FileTreeNode
+
+	for _, e := range entries {
+		rel, _ := filepath.Rel(repoDir, e.absPath)
+		slashPath := filepath.ToSlash(rel)
+
+		node := &contract.FileTreeNode{
+			Name: filepath.Base(e.absPath),
+			Path: slashPath,
+			Type: "file",
+		}
+
+		if e.isDir {
+			node.Type = "directory"
+			node.Children = make([]*contract.FileTreeNode, 0)
+			node.ModTime = e.modTime
+		} else {
+			node.Size = e.size
+			node.ModTime = e.modTime
+			// 通过扩展名检测 MIME 类型
+			ext := filepath.Ext(e.absPath)
+			if mimeType := mime.TypeByExtension(ext); mimeType != "" {
+				node.MimeType = mimeType
+			}
+		}
+
+		nodeIndex[e.absPath] = node
+
+		parent := filepath.Dir(e.absPath)
+		if parent == startDir {
+			roots = append(roots, node)
+		} else if p, ok := nodeIndex[parent]; ok {
+			p.Children = append(p.Children, node)
+		}
+	}
+
+	if roots == nil {
+		roots = []*contract.FileTreeNode{}
+	}
+	return roots
+}
+
+// DownloadProjectFile 下载项目中的文件。
+// 返回文件流、MIME 类型、文件大小。
+func (s *projectService) DownloadProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error) {
+	// 1. 鉴权
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	if strings.TrimSpace(publicID) == "" {
+		return nil, "", 0, errors.New("public_id is required")
+	}
+	if strings.TrimSpace(filePath) == "" {
+		return nil, "", 0, errors.New("file path is required")
+	}
+
+	// 2. 查项目
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	if project == nil {
+		return nil, "", 0, errors.New("project not found")
+	}
+
+	// 3. 解析 repo 路径
+	workerID := getWorkerIDByProjectID(publicID)
+	repoDir, err := workspace.ProjectRepoPath(project.OrgID, workerID, publicID)
+	if err != nil {
+		return nil, "", 0, err
+	}
+
+	// 4. 安全解析文件路径（防穿越）
+	absPath, err := workspace.SafeJoin(repoDir, filepath.FromSlash(filePath))
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("invalid file path: %w", err)
+	}
+
+	// 5. 打开文件
+	file, err := os.Open(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, "", 0, errors.New("file not found")
+		}
+		return nil, "", 0, fmt.Errorf("open file: %w", err)
+	}
+
+	// 6. 获取文件信息
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, "", 0, fmt.Errorf("stat file: %w", err)
+	}
+	if info.IsDir() {
+		file.Close()
+		return nil, "", 0, errors.New("cannot download a directory")
+	}
+
+	// 7. 检测 MIME 类型
+	mimeType := mime.TypeByExtension(filepath.Ext(absPath))
+	if mimeType == "" {
+		// 通过内容嗅探
+		buf := make([]byte, 512)
+		n, _ := file.Read(buf)
+		if n > 0 {
+			mimeType = http.DetectContentType(buf[:n])
+		}
+		// 回退到文件开头
+		file.Seek(0, io.SeekStart)
+	}
+
+	return file, mimeType, info.Size(), nil
+}
+
+// UploadProjectFile 上传文件到项目 Upload 目录。
+// 若存在同名文件，自动追加 _1、_2 等序列号。
+func (s *projectService) UploadProjectFile(ctx context.Context, publicID string, reader io.Reader, filename string) (*contract.FileUploadResult, error) {
+	// 1. 鉴权
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(publicID) == "" {
+		return nil, errors.New("public_id is required")
+	}
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return nil, errors.New("filename is required")
+	}
+
+	// 2. 查项目
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+
+	// 3. 解析 repo 路径
+	workerID := getWorkerIDByProjectID(publicID)
+	repoDir, err := workspace.ProjectRepoPath(project.OrgID, workerID, publicID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. 确保 Upload 目录存在
+	uploadDir := filepath.Join(repoDir, "Upload")
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create upload dir: %w", err)
+	}
+
+	// 5. 文件名去重：若存在同名文件，追加 _1、_2 ...
+	safeFilename := resolveUniqueFilename(uploadDir, filename)
+
+	// 6. 安全路径校验
+	absPath, err := workspace.SafeJoin(repoDir, filepath.Join("Upload", safeFilename))
+	if err != nil {
+		return nil, fmt.Errorf("invalid filename: %w", err)
+	}
+
+	// 7. 写入文件
+	file, err := os.Create(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("create file: %w", err)
+	}
+	defer file.Close()
+
+	written, err := io.Copy(file, reader)
+	if err != nil {
+		// 写入失败时清理已创建的文件
+		os.Remove(absPath)
+		return nil, fmt.Errorf("write file: %w", err)
+	}
+
+	return &contract.FileUploadResult{
+		Path:     filepath.ToSlash(filepath.Join("Upload", safeFilename)),
+		Filename: safeFilename,
+		Size:     written,
+	}, nil
+}
+
+// resolveUniqueFilename 在目标目录中生成不重复的文件名。
+// 若 base.ext 已存在，则尝试 base_1.ext、base_2.ext 直到不重复。
+func resolveUniqueFilename(dir, filename string) string {
+	ext := filepath.Ext(filename)
+	base := filename[:len(filename)-len(ext)]
+
+	candidate := filename
+	for i := 1; ; i++ {
+		target := filepath.Join(dir, candidate)
+		if _, err := os.Stat(target); os.IsNotExist(err) {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s_%d%s", base, i, ext)
+	}
 }
 
 func generateProjectPublicID() string {

@@ -243,8 +243,17 @@ func resolveWorkDir(repoDir string, requested string) (string, error) {
 
 func isRuntimePath(path string) bool {
 	path = filepath.ToSlash(filepath.Clean(path))
-	return path == ".git" || strings.HasPrefix(path, ".git/") ||
-		path == ".leros" || strings.HasPrefix(path, ".leros/")
+	if path == ".git" || strings.HasPrefix(path, ".git/") {
+		return true
+	}
+	if path == ".leros" || strings.HasPrefix(path, ".leros/") {
+		// .leros/memory/ 目录不在运行时保护范围内，允许访问项目记忆文件
+		if path == ".leros/memory" || strings.HasPrefix(path, ".leros/memory/") {
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 func ensureInside(root string, candidate string) error {
@@ -266,7 +275,7 @@ func ensureNoSymlinkEscape(root string, candidate string) error {
 	if err != nil {
 		return fmt.Errorf("resolve root symlinks: %w", err)
 	}
-	candidateReal, err := filepath.EvalSymlinks(candidate)
+	candidateReal, err := resolveSymlinksUpToExisting(candidate)
 	if err != nil {
 		return fmt.Errorf("resolve path symlinks: %w", err)
 	}
@@ -279,6 +288,30 @@ func ensureNoSymlinkEscape(root string, candidate string) error {
 		return fmt.Errorf("resolve real path: %w", err)
 	}
 	return ensureInside(rootReal, candidateReal)
+}
+
+// resolveSymlinksUpToExisting 解析路径中的符号链接。
+// 若路径本身不存在，则向上找到最近的存在父目录解析符号链接，
+// 再将剩余不存在的路径段原样追加。用于上传等写入场景的路径校验。
+func resolveSymlinksUpToExisting(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	// 路径不存在，向上查找存在的父目录
+	parent := filepath.Dir(path)
+	if parent == path {
+		// 已达到根目录，直接返回
+		return path, nil
+	}
+	parentResolved, err := resolveSymlinksUpToExisting(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parentResolved, filepath.Base(path)), nil
 }
 
 func ensureGitRepo(ctx context.Context, repoDir string) error {
@@ -300,6 +333,7 @@ func ensureGitRepo(ctx context.Context, repoDir string) error {
 // defaultGitignore 定义项目仓库初始化时创建的默认 .gitignore 内容。
 const defaultGitignore = `# Leros runtime
 .leros/
+!.leros/memory/
 
 # Dependency directories
 node_modules/
@@ -355,14 +389,21 @@ func ensureLerosExcluded(repoDir string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read git exclude: %w", err)
 	}
-	if strings.Contains(string(current), ".leros/") {
+	content := string(current)
+	// 已配置 .leros/ 排除且包含 .leros/memory/ 例外，无需重复添加
+	if strings.Contains(content, ".leros/") && strings.Contains(content, ".leros/memory/") {
 		return nil
 	}
-	next := string(current)
+	next := content
 	if next != "" && !strings.HasSuffix(next, "\n") {
 		next += "\n"
 	}
-	next += ".leros/\n"
+	if !strings.Contains(content, ".leros/") {
+		next += ".leros/\n"
+	}
+	if !strings.Contains(content, ".leros/memory/") {
+		next += "!.leros/memory/\n"
+	}
 	return os.WriteFile(excludePath, []byte(next), 0o644)
 }
 
