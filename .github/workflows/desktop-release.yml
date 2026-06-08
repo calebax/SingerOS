@@ -18,10 +18,10 @@ jobs:
       matrix:
         include:
           - name: mac-arm64
-            os: macos-latest
+            os: macos-15
             command: dist:desktop:mac:arm64
           - name: mac-x64
-            os: macos-latest
+            os: macos-15-intel
             command: dist:desktop:mac:x64
           - name: win-x64
             os: windows-latest
@@ -49,9 +49,37 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/electron-cache
+            ${{ runner.temp }}/electron-builder-cache
+          key: desktop-electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            desktop-electron-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install frontend dependencies
         working-directory: frontend
-        run: pnpm install --frozen-lockfile
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm install --frozen-lockfile; then
+              exit 0
+            fi
+
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+
+            echo "pnpm install failed, retrying in $((attempt * 20)) seconds..."
+            sleep $((attempt * 20))
+          done
+        env:
+          ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
 
       - name: Typecheck desktop app
         working-directory: frontend
@@ -59,9 +87,26 @@ jobs:
 
       - name: Build desktop package
         working-directory: frontend
-        run: pnpm run ${{ matrix.command }}
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm run "${{ matrix.command }}"; then
+              exit 0
+            fi
+
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+
+            echo "Desktop package build failed, retrying in $((attempt * 30)) seconds..."
+            sleep $((attempt * 30))
+          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4

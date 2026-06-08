@@ -1,5 +1,6 @@
 appId: com.leros.desktop
 productName: Leros
+icon: resources/icon.png
 directories:
   buildResources: build
   output: dist
@@ -17,13 +18,7 @@ mac:
   category: public.app-category.developer-tools
   target:
     - target: dmg
-      arch:
-        - x64
-        - arm64
     - target: zip
-      arch:
-        - x64
-        - arm64
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 win:
   target:
@@ -47,7 +42,4 @@ linux:
       arch:
         - x64
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
-publish:
-  provider: github
-  releaseType: release
 npmRebuild: false
