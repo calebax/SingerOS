@@ -13,9 +13,9 @@ import (
 )
 
 // GetSession 调用服务端 GetSession API 并返回解析后的结果。
-func GetSession(ctx context.Context, serverAddr, sessionID string) (*contract.Session, error) {
+func GetSession(ctx context.Context, serverAddr, authToken, sessionID string) (*contract.Session, error) {
 	var result contract.Session
-	if err := doPostRequest(ctx, serverAddr, "GetSession",
+	if err := doPostRequest(ctx, serverAddr, authToken, "GetSession",
 		map[string]string{"session_id": sessionID}, &result); err != nil {
 		return nil, err
 	}
@@ -23,9 +23,9 @@ func GetSession(ctx context.Context, serverAddr, sessionID string) (*contract.Se
 }
 
 // GetTask 调用服务端 GetTask API 并返回解析后的结果。
-func GetTask(ctx context.Context, serverAddr, publicID string) (*contract.Task, error) {
+func GetTask(ctx context.Context, serverAddr, authToken, publicID string) (*contract.Task, error) {
 	var result contract.Task
-	if err := doPostRequest(ctx, serverAddr, "GetTask",
+	if err := doPostRequest(ctx, serverAddr, authToken, "GetTask",
 		map[string]string{"public_id": publicID}, &result); err != nil {
 		return nil, err
 	}
@@ -33,9 +33,9 @@ func GetTask(ctx context.Context, serverAddr, publicID string) (*contract.Task, 
 }
 
 // GetProject 调用服务端 GetProject API 并返回解析后的结果。
-func GetProject(ctx context.Context, serverAddr, publicID string) (*contract.Project, error) {
+func GetProject(ctx context.Context, serverAddr, authToken, publicID string) (*contract.Project, error) {
 	var result contract.Project
-	if err := doPostRequest(ctx, serverAddr, "GetProject",
+	if err := doPostRequest(ctx, serverAddr, authToken, "GetProject",
 		map[string]string{"public_id": publicID}, &result); err != nil {
 		return nil, err
 	}
@@ -43,9 +43,9 @@ func GetProject(ctx context.Context, serverAddr, publicID string) (*contract.Pro
 }
 
 // DetailProject 调用服务端 DetailProject API 并返回解析后的结果。
-func DetailProject(ctx context.Context, serverAddr, publicID string) (*contract.ProjectDetail, error) {
+func DetailProject(ctx context.Context, serverAddr, authToken, publicID string) (*contract.ProjectDetail, error) {
 	var result contract.ProjectDetail
-	if err := doPostRequest(ctx, serverAddr, "DetailProject",
+	if err := doPostRequest(ctx, serverAddr, authToken, "DetailProject",
 		map[string]string{"public_id": publicID}, &result); err != nil {
 		return nil, err
 	}
@@ -53,9 +53,9 @@ func DetailProject(ctx context.Context, serverAddr, publicID string) (*contract.
 }
 
 // GetSessionMessages 调用服务端 GetSessionMessages API 并返回解析后的结果。
-func GetSessionMessages(ctx context.Context, serverAddr, sessionID string, page, perPage int) (*contract.MessageList, error) {
+func GetSessionMessages(ctx context.Context, serverAddr, authToken, sessionID string, page, perPage int) (*contract.MessageList, error) {
 	var result contract.MessageList
-	if err := doPostRequest(ctx, serverAddr, "GetSessionMessages",
+	if err := doPostRequest(ctx, serverAddr, authToken, "GetSessionMessages",
 		map[string]interface{}{
 			"session_id": sessionID,
 			"page":       page,
@@ -67,9 +67,9 @@ func GetSessionMessages(ctx context.Context, serverAddr, sessionID string, page,
 }
 
 // GetDigitalAssistantByID 调用服务端 GetDigitalAssistant API 并返回解析后的结果。
-func GetDigitalAssistantByID(ctx context.Context, serverAddr string, id uint) (*contract.DigitalAssistantDetail, error) {
+func GetDigitalAssistantByID(ctx context.Context, serverAddr, authToken string, id uint) (*contract.DigitalAssistantDetail, error) {
 	var result contract.DigitalAssistantDetail
-	if err := doPostRequest(ctx, serverAddr, "GetDigitalAssistant",
+	if err := doPostRequest(ctx, serverAddr, authToken, "GetDigitalAssistant",
 		map[string]interface{}{"id": id}, &result); err != nil {
 		return nil, err
 	}
@@ -77,8 +77,8 @@ func GetDigitalAssistantByID(ctx context.Context, serverAddr string, id uint) (*
 }
 
 // ResolveUserName 通过 Uin 解析用户名称。
-func ResolveUserName(ctx context.Context, serverAddr string, uin uint) string {
-	member, err := getOrgMemberByUin(ctx, serverAddr, uin)
+func ResolveUserName(ctx context.Context, serverAddr, authToken string, uin uint) string {
+	member, err := getOrgMemberByUin(ctx, serverAddr, authToken, uin)
 	if err == nil {
 		if member.UserName != "" {
 			return member.UserName
@@ -88,9 +88,9 @@ func ResolveUserName(ctx context.Context, serverAddr string, uin uint) string {
 	return ""
 }
 
-func getOrgMemberByUin(ctx context.Context, serverAddr string, uin uint) (*contract.OrgMember, error) {
+func getOrgMemberByUin(ctx context.Context, serverAddr, authToken string, uin uint) (*contract.OrgMember, error) {
 	var result contract.OrgMember
-	if err := doPostRequest(ctx, serverAddr, "GetOrgMember",
+	if err := doPostRequest(ctx, serverAddr, authToken, "GetOrgMember",
 		map[string]interface{}{"uin": uin}, &result); err != nil {
 		return nil, err
 	}
@@ -98,16 +98,16 @@ func getOrgMemberByUin(ctx context.Context, serverAddr string, uin uint) (*contr
 }
 
 // ListTaskArtifacts 调用服务端 ListTaskArtifacts API 并返回解析后的结果。
-func ListTaskArtifacts(ctx context.Context, serverAddr, taskID string) ([]contract.Artifact, error) {
+func ListTaskArtifacts(ctx context.Context, serverAddr, authToken, taskID string) ([]contract.Artifact, error) {
 	var result []contract.Artifact
-	if err := doGetRequest(ctx, serverAddr, fmt.Sprintf("tasks/%s/artifacts", taskID), &result); err != nil {
+	if err := doGetRequest(ctx, serverAddr, authToken, fmt.Sprintf("tasks/%s/artifacts", taskID), &result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
 // doPostRequest 发送 POST JSON API 请求的通用封装。
-func doPostRequest(ctx context.Context, serverAddr, endpoint string, reqBody, target interface{}) error {
+func doPostRequest(ctx context.Context, serverAddr, authToken, endpoint string, reqBody, target interface{}) error {
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -120,17 +120,23 @@ func doPostRequest(ctx context.Context, serverAddr, endpoint string, reqBody, ta
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
 
 	return doRequest(client, req, target)
 }
 
 // doGetRequest 发送 GET API 请求的通用封装（用于 REST 风格端点）。
-func doGetRequest(ctx context.Context, serverAddr, path string, target interface{}) error {
+func doGetRequest(ctx context.Context, serverAddr, authToken, path string, target interface{}) error {
 	client := &http.Client{Timeout: defaultHTTPTimeout}
 	url := fmt.Sprintf("http://%s/v1/%s", serverAddr, path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
+	}
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
 
 	return doRequest(client, req, target)

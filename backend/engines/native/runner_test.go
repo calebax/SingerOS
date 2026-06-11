@@ -11,7 +11,7 @@ import (
 	"time"
 
 	einotool "github.com/cloudwego/eino/components/tool"
-	"github.com/insmtx/Leros/backend/internal/agent"
+	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/runtime/deps"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	runtimetodo "github.com/insmtx/Leros/backend/internal/runtime/todo"
@@ -27,51 +27,12 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func TestRunnerBuildSystemPromptOnlyKeepsRuntimePrompt(t *testing.T) {
-	runner := &Runner{
-		systemPrompt: "Base runtime prompt.",
-	}
-
-	prompt, err := runner.buildSystemPrompt(&agent.RequestContext{
-		Assistant: agent.AssistantContext{
-			SystemPrompt: "Assistant-specific prompt.",
-		},
-		Conversation: agent.ConversationContext{
-			Messages: []agent.InputMessage{
-				{Role: "user", Content: "remember this project uses Go"},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("build system prompt: %v", err)
-	}
-
-	for _, expected := range []string{
-		"Base runtime prompt.",
-		"Assistant-specific prompt.",
-	} {
-		if !strings.Contains(prompt, expected) {
-			t.Fatalf("expected prompt to contain %q, got %s", expected, prompt)
-		}
-	}
-	for _, unexpected := range []string{
-		"Available skills:",
-		"## Skill:",
-		"<session-summary>",
-		"remember this project uses Go",
-	} {
-		if strings.Contains(prompt, unexpected) {
-			t.Fatalf("expected prompt not to contain %q, got %s", unexpected, prompt)
-		}
-	}
-}
-
-func TestRunnerBuildRunStateMergesDefaultAndRequestTools(t *testing.T) {
+func TestRunnerBuildToolBindingMergesDefaultTools(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := memorytools.Register(registry); err != nil {
 		t.Fatalf("register memory tools: %v", err)
 	}
-	if err := skillusetools.Register(registry, skillcatalog.NewEmptyCatalog()); err != nil {
+	if err := skillusetools.Register(registry); err != nil {
 		t.Fatalf("register skill use tools: %v", err)
 	}
 	if err := skillmanagetools.Register(registry); err != nil {
@@ -87,23 +48,10 @@ func TestRunnerBuildRunStateMergesDefaultAndRequestTools(t *testing.T) {
 	runner := &Runner{
 		toolAdapter: newToolAdapter(registry),
 	}
-	state, err := runner.buildRunState(&agent.RequestContext{
-		RunID: "run_tools",
-		Input: agent.InputContext{
-			Type:     agent.InputTypeMessage,
-			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
-		},
-		Capability: agent.CapabilityContext{
-			AllowedTools: []string{
-				"custom_tool",
-				nodetools.ToolNameNodeShell,
-				"custom_tool",
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("build run state: %v", err)
-	}
+	binding := runner.buildToolBinding(engines.RunRequest{
+		ExecutionID: "run_tools",
+		Prompt:      "hello",
+	}, events.NewNoopSink())
 
 	expected := []string{
 		memorytools.ToolNameMemory,
@@ -113,60 +61,9 @@ func TestRunnerBuildRunStateMergesDefaultAndRequestTools(t *testing.T) {
 		nodetools.ToolNameNodeShell,
 		nodetools.ToolNameNodeFileRead,
 		nodetools.ToolNameNodeFileWrite,
-		"custom_tool",
 	}
-	if got := strings.Join(state.toolBinding.AllowedTools, ","); got != strings.Join(expected, ",") {
-		t.Fatalf("unexpected allowed tools:\nwant: %v\n got: %v", expected, state.toolBinding.AllowedTools)
-	}
-}
-
-func TestRunnerBuildRunStateUsesWorkspaceTempWhenWorkDirMissing(t *testing.T) {
-	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-
-	runner := &Runner{}
-	expected := filepath.Join(workspaceRoot, "temp")
-	state, err := runner.buildRunState(&agent.RequestContext{
-		RunID: "run_temp",
-		Input: agent.InputContext{
-			Type:     agent.InputTypeMessage,
-			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
-		},
-		Runtime: agent.RuntimeOptions{WorkDir: expected},
-	})
-	if err != nil {
-		t.Fatalf("build run state: %v", err)
-	}
-	if state.toolBinding.ToolContext.WorkDir != expected {
-		t.Fatalf("tool work dir = %q, want %q", state.toolBinding.ToolContext.WorkDir, expected)
-	}
-	if state.req.Runtime.WorkDir != expected {
-		t.Fatalf("request work dir = %q, want %q", state.req.Runtime.WorkDir, expected)
-	}
-}
-
-func TestRunnerBuildRunStateUsesRequestWorkDir(t *testing.T) {
-	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-	projectDir := filepath.Join(workspaceRoot, "projects", "42", "project_1", "repo")
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatalf("create project dir: %v", err)
-	}
-
-	runner := &Runner{}
-	state, err := runner.buildRunState(&agent.RequestContext{
-		RunID: "run_project",
-		Input: agent.InputContext{
-			Type:     agent.InputTypeMessage,
-			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
-		},
-		Runtime: agent.RuntimeOptions{WorkDir: projectDir},
-	})
-	if err != nil {
-		t.Fatalf("build run state: %v", err)
-	}
-	if state.toolBinding.ToolContext.WorkDir != projectDir {
-		t.Fatalf("tool work dir = %q, want %q", state.toolBinding.ToolContext.WorkDir, projectDir)
+	if got := strings.Join(binding.AllowedTools, ","); got != strings.Join(expected, ",") {
+		t.Fatalf("unexpected allowed tools:\nwant: %v\n got: %v", expected, binding.AllowedTools)
 	}
 }
 
@@ -282,34 +179,20 @@ func TestAgentRunRealModel(t *testing.T) {
 		t.Fatalf("new agent: %v", err)
 	}
 
-	result, err := agt.Run(ctx, &agent.RequestContext{
-		RunID: "run_real_model_message",
-		Actor: agent.ActorContext{
-			UserID:  "test-user",
-			Channel: "test",
-		},
-		Input: agent.InputContext{
-			Type:     agent.InputTypeMessage,
-			Messages: []agent.InputMessage{{Role: "user", Content: "Reply with exactly this text: Leros agent runtime ok"}},
-		},
-		Model:     realModelOptions(apiKey),
-		Runtime:   agent.RuntimeOptions{MaxStep: 2},
-		EventSink: events.NewLogSink(),
+	eventsCh, err := agt.Run(ctx, engines.RunRequest{
+		ExecutionID: "run_real_model_message",
+		Prompt:      "Reply with exactly this text: Leros agent runtime ok",
+		Model:       realModelOptions(apiKey),
 	})
 	if err != nil {
 		t.Fatalf("run agent: %v", err)
 	}
-	if result == nil {
-		t.Fatalf("expected result")
-	}
-	if result.Status != agent.RunStatusCompleted {
-		t.Fatalf("expected completed result, got %+v", result)
-	}
-	if strings.TrimSpace(result.Message) == "" {
+	message := collectResult(t, eventsCh)
+	if strings.TrimSpace(message) == "" {
 		t.Fatalf("expected non-empty model response")
 	}
-	if !strings.Contains(result.Message, "Leros agent runtime ok") {
-		t.Fatalf("unexpected model response: %s", result.Message)
+	if !strings.Contains(message, "Leros agent runtime ok") {
+		t.Fatalf("unexpected model response: %s", message)
 	}
 }
 
@@ -338,46 +221,20 @@ func TestAgentRunNodeTool(t *testing.T) {
 		t.Fatalf("new agent: %v", err)
 	}
 
-	sink := &recordingEventSink{}
-	result, err := agt.Run(ctx, &agent.RequestContext{
-		RunID: "run_real_model_node_shell_time",
-		Assistant: agent.AssistantContext{
-			ID:   "test-assistant",
-			Name: "Tool Test Assistant",
-			SystemPrompt: strings.Join([]string{
-				"You must use tools to complete the user task; do not answer without tool usage.",
-				"node_shell executes commands in the current worker environment.",
-			}, "\n"),
-		},
-		Actor: agent.ActorContext{
-			UserID:  "test-user",
-			Channel: "test",
-		},
-		Model: realModelOptions(apiKey),
-		Input: agent.InputContext{
-			Type:     agent.InputTypeMessage,
-			Messages: []agent.InputMessage{{Role: "user", Content: "Use a tool to query the current system time."}},
-		},
-		Runtime: agent.RuntimeOptions{MaxStep: 6},
-		Capability: agent.CapabilityContext{
-			AllowedTools: []string{
-				nodetools.ToolNameNodeShell,
-				nodetools.ToolNameNodeFileRead,
-				nodetools.ToolNameNodeFileWrite,
-			},
-		},
-		EventSink: sink,
+	eventsCh, err := agt.Run(ctx, engines.RunRequest{
+		ExecutionID:  "run_real_model_node_shell_time",
+		SystemPrompt: strings.Join([]string{
+			"You must use tools to complete the user task; do not answer without tool usage.",
+			"node_shell executes commands in the current worker environment.",
+		}, "\n"),
+		Prompt: "Use a tool to query the current system time.",
+		Model:  realModelOptions(apiKey),
 	})
 	if err != nil {
 		t.Fatalf("run agent: %v", err)
 	}
-	if result == nil {
-		t.Fatalf("expected result")
-	}
-	if result.Status != agent.RunStatusCompleted {
-		t.Fatalf("expected completed result, got %+v", result)
-	}
-	if strings.TrimSpace(result.Message) == "" {
+	message := collectResult(t, eventsCh)
+	if strings.TrimSpace(message) == "" {
 		t.Fatalf("expected non-empty model response")
 	}
 
@@ -393,13 +250,14 @@ func TestAgentRunWeatherSkillQuery(t *testing.T) {
 
 	ctx, cancel := realModelTestContext(t)
 	defer cancel()
-	catalog, skillDir := newBundledRuntimeSkillsCatalog(t)
-	if _, err := catalog.Get("weather"); err != nil {
+	skillDir := newBundledRuntimeSkillsCatalog(t)
+	// Verify the weather skill is available via dynamic scan
+	if _, err := skillcatalog.Get("weather"); err != nil {
 		t.Fatalf("weather skill must be available in %s: %v", skillDir, err)
 	}
 
 	registry := tools.NewRegistry()
-	if err := skillusetools.Register(registry, catalog); err != nil {
+	if err := skillusetools.Register(registry); err != nil {
 		t.Fatalf("register skill tools: %v", err)
 	}
 	if err := nodetools.Register(registry); err != nil {
@@ -416,45 +274,20 @@ func TestAgentRunWeatherSkillQuery(t *testing.T) {
 		t.Fatalf("new agent: %v", err)
 	}
 
-	sink := &recordingEventSink{}
-	result, err := agt.Run(ctx, &agent.RequestContext{
-		RunID: "run_real_model_weather_skill_shanghai",
-		Assistant: agent.AssistantContext{
-			ID:   "test-weather-assistant",
-			Name: "Weather Skill Test Assistant",
-			SystemPrompt: strings.Join([]string{
-				"You must use tools to complete the user task; do not answer without tool usage.",
-				"node_shell executes commands in the current worker environment.",
-			}, "\n"),
-		},
-		Actor: agent.ActorContext{
-			UserID:  "test-user",
-			Channel: "test",
-		},
-		Model: realModelOptions(apiKey),
-		Input: agent.InputContext{
-			Type:     agent.InputTypeTaskInstruction,
-			Messages: []agent.InputMessage{{Role: "user", Content: "Use the weather skill to query the weather in Shanghai."}},
-		},
-		Runtime: agent.RuntimeOptions{MaxStep: 20},
-		Capability: agent.CapabilityContext{
-			AllowedTools: []string{
-				skillusetools.ToolNameSkillUse,
-				nodetools.ToolNameNodeShell,
-			},
-		},
-		EventSink: sink,
+	eventsCh, err := agt.Run(ctx, engines.RunRequest{
+		ExecutionID: "run_real_model_weather_skill_shanghai",
+		SystemPrompt: strings.Join([]string{
+			"You must use tools to complete the user task; do not answer without tool usage.",
+			"node_shell executes commands in the current worker environment.",
+		}, "\n"),
+		Prompt: "Use the weather skill to query the weather in Shanghai.",
+		Model:  realModelOptions(apiKey),
 	})
 	if err != nil {
 		t.Fatalf("run weather skill agent: %v", err)
 	}
-	if result == nil {
-		t.Fatalf("expected result")
-	}
-	if result.Status != agent.RunStatusCompleted {
-		t.Fatalf("expected completed result, got %+v", result)
-	}
-	if strings.TrimSpace(result.Message) == "" {
+	message := collectResult(t, eventsCh)
+	if strings.TrimSpace(message) == "" {
 		t.Fatalf("expected non-empty model response")
 	}
 
@@ -469,8 +302,8 @@ func firstNonEmptyEnv(keys ...string) string {
 	return ""
 }
 
-func realModelOptions(apiKey string) agent.ModelOptions {
-	return agent.ModelOptions{
+func realModelOptions(apiKey string) engines.ModelConfig {
+	return engines.ModelConfig{
 		Provider: "openai",
 		APIKey:   apiKey,
 		Model:    firstNonEmptyEnv("LEROS_LLM_MODEL"),
@@ -478,7 +311,22 @@ func realModelOptions(apiKey string) agent.ModelOptions {
 	}
 }
 
-func newBundledRuntimeSkillsCatalog(t *testing.T) (*skillcatalog.Catalog, string) {
+// collectResult reads events from the channel and returns the final message.
+func collectResult(t *testing.T, eventsCh <-chan events.Event) string {
+	t.Helper()
+	var message string
+	for event := range eventsCh {
+		switch event.Type {
+		case events.EventResult:
+			message = event.Content
+		case events.EventFailed:
+			t.Fatalf("run failed: %s", event.Content)
+		}
+	}
+	return message
+}
+
+func newBundledRuntimeSkillsCatalog(t *testing.T) string {
 	t.Helper()
 
 	_, currentFile, _, ok := goruntime.Caller(0)
@@ -487,12 +335,10 @@ func newBundledRuntimeSkillsCatalog(t *testing.T) (*skillcatalog.Catalog, string
 	}
 
 	skillsDir := filepath.Join(filepath.Dir(currentFile), "..", "skills")
-	catalog, err := skillcatalog.NewCatalog(os.DirFS(skillsDir))
-	if err != nil {
-		t.Fatalf("load bundled skills catalog from %s: %v", skillsDir, err)
-	}
-
-	return catalog, skillsDir
+	// The skills dir is <workspace>/.leros/skills, so the workspace root is the parent of .leros
+	workspaceRoot := filepath.Dir(filepath.Dir(skillsDir))
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	return skillsDir
 }
 
 func realModelTestContext(t *testing.T) (context.Context, context.CancelFunc) {

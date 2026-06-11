@@ -161,6 +161,70 @@ func TestDefaultSkillRootUsesWorkspaceRoot(t *testing.T) {
 	}
 }
 
+func TestSkillStoreEditReplacesContent(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+
+	_, err := store.Create(ctx, CreateRequest{
+		Name:    "edit-test",
+		Content: testSkillDocument("edit-test", "Original", "Original body."),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	result, err := store.Edit(ctx, EditRequest{
+		Name:    "edit-test",
+		Content: testSkillDocument("edit-test", "Updated", "Updated body."),
+	})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected edit success: %#v", result)
+	}
+
+	// Verify content changed
+	skill, err := store.Find(ctx, "edit-test")
+	if err != nil {
+		t.Fatalf("find: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(skill.Path, skillFileName))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(body), "Updated body") {
+		t.Fatalf("expected updated content, got:\n%s", string(body))
+	}
+}
+
+func TestSkillStoreDeleteRemovesDirectory(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+
+	_, err := store.Create(ctx, CreateRequest{
+		Name:    "delete-test",
+		Content: testSkillDocument("delete-test", "Delete me", "Body."),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	result, err := store.Delete(ctx, DeleteRequest{Name: "delete-test"})
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected delete success: %#v", result)
+	}
+
+	// Verify directory gone
+	_, err = store.Find(ctx, "delete-test")
+	if err == nil {
+		t.Fatalf("expected skill to be deleted, but it still exists")
+	}
+}
+
 func newTestStore(t *testing.T) (*SkillStore, string) {
 	t.Helper()
 

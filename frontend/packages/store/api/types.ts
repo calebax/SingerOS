@@ -52,6 +52,11 @@ export type BackendMessage = {
 	message_type: string;
 	sequence: number;
 	metadata?: BackendMessageMetadata;
+	usage?: {
+		input_tokens?: number;
+		output_tokens?: number;
+		total_tokens?: number;
+	};
 	chunks?: BackendMessageChunk[];
 	created_at: string;
 };
@@ -298,6 +303,22 @@ export type BackendProjectDetail = BackendProject & {
 	tasks: BackendProjectTaskItem[];
 	artifacts: BackendArtifact[];
 	members: BackendProjectMemberItem[];
+};
+
+export type BackendProjectFileNode = {
+	name: string;
+	path: string;
+	type: "file" | "directory" | string;
+	children?: BackendProjectFileNode[];
+	size?: number;
+	mime_type?: string;
+	mod_time?: number;
+};
+
+export type BackendProjectFileUploadResult = {
+	path: string;
+	filename: string;
+	size: number;
 };
 
 export type BackendNewMessageData = {

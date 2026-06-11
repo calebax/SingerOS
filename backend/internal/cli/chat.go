@@ -24,15 +24,21 @@ const (
 	sseTimeout         = 10 * time.Minute
 )
 
+// apiResponse 用于反序列化 dto.Response 包装的响应体。
+type apiResponse struct {
+	dto.BaseResponse
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
 // Chat 启动交互式聊天会话，连接至指定的 Leros 服务端。
 // 如果 initialMessage 为非空字符串，则将其作为首条消息发送，否则提示用户输入。
-func Chat(ctx context.Context, serverAddr string, initialMessage string) error {
+func Chat(ctx context.Context, serverAddr, authToken, initialMessage string) error {
 	httpClient := &http.Client{Timeout: defaultHTTPTimeout}
 
 	var projectID, taskID string
 
 	sendAndStream := func(content string) (string, string, error) {
-		resp, err := sendNewMessage(ctx, httpClient, serverAddr, content, projectID, taskID)
+		resp, err := sendNewMessage(ctx, httpClient, serverAddr, authToken, content, projectID, taskID)
 		if err != nil {
 			return projectID, taskID, err
 		}
@@ -43,7 +49,7 @@ func Chat(ctx context.Context, serverAddr string, initialMessage string) error {
 			taskID = resp.TaskID
 		}
 		fmt.Println() // blank line before streaming
-		if err := streamSessionEvents(ctx, httpClient, serverAddr, resp.SessionID); err != nil {
+		if err := streamSessionEvents(ctx, httpClient, serverAddr, authToken, resp.SessionID); err != nil {
 			return projectID, taskID, err
 		}
 		return projectID, taskID, nil
@@ -80,17 +86,11 @@ func Chat(ctx context.Context, serverAddr string, initialMessage string) error {
 	return nil
 }
 
-// apiResponse 用于反序列化 dto.Response 包装的响应体。
-type apiResponse struct {
-	dto.BaseResponse
-	Data json.RawMessage `json:"data,omitempty"`
-}
-
 // sendNewMessage 向服务端发送 NewMessage 请求并返回解析后的响应。
 func sendNewMessage(
 	ctx context.Context,
 	client *http.Client,
-	serverAddr string,
+	serverAddr, authToken string,
 	content string,
 	projectID string,
 	taskID string,
@@ -112,6 +112,9 @@ func sendNewMessage(
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -149,7 +152,7 @@ func sendNewMessage(
 func streamSessionEvents(
 	ctx context.Context,
 	client *http.Client,
-	serverAddr string,
+	serverAddr, authToken string,
 	sessionID string,
 ) error {
 	reqBody := map[string]string{
@@ -169,6 +172,9 @@ func streamSessionEvents(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
 
 	// SSE 连接使用独立的 client，拥有更长的超时时间
 	sseClient := &http.Client{Timeout: sseTimeout}

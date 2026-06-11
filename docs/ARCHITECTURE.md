@@ -411,8 +411,8 @@ backend/
 │   └── leros/                 leros 二进制
 │       ├── server              server 子命令
 │       └── worker              worker 子命令
-│           ├── simplechat     内置简单聊天运行时
-│           └── claude-worker  Claude Code 引擎运行时
+│           ├── codex          Codex 引擎运行时
+│           └── claude         Claude Code 引擎运行时
 │
 ├── internal/                  私有核心代码（强制隔离）
 │   ├── api/                   HTTP 适配层（契约驱动）
@@ -501,7 +501,7 @@ backend/
 ### 8.5 进程阶段
 
 * **Phase 1.5（当前）** — leros 二进制通过 server/worker 子命令区分运行模式
-* **Phase 2（计划）** — NATS 任务消费者 + Agent Runner + MCP Server；支持 worker simplechat / worker claude-worker 子命令
+* **Phase 2（计划）** — NATS 任务消费者 + Agent Runner + MCP Server；支持 worker codex / worker claude 子命令
 * **Phase 3（远期）** — 独立进程部署（Server / Worker / Connector）
 
 ## 9. 技术栈

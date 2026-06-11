@@ -138,7 +138,7 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 	resultSeen := false
 	consumed := consumeResult{}
 	messageIDs := events.NewMessageIDMapper()
-	todoTracker := runtimetodo.NewTracker(runtimetodo.Options{RunID: runID, TraceID: traceID, Sink: sink})
+	todoTracker := runtimetodo.NewTracker(runtimetodo.Options{RunID: runID, Sink: sink})
 	for event := range handle.Events {
 		switch event.Type {
 		case events.EventStarted:

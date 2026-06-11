@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/api"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
@@ -29,85 +30,93 @@ var (
 	serverWorkspaceRoot string
 )
 
-var serverCmd = &cobra.Command{
-	Use:   "server",
-	Short: "Start the Leros backend HTTP server",
-	Long:  `Start the HTTP server that handles API requests and publishes external events.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		cfg, err := loadConfig(serverConfigPath)
-		if err != nil {
-			logs.Fatalf("Failed to load config: %v", err)
-			return
-		}
-		if strings.TrimSpace(serverWorkspaceRoot) != "" {
-			cfg.WorkspaceRoot = serverWorkspaceRoot
-			logs.Infof("Using workspace root from flag: %s", serverWorkspaceRoot)
-		}
-		if err := applyServerWorkspaceRoot(cfg); err != nil {
-			logs.Fatalf("Invalid server workspace config: %v", err)
-			return
-		}
-
-		natsUrl := "nats://nats:4222"
-		if cfg.NATS != nil && cfg.NATS.URL != "" {
-			natsUrl = cfg.NATS.URL
-		}
-
-		publisher, err := mq.NewNATS(natsUrl)
-		if err != nil {
-			logs.Fatalf("Failed to create event publisher: %v", err)
-			return
-		}
-
-		var db *gorm.DB
-		if cfg.Database != nil && cfg.Database.URL != "" {
-			db, err = infradb.InitDB(*cfg.Database, cfg.LLM)
+func newServerCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "server",
+		Short: "Start the Leros backend HTTP server",
+		Long:  `Start the HTTP server that handles API requests and publishes external events.`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg, err := loadConfig(serverConfigPath)
 			if err != nil {
-				logs.Fatalf("Failed to initialize database: %v", err)
+				logs.Fatalf("Failed to load config: %v", err)
 				return
 			}
-			logs.Info("Database initialized successfully")
-		} else {
-			logs.Warn("No database configuration provided")
-			logs.Warn("  - Database-dependent features (user persistence, etc.) will be unavailable")
-			logs.Warn("  - To enable database, add database.url to your config file")
-			logs.Warn("  - See example-config.yaml for database configuration example")
-		}
-
-		r := api.SetupRouter(*cfg, publisher, db)
-
-		srv := &http.Server{
-			Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
-			Handler: r,
-		}
-
-		logs.Info("Starting Leros backend service...")
-		logs.Infof("Listening on %s", srv.Addr)
-
-		go func() {
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logs.Fatalf("Failed to start server: %v", err)
+			if strings.TrimSpace(serverWorkspaceRoot) != "" {
+				cfg.WorkspaceRoot = serverWorkspaceRoot
+				logs.Infof("Using workspace root from flag: %s", serverWorkspaceRoot)
 			}
-		}()
-
-		lifecycle.Std().AddCloseFunc(func() error {
-			if err := srv.Shutdown(cmd.Context()); err != nil {
-				logs.Errorf("Server forced to shutdown: %v", err)
+			if err := applyServerWorkspaceRoot(cfg); err != nil {
+				logs.Fatalf("Invalid server workspace config: %v", err)
+				return
 			}
-			return nil
-		})
 
-		lifecycle.Std().AddCloseFunc(publisher.Close)
-		lifecycle.Std().WaitExit()
+			if _, err := leros.EnsureStateDir(); err != nil {
+				logs.Fatalf("Failed to ensure state dir: %v", err)
+				return
+			}
+			if err := engines.SyncServerSkillsDir(""); err != nil {
+				logs.Warnf("Sync server built-in skills failed: %v", err)
+			}
 
-		logs.Info("Server exited")
-	},
-}
+			natsUrl := "nats://nats:4222"
+			if cfg.NATS != nil && cfg.NATS.URL != "" {
+				natsUrl = cfg.NATS.URL
+			}
 
-func init() {
-	serverCmd.Flags().StringVar(&serverConfigPath, "config", "", "Configuration file path")
-	serverCmd.Flags().StringVar(&serverWorkspaceRoot, "workspace-root", "", "Default server workspace root for worker mounts")
-	rootCmd.AddCommand(serverCmd)
+			publisher, err := mq.NewNATS(natsUrl)
+			if err != nil {
+				logs.Fatalf("Failed to create event publisher: %v", err)
+				return
+			}
+
+			var db *gorm.DB
+			if cfg.Database != nil && cfg.Database.URL != "" {
+				db, err = infradb.InitDB(*cfg.Database, cfg.LLM)
+				if err != nil {
+					logs.Fatalf("Failed to initialize database: %v", err)
+					return
+				}
+				logs.Info("Database initialized successfully")
+			} else {
+				logs.Warn("No database configuration provided")
+				logs.Warn("  - Database-dependent features (user persistence, etc.) will be unavailable")
+				logs.Warn("  - To enable database, add database.url to your config file")
+				logs.Warn("  - See example-config.yaml for database configuration example")
+			}
+
+			r := api.SetupRouter(*cfg, publisher, db)
+
+			srv := &http.Server{
+				Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
+				Handler: r,
+			}
+
+			logs.Info("Starting Leros backend service...")
+			logs.Infof("Listening on %s", srv.Addr)
+
+			go func() {
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					logs.Fatalf("Failed to start server: %v", err)
+				}
+			}()
+
+			lifecycle.Std().AddCloseFunc(func() error {
+				if err := srv.Shutdown(cmd.Context()); err != nil {
+					logs.Errorf("Server forced to shutdown: %v", err)
+				}
+				return nil
+			})
+
+			lifecycle.Std().AddCloseFunc(publisher.Close)
+			lifecycle.Std().WaitExit()
+
+			logs.Info("Server exited")
+		},
+	}
+
+	cmd.Flags().StringVar(&serverConfigPath, "config", "", "Configuration file path")
+	cmd.Flags().StringVar(&serverWorkspaceRoot, "workspace-root", "", "Default server workspace root for worker mounts")
+	return cmd
 }
 
 func applyServerWorkspaceRoot(cfg *config.Config) error {

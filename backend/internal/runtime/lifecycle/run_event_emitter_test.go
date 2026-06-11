@@ -12,9 +12,7 @@ import (
 
 func TestRunnerEmitsSuccessResultAndCompletedArchiveThroughSink(t *testing.T) {
 	sink := &recordingSink{}
-	runner := NewRunner(successRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
-		BaseSystemPrompt: "base",
-	}), nil)
+	runner := NewRunner(successRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{}), nil)
 
 	result, err := runner.Run(context.Background(), lifecycleTestRequest(sink))
 	if err != nil {
@@ -69,9 +67,7 @@ func TestRunnerEmitsSuccessResultAndCompletedArchiveThroughSink(t *testing.T) {
 
 func TestRunnerEmitsFailureThroughSink(t *testing.T) {
 	sink := &recordingSink{}
-	runner := NewRunner(&errorRuntime{err: errors.New("runtime unavailable")}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
-		BaseSystemPrompt: "base",
-	}), nil)
+	runner := NewRunner(&errorRuntime{err: errors.New("runtime unavailable")}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{}), nil)
 
 	result, err := runner.Run(context.Background(), lifecycleTestRequest(sink))
 	if err == nil {
@@ -126,9 +122,7 @@ func TestRunnerEmitsFailureThroughSink(t *testing.T) {
 
 func TestRunnerEmitsArtifactsBeforeCompletedArchive(t *testing.T) {
 	sink := &recordingSink{}
-	runner := NewRunner(successRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
-		BaseSystemPrompt: "base",
-	}), nil)
+	runner := NewRunner(successRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{}), nil)
 	runner.SetArtifactRecorder(fakeArtifactRecorder{
 		artifacts: []events.ArtifactPayload{
 			{ArtifactID: "art_test", Title: "Report", Filename: "report.md", MimeType: "text/markdown", ArtifactType: "file", StorageKey: "projects/1/prj/repo/report.md"},
@@ -172,9 +166,7 @@ func TestRunnerEmitsArtifactsBeforeCompletedArchive(t *testing.T) {
 
 func TestRunnerEmitsCancelledThroughSink(t *testing.T) {
 	sink := &recordingSink{}
-	runner := NewRunner(&errorRuntime{err: context.DeadlineExceeded}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
-		BaseSystemPrompt: "base",
-	}), nil)
+	runner := NewRunner(&errorRuntime{err: context.DeadlineExceeded}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{}), nil)
 
 	result, err := runner.Run(context.Background(), lifecycleTestRequest(sink))
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -197,9 +189,7 @@ func TestRunnerEmitsCancelledThroughSink(t *testing.T) {
 
 func TestRunnerRecoversPanicThroughSink(t *testing.T) {
 	sink := &recordingSink{}
-	runner := NewRunner(panicRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
-		BaseSystemPrompt: "base",
-	}), nil)
+	runner := NewRunner(panicRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{}), nil)
 
 	result, err := runner.Run(context.Background(), lifecycleTestRequest(sink))
 	if err == nil {

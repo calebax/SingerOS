@@ -10,8 +10,7 @@ import (
 func TestTrackerSnapshotNormalizesAndEmitsFullList(t *testing.T) {
 	var emitted []events.Event
 	tracker := NewTracker(Options{
-		RunID:   "run_1",
-		TraceID: "trace_1",
+		RunID: "run_1",
 		Sink: events.SinkFunc(func(_ context.Context, event *events.Event) error {
 			emitted = append(emitted, *event)
 			return nil

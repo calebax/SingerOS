@@ -77,9 +77,7 @@ Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
 |------|------|
 | `main.go` | Cobra 根命令和全局日志配置 |
 | `server.go` | `leros server`，启动 HTTP 服务、DB、NATS、Worker Server、路由 |
-| `worker.go` | `leros worker`，启动 Worker 相关子命令 |
-| `worker_claudecode.go` | Claude Code 专用 Worker |
-| `worker_simplechat.go` | 内置 SimpleChat Worker |
+| `worker.go` | `leros worker`，启动 Worker 及 `claude`、`codex` 子命令 |
 | `chat.go` | 本地 CLI 聊天调试 |
 | `project.go` | Project CLI 调试命令 |
 | `session.go` | Session CLI 调试命令 |

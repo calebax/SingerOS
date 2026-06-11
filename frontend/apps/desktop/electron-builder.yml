@@ -1,21 +1,46 @@
 appId: com.leros.desktop
-productName: LerosDesktop
+productName: Leros
+icon: resources/icon.png
 directories:
   buildResources: build
+  output: dist
 files:
-  - "!**/.vscode/*"
-  - "!src/*"
+  - out/**/*
+  - resources/**/*
+  - package.json
+  - "!**/.vscode/**"
   - "!electron.vite.config.*"
   - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+asar: true
+compression: maximum
 asarUnpack:
   - resources/**
 mac:
+  category: public.app-category.developer-tools
   target:
-    - dmg
+    - target: dmg
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
 win:
+  signAndEditExecutable: false
   target:
-    - nsis
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
 linux:
+  category: Development
   target:
-    - AppImage
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
 npmRebuild: false

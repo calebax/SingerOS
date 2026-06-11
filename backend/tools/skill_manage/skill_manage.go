@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	skillmanageinternal "github.com/insmtx/Leros/backend/internal/skill/manage"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
+	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/tools"
 )
 
@@ -16,66 +16,82 @@ const (
 
 	actionCreate     = skillstore.ActionCreate
 	actionPatch      = skillstore.ActionPatch
+	actionEdit       = skillstore.ActionEdit
+	actionDelete     = skillstore.ActionDelete
 	actionWriteFile  = skillstore.ActionWriteFile
 	actionRemoveFile = skillstore.ActionRemoveFile
 )
 
-const skillManageDescription = `管理技能（创建和更新）。技能是你的流程性记忆，用于保存 recurring task 的可复用做法。
+// buildSkillManageDescription 构建包含实际技能目录路径的工具描述。
+func buildSkillManageDescription() string {
+	skillsDir := "~/.leros/skills"
+	if dir, err := leros.SkillsDir(); err == nil {
+		skillsDir = dir
+	}
+	return fmt.Sprintf(`管理技能（创建、更新、删除）。技能是你的流程性记忆，用于保存 recurring task 的可复用做法。
+	新技能创建在 %s/ 目录下；已有技能在其所在位置直接修改。
 
-操作：create 创建新技能，写入完整 SKILL.md；patch 使用 old_text/new_text 做局部替换，优先用于修复；write_file 写入 supporting file；remove_file 删除 supporting file。
+操作：
+  create      创建新技能，写入完整 SKILL.md 内容（含 YAML frontmatter 和 Markdown 正文）
+  patch       局部替换文本（old_text → new_text），优先用于修复和微调
+  edit        完整重写 SKILL.md 全文，仅用于大幅修改
+  delete      删除整个技能目录
+  write_file  写入 supporting file（references/、templates/、scripts/ 或 assets/ 下）
+  remove_file 删除 supporting file
 
-何时创建：复杂任务成功完成、克服了错误、用户纠正后的做法被验证有效、发现非平凡工作流，或用户要求你记住某个流程。
-何时更新：说明过时或错误、出现操作系统相关失败、使用过程中发现缺失步骤或坑点。如果你使用了某个技能并遇到它没有覆盖的问题，应立即修补它。
+何时创建：
+  - 复杂任务成功完成、克服了错误
+  - 用户纠正后的做法被验证有效
+  - 发现非平凡工作流
+  - 用户要求你记住某个流程
+何时更新：
+  - 说明过时或错误
+  - 出现操作系统相关失败
+  - 使用过程中发现缺失步骤或坑点
+  如果使用了某个技能并遇到它没有覆盖的问题，应立即修补它。
 
-困难或反复迭代的任务完成后，可以提议保存为技能。简单一次性任务不要保存。创建新技能前应先向用户确认。
+困难或反复迭代的任务完成后，可以提议保存为技能。简单一次性任务不要保存。创建或删除技能前应先向用户确认。
 
-好的技能应包含：触发条件、带精确命令的编号步骤、坑点说明、验证步骤。可使用技能查看工具查看已有技能的格式示例。`
+好的技能应包含：触发条件、带精确命令的编号步骤、坑点说明、验证步骤。可使用 skill工具查看已有技能的格式示例。`, skillsDir)
+}
 
 // Tool lets the agent create and update procedural skills.
 type Tool struct {
 	tools.BaseTool
-	manager *skillmanageinternal.Manager
+	store *skillstore.SkillStore
 }
+
+// OnMutation 由 deps.Container 在启动时设置。
+// NewTool() 会将其传递给底层 SkillStore。
+var OnMutation func(ctx context.Context, kind skillstore.MutationKind, name, action string)
 
 // NewTool creates skill_manage with the default Leros skills store.
-func NewTool() *Tool {
-	store, _ := skillstore.NewSkillStore("")
-	return NewToolWithStore(store)
-}
-
-// NewToolWithStore creates skill_manage with an explicit store.
-// No post-processing (catalog reload or projection) is attached.
-// For production use, prefer registering via deps.Container which wires the full handler chain.
-func NewToolWithStore(store *skillstore.SkillStore) *Tool {
-	var manager *skillmanageinternal.Manager
-	if store != nil {
-		manager, _ = skillmanageinternal.NewManager(store, nil)
+func NewTool() (*Tool, error) {
+	store, err := skillstore.NewSkillStore("")
+	if err != nil {
+		return nil, fmt.Errorf("skill manage: create store: %w", err)
 	}
-	return NewToolWithManager(manager)
-}
-
-// NewToolWithManager creates skill_manage with an explicit skill manager.
-func NewToolWithManager(manager *skillmanageinternal.Manager) *Tool {
+	store.OnMutation = OnMutation
 	return &Tool{
 		BaseTool: tools.NewBaseTool(
 			ToolNameSkillManage,
-			skillManageDescription,
+			buildSkillManageDescription(),
 			tools.Schema{
 				Type:     "object",
 				Required: []string{"action", "name"},
 				Properties: map[string]*tools.Property{
 					"action": {
 						Type:        "string",
-						Enum:        []string{actionCreate, actionPatch, actionWriteFile, actionRemoveFile},
+						Enum:        []string{actionCreate, actionPatch, actionEdit, actionDelete, actionWriteFile, actionRemoveFile},
 						Description: "要执行的操作。",
 					},
 					"name": {
 						Type:        "string",
-						Description: "Skill 名称。使用小写字母、数字、连字符、下划线或点，最长 64 字符。patch/write_file/remove_file 时必须匹配已有 Skill。",
+						Description: "Skill 名称。使用小写字母、数字、连字符、下划线或点，最长 64 字符。create 时为新技能名，其他操作时必须匹配已有 Skill。",
 					},
 					"content": {
 						Type:        "string",
-						Description: "完整的 SKILL.md 内容，包括 YAML frontmatter 和 Markdown 正文。create 时必填。",
+						Description: "完整的 SKILL.md 内容，包括 YAML frontmatter 和 Markdown 正文。create 和 edit 时必填。",
 					},
 					"old_text": {
 						Type:        "string",
@@ -100,8 +116,8 @@ func NewToolWithManager(manager *skillmanageinternal.Manager) *Tool {
 				},
 			},
 		),
-		manager: manager,
-	}
+		store:    store,
+	}, nil
 }
 
 // Validate checks skill_manage input before execution.
@@ -123,6 +139,10 @@ func (t *Tool) Validate(input map[string]interface{}) error {
 		if strings.TrimSpace(rawStringValue(input, "content")) == "" {
 			return fmt.Errorf("content is required for create")
 		}
+	case actionEdit:
+		if strings.TrimSpace(rawStringValue(input, "content")) == "" {
+			return fmt.Errorf("content is required for edit")
+		}
 	case actionPatch:
 		if rawStringValue(input, "old_text") == "" {
 			return fmt.Errorf("old_text is required for patch")
@@ -130,6 +150,8 @@ func (t *Tool) Validate(input map[string]interface{}) error {
 		if _, ok := input["new_text"]; !ok {
 			return fmt.Errorf("new_text is required for patch")
 		}
+	case actionDelete:
+		// absorbed_into 可选：省略/空/非空均合法
 	case actionWriteFile:
 		if stringValue(input, "file_path") == "" {
 			return fmt.Errorf("file_path is required for write_file")
@@ -142,15 +164,15 @@ func (t *Tool) Validate(input map[string]interface{}) error {
 			return fmt.Errorf("file_path is required for remove_file")
 		}
 	default:
-		return fmt.Errorf("unknown action %q: use create, patch, write_file, or remove_file", action)
+		return fmt.Errorf("unknown action %q: use create, patch, edit, delete, write_file, or remove_file", action)
 	}
 	return nil
 }
 
 // Execute performs the requested skill management action.
 func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
-	if t == nil || t.manager == nil {
-		return "", fmt.Errorf("skill manager is not initialized")
+	if t == nil || t.store == nil {
+		return "", fmt.Errorf("skill store is not initialized")
 	}
 	if err := t.Validate(input); err != nil {
 		return "", err
@@ -163,26 +185,35 @@ func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (strin
 	var err error
 	switch action {
 	case actionCreate:
-		result, err = t.manager.Create(ctx, skillstore.CreateRequest{
+		result, err = t.store.Create(ctx, skillstore.CreateRequest{
+			Name:    name,
+			Content: rawStringValue(input, "content"),
+		})
+	case actionEdit:
+		result, err = t.store.Edit(ctx, skillstore.EditRequest{
 			Name:    name,
 			Content: rawStringValue(input, "content"),
 		})
 	case actionPatch:
-		result, err = t.manager.Patch(ctx, skillstore.PatchRequest{
+		result, err = t.store.Patch(ctx, skillstore.PatchRequest{
 			Name:       name,
 			FilePath:   stringValue(input, "file_path"),
 			OldText:    rawStringValue(input, "old_text"),
 			NewText:    rawStringValue(input, "new_text"),
 			ReplaceAll: boolValue(input, "replace_all"),
 		})
+	case actionDelete:
+		result, err = t.store.Delete(ctx, skillstore.DeleteRequest{
+			Name: name,
+		})
 	case actionWriteFile:
-		result, err = t.manager.WriteFile(ctx, skillstore.WriteFileRequest{
+		result, err = t.store.WriteFile(ctx, skillstore.WriteFileRequest{
 			Name:        name,
 			FilePath:    stringValue(input, "file_path"),
 			FileContent: rawStringValue(input, "file_content"),
 		})
 	case actionRemoveFile:
-		result, err = t.manager.RemoveFile(ctx, skillstore.RemoveFileRequest{
+		result, err = t.store.RemoveFile(ctx, skillstore.RemoveFileRequest{
 			Name:     name,
 			FilePath: stringValue(input, "file_path"),
 		})

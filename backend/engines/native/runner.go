@@ -3,17 +3,15 @@ package native
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	einotool "github.com/cloudwego/eino/components/tool"
-	"github.com/insmtx/Leros/backend/internal/agent"
+	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/runtime/deps"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	runtimetodo "github.com/insmtx/Leros/backend/internal/runtime/todo"
-	"github.com/insmtx/Leros/backend/internal/workspace"
 	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/tools"
@@ -39,8 +37,7 @@ var defaultToolNames = []string{
 
 // Runner 是 Leros 内置 Eino 运行时入口。
 type Runner struct {
-	toolAdapter  *toolAdapter
-	systemPrompt string
+	toolAdapter *toolAdapter
 }
 
 // NewRunner 创建基于 Eino Flow 的 Leros 内置 Agent。
@@ -58,28 +55,68 @@ func NewRunner(ctx context.Context, env *deps.Container) (*Runner, error) {
 	}
 
 	return &Runner{
-		toolAdapter:  newToolAdapter(env.ToolRegistry()),
-		systemPrompt: prompts.Get(prompts.KeyAgentSystemDefault),
+		toolAdapter: newToolAdapter(env.ToolRegistry()),
 	}, nil
 }
 
-// Run 直接执行标准化请求；统一生命周期入口应优先使用 lifecycle.Runner。
-func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.RunResult, error) {
-	startedAt := time.Now().UTC()
+// Run 执行标准化请求，通过 Event channel 支持流式输出。
+func (r *Runner) Run(ctx context.Context, req engines.RunRequest) (<-chan events.Event, error) {
 	if r == nil {
 		return nil, fmt.Errorf("leros runner is not initialized")
 	}
 
-	state, err := r.buildRunState(req)
-	if err != nil {
-		return nil, err
-	}
-	return r.runWithState(ctx, state, startedAt)
+	eventsCh := make(chan events.Event, 256)
+
+	go func() {
+		defer close(eventsCh)
+		r.executeStreaming(ctx, req, eventsCh)
+	}()
+
+	return eventsCh, nil
 }
 
-func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt time.Time) (*agent.RunResult, error) {
-	req := state.req
+// executeStreaming 在 goroutine 中执行推理，将全部事件写入 channel。
+func (r *Runner) executeStreaming(ctx context.Context, req engines.RunRequest, eventsCh chan<- events.Event) {
+	channelSink := events.SinkFunc(func(ctx context.Context, event *events.Event) error {
+		if event != nil {
+			select {
+			case eventsCh <- *event:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		return nil
+	})
 
+	sendEvent(eventsCh, events.EventStarted, req.ExecutionID)
+
+	message, usage, err := r.runWithState(ctx, req, channelSink)
+	if err != nil {
+		sendEvent(eventsCh, events.EventFailed, fmt.Sprintf("run_id=%s error=%s", req.ExecutionID, err.Error()))
+		return
+	}
+
+	payload, _ := json.Marshal(events.MessageResultPayload{
+		Message: message,
+		Usage:   usage,
+	})
+	eventsCh <- events.Event{
+		Type:    events.EventResult,
+		Payload: events.RawPayload(payload),
+		Content: message,
+	}
+
+	sendEvent(eventsCh, events.EventCompleted, req.ExecutionID)
+}
+
+func sendEvent(eventsCh chan<- events.Event, eventType events.EventType, content string) {
+	select {
+	case eventsCh <- events.Event{Type: eventType, Content: content}:
+	default:
+	}
+}
+
+func (r *Runner) runWithState(ctx context.Context, req engines.RunRequest, sink events.Sink) (string, *events.UsagePayload, error) {
 	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
 		Provider: req.Model.Provider,
 		APIKey:   req.Model.APIKey,
@@ -87,26 +124,27 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 		BaseURL:  req.Model.BaseURL,
 	})
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
-	toolSpecs, toolInvoker, err := r.toolAdapter.EinoTools(state.toolBinding, state.eventSink)
+	systemPrompt := r.buildSystemPrompt(req)
+
+	binding := r.buildToolBinding(req, sink)
+	toolSpecs, toolInvoker, err := r.toolAdapter.EinoTools(binding, sink)
 	if err != nil {
-		return nil, fmt.Errorf("build eino tools: %w", err)
+		return "", nil, fmt.Errorf("build eino tools: %w", err)
 	}
 	einoBaseTools := buildEinoTools(toolSpecs, toolInvoker)
-
-	historyMessages := pkgeino.BuildMessages(messagesFromConversation(req.Conversation.Messages))
 
 	flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
 		Model:        chatModel,
 		Tools:        einoBaseTools,
-		SystemPrompt: state.systemPrompt,
-		MaxStep:      state.maxStep,
-		Messages:     historyMessages,
+		SystemPrompt: systemPrompt,
+		MaxStep:      90,
+		Messages:     nil,
 	})
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
 	var message interface {
@@ -114,8 +152,8 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 	}
 	var resultMessage string
 	var usage *events.UsagePayload
-	if req.EventSink != nil {
-		streamedMessage, streamedUsage, streamErr := flow.StreamWithUsage(ctx, state.userInput, streamSink{sink: state.eventSink})
+	if sink != nil {
+		streamedMessage, streamedUsage, streamErr := flow.StreamWithUsage(ctx, req.Prompt, streamSink{sink: sink})
 		err = streamErr
 		if streamedMessage != nil {
 			message = streamedMessage
@@ -123,7 +161,7 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 			usage = usagePayload(streamedUsage)
 		}
 	} else {
-		generatedMessage, generatedUsage, generateErr := flow.GenerateWithUsage(ctx, state.userInput)
+		generatedMessage, generatedUsage, generateErr := flow.GenerateWithUsage(ctx, req.Prompt)
 		err = generateErr
 		if generatedMessage != nil {
 			message = generatedMessage
@@ -132,76 +170,34 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 		}
 	}
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if resultMessage == "" && message != nil {
 		resultMessage = formatLLMResultForLog(message)
 	}
 
-	result := &agent.RunResult{
-		RunID:       req.RunID,
-		TraceID:     req.TraceID,
-		Status:      agent.RunStatusCompleted,
-		Message:     resultMessage,
-		Usage:       usage,
-		StartedAt:   startedAt,
-		CompletedAt: time.Now().UTC(),
-	}
+	logs.InfoContextf(ctx, "Leros runtime final LLM result: run_id=%s result=%s",
+		req.ExecutionID, formatLLMResultForLog(message))
 
-	logs.InfoContextf(ctx, "Leros runtime final LLM result: run_id=%s actor=%s result=%s",
-		req.RunID, req.Actor.UserID, formatLLMResultForLog(message))
-
-	return result, nil
+	return resultMessage, usage, nil
 }
 
-func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
-	if req == nil {
-		return nil, errors.New("request context is required")
-	}
-	userInput := agent.BuildUserInput(req)
-
-	systemPrompt, err := r.buildSystemPrompt(req)
-	if err != nil {
-		return nil, err
-	}
-
-	eventSink := sinkForRequest(req)
-	workDir := strings.TrimSpace(req.Runtime.WorkDir)
+func (r *Runner) buildToolBinding(req engines.RunRequest, sink events.Sink) toolBinding {
+	workDir := strings.TrimSpace(req.WorkDir)
 	toolCtx := tools.ToolContext{
-		RunID:          req.RunID,
-		TraceID:        req.TraceID,
-		AssistantID:    req.Assistant.ID,
-		UserID:         req.Actor.UserID,
-		AccountID:      req.Actor.AccountID,
-		Channel:        req.Actor.Channel,
-		ConversationID: req.Conversation.ID,
-		ExternalID:     req.Actor.ExternalID,
+		RunID:          req.ExecutionID,
+		TraceID:        req.SessionID,
+		ConversationID: req.SessionID,
 		WorkDir:        workDir,
-		Metadata:       req.Metadata,
 	}
-	if ws, ok, wsErr := workspace.FromAgentRequest(req); ok && wsErr == nil {
-		if toolCtx.Metadata == nil {
-			toolCtx.Metadata = make(map[string]any)
-		}
-		toolCtx.Metadata["artifact_manifest_path"] = ws.ArtifactManifestPath
-		toolCtx.Metadata["repo_dir"] = ws.RepoDir
+	return toolBinding{
+		ToolContext:  toolCtx,
+		AllowedTools: r.availableDefaultToolNames(),
+		TodoReporter: runtimetodo.NewTracker(runtimetodo.Options{
+			RunID: req.ExecutionID,
+			Sink:  sink,
+		}),
 	}
-	return &runState{
-		req:          req,
-		eventSink:    eventSink,
-		userInput:    userInput,
-		systemPrompt: systemPrompt,
-		toolBinding: toolBinding{
-			ToolContext:  toolCtx,
-			AllowedTools: mergeToolNames(r.availableDefaultToolNames(), req.Capability.AllowedTools),
-			TodoReporter: runtimetodo.NewTracker(runtimetodo.Options{
-				RunID:   req.RunID,
-				TraceID: req.TraceID,
-				Sink:    eventSink,
-			}),
-		},
-		maxStep: maxStepForRequest(req),
-	}, nil
 }
 
 func (r *Runner) availableDefaultToolNames() []string {
@@ -211,62 +207,13 @@ func (r *Runner) availableDefaultToolNames() []string {
 	return r.toolAdapter.AvailableToolNames(defaultToolNames)
 }
 
-func mergeToolNames(values ...[]string) []string {
-	result := make([]string, 0)
-	seen := make(map[string]struct{})
-	for _, list := range values {
-		for _, name := range list {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				continue
-			}
-			if _, exists := seen[name]; exists {
-				continue
-			}
-			seen[name] = struct{}{}
-			result = append(result, name)
-		}
-	}
-	return result
-}
-
-func (r *Runner) buildSystemPrompt(req *agent.RequestContext) (string, error) {
-	if req != nil && strings.TrimSpace(req.SystemPrompt) != "" {
-		return strings.TrimSpace(req.SystemPrompt), nil
-	}
-	if r == nil {
-		return "", nil
-	}
-	return strings.TrimSpace(r.systemPromptForRequest(req)), nil
-}
-
-func (r *Runner) systemPromptForRequest(req *agent.RequestContext) string {
-	prompt := strings.TrimSpace(r.systemPrompt)
-	if req != nil && strings.TrimSpace(req.Assistant.SystemPrompt) != "" {
-		if prompt == "" {
-			prompt = strings.TrimSpace(req.Assistant.SystemPrompt)
-		} else {
-			prompt += "\n\n" + strings.TrimSpace(req.Assistant.SystemPrompt)
-		}
-	}
-	if req == nil {
-		return prompt
+// buildSystemPrompt 从请求构建最终 system prompt，末尾追加 skill 调用提示。
+func (r *Runner) buildSystemPrompt(req engines.RunRequest) string {
+	prompt := req.SystemPrompt
+	if hint := strings.TrimSpace(prompts.Get(prompts.KeyAgentNativeSkillUsageHint)); hint != "" {
+		prompt += "\n\n" + hint
 	}
 	return prompt
-}
-
-func maxStepForRequest(req *agent.RequestContext) int {
-	if req != nil && req.Runtime.MaxStep > 0 {
-		return req.Runtime.MaxStep
-	}
-	return 90
-}
-
-func sinkForRequest(req *agent.RequestContext) events.Sink {
-	if req == nil || req.EventSink == nil {
-		return events.NewNoopSink()
-	}
-	return req.EventSink
 }
 
 func formatLLMResultForLog(message interface{ String() string }) string {
@@ -300,20 +247,6 @@ func (s streamSink) EmitReasoningDelta(ctx context.Context, messageID string, co
 		return nil
 	}
 	return s.sink.Emit(ctx, events.NewReasoningDelta(messageID, content))
-}
-
-func messagesFromConversation(messages []agent.InputMessage) []pkgeino.Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	result := make([]pkgeino.Message, 0, len(messages))
-	for _, message := range messages {
-		result = append(result, pkgeino.Message{
-			Role:    message.Role,
-			Content: message.Content,
-		})
-	}
-	return result
 }
 
 func usagePayload(usage *pkgeino.Usage) *events.UsagePayload {

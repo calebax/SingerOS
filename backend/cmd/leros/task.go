@@ -15,7 +15,6 @@ import (
 )
 
 var (
-	taskServerAddr string
 	taskJSON       bool
 	taskKeyword    string
 	taskStatus     string
@@ -35,107 +34,123 @@ type taskDetailOutput struct {
 	AssigneeName string                           `json:"assignee_name,omitempty"`
 }
 
-var taskCmd = &cobra.Command{
-	Use:   "task",
-	Short: "Manage tasks",
-	Long:  `Manage tasks in the Leros platform.`,
-}
+func newTaskCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "task",
+		Short: "Manage tasks",
+		Long:  `Manage tasks in the Leros platform.`,
+	}
 
-var taskLsCmd = &cobra.Command{
-	Use:   "ls",
-	Short: "List tasks",
-	Long:  `List all tasks with optional filtering.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		go func() {
-			req := &contract.ListTasksRequest{
-				Pagination: contract.ListTasksRequest{}.Pagination,
-			}
-			req.Offset = taskOffset
-			req.Limit = taskLimit
-			req.Fill()
-
-			if taskKeyword != "" {
-				req.Keyword = &taskKeyword
-			}
-			if taskStatus != "" {
-				req.Status = &taskStatus
-			}
-			if cmd.Flags().Changed("project-id") {
-				req.ProjectID = &taskProjectID
-			}
-			if taskType != "" {
-				req.TaskType = &taskType
-			}
-			if cmd.Flags().Changed("assignee-id") {
-				req.AssigneeID = &taskAssigneeID
-			}
-
-			result, err := cli.ListTasks(lifecycle.Std().Context(), taskServerAddr, req)
-			if err != nil {
-				logs.Errorf("list tasks: %v", err)
-				lifecycle.Std().Exit()
-				return
-			}
-			printTasks(result)
-			lifecycle.Std().Exit()
-		}()
-		lifecycle.Std().WaitExit()
-	},
-}
-
-var taskGetCmd = &cobra.Command{
-	Use:   "get <task_id>",
-	Short: "Get task details",
-	Long:  `Get detailed information about a specific task by its public ID.`,
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		go func() {
-			ctx := lifecycle.Std().Context()
-			publicID := args[0]
-
-			task, err := cli.GetTask(ctx, taskServerAddr, publicID)
-			if err != nil {
-				logs.Errorf("get task: %v", err)
-				lifecycle.Std().Exit()
-				return
-			}
-
-			out := taskDetailOutput{Task: task}
-
-			if task.OwnerID > 0 {
-				out.OwnerName = cli.ResolveUserName(ctx, taskServerAddr, task.OwnerID)
-			}
-
-			if task.ProjectID != "" {
-				prj, err := cli.GetProject(ctx, taskServerAddr, task.ProjectID)
-				if err != nil {
-					logs.Warnf("get project: %v", err)
-				} else {
-					out.Project = prj
+	lsCmd := &cobra.Command{
+		Use:   "ls",
+		Short: "List tasks",
+		Long:  `List all tasks with optional filtering.`,
+		Run: func(cmd *cobra.Command, args []string) {
+			go func() {
+				req := &contract.ListTasksRequest{
+					Pagination: contract.ListTasksRequest{}.Pagination,
 				}
-			}
+				req.Offset = taskOffset
+				req.Limit = taskLimit
+				req.Fill()
 
-			artifacts, err := cli.ListTaskArtifacts(ctx, taskServerAddr, publicID)
-			if err != nil {
-				logs.Warnf("list task artifacts: %v", err)
-			} else {
-				out.Artifacts = artifacts
-			}
-
-			if task.AssigneeID != nil && *task.AssigneeID > 0 {
-				ast, err := cli.GetDigitalAssistantByID(ctx, taskServerAddr, *task.AssigneeID)
-				if err != nil {
-					out.AssigneeName = cli.ResolveUserName(ctx, taskServerAddr, *task.AssigneeID)
-				} else {
-					out.Assignee = ast
+				if taskKeyword != "" {
+					req.Keyword = &taskKeyword
 				}
-			}
+				if taskStatus != "" {
+					req.Status = &taskStatus
+				}
+				if cmd.Flags().Changed("project-id") {
+					req.ProjectID = &taskProjectID
+				}
+				if taskType != "" {
+					req.TaskType = &taskType
+				}
+				if cmd.Flags().Changed("assignee-id") {
+					req.AssigneeID = &taskAssigneeID
+				}
 
-			printTaskDetail(&out)
-			lifecycle.Std().Exit()
-		}()
-		lifecycle.Std().WaitExit()
-	},
+				result, err := cli.ListTasks(lifecycle.Std().Context(), cliServerAddr(), cliAuthToken(), req)
+				if err != nil {
+					logs.Errorf("list tasks: %v", err)
+					lifecycle.Std().Exit()
+					return
+				}
+				printTasks(result)
+				lifecycle.Std().Exit()
+			}()
+			lifecycle.Std().WaitExit()
+		},
+	}
+
+	getCmd := &cobra.Command{
+		Use:   "get <task_id>",
+		Short: "Get task details",
+		Long:  `Get detailed information about a specific task by its public ID.`,
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			go func() {
+				ctx := lifecycle.Std().Context()
+				publicID := args[0]
+
+				task, err := cli.GetTask(ctx, cliServerAddr(), cliAuthToken(), publicID)
+				if err != nil {
+					logs.Errorf("get task: %v", err)
+					lifecycle.Std().Exit()
+					return
+				}
+
+				out := taskDetailOutput{Task: task}
+
+				if task.OwnerID > 0 {
+					out.OwnerName = cli.ResolveUserName(ctx, cliServerAddr(), cliAuthToken(), task.OwnerID)
+				}
+
+				if task.ProjectID != "" {
+					prj, err := cli.GetProject(ctx, cliServerAddr(), cliAuthToken(), task.ProjectID)
+					if err != nil {
+						logs.Warnf("get project: %v", err)
+					} else {
+						out.Project = prj
+					}
+				}
+
+				artifacts, err := cli.ListTaskArtifacts(ctx, cliServerAddr(), cliAuthToken(), publicID)
+				if err != nil {
+					logs.Warnf("list task artifacts: %v", err)
+				} else {
+					out.Artifacts = artifacts
+				}
+
+				if task.AssigneeID != nil && *task.AssigneeID > 0 {
+					ast, err := cli.GetDigitalAssistantByID(ctx, cliServerAddr(), cliAuthToken(), *task.AssigneeID)
+					if err != nil {
+						out.AssigneeName = cli.ResolveUserName(ctx, cliServerAddr(), cliAuthToken(), *task.AssigneeID)
+					} else {
+						out.Assignee = ast
+					}
+				}
+
+				printTaskDetail(&out)
+				lifecycle.Std().Exit()
+			}()
+			lifecycle.Std().WaitExit()
+		},
+	}
+
+	cmd.PersistentFlags().BoolVar(&taskJSON, "json", false, "Output in JSON format")
+
+	lsCmd.Flags().StringVar(&taskKeyword, "keyword", "", "Filter by title/description keyword")
+	lsCmd.Flags().StringVar(&taskStatus, "status", "", "Filter by status")
+	lsCmd.Flags().StringVar(&taskProjectID, "project-id", "", "Filter by project ID")
+	lsCmd.Flags().StringVar(&taskType, "type", "", "Filter by task type")
+	lsCmd.Flags().UintVar(&taskAssigneeID, "assignee-id", 0, "Filter by assignee ID")
+	lsCmd.Flags().IntVar(&taskOffset, "offset", 0, "Pagination offset")
+	lsCmd.Flags().IntVar(&taskLimit, "limit", 20, "Pagination limit")
+
+	cmd.AddCommand(lsCmd)
+	cmd.AddCommand(getCmd)
+	return cmd
 }
 
 func printTasks(list *contract.TaskList) {
@@ -228,21 +243,4 @@ func formatTaskSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
-}
-
-func init() {
-	taskCmd.PersistentFlags().StringVar(&taskServerAddr, "server-addr", "127.0.0.1:8080", "Leros server address (host:port)")
-	taskCmd.PersistentFlags().BoolVar(&taskJSON, "json", false, "Output in JSON format")
-
-	taskLsCmd.Flags().StringVar(&taskKeyword, "keyword", "", "Filter by title/description keyword")
-	taskLsCmd.Flags().StringVar(&taskStatus, "status", "", "Filter by status")
-	taskLsCmd.Flags().StringVar(&taskProjectID, "project-id", "", "Filter by project ID")
-	taskLsCmd.Flags().StringVar(&taskType, "type", "", "Filter by task type")
-	taskLsCmd.Flags().UintVar(&taskAssigneeID, "assignee-id", 0, "Filter by assignee ID")
-	taskLsCmd.Flags().IntVar(&taskOffset, "offset", 0, "Pagination offset")
-	taskLsCmd.Flags().IntVar(&taskLimit, "limit", 20, "Pagination limit")
-
-	taskCmd.AddCommand(taskLsCmd)
-	taskCmd.AddCommand(taskGetCmd)
-	rootCmd.AddCommand(taskCmd)
 }

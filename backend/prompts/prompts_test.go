@@ -165,8 +165,8 @@ func TestDefaultManagerBuiltinPrompts(t *testing.T) {
 
 	SetDefaultExecutor(exec)
 
-	if !strings.HasPrefix(Get(KeyAgentSystemDefault), "你是 Leros 助手") {
-		t.Error("expected default system prompt to start with Chinese intro")
+	if !strings.Contains(Get(KeyAgentSystemDefault), "你是 Leros 助手") {
+		t.Error("expected default system prompt to contain Chinese intro")
 	}
 
 	keys := Keys()
@@ -179,12 +179,18 @@ func TestDefaultManagerBuiltinPrompts(t *testing.T) {
 		switch k {
 		case KeyAgentSystemDefault, KeyEventOrchestratorHeader, KeyEventOrchestratorTaskDefault,
 			KeyEventOrchestratorTaskPullRequest, KeyEventOrchestratorTaskPush,
-			KeyEventOrchestratorTaskIssueComment, KeyLLMTestConnectivity:
+			KeyEventOrchestratorTaskIssueComment, KeyLLMTestConnectivity,
+			KeyAgentNativeTaskCompletion, KeyAgentNativeToolEnforcement,
+			KeyAgentNativeSkillLoading, KeyAgentNativeSkillUsageHint,
+			KeyAgentSystemMemoryGuidance,
+			KeyAgentSystemPlatformWechat, KeyAgentSystemPlatformFeishu,
+			KeyAgentSystemPlatformSlack, KeyAgentSystemPlatformAPI,
+			KeySessionTitle, KeyAgentNativeArtifactDeclaration:
 			matchCount++
 		}
 	}
-	if matchCount != 7 {
-		t.Fatalf("expected 7 built-in keys, matched %d", matchCount)
+	if matchCount != 18 {
+		t.Fatalf("expected 18 built-in keys, matched %d", matchCount)
 	}
 
 	_, err := Run(context.Background(), KeyLLMTestConnectivity, nil)

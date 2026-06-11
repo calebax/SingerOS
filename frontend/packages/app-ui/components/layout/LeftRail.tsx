@@ -11,22 +11,27 @@ import {
 } from "@leros/ui/components/ui/dropdown-menu";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { cn } from "@leros/ui/lib/utils";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef } from "react";
 import {
 	ChevronsLeft,
+	ChevronsRight,
 	CircleHelp,
 	ClipboardList,
 	Database,
 	Hash,
 	LayoutGrid,
 	LogOut,
-	MoreVertical,
 	Network,
 	Settings,
 	UserRound,
 	Zap,
 } from "lucide-react";
-import { useEffect } from "react";
 import { useAuth } from "../auth";
+
+const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
+const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
+const LEFT_RAIL_COLLAPSED_WIDTH = 72;
 
 export type AppNavigation = {
 	currentPath: string;
@@ -75,15 +80,49 @@ export function LeftRail({
 		projects,
 		currentView,
 		activeProjectId,
+		leftRailCollapsed,
+		leftRailWidth,
 		fetchProjects,
+		setLeftRailCollapsed,
+		setLeftRailWidth,
 		switchView,
 		switchProject,
 	} = useLayoutStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
+	const hasLoadedPreferenceRef = useRef(false);
 
 	useEffect(() => {
 		fetchProjects();
 	}, [fetchProjects]);
+
+	useEffect(() => {
+		if (typeof window === "undefined" || hasLoadedPreferenceRef.current) return;
+		hasLoadedPreferenceRef.current = true;
+
+		const savedWidth = window.localStorage.getItem(LEFT_RAIL_WIDTH_STORAGE_KEY);
+		const savedCollapsed = window.localStorage.getItem(LEFT_RAIL_COLLAPSED_STORAGE_KEY);
+
+		if (savedWidth) {
+			const parsedWidth = Number(savedWidth);
+			if (Number.isFinite(parsedWidth)) {
+				setLeftRailWidth(parsedWidth);
+			}
+		}
+
+		if (savedCollapsed) {
+			setLeftRailCollapsed(savedCollapsed === "true");
+		}
+	}, [setLeftRailCollapsed, setLeftRailWidth]);
+
+	useEffect(() => {
+		if (typeof window === "undefined" || !hasLoadedPreferenceRef.current) return;
+		window.localStorage.setItem(LEFT_RAIL_WIDTH_STORAGE_KEY, String(leftRailWidth));
+	}, [leftRailWidth]);
+
+	useEffect(() => {
+		if (typeof window === "undefined" || !hasLoadedPreferenceRef.current) return;
+		window.localStorage.setItem(LEFT_RAIL_COLLAPSED_STORAGE_KEY, String(leftRailCollapsed));
+	}, [leftRailCollapsed]);
 
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
@@ -134,10 +173,44 @@ export function LeftRail({
 		return currentView === view;
 	};
 
+	const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+		if (leftRailCollapsed) return;
+
+		const startX = event.clientX;
+		const startWidth = leftRailWidth;
+		const pointerId = event.pointerId;
+		const target = event.currentTarget;
+
+		target.setPointerCapture(pointerId);
+
+		const handlePointerMove = (moveEvent: PointerEvent) => {
+			setLeftRailWidth(startWidth + (moveEvent.clientX - startX));
+		};
+
+		const handlePointerUp = () => {
+			if (target.hasPointerCapture(pointerId)) {
+				target.releasePointerCapture(pointerId);
+			}
+			target.removeEventListener("pointermove", handlePointerMove);
+			target.removeEventListener("pointerup", handlePointerUp);
+			target.removeEventListener("pointercancel", handlePointerUp);
+		};
+
+		target.addEventListener("pointermove", handlePointerMove);
+		target.addEventListener("pointerup", handlePointerUp);
+		target.addEventListener("pointercancel", handlePointerUp);
+	};
+
+	const sidebarWidth = leftRailCollapsed ? LEFT_RAIL_COLLAPSED_WIDTH : leftRailWidth;
+
 	return (
-		<aside className="leros-sidebar">
+		<aside
+			className="leros-sidebar"
+			data-collapsed={leftRailCollapsed}
+			style={{ width: `${sidebarWidth}px` }}
+		>
 			<div className="leros-brand">
-				<div className="flex items-center gap-3">
+				<div className="leros-brand-main">
 					<div className="leros-logo-placeholder" aria-hidden="true">
 						<img
 							src={logoSrc}
@@ -149,17 +222,22 @@ export function LeftRail({
 						/>
 						<Network className="size-5" />
 					</div>
-					<div className="min-w-0">
+					<div className="leros-sidebar-expandable min-w-0">
 						<div className="leros-brand-title">Leros AI</div>
 						<div className="leros-brand-version">v0.1</div>
 					</div>
 				</div>
 				<button
 					type="button"
-					className="text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text)]"
-					aria-label="收起侧边栏"
+					className="leros-sidebar-toggle"
+					aria-label={leftRailCollapsed ? "展开侧边栏" : "收起侧边栏"}
+					onClick={() => setLeftRailCollapsed(!leftRailCollapsed)}
 				>
-					<ChevronsLeft className="size-[18px]" />
+					{leftRailCollapsed ? (
+						<ChevronsRight className="size-[18px]" />
+					) : (
+						<ChevronsLeft className="size-[18px]" />
+					)}
 				</button>
 			</div>
 
@@ -168,7 +246,7 @@ export function LeftRail({
 					{navGroups.map((group) => {
 						return (
 							<div key={group.id} className="leros-nav-section">
-								{group.label && <div className="leros-nav-section-label">{group.label}</div>}
+								{group.label ? <div className="leros-nav-section-label">{group.label}</div> : null}
 								{group.id === "projects" ? (
 									<ProjectList
 										projects={projects}
@@ -176,6 +254,7 @@ export function LeftRail({
 										currentView={currentView}
 										currentPath={navigation?.currentPath}
 										onProjectClick={handleProjectClick}
+										collapsed={leftRailCollapsed}
 									/>
 								) : (
 									<div className="space-y-1">
@@ -184,6 +263,7 @@ export function LeftRail({
 												key={item.id}
 												item={item}
 												active={isItemActive(item)}
+												collapsed={leftRailCollapsed}
 												onClick={() => handleNavClick(item)}
 											/>
 										))}
@@ -200,17 +280,12 @@ export function LeftRail({
 					<DropdownMenu>
 						<DropdownMenuTrigger
 							render={
-								<button type="button" className="leros-profile-trigger">
+								<button
+									type="button"
+									className="leros-profile-trigger"
+									title={user?.name ?? "个人中心"}
+								>
 									<ProfileAvatar />
-									<div className="flex-1 overflow-hidden text-left">
-										<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
-											{user?.name ?? "个人中心"}
-										</p>
-										<p className="text-[10px] font-bold uppercase tracking-tight text-[var(--leros-primary)]">
-											PREMIUM
-										</p>
-									</div>
-									<MoreVertical className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
 								</button>
 							}
 						/>
@@ -240,9 +315,14 @@ export function LeftRail({
 						</DropdownMenuContent>
 					</DropdownMenu>
 				) : (
-					<button type="button" className="leros-profile-trigger" onClick={handleProfileClick}>
+					<button
+						type="button"
+						className="leros-profile-trigger"
+						onClick={handleProfileClick}
+						title="登录 / 注册"
+					>
 						<ProfileAvatar />
-						<div className="flex-1 overflow-hidden text-left">
+						<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
 							<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
 								登录 / 注册
 							</p>
@@ -250,10 +330,18 @@ export function LeftRail({
 								LEROS
 							</p>
 						</div>
-						<UserRound className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+						<UserRound className="leros-sidebar-expandable size-4 shrink-0 text-[var(--leros-text-subtle)]" />
 					</button>
 				)}
 			</div>
+
+			<div
+				className="leros-sidebar-resize-handle"
+				role="separator"
+				aria-orientation="vertical"
+				aria-label="调整侧边栏宽度"
+				onPointerDown={handleResizePointerDown}
+			/>
 		</aside>
 	);
 }
@@ -264,7 +352,7 @@ function ProfileAvatar() {
 			<img
 				src="https://lh3.googleusercontent.com/aida-public/AB6AXuBF0owbtXZ299YjKA9U1M8sCOv64scrlTj0dggJ4QzZ3LVWiwaw6F2wdlx-pfng186UXwb39pUr6UYaB3TR0VgvyCzHeq_ftW0GiYK6opisJR6rW9cI41epBVwQ01amJW2zeCfuSC4bO9eHQmG3birvJfEvqhddLBP9UAyGwjti4KWyfS5HGYrOGMI1T2aGvaWbAMOO-dYq22Ezmpl3PWzyb7yd1yYy2LEOqAOSuhmadQKH90cgkhBTISnC5mE8jOrwmrdZuF-Fvs4"
 				alt="Avatar"
-				className="w-full h-full object-cover"
+				className="h-full w-full object-cover"
 			/>
 		</span>
 	);
@@ -287,12 +375,14 @@ function ProjectList({
 	currentView,
 	currentPath,
 	onProjectClick,
+	collapsed,
 }: {
 	projects: Project[];
 	activeProjectId: string | null;
 	currentView: ViewMode;
 	currentPath?: string;
 	onProjectClick: (projectId: string) => void;
+	collapsed: boolean;
 }) {
 	return (
 		<div className="space-y-1">
@@ -306,15 +396,12 @@ function ProjectList({
 						key={project.id}
 						type="button"
 						onClick={() => onProjectClick(project.id)}
-						className={cn(
-							"flex w-full items-center gap-3 rounded-[var(--leros-radius-sm)] px-3 py-1.5 text-left text-sm transition-colors",
-							active
-								? "bg-[var(--leros-primary-softer)] font-semibold text-[var(--leros-primary)]"
-								: "text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]",
-						)}
+						data-active={active}
+						className={cn("leros-nav-item text-sm", collapsed && "justify-center")}
+						title={collapsed ? project.name : undefined}
 					>
 						<span className="font-mono text-[14px] text-[var(--leros-text-subtle)]">#</span>
-						<span className="truncate">{project.name}</span>
+						<span className={cn("truncate", collapsed && "hidden")}>{project.name}</span>
 					</button>
 				);
 			})}
@@ -325,10 +412,12 @@ function ProjectList({
 function NavItemButton({
 	item,
 	active,
+	collapsed,
 	onClick,
 }: {
 	item: NavItem;
 	active: boolean;
+	collapsed: boolean;
 	onClick: () => void;
 }) {
 	const avatarUrl = item.icon === "IconAITeammate" ? avatarMap[item.label] : null;
@@ -340,16 +429,32 @@ function NavItemButton({
 	);
 
 	return (
-		<button type="button" onClick={onClick} data-active={active} className="leros-nav-item">
+		<button
+			type="button"
+			onClick={onClick}
+			data-active={active}
+			className={cn("leros-nav-item", collapsed && "justify-center")}
+			title={collapsed ? item.label : undefined}
+		>
 			<span className={cn("leros-nav-icon", item.icon === "IconProject" && "leros-nav-icon-text")}>
 				{icon}
 			</span>
-			<span className="flex-1 truncate font-medium">{item.label}</span>
+			<span className={cn("flex-1 truncate font-medium", collapsed && "hidden")}>{item.label}</span>
 			{item.badge ? (
 				item.icon === "IconAITeammate" ? (
-					<div className="mr-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--leros-primary)]" />
+					<div
+						className={cn(
+							"h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--leros-primary)]",
+							collapsed ? "absolute right-2 top-2" : "mr-1",
+						)}
+					/>
 				) : (
-					<span className="ml-auto rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
+					<span
+						className={cn(
+							"rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive",
+							collapsed ? "absolute right-1.5 top-1.5" : "ml-auto",
+						)}
+					>
 						{item.badge}
 					</span>
 				)

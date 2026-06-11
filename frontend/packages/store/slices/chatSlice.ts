@@ -1,6 +1,7 @@
 import { FetchSSEClient } from "@leros/ui/lib/fetch-sse";
 import { getArtifactDownloadUrl } from "../api/artifactApi";
 import { API_BASE_URL } from "../api/config";
+import { projectFileApi } from "../api/projectFileApi";
 import { sessionApi } from "../api/sessionApi";
 import type {
 	BackendApprovalDecisionPayload,
@@ -24,6 +25,7 @@ import type {
 	MessageArtifact,
 	MessageMetadata,
 	MessageRole,
+	MessageUsage,
 	ModelOption,
 	RuntimeTodoItem,
 	TodoStatus,
@@ -87,6 +89,7 @@ function mapBackendMessage(msg: BackendMessage): Message {
 		timestamp: msg.timestamp ?? new Date(msg.created_at).getTime(),
 		sequence: msg.sequence,
 		metadata: mapMetadata(msg.metadata),
+		usage: mapUsage(msg.usage),
 	};
 
 	return applySessionEventsToMessage(message, msg.chunks, { appendContent: !message.content });
@@ -117,6 +120,26 @@ function mapMetadata(metadata?: {
 		model: metadata.model,
 		tokens: metadata.tokens,
 		latency: metadata.latency,
+	};
+}
+
+function mapUsage(usage?: {
+	input_tokens?: number;
+	output_tokens?: number;
+	total_tokens?: number;
+}): MessageUsage | undefined {
+	if (!usage) return undefined;
+	if (
+		usage.input_tokens === undefined &&
+		usage.output_tokens === undefined &&
+		usage.total_tokens === undefined
+	) {
+		return undefined;
+	}
+	return {
+		inputTokens: usage.input_tokens,
+		outputTokens: usage.output_tokens,
+		totalTokens: usage.total_tokens,
 	};
 }
 
@@ -547,6 +570,7 @@ function applySessionEventToMessage(
 		case "run.completed": {
 			const resultMessage = getRunResultMessage(payload);
 			const metadata = metadataFromPayload(payload);
+			const usage = mapUsage(payload.usage ?? payload);
 			const artifacts = payload.artifacts
 				?.map(mapArtifactPayload)
 				.filter((artifact): artifact is MessageArtifact => artifact !== undefined);
@@ -560,6 +584,7 @@ function applySessionEventToMessage(
 					? mergeArtifacts(message.artifacts, artifacts)
 					: message.artifacts,
 				metadata: metadata ? { ...message.metadata, ...metadata } : message.metadata,
+				usage: usage ?? message.usage,
 			};
 		}
 		default:
@@ -706,6 +731,22 @@ export class ChatActionImpl {
 				role: "user",
 				content,
 				message_type: "text",
+				metadata:
+					attachments && attachments.length > 0
+						? {
+								file_name: attachments[0]?.name,
+								file_url: attachments[0]?.path || attachments[0]?.url,
+								extra: {
+									attachments: attachments.map((attachment) => ({
+										name: attachment.name,
+										path: attachment.path,
+										url: attachment.url,
+										size: attachment.size,
+										mime_type: attachment.mimeType,
+									})),
+								},
+							}
+						: undefined,
 			});
 		} catch (err) {
 			console.error("sendMessage addMessage error:", err);
@@ -869,6 +910,8 @@ export class ChatActionImpl {
 						this.#finishStream();
 						this.#sseClient?.close();
 						this.#sseClient = null;
+						// 会话结束后回拉历史消息，确保持久化 usage 能立即参与页面汇总展示。
+						void this.loadConversationMessages(sessionId);
 					}
 				} catch {
 					const msg = this.#get().messagesMap[assistantMsgId];
@@ -990,6 +1033,32 @@ export class ChatActionImpl {
 		this.#set((state) => ({
 			inputAttachments: [...state.inputAttachments, attachment],
 		}));
+	};
+
+	addUploadedAttachment = async (projectId: string, file: File) => {
+		const response = await projectFileApi.upload({ projectId, file });
+		const payload = response.data;
+		const uploadedPath =
+			typeof payload === "string" ? payload : typeof payload?.path === "string" ? payload.path : "";
+		const attachmentId = `att-${Date.now()}`;
+		const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+
+		const attachment: Attachment = {
+			id: attachmentId,
+			type: file.type.startsWith("image/") ? "image" : "file",
+			name: file.name,
+			size: file.size,
+			url: previewUrl,
+			file,
+			path: uploadedPath,
+			mimeType: file.type,
+		};
+
+		this.#set((state) => ({
+			inputAttachments: [...state.inputAttachments, attachment],
+		}));
+
+		return attachment;
 	};
 
 	removeAttachment = (id: string) => {

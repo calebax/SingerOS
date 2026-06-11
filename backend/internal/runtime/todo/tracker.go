@@ -22,18 +22,16 @@ type Reporter interface {
 
 // Options 配置 Tracker。
 type Options struct {
-	RunID   string
-	TraceID string
-	Sink    events.Sink
+	RunID string
+	Sink  events.Sink
 }
 
 // Tracker 维护一次运行的内存中待办列表。
 type Tracker struct {
-	mu      sync.Mutex
-	runID   string
-	traceID string
-	sink    events.Sink
-	items   []RuntimeTodoItem
+	mu    sync.Mutex
+	runID string
+	sink  events.Sink
+	items []RuntimeTodoItem
 }
 
 // NewTracker 创建运行时待办跟踪器。
@@ -43,9 +41,8 @@ func NewTracker(opts Options) *Tracker {
 		sink = events.NewNoopSink()
 	}
 	return &Tracker{
-		runID:   strings.TrimSpace(opts.RunID),
-		traceID: strings.TrimSpace(opts.TraceID),
-		sink:    sink,
+		runID: strings.TrimSpace(opts.RunID),
+		sink:  sink,
 	}
 }
 
@@ -95,9 +92,6 @@ func (t *Tracker) emit(ctx context.Context, event *events.Event) error {
 	}
 	if event.RunID == "" {
 		event.RunID = t.runID
-	}
-	if event.TraceID == "" {
-		event.TraceID = t.traceID
 	}
 	return t.sink.Emit(ctx, event)
 }

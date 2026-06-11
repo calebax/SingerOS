@@ -44,7 +44,6 @@ var dangerousPatterns = []DangerousPattern{
 	{Regex: regexp.MustCompile(`\bxargs\s+.*\brm\b`), Name: "xargs with rm", Severity: "high"},
 	{Regex: regexp.MustCompile(`\bfind\b.*-exec\s+(/\S*/)?rm\b`), Name: "find -exec rm", Severity: "high"},
 	{Regex: regexp.MustCompile(`\bfind\b.*-delete\b`), Name: "find -delete", Severity: "high"},
-	{Regex: regexp.MustCompile(`\b(pkill|killall)\b.*\b(hermes|gateway|cli\.py)\b`), Name: "kill hermes/gateway process", Severity: "high"},
 	{Regex: regexp.MustCompile(`\bkill\b.*\$\(\s*pgrep\b`), Name: "kill process via pgrep expansion", Severity: "high"},
 	{Regex: regexp.MustCompile(`\b(cp|mv|install)\b.*\s/etc/`), Name: "copy/move file into /etc/", Severity: "high"},
 	{Regex: regexp.MustCompile(`\bsed\s+-[^\s]*i.*\s/etc/`), Name: "in-place edit of system config", Severity: "high"},

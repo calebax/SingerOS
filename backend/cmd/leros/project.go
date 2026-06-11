@@ -15,72 +15,84 @@ import (
 )
 
 var (
-	projectServerAddr string
-	projectJSON       bool
-	projectKeyword    string
-	projectStatus     string
-	projectOffset     int
-	projectLimit      int
+	projectJSON    bool
+	projectKeyword string
+	projectStatus  string
+	projectOffset  int
+	projectLimit   int
 )
 
-var projectCmd = &cobra.Command{
-	Use:   "project",
-	Short: "Manage projects",
-	Long:  `Manage projects in the Leros platform.`,
-}
+func newProjectCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "project",
+		Short: "Manage projects",
+		Long:  `Manage projects in the Leros platform.`,
+	}
 
-var projectLsCmd = &cobra.Command{
-	Use:   "ls",
-	Short: "List projects",
-	Long:  `List all projects with optional filtering.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		go func() {
-			req := &contract.ListProjectsRequest{
-				Pagination: contract.ListProjectsRequest{}.Pagination,
-			}
-			req.Offset = projectOffset
-			req.Limit = projectLimit
-			req.Fill()
+	lsCmd := &cobra.Command{
+		Use:   "ls",
+		Short: "List projects",
+		Long:  `List all projects with optional filtering.`,
+		Run: func(cmd *cobra.Command, args []string) {
+			go func() {
+				req := &contract.ListProjectsRequest{
+					Pagination: contract.ListProjectsRequest{}.Pagination,
+				}
+				req.Offset = projectOffset
+				req.Limit = projectLimit
+				req.Fill()
 
-			if projectKeyword != "" {
-				req.Keyword = &projectKeyword
-			}
-			if projectStatus != "" {
-				req.Status = &projectStatus
-			}
+				if projectKeyword != "" {
+					req.Keyword = &projectKeyword
+				}
+				if projectStatus != "" {
+					req.Status = &projectStatus
+				}
 
-			result, err := cli.ListProjects(lifecycle.Std().Context(), projectServerAddr, req)
-			if err != nil {
-				logs.Errorf("list projects: %v", err)
+				result, err := cli.ListProjects(lifecycle.Std().Context(), cliServerAddr(), cliAuthToken(), req)
+				if err != nil {
+					logs.Errorf("list projects: %v", err)
+					lifecycle.Std().Exit()
+					return
+				}
+				printProjects(result)
 				lifecycle.Std().Exit()
-				return
-			}
-			printProjects(result)
-			lifecycle.Std().Exit()
-		}()
-		lifecycle.Std().WaitExit()
-	},
-}
+			}()
+			lifecycle.Std().WaitExit()
+		},
+	}
 
-var projectGetCmd = &cobra.Command{
-	Use:   "get <project_id>",
-	Short: "Get project details",
-	Long:  `Get detailed information about a specific project by its public ID.`,
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		go func() {
-			publicID := args[0]
-			result, err := cli.DetailProject(lifecycle.Std().Context(), projectServerAddr, publicID)
-			if err != nil {
-				logs.Errorf("get project: %v", err)
+	getCmd := &cobra.Command{
+		Use:   "get <project_id>",
+		Short: "Get project details",
+		Long:  `Get detailed information about a specific project by its public ID.`,
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			go func() {
+				publicID := args[0]
+				result, err := cli.DetailProject(lifecycle.Std().Context(), cliServerAddr(), cliAuthToken(), publicID)
+				if err != nil {
+					logs.Errorf("get project: %v", err)
+					lifecycle.Std().Exit()
+					return
+				}
+				printProjectDetail(result)
 				lifecycle.Std().Exit()
-				return
-			}
-			printProjectDetail(result)
-			lifecycle.Std().Exit()
-		}()
-		lifecycle.Std().WaitExit()
-	},
+			}()
+			lifecycle.Std().WaitExit()
+		},
+	}
+
+	cmd.PersistentFlags().BoolVar(&projectJSON, "json", false, "Output in JSON format")
+
+	lsCmd.Flags().StringVar(&projectKeyword, "keyword", "", "Filter by name keyword")
+	lsCmd.Flags().StringVar(&projectStatus, "status", "", "Filter by status")
+	lsCmd.Flags().IntVar(&projectOffset, "offset", 0, "Pagination offset")
+	lsCmd.Flags().IntVar(&projectLimit, "limit", 20, "Pagination limit")
+
+	cmd.AddCommand(lsCmd)
+	cmd.AddCommand(getCmd)
+	return cmd
 }
 
 func printProjects(list *contract.ProjectList) {
@@ -185,18 +197,4 @@ func formatSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
-}
-
-func init() {
-	projectCmd.PersistentFlags().StringVar(&projectServerAddr, "server-addr", "127.0.0.1:8080", "Leros server address (host:port)")
-	projectCmd.PersistentFlags().BoolVar(&projectJSON, "json", false, "Output in JSON format")
-
-	projectLsCmd.Flags().StringVar(&projectKeyword, "keyword", "", "Filter by name keyword")
-	projectLsCmd.Flags().StringVar(&projectStatus, "status", "", "Filter by status")
-	projectLsCmd.Flags().IntVar(&projectOffset, "offset", 0, "Pagination offset")
-	projectLsCmd.Flags().IntVar(&projectLimit, "limit", 20, "Pagination limit")
-
-	projectCmd.AddCommand(projectLsCmd)
-	projectCmd.AddCommand(projectGetCmd)
-	rootCmd.AddCommand(projectCmd)
 }

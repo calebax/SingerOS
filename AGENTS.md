@@ -5,7 +5,8 @@
 ## 构建/检查/测试 命令
 
 ### 构建命令
-- `go build -o ./bundles/leros ./backend/cmd/leros/main.go` - 构建主 Leros 后端服务（输出到 `./bundles/`）
+
+- `go build -o ./bundles/leros ./backend/cmd/leros/` - 构建主 Leros 后端服务（输出到 `./bundles/`）
 - `make docker-build` - 构建 Docker 镜像（标签：registry.yygu.cn/insmtx/Leros:latest）
 - `make docker-run` - 在本地运行 Docker 镜像
 - `make run` - 以前台模式启动 docker-compose 服务
@@ -15,6 +16,7 @@
 - `make swagger` - 生成 Swagger API 文档（输出到 `docs/swagger/docs.go`）
 
 ### 测试命令
+
 - `go test ./...` - 运行项目中所有测试
 - `go test -v ./...` - 以详细输出方式运行所有测试
 - `go test ./backend/path/to/package` - 运行特定包的测试
@@ -23,6 +25,7 @@
 - `go test -cover ./...` - 运行测试并显示覆盖率信息
 
 ### 检查命令
+
 - `go fmt ./...` - 格式化所有 Go 代码
 - `go vet ./...` - 检查所有 Go 代码中的常见错误
 - `golint ./...` - 检查所有 Go 代码（通过 `go install golang.org/x/lint/golint@latest` 安装）
@@ -32,28 +35,32 @@
 ## 代码风格指南
 
 ### 导入组织
+
 - 在标准库、第三方和项目特定包之间用空行分组导入
 - 仅在防止命名冲突时使用语义导入别名
 - 组织成三组：stdlib，第三方，内部包
+
 ```
 import (
 	"fmt"
 	"net/http"
-	
+
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
-	
+
 	"github.com/insmtx/Leros/backend/config"
 )
 ```
 
 ### 格式约定
+
 - 使用制表符进行缩进，而不是空格（从现有 Go 文件验证过）
 - 提交前执行 `go fmt ./...`
 - 尽可能保持每行少于 120 个字符
 - 使用 `gofmt -s` 简化代码
 
 ### 命名约定
+
 - 对于导出的函数/类型使用驼峰命名法（`GetUser`，`UserService`）
 - 对于未导出/内部函数/类型使用小写驼峰命名法（`getUser`，`userService`）
 - 使用清晰、描述性的名称；优先考虑清晰度而不是简洁性
@@ -61,6 +68,7 @@ import (
 - 与系统相关的变量应引用 Leros 概念
 
 ### 类型和接口
+
 - 在第一次使用附近定义接口
 - 保持接口小，通常是一个或几个方法
 - 在适用时，用 "-er" 后缀命名接口类型（例如，`Runner`，`Handler`）
@@ -68,6 +76,7 @@ import (
 - 当传递给函数且会被修改时，倾向于返回结构体的指针
 
 ### 错误处理
+
 - 显式处理错误；不要忽略它们
 - 在适当的情况下使用具体的错误类型并包装错误
 - 遵循以下模式："if err != nil { return err }"
@@ -76,6 +85,7 @@ import (
 - 适当时记录错误上下文
 
 ### 附加准则
+
 - 所有公共函数必须有 GoDoc 注释
 - 注释应采用英文，并解释原因而非内容
 - 在整个应用程序中维护一致的日志格式
@@ -84,10 +94,12 @@ import (
 - 使用 Cobra 进行命令行界面实现，如 main.go 文件所示
 
 ### 强制约束
+
 - **禁止使用 `panic`**：整个项目（含库代码和业务代码）严禁使用 `panic`。错误必须通过返回 `error` 逐层传递，由顶层调用方统一处理。对于不可恢复的致命错误（如配置缺失导致无法启动），应在 `main` 函数中使用 `log.Fatal` 退出。
 - **禁止使用 `map[string]interface{}` 传递数据**：严禁在函数签名、接口定义或跨层通信中使用 `map[string]interface{}` 传递业务数据。必须定义具名结构体（struct）或类型化 map（如 `map[string]string`），以保证编译时类型安全和代码可读性。若现有接口（如 `Skill` 接口）使用了 `map[string]interface{}`，需在后续迭代中重构为强类型参数。
 
 ### 提交准则
+
 - 遵循约定式提交格式：<type>(<scope>): <subject>
 - 在 Leros 项目中使用中文作为提交消息
 - 类型选项包括：
@@ -104,13 +116,14 @@ import (
 
 项目遵循三层架构，每层有明确的职责边界。写代码前先确认改动属于哪一层。
 
-| 层级 | 路径 | 允许 | 禁止 |
-|------|------|------|------|
-| **进程入口** | `backend/cmd/leros/` | cobra 命令注册、进程生命周期（`lifecycle.Std().WaitExit()`）、信号处理、`log.Fatal` | 业务逻辑 |
-| **库代码** | `backend/internal/*` | 业务逻辑实现，通过 `error` 向上传递失败 | `os.Exit()`、`lifecycle.Std()`、`log.Fatal`、`panic`、信号处理、cobra 依赖 |
-| **共享类型** | `backend/types/`、`backend/config/` | 领域类型、配置结构定义 | 任何业务逻辑、外部依赖 |
+| 层级         | 路径                                | 允许                                                                                | 禁止                                                                       |
+| ------------ | ----------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **进程入口** | `backend/cmd/leros/`                | cobra 命令注册、进程生命周期（`lifecycle.Std().WaitExit()`）、信号处理、`log.Fatal` | 业务逻辑                                                                   |
+| **库代码**   | `backend/internal/*`                | 业务逻辑实现，通过 `error` 向上传递失败                                             | `os.Exit()`、`lifecycle.Std()`、`log.Fatal`、`panic`、信号处理、cobra 依赖 |
+| **共享类型** | `backend/types/`、`backend/config/` | 领域类型、配置结构定义                                                              | 任何业务逻辑、外部依赖                                                     |
 
 核心原则：
+
 - `internal/` 下的包不知道自己是运行在 server、worker 还是 CLI 中。进程如何启停是 `cmd/` 的事。
 - 目录名不是职责的借口——`internal/cli` 表示"CLI 相关的库代码"，不代表它可以接管进程生命周期。
 - 多层代码共享的常量/类型应下沉到最底层共享包，避免在两个包中重复定义。若重复已存在，优先合并到更内层的包，外层通过类型别名引用。
@@ -138,13 +151,19 @@ import (
 - `/backend` - 主要 Go 应用程序代码
   - `/backend/cmd/leros` - 主 Leros 后端服务入口点
   - `/backend/config` - 配置加载和类型
+  - `/backend/engines` - 引擎层（native engine 与 system prompt 分层架构）
   - `/backend/gateway` - HTTP 网关包
   - `/backend/interaction` - 事件驱动交互层
     - `/backend/interaction/connectors` - 渠道连接器（GitHub 已实现；GitLab，WeWork 桩代码）
     - `/backend/internal/infra/mq` - NATS JetStream 事件总线实现
     - `/backend/interaction/gateway` - 事件网关设置
-  - `/backend/skills` - Skill 接口、类型和示例
+  - `/backend/internal/worker` - Worker 任务消费与调度
+  - `/backend/pkg` - 提取的公共库
+  - `/backend/prompts` - 系统提示词管理
+  - `/backend/skills` - Skill 接口、类型和示例（三层架构 + 事件驱动 handler 模型）
+  - `/backend/tools` - 工具模块
   - `/backend/types` - 核心领域类型（DigitalAssistant，Event 等）
+  - `/backend/tests` - 测试代码
 - `/bundles` - 构建输出目录（生成；已忽略 git）
 - `/deployments/build/Dockerfile` - 容器构建配置
 - `/deployments/dev/` - 开发环境配置和脚本
@@ -179,6 +198,8 @@ import (
 - `PR_EVENT_FLOW.md` - GitHub PR 事件处理流程验证清单
 - `TROUBLESHOOTING.md` - 常见问题故障排除指南
 
+根目录下另有 `CHANGELOG.md` 记录版本变更历史。
+
 ## Swagger API 文档
 
 Swagger 文档生成到 `docs/swagger/` 目录：
@@ -204,9 +225,10 @@ docs/swagger/swagger.yaml   # YAML 格式文档
 3. **Orchestrator** - 核心调度和协调机制（🔄 计划中）
 4. **DigitalAssistant** - 表示 AI worker 的顶级抽象（✅ 类型已定义）
 5. **Agent** - DigitalAssistant 中的决策实体（🔄 计划中）
-6. **Skill** - 可调用的可重用功能（✅ 接口和基础实现已完成）
-7. **Model Router** - 多提供商 LLM 路由（🔄 计划中。注：`backend/internal/modelrouter/v2` 已可用，v1 已废弃）
-8. **Memory System** - 短期和长期记忆（🔄 计划中）
+6. **Skill** - 可调用的可重用功能（✅ 三层架构 + 事件驱动 handler 模型已完成，支持创建/编辑/删除）
+7. **Worker** - 后台任务消费与调度系统（✅ 并发消费、LLM 配置传递已实现）
+8. **Model Router** - 多提供商 LLM 路由（🔄 计划中。注：`backend/internal/modelrouter/v2` 已可用，v1 已废弃）
+9. **Memory System** - 短期和长期记忆（🔄 计划中）
 
 ## 技能系统定义
 
@@ -291,6 +313,8 @@ Leros/
 │   │
 │   ├── config/              # 配置加载和类型（GitHub app config，等）
 │   │
+│   ├── engines/             # 引擎层（native engine 与 system prompt 分层架构）
+│   │
 │   ├── gateway/             # HTTP 网关（为未来路由的占位符）
 │   │
 │   ├── interaction/         # 事件驱动交互层
@@ -300,14 +324,24 @@ Leros/
 │   │   │   └── wework/      # WeWork/企业微信 连接器（🔄 桩代码）
 │   │   └── gateway/         # 事件网关路由器设置
 │   │
-│   ├── skills/              # Skill 接口，BaseSkill，SkillManager 接口
+│   ├── internal/worker/     # Worker 任务消费与调度
+│   │
+│   ├── pkg/                 # 提取的公共库
+│   │
+│   ├── prompts/             # 系统提示词管理
+│   │
+│   ├── skills/              # Skill 接口、类型和示例（三层架构 + 事件驱动 handler）
 │   │   └── examples/        # 示例技能实现
 │   │
-│   └── types/               # 核心领域类型
-│       ├── digital_assistant.go          # DigitalAssistant, AssistantConfig
-│       ├── digital_assistant_instance.go # DigitalAssistantInstance
-│       ├── event.go                      # Event (持久存储)
-│       └── tables.go                     # 数据库表名常量
+│   ├── tools/               # 工具模块
+│   │
+│   ├── types/               # 核心领域类型
+│   │   ├── digital_assistant.go          # DigitalAssistant, AssistantConfig
+│   │   ├── digital_assistant_instance.go # DigitalAssistantInstance
+│   │   ├── event.go                      # Event (持久存储)
+│   │   └── tables.go                     # 数据库表名常量
+│   │
+│   └── tests/               # 测试代码
 │
 ├── proto/                   # Protobuf 定义
 ├── gen/                     # 来源于 protos 的生成代码
@@ -339,16 +373,16 @@ MVP 特性：
 
 当前和计划的技术栈：
 
-| 组件 | 技术 | 状态 |
-|-----------|-----------|--------|
-| 语言 | Golang | ✅ 活跃 |
-| HTTP 框架 | Gin | ✅ 活跃 |
-| CLI 框架 | Cobra | ✅ 活跃 |
-| 消息队列 | NATS JetStream | ✅ 活跃 |
-| ORM | GORM | ✅ 活跃 (类型已定义) |
-| 数据库 | Postgres | 🔄 计划中 |
-| 向量存储 | Qdrant | 🔄 计划中 |
-| LLM | OpenAI / Claude / DeepSeek | 🔄 计划中 |
+| 组件      | 技术                       | 状态                 |
+| --------- | -------------------------- | -------------------- |
+| 语言      | Golang                     | ✅ 活跃              |
+| HTTP 框架 | Gin                        | ✅ 活跃              |
+| CLI 框架  | Cobra                      | ✅ 活跃              |
+| 消息队列  | NATS JetStream             | ✅ 活跃              |
+| ORM       | GORM                       | ✅ 活跃 (类型已定义) |
+| 数据库    | Postgres                   | 🔄 计划中            |
+| 向量存储  | Qdrant                     | 🔄 计划中            |
+| LLM       | OpenAI / Claude / DeepSeek | 🔄 计划中            |
 
 > **modelrouter 版本说明：** `backend/internal/modelrouter` (v1) 已废弃，请使用 `backend/internal/modelrouter/v2`。
 
@@ -404,6 +438,7 @@ git checkout -b feat/scope-descriptive-name
 ```
 
 遵循分支命名约定：
+
 - `feat/` 用于主要功能
 - `fix/` 用于 bug 修复
 - `enhancement/` 用于现有功能的改进
@@ -426,6 +461,7 @@ git push origin feature/descriptive-feature-name
 ```
 
 提交消息格式遵循约定式提交规范：
+
 ```
 type(scope): description
 
@@ -435,6 +471,7 @@ type(scope): description
 ```
 
 常见类型：
+
 - `feat`: 新功能
 - `fix`: 修复错误
 - `docs`: 仅文档更改

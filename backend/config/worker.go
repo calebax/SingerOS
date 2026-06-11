@@ -5,6 +5,7 @@ type WorkerConfig struct {
 	WorkerID uint `yaml:"worker_id" json:"worker_id"`
 
 	ServerAddr    string `yaml:"server_addr,omitempty" json:"server_addr,omitempty"`
+	AuthToken     string `yaml:"auth_token,omitempty" json:"auth_token,omitempty"`
 	WorkspaceRoot string `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
 
 	NATS *NATSConfig       `yaml:"nats,omitempty"`

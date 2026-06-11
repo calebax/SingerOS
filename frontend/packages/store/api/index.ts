@@ -1,4 +1,4 @@
-export { artifactApi, getArtifactDownloadUrl } from "./artifactApi";
+export { artifactApi, fetchArtifactDownload, getArtifactDownloadUrl } from "./artifactApi";
 export type {
 	AuthOrgInfo,
 	AuthTokenResponse,
@@ -32,6 +32,12 @@ export type {
 	ListSessionsParams,
 	UpdateSessionParams,
 } from "./sessionApi";
+export type {
+	SearchSkillMarketplaceParams,
+	SearchSkillMarketplaceResponse,
+	SkillMarketplaceItem,
+} from "./skillMarketplaceApi";
+export { skillMarketplaceApi } from "./skillMarketplaceApi";
 export { sessionApi } from "./sessionApi";
 export type {
 	CreateTaskParams,
