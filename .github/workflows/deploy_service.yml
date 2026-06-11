@@ -45,16 +45,26 @@ jobs:
 
       - name: Deploy to server
         uses: appleboy/ssh-action@master
+        env:
+          REGISTRY_HOST: ${{ secrets.DOCKER_REGISTRY_HOST }}
+          K8S_NS: insmtx-test
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOYER_PRIMARY_KEY }}
+
+          envs: REGISTRY_HOST,K8S_NS
+
           script: |
             IMAGE_TAG=${{ steps.step_env.outputs.image_tag }}
             TARGET="${{ github.event.inputs.deploy_target }}"
 
+            echo "REGISTRY_HOST=${REGISTRY_HOST}"
+            echo "K8S_NS=${K8S_NS}"
+
             echo ">>> Deploying ${TARGET}..."
             FULL_IMAGE=${REGISTRY_HOST}/insmtx/${TARGET}:${IMAGE_TAG}
+
             kubectl set image deployment/${TARGET} ${TARGET}=${FULL_IMAGE} -n ${K8S_NS}
             kubectl rollout status deployment/${TARGET} -n ${K8S_NS}
 
