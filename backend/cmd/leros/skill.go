@@ -236,4 +236,3 @@ func runList() error {
 	fmt.Fprintf(os.Stderr, "\n%d skill(s) installed.\n", len(summaries))
 	return nil
 }
-

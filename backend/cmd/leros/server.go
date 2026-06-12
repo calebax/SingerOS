@@ -16,6 +16,7 @@ import (
 	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/api"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
@@ -83,6 +84,12 @@ func newServerCommand() *cobra.Command {
 				logs.Warn("  - To enable database, add database.url to your config file")
 				logs.Warn("  - See example-config.yaml for database configuration example")
 			}
+
+			if err := filestore.Init(cfg.Storage); err != nil {
+				logs.Fatalf("Failed to initialize storage: %v", err)
+				return
+			}
+			logs.Info("Storage initialized successfully")
 
 			r := api.SetupRouter(*cfg, publisher, db)
 

@@ -382,6 +382,7 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 				Messages: []protocol.ChatMessage{
 					{Role: protocol.MessageRoleUser, Content: message.Content},
 				},
+				Attachments: convertMessageToProtocolAttachments(message.Attachments),
 			},
 			Model: modelOptions,
 		},
@@ -422,6 +423,21 @@ func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) 
 		BaseURLHasV1: model.BaseURLHasV1,
 		APIKey:       model.APIKeyEncrypted,
 	}, nil
+}
+
+func convertMessageToProtocolAttachments(attachments types.MessageAttachmentSlice) []protocol.Attachment {
+	if len(attachments) == 0 {
+		return nil
+	}
+	result := make([]protocol.Attachment, 0, len(attachments))
+	for _, a := range attachments {
+		result = append(result, protocol.Attachment{
+			ID:       a.FileUploadID,
+			Name:     a.Name,
+			MimeType: a.MimeType,
+		})
+	}
+	return result
 }
 
 func (p *MessagePoster) resolveWorkspaceIDs(ctx context.Context, session *types.Session) (string, string, error) {

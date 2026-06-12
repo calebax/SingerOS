@@ -184,17 +184,3 @@ func detectMimeType(path string, declared string) string {
 	}
 	return normalizeMimeType(http.DetectContentType(buf[:n]))
 }
-
-func normalizeMimeType(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if mediaType, _, err := mime.ParseMediaType(value); err == nil {
-		return mediaType
-	}
-	if index := strings.Index(value, ";"); index >= 0 {
-		return strings.TrimSpace(value[:index])
-	}
-	return value
-}

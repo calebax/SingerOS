@@ -292,6 +292,10 @@ func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence 
 		message.Chunks = req.Chunks
 	}
 
+	if req.Attachments != nil && len(req.Attachments) > 0 {
+		message.Attachments = req.Attachments
+	}
+
 	if req.Metadata != nil {
 		message.Metadata = *req.Metadata
 	} else {
@@ -577,6 +581,10 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 	}
 	if len(message.Artifacts) > 0 {
 		result.Artifacts = append([]types.MessageArtifact{}, message.Artifacts...)
+	}
+
+	if len(message.Attachments) > 0 {
+		result.Attachments = append([]types.MessageAttachment{}, message.Attachments...)
 	}
 
 	if message.Metadata.Extra != nil {

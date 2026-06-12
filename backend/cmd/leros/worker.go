@@ -294,7 +294,6 @@ func validateTaskWorkerConfig(cfg *config.WorkerConfig) error {
 	return nil
 }
 
-
 func startWorkerHTTPServer(addr string) (*http.Server, error) {
 	if strings.TrimSpace(addr) == "" {
 		addr = ":8081"

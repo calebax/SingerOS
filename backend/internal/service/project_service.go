@@ -1,11 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -15,8 +17,11 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/ygpkg/storage-go"
+
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/types"
@@ -347,7 +352,9 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		return nil, err
 	}
 	for _, a := range artifacts {
-		result.Artifacts = append(result.Artifacts, convertToContractArtifact(a))
+		if converted := convertToContractArtifact(a); converted != nil {
+			result.Artifacts = append(result.Artifacts, *converted)
+		}
 	}
 
 	// 查询项目成员
@@ -456,7 +463,6 @@ func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) 
 }
 
 func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, parentPath string, depth int) ([]*contract.FileTreeNode, error) {
-	// 1. 鉴权
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
@@ -465,7 +471,6 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 		return nil, errors.New("public_id is required")
 	}
 
-	// 2. 查项目
 	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
 	if err != nil {
 		return nil, err
@@ -477,103 +482,25 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 		return nil, err
 	}
 
-	// 3. 解析 repo 路径
-	workerID := getWorkerIDByProjectID(publicID)
-	repoDir, err := workspace.ProjectRepoPath(project.OrgID, workerID, publicID)
+	uploadFiles, err := db.ListProjectFileUploads(ctx, s.db, caller.OrgID, publicID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list project file uploads: %w", err)
 	}
 
-	// 4. 确定起始目录
-	startDir := repoDir
-	parentPath = strings.TrimSpace(parentPath)
-	if parentPath != "" {
-		cleanPath := filepath.Clean(filepath.FromSlash(parentPath))
-		if strings.HasPrefix(cleanPath, "..") || filepath.IsAbs(cleanPath) {
-			return nil, errors.New("invalid parent path")
-		}
-		startDir = filepath.Join(repoDir, cleanPath)
-		// 确保起始目录存在
-		if info, statErr := os.Stat(startDir); statErr != nil || !info.IsDir() {
-			return nil, errors.New("directory not found")
-		}
-	}
-
-	// 5. 默认 depth=2
-	if depth <= 0 {
-		depth = 2
-	}
-
-	// 6. 构建 IgnoreChecker
-	checker, err := workspace.NewIgnoreChecker(repoDir)
-	if err != nil {
-		return nil, fmt.Errorf("init ignore checker: %w", err)
-	}
-
-	// 7. Walk 收集扁平条目（带深度控制）
-	var entries []fileTreeEntry
-
-	err = filepath.WalkDir(startDir, func(absPath string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		// 跳过起始目录自身
-		if absPath == startDir {
-			return nil
-		}
-
-		// 计算相对深度
-		relFromStart, _ := filepath.Rel(startDir, absPath)
-		currentDepth := strings.Count(relFromStart, string(filepath.Separator)) + 1
-
-		if d.IsDir() {
-			if checker.ShouldSkipDir(absPath) {
-				return filepath.SkipDir
-			}
-			if currentDepth > depth {
-				return filepath.SkipDir
-			}
-			dirModTime := int64(0)
-			if dirInfo, statErr := d.Info(); statErr == nil {
-				dirModTime = dirInfo.ModTime().Unix()
-			}
-			entries = append(entries, fileTreeEntry{absPath: absPath, isDir: true, modTime: dirModTime})
-			return nil
-		}
-
-		// 文件：检查是否被忽略
-		ignored, ignoreErr := checker.IsIgnored(absPath)
-		if ignoreErr != nil || ignored {
-			return nil
-		}
-
-		if currentDepth > depth {
-			return nil
-		}
-
-		info, statErr := d.Info()
-		if statErr != nil {
-			return nil
-		}
-
-		entries = append(entries, fileTreeEntry{
-			absPath: absPath,
-			isDir:   false,
-			size:    info.Size(),
-			modTime: info.ModTime().Unix(),
+	fileTree := make([]*contract.FileTreeNode, 0, len(uploadFiles))
+	for _, f := range uploadFiles {
+		fileTree = append(fileTree, &contract.FileTreeNode{
+			Name:     f.OriginalName,
+			Path:     f.Filename,
+			Type:     "file",
+			Size:     f.FileSize,
+			MimeType: f.MimeType,
+			ModTime:  f.UpdatedAt.Unix(),
+			PublicID: f.PublicID,
 		})
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walk repo: %w", err)
 	}
 
-	// 8. 构建树
-	return buildFileTree(entries, repoDir, startDir), nil
+	return fileTree, nil
 }
 
 // buildFileTree 将扁平条目构建为递归文件树。
@@ -716,10 +643,8 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	return file, mimeType, info.Size(), nil
 }
 
-// UploadProjectFile 上传文件到项目 Upload 目录。
-// 若存在同名文件，自动追加 _1、_2 等序列号。
+// UploadProjectFile 上传文件到 storage。
 func (s *projectService) UploadProjectFile(ctx context.Context, publicID string, reader io.Reader, filename string) (*contract.FileUploadResult, error) {
-	// 1. 鉴权
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
@@ -732,7 +657,6 @@ func (s *projectService) UploadProjectFile(ctx context.Context, publicID string,
 		return nil, errors.New("filename is required")
 	}
 
-	// 2. 查项目
 	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
 	if err != nil {
 		return nil, err
@@ -744,63 +668,82 @@ func (s *projectService) UploadProjectFile(ctx context.Context, publicID string,
 		return nil, err
 	}
 
-	// 3. 解析 repo 路径
-	workerID := getWorkerIDByProjectID(publicID)
-	repoDir, err := workspace.ProjectRepoPath(project.OrgID, workerID, publicID)
+	data, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read file: %w", err)
 	}
 
-	// 4. 确保 Upload 目录存在
-	uploadDir := filepath.Join(repoDir, "Upload")
-	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create upload dir: %w", err)
+	hash := sha256.Sum256(data)
+	sha256Hex := hex.EncodeToString(hash[:])
+
+	mimeType := mime.TypeByExtension(filepath.Ext(filename))
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data[:min(len(data), 512)])
 	}
 
-	// 5. 文件名去重：若存在同名文件，追加 _1、_2 ...
-	safeFilename := resolveUniqueFilename(uploadDir, filename)
-
-	// 6. 安全路径校验
-	absPath, err := workspace.SafeJoin(repoDir, filepath.Join("Upload", safeFilename))
-	if err != nil {
-		return nil, fmt.Errorf("invalid filename: %w", err)
+	ext := ""
+	if idx := strings.LastIndex(filename, "."); idx >= 0 {
+		ext = filename[idx:]
 	}
+	storeFilename := fmt.Sprintf("%s%s", snowflake.GenerateIDBase58(), ext)
+	key := fmt.Sprintf("projects/%s/%d/%s/%s", publicID, caller.OrgID, sha256Hex[:8], storeFilename)
 
-	// 7. 写入文件
-	file, err := os.Create(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("create file: %w", err)
-	}
-	defer file.Close()
+	st := filestore.GetStorage()
+	bucket := filestore.DefaultBucket()
 
-	written, err := io.Copy(file, reader)
+	result, err := st.PutObject(ctx, bucket, key, bytes.NewReader(data),
+		storage.WithContentType(mimeType),
+	)
 	if err != nil {
-		// 写入失败时清理已创建的文件
-		os.Remove(absPath)
-		return nil, fmt.Errorf("write file: %w", err)
+		return nil, fmt.Errorf("upload file: %w", err)
 	}
 
 	return &contract.FileUploadResult{
-		Path:     filepath.ToSlash(filepath.Join("Upload", safeFilename)),
-		Filename: safeFilename,
-		Size:     written,
+		Path:     result.Path.URI(),
+		Filename: filename,
+		Size:     int64(len(data)),
+		URL:      result.Path.PublicURL(),
 	}, nil
 }
 
-// resolveUniqueFilename 在目标目录中生成不重复的文件名。
-// 若 base.ext 已存在，则尝试 base_1.ext、base_2.ext 直到不重复。
-func resolveUniqueFilename(dir, filename string) string {
-	ext := filepath.Ext(filename)
-	base := filename[:len(filename)-len(ext)]
-
-	candidate := filename
-	for i := 1; ; i++ {
-		target := filepath.Join(dir, candidate)
-		if _, err := os.Stat(target); os.IsNotExist(err) {
-			return candidate
-		}
-		candidate = fmt.Sprintf("%s_%d%s", base, i, ext)
+// AddFile 将已上传的文件关联到项目。
+func (s *projectService) AddFile(ctx context.Context, publicID string, filePublicID string) error {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return err
 	}
+	if strings.TrimSpace(publicID) == "" {
+		return errors.New("public_id is required")
+	}
+	if strings.TrimSpace(filePublicID) == "" {
+		return errors.New("file_public_id is required")
+	}
+
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
+	if err != nil {
+		return err
+	}
+	if project == nil {
+		return errors.New("project not found")
+	}
+
+	file, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, filePublicID)
+	if err != nil {
+		return err
+	}
+	if file == nil {
+		return errors.New("file not found")
+	}
+
+	if file.Metadata.Extra == nil {
+		file.Metadata.Extra = make(map[string]interface{})
+	}
+	file.Metadata.Extra["project_public_id"] = publicID
+	if err := db.UpdateFileUpload(ctx, s.db, file); err != nil {
+		return fmt.Errorf("update file upload metadata: %w", err)
+	}
+
+	return nil
 }
 
 func generateProjectPublicID() string {

@@ -2988,6 +2988,168 @@ const docTemplate = `{
                 }
             }
         },
+        "/files/upload": {
+            "post": {
+                "description": "上传文件到系统",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "File"
+                ],
+                "summary": "上传文件",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "上传文件",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件用途（默认 attachment）",
+                        "name": "purpose",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "上传成功",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/files/{id}/download": {
+            "get": {
+                "description": "流式返回文件内容",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "File"
+                ],
+                "summary": "下载文件",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "文件ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "文件内容",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "文件不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/AddFile": {
+            "post": {
+                "description": "将已通过 /v1/files/upload 上传的文件关联到指定项目",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project"
+                ],
+                "summary": "关联文件到项目",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "项目 public_id",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "文件信息",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.AddFileRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project_id}/files": {
             "get": {
                 "description": "按 path + depth 获取项目文件目录层级结构",
@@ -3225,6 +3387,17 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "contract.AddFileRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "public_id": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.CreateDigitalAssistantRequest": {
             "type": "object",
             "required": [
@@ -3683,6 +3856,12 @@ const docTemplate = `{
                 "assistant_id": {
                     "type": "integer"
                 },
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.MessageAttachment"
+                    }
+                },
                 "content": {
                     "type": "string"
                 },
@@ -3815,6 +3994,12 @@ const docTemplate = `{
                 "session_id"
             ],
             "properties": {
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.MessageAttachment"
+                    }
+                },
                 "chunks": {
                     "type": "array",
                     "items": {
@@ -4302,6 +4487,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.MessageAttachment": {
+            "type": "object",
+            "properties": {
+                "file_upload_id": {
+                    "type": "string"
+                },
+                "mime_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "purpose": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.MessageChunk": {
             "type": "object",
             "properties": {
@@ -4339,10 +4544,18 @@ const docTemplate = `{
         "types.ObjectMetadata": {
             "type": "object",
             "properties": {
+                "bucket": {
+                    "description": "元数据 - 对象存储桶",
+                    "type": "string"
+                },
                 "extra": {
                     "description": "元数据 - 其他扩展字段",
                     "type": "object",
                     "additionalProperties": true
+                },
+                "key": {
+                    "description": "元数据 - 对象存储键",
+                    "type": "string"
                 },
                 "tags": {
                     "description": "元数据 - 项目标签",
