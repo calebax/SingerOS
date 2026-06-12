@@ -736,11 +736,16 @@ export class ChatActionImpl {
 		}
 
 		try {
+			const uploadedAttachment = attachments?.find((attachment) =>
+				Boolean(attachment.fileUploadId?.trim()),
+			);
 			await sessionApi.addMessage({
 				session_id: activeSessionId,
 				role: "user",
 				content,
 				message_type: "text",
+				file_upload_id: uploadedAttachment?.fileUploadId?.trim(),
+				mime_type: uploadedAttachment?.mimeType || uploadedAttachment?.file?.type || undefined,
 				attachments: attachments?.map((attachment) => ({
 					url: attachment.path || attachment.url || "",
 					name: attachment.name,
@@ -1048,6 +1053,7 @@ export class ChatActionImpl {
 			url: previewUrl,
 			file,
 			path: payload.public_id || payload.storage_path || payload.path,
+			fileUploadId: payload.file_upload_id,
 			mimeType: payload.mime_type || file.type,
 		};
 

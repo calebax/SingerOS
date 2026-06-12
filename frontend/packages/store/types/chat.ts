@@ -87,6 +87,7 @@ export type Attachment = {
 	url?: string;
 	file?: File;
 	path?: string;
+	fileUploadId?: string;
 	mimeType?: string;
 };
 
