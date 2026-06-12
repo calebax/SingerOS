@@ -23,6 +23,7 @@ const (
 var (
 	defaultStorage storage.Storage
 	defaultBucket  string = defaultBucketName
+	driverType     storage.DriverType
 )
 
 func Init(cfg *config.StorageConfig) error {
@@ -51,6 +52,7 @@ func Init(cfg *config.StorageConfig) error {
 		}
 	}
 	driver := storage.DriverType(cfg.Driver)
+	driverType = driver
 	sCfg := storage.Config{
 		Endpoint:  cfg.Endpoint,
 		AccessKey: cfg.AccessKey,
@@ -80,4 +82,9 @@ func GetStorage() storage.Storage {
 
 func DefaultBucket() string {
 	return defaultBucket
+}
+
+// IsLocal 返回当前 storage 驱动是否为 local
+func IsLocal() bool {
+	return driverType == "local"
 }
