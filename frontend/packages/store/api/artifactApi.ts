@@ -31,14 +31,7 @@ async function listTaskArtifacts(taskId: string) {
 	}
 }
 
-const publishFileIdCache = new Map<string, string>();
-
-function readPublishFileId(detail: BackendArtifactDetail): string {
-	const publishFileId = detail.publish_file_id?.trim() ?? detail["publish-file_id"]?.trim() ?? "";
-	return publishFileId;
-}
-
-async function resolveArtifactPublishFileId(
+async function resolveArtifactFileID(
 	artifactId: string,
 	options?: { signal?: AbortSignal },
 ): Promise<string> {
@@ -47,29 +40,24 @@ async function resolveArtifactPublishFileId(
 		throw new Error("artifact_id is required");
 	}
 
-	const cached = publishFileIdCache.get(normalizedArtifactId);
-	if (cached) return cached;
-
 	const response = await apiClient.post<BackendDataResponse<BackendArtifactDetail>>(
 		"/GetArtifact",
 		{ artifact_id: normalizedArtifactId },
 		{ signal: options?.signal },
 	);
-	const publishFileId = readPublishFileId(response.data.data ?? {});
-	if (!publishFileId) {
-		throw new Error("GetArtifact 未返回 publish_file_id");
+	const fileID = response.data.data?.file_public_id?.trim();
+	if (!fileID) {
+		throw new Error("GetArtifact 未返回 file_public_id");
 	}
-
-	publishFileIdCache.set(normalizedArtifactId, publishFileId);
-	return publishFileId;
+	return fileID;
 }
 
 export async function fetchArtifactDownload(
 	artifactId: string,
 	options?: { signal?: AbortSignal },
 ): Promise<Response> {
-	const publishFileId = await resolveArtifactPublishFileId(artifactId, options);
-	return fetchFileDownload(publishFileId, options);
+	const fileID = await resolveArtifactFileID(artifactId, options);
+	return fetchFileDownload(fileID, options);
 }
 
 export const artifactApi = {

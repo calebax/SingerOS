@@ -296,12 +296,11 @@ export type BackendArtifactDetail = {
 	file_size?: number;
 	sha256?: string;
 	relative_path?: string;
+	file_public_id?: string;
 	source?: string;
 	export_format?: string;
 	version?: number;
 	status?: string;
-	publish_file_id?: string;
-	"publish-file_id"?: string;
 };
 
 export type BackendProjectMemberItem = {
