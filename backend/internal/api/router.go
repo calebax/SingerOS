@@ -115,6 +115,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 
 	if filestore.IsLocal() {
 		handler.RegisterStaticRoutes(v1)
+		handler.RegisterPresignedRoutes(r)
 		logs.Info("Static routes registered successfully")
 	}
 

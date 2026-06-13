@@ -26,6 +26,7 @@ var (
 	defaultStorage storage.Storage
 	defaultBucket  string = defaultBucketName
 	driverType     storage.DriverType
+	signSecret     string = defaultSignSecret
 )
 
 func Init(cfg *config.StorageConfig) error {
@@ -80,6 +81,7 @@ func Init(cfg *config.StorageConfig) error {
 	}
 	defaultStorage = s
 	defaultBucket = cfg.Bucket
+	signSecret = cfg.SignSecret
 	return nil
 }
 
@@ -89,6 +91,11 @@ func GetStorage() storage.Storage {
 
 func DefaultBucket() string {
 	return defaultBucket
+}
+
+// SignSecret returns the current presign signing secret
+func SignSecret() string {
+	return signSecret
 }
 
 // IsLocal 返回当前 storage 驱动是否为 local
