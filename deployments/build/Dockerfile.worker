@@ -37,6 +37,7 @@ FROM registry.yygu.cn/library/ubuntu:24.04
 ARG TARGETARCH
 ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
     && sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
@@ -54,7 +55,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --break-system-packages -i https://mirrors.aliyun.com/pypi/simple/ requests
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN pip3 install --break-system-packages requests
 
 ENV NODE_VERSION=22.14.0
 RUN set -eux; \
