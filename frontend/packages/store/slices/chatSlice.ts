@@ -682,6 +682,7 @@ export class ChatActionImpl {
 	readonly #get: () => ChatStore;
 	readonly #fullGet: FullStoreGet;
 	#sseClient: FetchSSEClient | null = null;
+	#messageLoadPromises = new Map<string, Promise<void>>();
 
 	constructor(set: SetState, get: () => ChatStore, fullGet: FullStoreGet) {
 		this.#set = set;
@@ -968,6 +969,17 @@ export class ChatActionImpl {
 	};
 
 	loadConversationMessages = async (sessionId: string) => {
+		const loading = this.#messageLoadPromises.get(sessionId);
+		if (loading) return loading;
+
+		const loadPromise = this.#loadConversationMessages(sessionId).finally(() => {
+			this.#messageLoadPromises.delete(sessionId);
+		});
+		this.#messageLoadPromises.set(sessionId, loadPromise);
+		return loadPromise;
+	};
+
+	#loadConversationMessages = async (sessionId: string) => {
 		try {
 			const res = await sessionApi.getMessages(sessionId, 1, 100);
 			const items = res.data.data?.items ?? [];

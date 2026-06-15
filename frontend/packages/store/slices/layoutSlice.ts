@@ -123,6 +123,7 @@ export type LayoutState = {
 	projectDetailError: string | null;
 	activeProjectSessionId: string | null;
 	projectSessionId: string | null;
+	projectSessionProjectId: string | null;
 };
 
 export type LayoutAction = Pick<LayoutActionImpl, keyof LayoutActionImpl>;
@@ -242,6 +243,7 @@ const _initialState: LayoutState = {
 	projectDetailError: null,
 	activeProjectSessionId: null,
 	projectSessionId: null,
+	projectSessionProjectId: null,
 };
 
 type SetState = (
@@ -380,6 +382,9 @@ export class LayoutActionImpl {
 									: p,
 							),
 							projectSessionId: detail.session?.session_id ?? s.projectSessionId,
+							projectSessionProjectId: detail.session?.session_id
+								? workbenchProjectId
+								: s.projectSessionProjectId,
 						}));
 						project = { ...(project ?? mapBackendProject(detail)), tasks };
 						selectedTask = tasks.find((task) => task.id === selectedTaskId);
@@ -571,6 +576,7 @@ export class LayoutActionImpl {
 						: p,
 				),
 				projectSessionId: detail.session?.session_id ?? s.projectSessionId,
+				projectSessionProjectId: detail.session?.session_id ? projectId : s.projectSessionProjectId,
 			}));
 		} catch (err) {
 			console.error("fetchTasks error:", err);
@@ -681,6 +687,7 @@ export class LayoutActionImpl {
 				),
 				projectDetailLoading: false,
 				projectSessionId: detail.session?.session_id ?? null,
+				projectSessionProjectId: detail.session?.session_id ? projectId : null,
 			}));
 		} catch (err) {
 			console.error("fetchProjectDetail error:", err);
@@ -815,6 +822,7 @@ export class LayoutActionImpl {
 			projectDetailError: null,
 			activeProjectSessionId: null,
 			projectSessionId: null,
+			projectSessionProjectId: null,
 		});
 	};
 }

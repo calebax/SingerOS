@@ -81,6 +81,7 @@ export function ProjectPage({
 		projectDetailLoading,
 		projectDetailError,
 		projectSessionId,
+		projectSessionProjectId,
 		activeWorkbenchProjectId,
 		activeWorkbenchTaskId,
 		activeTaskDetailProjectId,
@@ -126,9 +127,14 @@ export function ProjectPage({
 		activeTaskDetailSessionId === activeSessionId
 			? activeTaskDetailSessionId
 			: null;
+	const currentProjectSessionId =
+		projectSessionProjectId === resolvedProjectId ? projectSessionId : null;
 
 	const resolvedSessionId =
-		streamingTaskSessionId ?? currentTaskSessionId ?? selectedTaskSessionId ?? projectSessionId;
+		streamingTaskSessionId ??
+		currentTaskSessionId ??
+		selectedTaskSessionId ??
+		currentProjectSessionId;
 
 	const handleOpenTask = (task: ProjectTask) => {
 		if (!resolvedProjectId) return;

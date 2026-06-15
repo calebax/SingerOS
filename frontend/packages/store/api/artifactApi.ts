@@ -3,6 +3,8 @@ import { apiClient } from "./client";
 import { fetchFileDownload } from "./fileApi";
 import type { BackendArtifact, BackendArtifactDetail, BackendDataResponse } from "./types";
 
+type ListTaskArtifactsResponse = Awaited<ReturnType<typeof requestTaskArtifacts>>;
+
 function isNotFoundError(error: unknown): boolean {
 	return (
 		typeof error === "object" &&
@@ -12,6 +14,21 @@ function isNotFoundError(error: unknown): boolean {
 	);
 }
 
+const listTaskArtifactsRequests = new Map<string, Promise<ListTaskArtifactsResponse>>();
+
+async function requestTaskArtifacts(taskId: string) {
+	try {
+		return await apiClient.post<BackendDataResponse<BackendArtifact[]>>("/ListTaskArtifacts", {
+			task_id: taskId,
+		});
+	} catch (error) {
+		if (!isNotFoundError(error)) throw error;
+		return apiClient.get<BackendDataResponse<BackendArtifact[]>>(
+			`/tasks/${encodeURIComponent(taskId)}/artifacts`,
+		);
+	}
+}
+
 /** Lists task artifacts; prefers deployed RPC route, falls back to REST GET for local dev. */
 async function listTaskArtifacts(taskId: string) {
 	const normalizedTaskId = taskId.trim();
@@ -19,16 +36,14 @@ async function listTaskArtifacts(taskId: string) {
 		throw new Error("task_id is required");
 	}
 
-	try {
-		return await apiClient.post<BackendDataResponse<BackendArtifact[]>>("/ListTaskArtifacts", {
-			task_id: normalizedTaskId,
-		});
-	} catch (error) {
-		if (!isNotFoundError(error)) throw error;
-		return apiClient.get<BackendDataResponse<BackendArtifact[]>>(
-			`/tasks/${encodeURIComponent(normalizedTaskId)}/artifacts`,
-		);
-	}
+	const existingRequest = listTaskArtifactsRequests.get(normalizedTaskId);
+	if (existingRequest) return existingRequest;
+
+	const request = requestTaskArtifacts(normalizedTaskId).finally(() => {
+		listTaskArtifactsRequests.delete(normalizedTaskId);
+	});
+	listTaskArtifactsRequests.set(normalizedTaskId, request);
+	return request;
 }
 
 async function resolveArtifactFileID(
