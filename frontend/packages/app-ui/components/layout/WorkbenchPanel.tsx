@@ -194,7 +194,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					<div className="max-w-3xl mx-auto">
 						<div className="mb-6 flex flex-col items-start gap-4 text-left">
 							<h2 className="text-4xl font-bold tracking-tight text-[var(--leros-text-strong)] md:text-5xl">
-								Hi, <span className="text-[var(--leros-primary)]">Mia</span>
+								Hi, <span className="text-[var(--leros-primary)]">Leros</span>
 							</h2>
 							<p className="text-lg font-medium uppercase tracking-widest text-[var(--leros-text-subtle)]">
 								以 Leros 智能赋能您的工作流。
