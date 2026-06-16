@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
+import { APP_LOGO_SRC } from "../../assets";
 import { useAuth } from "../auth";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
@@ -81,7 +82,7 @@ const navIdToView: Record<string, ViewMode> = {
 const protectedNavIds = new Set(["tasks", "skills", "knowledge"]);
 
 export function LeftRail({
-	logoSrc = "/logo.svg",
+	logoSrc = APP_LOGO_SRC,
 	navigation,
 }: {
 	logoSrc?: string;

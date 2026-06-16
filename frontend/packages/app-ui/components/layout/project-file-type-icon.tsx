@@ -1,23 +1,38 @@
 import { ClipboardList } from "lucide-react";
 
+const FILE_TEXT_ICON_SRC = new URL("../../assets/icons/file-text.svg", import.meta.url).href;
+const FILE_PDF_ICON_SRC = new URL("../../assets/icons/file-pdf.svg", import.meta.url).href;
+const FILE_PICTURE_JPEG_ICON_SRC = new URL(
+	"../../assets/icons/file-picture-jpeg.svg",
+	import.meta.url,
+).href;
+const FILE_PICTURE_JPG_ICON_SRC = new URL(
+	"../../assets/icons/file-picture-jpg.svg",
+	import.meta.url,
+).href;
+const FILE_PICTURE_PNG_ICON_SRC = new URL(
+	"../../assets/icons/file-picture-png.svg",
+	import.meta.url,
+).href;
+
 /** 根据文件名后缀返回与文件 Tab 一致的图标资源路径 */
 export function getProjectFileIconSrc(fileName: string): string {
 	const lowerPath = fileName.toLowerCase();
 
 	if (lowerPath.endsWith(".jpg")) {
-		return "/assets/icons/file-picture-jpg.svg";
+		return FILE_PICTURE_JPG_ICON_SRC;
 	}
 	if (lowerPath.endsWith(".jpeg")) {
-		return "/assets/icons/file-picture-jpeg.svg";
+		return FILE_PICTURE_JPEG_ICON_SRC;
 	}
 	if (lowerPath.endsWith(".png")) {
-		return "/assets/icons/file-picture-png.svg";
+		return FILE_PICTURE_PNG_ICON_SRC;
 	}
 	if (lowerPath.endsWith(".pdf")) {
-		return "/assets/icons/file-pdf.svg";
+		return FILE_PDF_ICON_SRC;
 	}
 
-	return "/assets/icons/file-text.svg";
+	return FILE_TEXT_ICON_SRC;
 }
 
 /** 文件 Tab 与产物卡片共用的类型图标组件 */
