@@ -1,5 +1,7 @@
 import { ClipboardList } from "lucide-react";
 
+const FILE_DOCX_ICON_SRC = new URL("../../assets/icons/file-docx.svg", import.meta.url).href;
+const FILE_MD_ICON_SRC = new URL("../../assets/icons/file-md.svg", import.meta.url).href;
 const FILE_TEXT_ICON_SRC = new URL("../../assets/icons/file-text.svg", import.meta.url).href;
 const FILE_PDF_ICON_SRC = new URL("../../assets/icons/file-pdf.svg", import.meta.url).href;
 const FILE_PICTURE_JPEG_ICON_SRC = new URL(
@@ -30,6 +32,12 @@ export function getProjectFileIconSrc(fileName: string): string {
 	}
 	if (lowerPath.endsWith(".pdf")) {
 		return FILE_PDF_ICON_SRC;
+	}
+	if (lowerPath.endsWith(".docx")) {
+		return FILE_DOCX_ICON_SRC;
+	}
+	if (lowerPath.endsWith(".md") || lowerPath.endsWith(".markdown")) {
+		return FILE_MD_ICON_SRC;
 	}
 
 	return FILE_TEXT_ICON_SRC;
