@@ -19,7 +19,7 @@ const (
 	defaultDriver         = "local"
 	defaultLocalDir       = "leros-storage"
 	defaultSignSecret     = "leros-local-presign"
-	defaultSignBaseURL    = "http://localhost:8080"
+	defaultSignBaseURL    = ""
 	defaultStaticAPIKey   = "leros-static-api-key"
 )
 
