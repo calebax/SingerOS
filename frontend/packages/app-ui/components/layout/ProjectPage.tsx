@@ -23,9 +23,18 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ChangeEvent,
+	type ComponentType,
+	type CSSProperties,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { MessageTimeline } from "../chat/MessageTimeline";
+import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ChatInput, PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
@@ -59,9 +68,42 @@ type FilePreviewState =
 	| { status: "idle" }
 	| { status: "loading" }
 	| { status: "error"; message: string }
+	| { status: "docx"; buffer: ArrayBuffer }
+	| { status: "markdown"; content: string }
 	| { status: "text"; content: string }
 	| { status: "spreadsheet"; buffer: ArrayBuffer }
 	| { status: "blob"; url: string; mimeType: string };
+
+type DocxEditorComponent = ComponentType<{
+	documentBuffer?: ArrayBuffer | null;
+	mode?: "editing" | "suggesting" | "viewing";
+	readOnly?: boolean;
+	showToolbar?: boolean;
+	showZoomControl?: boolean;
+	showRuler?: boolean;
+	showOutline?: boolean;
+	showOutlineButton?: boolean;
+	disableFindReplaceShortcuts?: boolean;
+	initialZoom?: number;
+	className?: string;
+	style?: CSSProperties;
+	documentName?: string;
+	documentNameEditable?: boolean;
+	loadingIndicator?: React.ReactNode;
+	onError?: (error: Error) => void;
+}>;
+
+let docxEditorComponent: DocxEditorComponent | null = null;
+let docxEditorPromise: Promise<DocxEditorComponent> | null = null;
+
+function loadDocxEditor(): Promise<DocxEditorComponent> {
+	if (docxEditorComponent) return Promise.resolve(docxEditorComponent);
+	docxEditorPromise ??= import("@eigenpal/docx-editor-react").then((module) => {
+		docxEditorComponent = module.DocxEditor as DocxEditorComponent;
+		return docxEditorComponent;
+	});
+	return docxEditorPromise;
+}
 
 export function ProjectPage({
 	projectId,
@@ -594,6 +636,14 @@ function ProjectFiles({
 					currentFile.mimeType ??
 					"application/octet-stream";
 
+				if (isDocxPreviewable(currentFile.path, mimeType)) {
+					const buffer = await response.arrayBuffer();
+					if (!cancelled) {
+						setPreviewState({ status: "docx", buffer });
+					}
+					return;
+				}
+
 				if (isSpreadsheetPreviewable(currentFile.path, mimeType)) {
 					const buffer = await response.arrayBuffer();
 					if (!cancelled) {
@@ -605,7 +655,11 @@ function ProjectFiles({
 				if (isTextPreviewable(currentFile.path, mimeType)) {
 					const content = await response.text();
 					if (!cancelled) {
-						setPreviewState({ status: "text", content });
+						// markdown 需要走富文本渲染，避免在文件预览里退化成纯文本。
+						setPreviewState({
+							status: isMarkdownPreviewable(currentFile.path, mimeType) ? "markdown" : "text",
+							content,
+						});
 					}
 					return;
 				}
@@ -920,6 +974,29 @@ function ProjectFilePreviewBody({
 		);
 	}
 
+	if (previewState.status === "markdown") {
+		return (
+			<div className="overflow-auto rounded-xl bg-white px-8 py-7 shadow-sm">
+				<MarkdownRenderer
+					content={previewState.content}
+					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7 prose-pre:rounded-lg prose-pre:bg-slate-950"
+				/>
+			</div>
+		);
+	}
+
+	if (previewState.status === "docx") {
+		return (
+			<div className="h-[calc(100vh-150px)] min-h-[520px] overflow-hidden rounded-xl bg-white shadow-sm">
+				<ProjectDocxPreview
+					documentName={file.name}
+					documentKey={file.path}
+					buffer={previewState.buffer}
+				/>
+			</div>
+		);
+	}
+
 	if (previewState.status === "spreadsheet") {
 		return (
 			<div className="h-[calc(100vh-150px)] min-h-[520px] overflow-hidden rounded-xl bg-white shadow-sm">
@@ -963,6 +1040,75 @@ function ProjectFilePreviewBody({
 	);
 }
 
+function ProjectDocxPreview({
+	documentName,
+	documentKey,
+	buffer,
+}: {
+	documentName: string;
+	documentKey: string;
+	buffer: ArrayBuffer;
+}) {
+	const [DocxEditor, setDocxEditor] = useState<DocxEditorComponent | null>(docxEditorComponent);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		let cancelled = false;
+		setError(null);
+		// 这里复用和产物预览一致的懒加载模式，保证文件 tab 的 DOCX 体验对齐。
+		loadDocxEditor()
+			.then((component) => {
+				if (!cancelled) setDocxEditor(() => component);
+			})
+			.catch((err) => {
+				if (cancelled) return;
+				setError(err instanceof Error ? err.message : "DOCX 预览组件加载失败");
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	if (error) {
+		return (
+			<div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+				<div>
+					<p>无法加载 DOCX 预览</p>
+					<p className="mt-1 text-xs">{error}</p>
+				</div>
+			</div>
+		);
+	}
+
+	if (!DocxEditor) {
+		return <div className="h-full bg-white" />;
+	}
+
+	return (
+		<div className="h-full overflow-hidden">
+			<DocxEditor
+				key={documentKey}
+				documentBuffer={buffer}
+				mode="viewing"
+				readOnly
+				showToolbar={false}
+				showZoomControl={false}
+				showRuler={false}
+				showOutline={false}
+				showOutlineButton={false}
+				disableFindReplaceShortcuts
+				initialZoom={0.82}
+				documentName={documentName}
+				documentNameEditable={false}
+				className="leros-docx-preview h-full"
+				style={{ height: "100%", background: "#f6f7fb" }}
+				loadingIndicator={<div className="h-full bg-[#f6f7fb]" />}
+				onError={(err) => setError(err.message)}
+			/>
+		</div>
+	);
+}
+
 function isTextPreviewable(path: string, mimeType: string): boolean {
 	const normalizedPath = path.toLowerCase();
 	const normalizedMimeType = mimeType.toLowerCase();
@@ -992,6 +1138,28 @@ function isTextPreviewable(path: string, mimeType: string): boolean {
 		".sh",
 		".sql",
 	].some((suffix) => normalizedPath.endsWith(suffix));
+}
+
+function isMarkdownPreviewable(path: string, mimeType: string): boolean {
+	const normalizedPath = path.toLowerCase();
+	const normalizedMimeType = mimeType.toLowerCase();
+
+	return (
+		normalizedMimeType.includes("markdown") ||
+		normalizedPath.endsWith(".md") ||
+		normalizedPath.endsWith(".markdown")
+	);
+}
+
+function isDocxPreviewable(path: string, mimeType: string): boolean {
+	const normalizedPath = path.toLowerCase();
+	const normalizedMimeType = mimeType.toLowerCase();
+
+	return (
+		normalizedMimeType ===
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+		normalizedPath.endsWith(".docx")
+	);
 }
 
 function isSpreadsheetPreviewable(path: string, mimeType: string): boolean {

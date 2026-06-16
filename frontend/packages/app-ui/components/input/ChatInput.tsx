@@ -22,7 +22,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { StructuredComposer, type StructuredComposerHandle } from "./StructuredComposer";
 
-export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv";
+// 只放开当前已有稳定预览能力的文档类型，避免上传后落到不可预览的兜底体验。
+export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.docx";
 
 export function ChatInput({ variant = "default" }: { variant?: "default" | "project" }) {
 	const {
