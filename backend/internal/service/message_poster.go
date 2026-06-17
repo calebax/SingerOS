@@ -12,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	"github.com/insmtx/Leros/backend/pkg/dm"
@@ -120,6 +121,9 @@ func (p *MessagePoster) RunNewMessage(
 		return nil, err
 	}
 
+	// 先补齐附件的可访问 URL，再把附件写入用户消息，避免前端回显和后续上下文拿不到附件信息。
+	p.resolveAttachmentURLs(ctx, caller.OrgID, req.Attachments)
+
 	message, err := p.PostMessage(ctx, o.taskSession, func(sequence int64) *types.SessionMessage {
 		msgType := req.MessageType
 		if msgType == "" {
@@ -129,6 +133,7 @@ func (p *MessagePoster) RunNewMessage(
 			Role:        string(types.MessageRoleUser),
 			Content:     req.Content,
 			MessageType: msgType,
+			Attachments: req.Attachments,
 			Status:      string(types.MessageStatusPending),
 			Sequence:    sequence,
 			Timestamp:   time.Now().UnixMilli(),
@@ -438,6 +443,36 @@ func convertMessageToProtocolAttachments(attachments types.MessageAttachmentSlic
 		})
 	}
 	return result
+}
+
+func (p *MessagePoster) resolveAttachmentURLs(
+	ctx context.Context,
+	orgID uint,
+	attachments []types.MessageAttachment,
+) {
+	if len(attachments) == 0 {
+		return
+	}
+	for i := range attachments {
+		if attachments[i].FileUploadID == "" {
+			continue
+		}
+		fileUpload, err := db.GetFileUploadByPublicID(ctx, p.db, orgID, attachments[i].FileUploadID)
+		if err != nil {
+			logs.WarnContextf(ctx, "resolve attachment file %s: %v", attachments[i].FileUploadID, err)
+			continue
+		}
+		if fileUpload == nil {
+			logs.WarnContextf(ctx, "resolve attachment file %s: not found", attachments[i].FileUploadID)
+			continue
+		}
+		publicURL, err := filestore.ResolvePublicURL(ctx, fileUpload.StoragePath)
+		if err != nil {
+			logs.WarnContextf(ctx, "resolve attachment public url for %s: %v", attachments[i].FileUploadID, err)
+			continue
+		}
+		attachments[i].PublicURL = publicURL
+	}
 }
 
 func (p *MessagePoster) resolveWorkspaceIDs(ctx context.Context, session *types.Session) (string, string, error) {
