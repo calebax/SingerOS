@@ -20,3 +20,8 @@ func SessionCompletedConsumer() string {
 func SessionArtifactDeclaredConsumer() string {
 	return "session-artifact-declared-handler"
 }
+
+// SessionRunStartedConsumer constructs the durable consumer for run start state projection.
+func SessionRunStartedConsumer() string {
+	return "session-run-started-handler"
+}

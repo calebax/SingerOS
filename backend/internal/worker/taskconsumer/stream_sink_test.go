@@ -25,6 +25,14 @@ func TestMQStreamSinkPublishesStreamEventToStreamTopic(t *testing.T) {
 			SessionID: sessionID,
 			WorkerID:  2,
 		},
+		Body: protocol.WorkerTaskBody{
+			Input: protocol.TaskInput{
+				Messages: []protocol.ChatMessage{
+					{ID: "101", Role: protocol.MessageRoleUser, Content: "one"},
+					{ID: "102", Role: protocol.MessageRoleUser, Content: "two"},
+				},
+			},
+		},
 	}
 	publisher := &recordingPublisher{}
 	sink := NewMQStreamSink(publisher, task)
@@ -57,6 +65,9 @@ func TestMQStreamSinkPublishesStreamEventToStreamTopic(t *testing.T) {
 	}
 	if streamMsg.Body.Payload.Content != "hello" {
 		t.Fatalf("expected content %q, got %q", "hello", streamMsg.Body.Payload.Content)
+	}
+	if got := streamMsg.Body.ReplyToMessageIDs; len(got) != 2 || got[0] != "101" || got[1] != "102" {
+		t.Fatalf("reply_to_message_ids = %v, want [101 102]", got)
 	}
 }
 

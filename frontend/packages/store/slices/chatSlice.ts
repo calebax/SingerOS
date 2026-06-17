@@ -872,7 +872,7 @@ export class ChatActionImpl {
 		this.#startSSE(sessionId, assistantMsg.id);
 	};
 
-	#startSSE = async (sessionId: string, assistantMsgId: string) => {
+	#startSSE = async (sessionId: string, assistantMsgId: string, replay = false) => {
 		if (this.#sseClient) {
 			this.#sseClient.close();
 			this.#sseClient = null;
@@ -887,7 +887,7 @@ export class ChatActionImpl {
 		const client = new FetchSSEClient(url, {
 			method: "POST",
 			headers: { Authorization: `Bearer ${token}` },
-			body: { session_id: sessionId },
+			body: { session_id: sessionId, ...(replay ? { replay: true } : {}) },
 			onMessage: (event) => {
 				try {
 					const data = JSON.parse(event.data) as SSEMessageEvent;
@@ -912,7 +912,7 @@ export class ChatActionImpl {
 						this.#sseClient?.close();
 						this.#sseClient = null;
 						// 会话结束后回拉历史消息，确保持久化 usage 能立即参与页面汇总展示。
-						void this.loadConversationMessages(sessionId);
+						void this.loadConversationMessages(sessionId, { resumeStream: false });
 					}
 				} catch {
 					const msg = this.#get().messagesMap[assistantMsgId];
@@ -965,19 +965,36 @@ export class ChatActionImpl {
 		this.#finishStream();
 	};
 
-	loadConversationMessages = async (sessionId: string) => {
+	loadConversationMessages = async (
+		sessionId: string,
+		options?: { resumeStream?: boolean },
+	) => {
 		const loading = this.#messageLoadPromises.get(sessionId);
 		if (loading) return loading;
 
-		const loadPromise = this.#loadConversationMessages(sessionId).finally(() => {
+		const loadPromise = this.#loadConversationMessages(sessionId, options).finally(() => {
 			this.#messageLoadPromises.delete(sessionId);
 		});
 		this.#messageLoadPromises.set(sessionId, loadPromise);
 		return loadPromise;
 	};
 
-	#loadConversationMessages = async (sessionId: string) => {
+	#loadConversationMessages = async (
+		sessionId: string,
+		options?: { resumeStream?: boolean },
+	) => {
 		try {
+			const shouldCheckRuntime = options?.resumeStream !== false;
+			let runtimeStatus: string | undefined;
+			if (shouldCheckRuntime) {
+				try {
+					const sessionRes = await sessionApi.get({ session_id: sessionId });
+					runtimeStatus = sessionRes.data.data?.runtime_status;
+				} catch (err) {
+					console.error("loadConversationMessages get session error:", err);
+				}
+			}
+
 			const res = await sessionApi.getMessages(sessionId, 1, 100);
 			const items = res.data.data?.items ?? [];
 			const persistedMessages = items.map(mapBackendMessage);
@@ -997,6 +1014,25 @@ export class ChatActionImpl {
 			const messages = localSessionMessages.length
 				? mergeSessionMessages(persistedMessages, localSessionMessages)
 				: persistedMessages;
+			const shouldResumeStream =
+				runtimeStatus === "responding" &&
+				!(
+					state.isGenerating &&
+					state.activeSessionId === sessionId &&
+					state.streamingMessageId !== null
+				);
+			const resumeMessage: Message | undefined = shouldResumeStream
+				? {
+						id: `msg-assistant-resume-${Date.now()}`,
+						conversationId: sessionId,
+						role: "assistant",
+						content: "",
+						timestamp: Date.now(),
+					}
+				: undefined;
+			if (resumeMessage) {
+				messages.push(resumeMessage);
+			}
 
 			const maps: Record<string, Message> = {};
 			const ids: string[] = [];
@@ -1005,7 +1041,19 @@ export class ChatActionImpl {
 				ids.push(m.id);
 			}
 
-			this.#set({ messagesMap: maps, messageIds: ids });
+			this.#set({
+				messagesMap: maps,
+				messageIds: ids,
+				...(resumeMessage
+					? {
+							streamingMessageId: resumeMessage.id,
+							isGenerating: true,
+						}
+					: {}),
+			});
+			if (resumeMessage) {
+				this.#startSSE(sessionId, resumeMessage.id, true);
+			}
 		} catch (err) {
 			console.error("loadConversationMessages error:", err);
 			if (this.#get().activeSessionId !== sessionId) {
