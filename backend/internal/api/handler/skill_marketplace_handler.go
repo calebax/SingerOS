@@ -19,6 +19,7 @@ func RegisterSkillMarketplaceRoutes(r gin.IRouter, service contract.SkillMarketp
 	r.POST("/skill-marketplace/install", installSkill(service))
 	r.POST("/skill-marketplace/installed", installedSkills(service))
 	r.POST("/skill-marketplace/uninstall", uninstallSkill(service))
+	r.POST("/skill-marketplace/skill-detail", getSkillDetail(service))
 }
 
 func downloadBuiltinSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
@@ -101,8 +102,10 @@ func installSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
 func installedSkills(service contract.SkillMarketplaceService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		var req contract.InstalledSkillsRequest
-		// Empty body is acceptable; silently ignore bind errors.
-		_ = ctx.ShouldBindJSON(&req)
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+			return
+		}
 
 		result, err := service.InstalledSkills(ctx, &req)
 		if err != nil {
@@ -135,6 +138,41 @@ func uninstallSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
 		if err != nil {
 			if err.Error() == "user not authenticated or org not set" {
 				ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
+				return
+			}
+			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+			return
+		}
+
+		ctx.JSON(http.StatusOK, dto.Success(result))
+	}
+}
+
+func getSkillDetail(service contract.SkillMarketplaceService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req contract.SkillDetailRequest
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+			return
+		}
+
+		if strings.TrimSpace(req.Source) == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "source is required"))
+			return
+		}
+		if strings.TrimSpace(req.SkillID) == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "skill_id is required"))
+			return
+		}
+
+		result, err := service.GetSkillDetail(ctx, &req)
+		if err != nil {
+			if err.Error() == "user not authenticated or org not set" {
+				ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
+				return
+			}
+			if strings.Contains(err.Error(), "not found") {
+				ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, err.Error()))
 				return
 			}
 			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))

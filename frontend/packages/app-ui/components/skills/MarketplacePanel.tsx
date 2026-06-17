@@ -2,7 +2,6 @@
 
 import { cn } from "@leros/ui/lib/utils";
 import { Search, SlidersHorizontal } from "lucide-react";
-import { toast } from "sonner";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { skillMarketplaceApi, type SkillMarketplaceItem } from "@leros/store";
 import { SkillCard } from "./SkillCard";
@@ -18,19 +17,12 @@ const CATEGORIES = [
 const PAGE_SIZE = 80;
 
 interface MarketplacePanelProps {
-  installedIds: Set<string>;
-  installingIds: Set<string>;
-  onInstallSuccess: (skillId: string) => void;
-  onInstallingChange: (value: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
-  onItemsLoaded: (items: SkillMarketplaceItem[]) => void;
+  /** Called when a skill card is clicked (for navigation to detail page) */
+  onCardClick?: (skill: SkillMarketplaceItem) => void;
 }
 
 export function MarketplacePanel({
-  installedIds,
-  installingIds,
-  onInstallSuccess,
-  onInstallingChange,
-  onItemsLoaded,
+  onCardClick,
 }: MarketplacePanelProps) {
   const [items, setItems] = useState<SkillMarketplaceItem[]>([]);
   const [hasMore, setHasMore] = useState(true);
@@ -43,31 +35,6 @@ export function MarketplacePanel({
   const loadingRef = useRef(false);
   const [mounted, setMounted] = useState(false);
 
-  const handleInstall = useCallback(
-    async (skill: SkillMarketplaceItem) => {
-      const id = skill.skill_id;
-      onInstallingChange(new Set(installingIds).add(id));
-      try {
-        await skillMarketplaceApi.install({
-          source: skill.source_type,
-          skill_id: skill.skill_id,
-        });
-        onInstallSuccess(id);
-        toast.success("技能安装已提交");
-      } catch (err: any) {
-        const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
-        toast.error(`安装失败：${msg}`);
-      } finally {
-        onInstallingChange((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-      }
-    },
-    [installingIds, onInstallSuccess, onInstallingChange],
-  );
-
   // debounce keyword
   useEffect(() => {
     setMounted(true);
@@ -78,8 +45,9 @@ export function MarketplacePanel({
     return () => clearTimeout(timer);
   }, [keyword]);
 
-  // fetch on keyword/category change (reset)
+  // fetch on keyword/category change (reset) — gated on mounted to avoid StrictMode double-fire
   useEffect(() => {
+    if (!mounted) return;
     let cancelled = false;
     const fetchItems = async () => {
       setLoading(true);
@@ -92,7 +60,6 @@ export function MarketplacePanel({
         if (cancelled) return;
         const newItems = resp.data.data.items ?? [];
         setItems(newItems);
-        onItemsLoaded(newItems);
         setHasMore(false);
       } catch (err) {
         if (!cancelled) console.error("Failed to fetch skills:", err);
@@ -104,7 +71,7 @@ export function MarketplacePanel({
     return () => {
       cancelled = true;
     };
-  }, [debouncedKeyword, activeCategory, onItemsLoaded]);
+  }, [mounted, debouncedKeyword, activeCategory]);
 
   // load more (scroll trigger)
   const loadMore = useCallback(async () => {
@@ -121,11 +88,7 @@ export function MarketplacePanel({
       if (newItems.length === 0) {
         setHasMore(false);
       } else {
-        setItems((prev) => {
-          const merged = [...prev, ...newItems];
-          onItemsLoaded(merged);
-          return merged;
-        });
+        setItems((prev) => [...prev, ...newItems]);
         setHasMore(false);
       }
     } catch (err) {
@@ -134,7 +97,7 @@ export function MarketplacePanel({
       setLoadingMore(false);
       loadingRef.current = false;
     }
-  }, [debouncedKeyword, activeCategory, hasMore, onItemsLoaded]);
+  }, [debouncedKeyword, activeCategory, hasMore]);
 
   // scroll listener
   useEffect(() => {
@@ -215,9 +178,7 @@ export function MarketplacePanel({
                   <SkillCard
                     key={skill.skill_id}
                     skill={skill}
-                    onInstall={handleInstall}
-                    installing={installingIds.has(skill.skill_id)}
-                    installed={installedIds.has(skill.skill_id)}
+                    onClick={onCardClick}
                   />
                 ))}
               </div>

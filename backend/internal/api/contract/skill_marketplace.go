@@ -30,6 +30,7 @@ type SkillMarketplaceService interface {
 	InstallSkill(ctx context.Context, req *InstallSkillRequest) (*InstallSkillResponse, error)
 	InstalledSkills(ctx context.Context, req *InstalledSkillsRequest) (*InstalledSkillsResponse, error)
 	UninstallSkill(ctx context.Context, req *UninstallSkillRequest) (*UninstallSkillResponse, error)
+	GetSkillDetail(ctx context.Context, req *SkillDetailRequest) (*SkillDetailResponse, error)
 }
 
 // SearchSkillMarketplaceRequest Skill 市场搜索请求。
@@ -92,4 +93,28 @@ type UninstallSkillRequest struct {
 type UninstallSkillResponse struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
+}
+
+// SkillDetailRequest 获取 Skill 详情的请求。
+type SkillDetailRequest struct {
+	Source  string `json:"source" binding:"required"`   // "Leros" for marketplace, "installed" for installed skills
+	SkillID string `json:"skill_id" binding:"required"` // skill identifier
+}
+
+// SkillDetailResponse Skill 详情响应，包含完整元数据和 SKILL.md 正文。
+type SkillDetailResponse struct {
+	SkillID     string   `json:"skill_id"`
+	Source      string   `json:"source"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	SkillMD     string   `json:"skill_md"`
+	Version     string   `json:"version"`
+	Author      string   `json:"author"`
+	Category    string   `json:"category"`
+	Tags        []string `json:"tags"`
+	Icon        string   `json:"icon,omitempty"`
+	Installs    int64    `json:"installs"`
+	Verified    bool     `json:"verified"`
+	SourceType  string   `json:"source_type"`
+	Files       []string `json:"files"`
 }

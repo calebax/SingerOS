@@ -9,39 +9,85 @@ import {
 } from "@leros/ui/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
 import { ChevronDown, Import, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { useCallback, useState } from "react";
+import type { SkillMarketplaceItem } from "@leros/store";
+import { skillMarketplaceApi } from "@leros/store";
 import { MarketplacePanel } from "./MarketplacePanel";
 import { MySkillsPanel } from "./MySkillsPanel";
+import { SkillDetailView } from "./SkillDetailView";
+import { SkillImportDialog } from "./SkillImportDialog";
 
 export function SkillMarketView() {
   const [activeTab, setActiveTab] = useState<"marketplace" | "mine">("marketplace");
-  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
-  const [installingIds, setInstallingIds] = useState<Set<string>>(new Set());
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [selectedSource, setSelectedSource] = useState<string>("Leros");
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
-  const handleInstallSuccess = useCallback((skillId: string) => {
-    setInstalledIds((prev) => new Set(prev).add(skillId));
+  const handleCardClick = useCallback(
+    (skill: SkillMarketplaceItem) => {
+      setSelectedSkillId(skill.skill_id);
+      setSelectedSource(activeTab === "mine" ? "installed" : skill.source_type || "Leros");
+    },
+    [activeTab],
+  );
+
+  const handleBack = useCallback(() => {
+    setSelectedSkillId(null);
   }, []);
 
-  const handleUninstall = useCallback((name: string) => {
-    setInstalledIds((prev) => {
-      const next = new Set(prev);
-      next.delete(name);
-      return next;
-    });
+  const handleSkillClick = useCallback((skillId: string, sourceType?: string) => {
+    setSelectedSkillId(skillId);
+    setSelectedSource(sourceType || "Leros");
   }, []);
+
+  const handleUse = useCallback((_skillId: string) => {
+    // Navigate back to main app to use the skill.
+    // The skill can be invoked via @skill-name in chat.
+    setSelectedSkillId(null);
+    setActiveTab("marketplace");
+  }, []);
+
+  const handleUninstallFromDetail = useCallback(async (name: string) => {
+    try {
+      await skillMarketplaceApi.uninstall({ name });
+      toast.success("卸载已提交");
+      setSelectedSkillId(null);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
+      toast.error(`卸载失败：${msg}`);
+    }
+  }, []);
+
+  // Show detail view when a skill is selected
+  if (selectedSkillId) {
+    return (
+      <div
+        data-slot="skill-market-view"
+        className="flex min-h-0 h-full flex-1 flex-col bg-[var(--leros-app-bg)]"
+      >
+        <SkillDetailView
+          skillId={selectedSkillId}
+          source={selectedSource}
+          onBack={handleBack}
+          onSkillClick={handleSkillClick}
+          onUse={handleUse}
+          onUninstall={handleUninstallFromDetail}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
       data-slot="skill-market-view"
       className="flex min-h-0 h-full flex-1 flex-col bg-[var(--leros-app-bg)]"
     >
-      {/* Tabs — wraps the entire content area */}
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as "marketplace" | "mine")}
         className="min-h-0 flex-1 flex-col"
       >
-        {/* Header with inline tabs */}
         <div className="flex items-start justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
           <div>
             <TabsList variant="line" className="mb-3 -ml-1.5">
@@ -79,7 +125,7 @@ export function SkillMarketView() {
                 <Plus className="size-4 mr-2" />
                 创作技能
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
                 <Import className="size-4 mr-2" />
                 导入技能
               </DropdownMenuItem>
@@ -87,22 +133,16 @@ export function SkillMarketView() {
           </DropdownMenu>
         </div>
 
-        {/* Marketplace panel */}
         <TabsContent value="marketplace" className="flex min-h-0 flex-1 flex-col outline-none">
-          <MarketplacePanel
-            installedIds={installedIds}
-            installingIds={installingIds}
-            onInstallSuccess={handleInstallSuccess}
-            onInstallingChange={setInstallingIds}
-            onItemsLoaded={() => {}}
-          />
+          <MarketplacePanel onCardClick={handleCardClick} />
         </TabsContent>
 
-        {/* My Skills panel */}
         <TabsContent value="mine" className="min-h-0 flex-1 overflow-y-auto px-6 py-8 outline-none">
-          <MySkillsPanel onUninstall={handleUninstall} />
+          <MySkillsPanel onCardClick={handleCardClick} />
         </TabsContent>
       </Tabs>
+
+      <SkillImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
     </div>
   );
 }

@@ -1,36 +1,47 @@
 "use client";
 
 import { cn } from "@leros/ui/lib/utils";
-import { Loader2, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import type { SkillMarketplaceItem } from "@leros/store";
 
 interface SkillCardProps {
   skill: SkillMarketplaceItem;
   variant?: "marketplace" | "mine";
-  onInstall?: (skill: SkillMarketplaceItem) => void;
-  installing?: boolean;
-  installed?: boolean;
-  onUninstall?: (skill: SkillMarketplaceItem) => void;
-  uninstalling?: boolean;
+  /** Called when the card body is clicked (for navigation to detail page) */
+  onClick?: (skill: SkillMarketplaceItem) => void;
 }
 
 export function SkillCard({
   skill,
   variant = "marketplace",
-  onInstall,
-  installing,
-  installed,
-  onUninstall,
-  uninstalling,
+  onClick,
 }: SkillCardProps) {
   const isLerosAI = skill.author === "Leros AI";
   const isMine = variant === "mine";
 
+  const handleCardClick = () => {
+    onClick?.(skill);
+  };
+
   return (
     <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleCardClick();
+              }
+            }
+          : undefined
+      }
+      onClick={handleCardClick}
       className={cn(
         "group flex flex-col rounded-xl border border-[var(--leros-control-border)] bg-white p-4 transition-all duration-300",
         "hover:-translate-y-1 hover:border-[var(--leros-primary)] hover:shadow-lg",
+        onClick && "cursor-pointer",
       )}
     >
       {/* Top: avatar + info + rating */}
@@ -103,61 +114,6 @@ export function SkillCard({
         )}
       </div>
 
-      {/* Bottom: install button / installed badge / uninstall button */}
-      <div className="flex items-center justify-end pt-3 border-t border-[var(--leros-control-border)] h-10">
-        {isMine ? (
-          <>
-            {/* Default: installed badge */}
-            <span className="inline-flex items-center rounded-lg px-4 py-1 text-xs font-medium bg-green-50 text-green-600 border border-green-200 group-hover:hidden">
-              已安装
-            </span>
-            {/* Hover: uninstall button */}
-            <button
-              type="button"
-              disabled={uninstalling}
-              onClick={() => onUninstall?.(skill)}
-              className={cn(
-                "hidden group-hover:inline-flex items-center gap-1.5 rounded-lg px-4 py-1 text-xs font-medium transition-all duration-200",
-                "border border-red-200 text-red-600 hover:bg-red-50",
-              )}
-            >
-              {uninstalling ? (
-                <>
-                  <Loader2 className="size-3 animate-spin" />
-                  卸载中
-                </>
-              ) : (
-                "卸载"
-              )}
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            disabled={installing || installed}
-            onClick={() => onInstall?.(skill)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-4 py-1 text-xs font-medium transition-all duration-200",
-              "opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0",
-              installed
-                ? "bg-green-50 text-green-600 border border-green-200 cursor-default"
-                : "bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90",
-              (installing || installed) && "opacity-100 translate-y-0",
-            )}
-          >
-            {installing ? (
-              <>
-                <Loader2 className="size-3 animate-spin" />
-                安装中
-              </>
-            ) : installed ? (
-              "已安装"
-            ) : (
-              "安装技能"
-            )}
-          </button>
-        )}
-      </div>
     </div>
   );
 }

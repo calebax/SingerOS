@@ -1,21 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
 import type { SkillMarketplaceItem } from "@leros/store";
 import { skillMarketplaceApi, installedToCardItem } from "@leros/store";
 import { SkillCard } from "./SkillCard";
 
 interface MySkillsPanelProps {
-  /** 通知父组件有 skill 被卸载（name），用于同步 marketplace tab 的 installedIds。 */
-  onUninstall: (name: string) => void;
+  /** Called when a skill card is clicked (for navigation to detail page) */
+  onCardClick?: (skill: SkillMarketplaceItem) => void;
 }
 
-export function MySkillsPanel({ onUninstall }: MySkillsPanelProps) {
+export function MySkillsPanel({ onCardClick }: MySkillsPanelProps) {
   const [skills, setSkills] = useState<SkillMarketplaceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [uninstallingNames, setUninstallingNames] = useState<Set<string>>(new Set());
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -38,32 +36,9 @@ export function MySkillsPanel({ onUninstall }: MySkillsPanelProps) {
   }, []);
 
   useEffect(() => {
+    if (!mounted) return;
     fetchInstalled();
-  }, [fetchInstalled]);
-
-  const handleUninstall = useCallback(
-    async (skill: SkillMarketplaceItem) => {
-      const name = skill.skill_id; // skill_id == name for installed items
-      setUninstallingNames((prev) => new Set(prev).add(name));
-      try {
-        await skillMarketplaceApi.uninstall({ name });
-        // Optimistically remove from local list
-        setSkills((prev) => prev.filter((s) => s.skill_id !== name));
-        onUninstall(name);
-        toast.success("卸载已提交");
-      } catch (err: any) {
-        const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
-        toast.error(`卸载失败：${msg}`);
-      } finally {
-        setUninstallingNames((prev) => {
-          const next = new Set(prev);
-          next.delete(name);
-          return next;
-        });
-      }
-    },
-    [onUninstall],
-  );
+  }, [mounted, fetchInstalled]);
 
   // Not yet mounted (SSR hydration guard)
   if (!mounted) {
@@ -117,8 +92,7 @@ export function MySkillsPanel({ onUninstall }: MySkillsPanelProps) {
           key={skill.skill_id}
           skill={skill}
           variant="mine"
-          onUninstall={handleUninstall}
-          uninstalling={uninstallingNames.has(skill.skill_id)}
+          onClick={onCardClick}
         />
       ))}
     </div>

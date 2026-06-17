@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	"github.com/insmtx/Leros/backend/pkg/dm"
 	"github.com/ygpkg/yg-go/logs"
@@ -92,6 +93,8 @@ func (c *Consumer) handle(ctx context.Context, msg *nats.Msg) error {
 		return c.handleList(ctx, req)
 	case "uninstall":
 		return c.handleUninstall(ctx, req)
+	case "detail":
+		return c.handleDetail(ctx, req)
 	default:
 		return c.replyError(req.Body.ReplyTo, fmt.Sprintf("unknown action: %s", action), nil)
 	}
@@ -157,7 +160,11 @@ func (c *Consumer) handleList(ctx context.Context, req protocol.SkillManagementM
 	resp := protocol.SkillManagementResponse{
 		Success: true,
 		Action:  "list",
-		Data:    items,
+	}
+	if data, err := json.Marshal(items); err != nil {
+		return c.replyError(req.Body.ReplyTo, "marshal list data", err)
+	} else {
+		resp.Data = data
 	}
 	return c.publishReply(req.Body.ReplyTo, resp)
 }
@@ -185,6 +192,46 @@ func (c *Consumer) handleUninstall(ctx context.Context, req protocol.SkillManage
 
 	logs.InfoContextf(ctx, "leros skill uninstall succeeded for %q", name)
 	return c.replySuccess(req.Body.ReplyTo, "uninstall", fmt.Sprintf("skill %q uninstalled", name))
+}
+
+func (c *Consumer) handleDetail(ctx context.Context, req protocol.SkillManagementMessage) error {
+	name := strings.TrimSpace(req.Body.Name)
+	if name == "" {
+		return c.replyError(req.Body.ReplyTo, "name is empty", nil)
+	}
+
+	entry, err := catalog.Get(name)
+	if err != nil {
+		logs.ErrorContextf(ctx, "Failed to get skill detail for %q: %v", name, err)
+		return c.replyError(req.Body.ReplyTo, fmt.Sprintf("get skill detail %q", name), err)
+	}
+
+	// catalog.ListFiles excludes SKILL.md by design; always include it as the primary file.
+	supportingFiles, _ := catalog.ListFiles(name, 0)
+	files := append([]string{"SKILL.md"}, supportingFiles...)
+
+	data := protocol.SkillDetailData{
+		Name:        entry.Manifest.Name,
+		Description: entry.Manifest.Description,
+		Category:    entry.Manifest.Metadata.Category,
+		Source:      entry.Summary().Source,
+		Trust:       entry.Summary().Trust,
+		Version:     entry.Manifest.Version,
+		SkillMD:     entry.Body,
+		Tags:        entry.Manifest.Metadata.Tags,
+		Files:       files,
+	}
+
+	resp := protocol.SkillManagementResponse{
+		Success: true,
+		Action:  "detail",
+	}
+	if data, err := json.Marshal(data); err != nil {
+		return c.replyError(req.Body.ReplyTo, "marshal detail data", err)
+	} else {
+		resp.Data = data
+	}
+	return c.publishReply(req.Body.ReplyTo, resp)
 }
 
 // replySuccess publishes a success response to the reply inbox.

@@ -193,7 +193,7 @@ func (s *skillMarketplaceService) DownloadBuiltinSkill(ctx context.Context, skil
 
 	skillDir := filepath.Join(serverDir, skillID)
 	if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); os.IsNotExist(err) {
-		return nil, fmt.Errorf("skill not found")
+		return nil, fmt.Errorf("skill %q found in DB but SKILL.md missing on disk", skillID)
 	}
 
 	pr, pw := io.Pipe()
@@ -325,12 +325,8 @@ func (s *skillMarketplaceService) InstalledSkills(ctx context.Context, req *cont
 	}
 
 	// Convert response data to contract type
-	dataBytes, err := json.Marshal(resp.Data)
-	if err != nil {
-		return nil, fmt.Errorf("marshal skill list data: %w", err)
-	}
 	var skills []contract.SkillInstalledItem
-	if err := json.Unmarshal(dataBytes, &skills); err != nil {
+	if err := json.Unmarshal(resp.Data, &skills); err != nil {
 		return nil, fmt.Errorf("unmarshal skill list items: %w", err)
 	}
 
@@ -372,6 +368,155 @@ func (s *skillMarketplaceService) UninstallSkill(ctx context.Context, req *contr
 		Status:  "accepted",
 		Message: fmt.Sprintf("Skill uninstall request queued for org %d, worker %d", caller.OrgID, workerID),
 	}, nil
+}
+
+func (s *skillMarketplaceService) GetSkillDetail(ctx context.Context, req *contract.SkillDetailRequest) (*contract.SkillDetailResponse, error) {
+	source := strings.TrimSpace(req.Source)
+	skillID := strings.TrimSpace(req.SkillID)
+
+	switch source {
+	case "Leros":
+		return s.getLerosSkillDetail(ctx, skillID)
+	case "installed":
+		return s.getInstalledSkillDetail(ctx, skillID)
+	default:
+		return nil, fmt.Errorf("unsupported source: %s", source)
+	}
+}
+
+// getLerosSkillDetail returns the full detail of a built-in marketplace skill.
+func (s *skillMarketplaceService) getLerosSkillDetail(ctx context.Context, skillID string) (*contract.SkillDetailResponse, error) {
+	item, err := infradb.GetBuiltinSkillByID(ctx, s.db, skillID)
+	if err != nil {
+		return nil, fmt.Errorf("query builtin skill: %w", err)
+	}
+	if item == nil {
+		return nil, fmt.Errorf("skill %q not found", skillID)
+	}
+
+	serverDir, err := infradb.ResolveSkillsServerDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve skills server dir: %w", err)
+	}
+
+	skillMDPath := filepath.Join(serverDir, skillID, "SKILL.md")
+	skillMD, err := os.ReadFile(skillMDPath)
+	if err != nil {
+		return nil, fmt.Errorf("read SKILL.md for %q: %w", skillID, err)
+	}
+
+	// Collect files from the skill directory (include SKILL.md as the primary file).
+	var files []string
+	skillDir := filepath.Join(serverDir, skillID)
+	files = append(files, "SKILL.md")
+	if entries, readErr := os.ReadDir(skillDir); readErr == nil {
+		for _, e := range entries {
+			if e.IsDir() || e.Name() == "SKILL.md" {
+				continue
+			}
+			files = append(files, e.Name())
+		}
+	}
+
+	return &contract.SkillDetailResponse{
+		SkillID:     item.SkillID,
+		Source:      "Leros",
+		Name:        item.Name,
+		Description: item.Description,
+		SkillMD:     stripFrontmatter(string(skillMD)),
+		Version:     item.Version,
+		Author:      item.Author,
+		Category:    item.Category,
+		Tags:        []string(item.Tags),
+		Icon:        item.Icon,
+		Installs:    item.Installs,
+		Verified:    item.Verified,
+		SourceType:  "Leros",
+		Files:       files,
+	}, nil
+}
+
+// getInstalledSkillDetail sends a NATS request to the worker for installed skill detail.
+func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, skillID string) (*contract.SkillDetailResponse, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	workerID := uint(1)
+
+	topic, err := dm.WorkerSkillSubject(caller.OrgID, workerID)
+	if err != nil {
+		return nil, fmt.Errorf("build skill topic: %w", err)
+	}
+
+	msg := protocol.SkillManagementMessage{
+		ID:        fmt.Sprintf("%d-%d-%d", caller.OrgID, workerID, time.Now().UnixNano()),
+		Type:      protocol.MessageTypeSkillManagement,
+		CreatedAt: time.Now(),
+		Route: protocol.RouteContext{
+			OrgID:    caller.OrgID,
+			WorkerID: workerID,
+		},
+		Body: protocol.SkillManagementBody{
+			Action: "detail",
+			Name:   skillID,
+		},
+	}
+
+	reply, err := s.publisher.Request(ctx, topic, msg)
+	if err != nil {
+		return nil, fmt.Errorf("request skill detail: %w", err)
+	}
+
+	var resp protocol.SkillManagementResponse
+	if err := json.Unmarshal(reply.Data, &resp); err != nil {
+		return nil, fmt.Errorf("unmarshal skill detail response: %w", err)
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("skill detail failed: %s", resp.Error)
+	}
+
+	var detail protocol.SkillDetailData
+	if err := json.Unmarshal(resp.Data, &detail); err != nil {
+		return nil, fmt.Errorf("unmarshal skill detail items: %w", err)
+	}
+
+	return &contract.SkillDetailResponse{
+		SkillID:     detail.Name,
+		Source:      "installed",
+		Name:        detail.Name,
+		Description: detail.Description,
+		SkillMD:     stripFrontmatter(detail.SkillMD),
+		Version:     detail.Version,
+		Author:      detail.Source,
+		Category:    detail.Category,
+		Tags:        detail.Tags,
+		Installs:    0,
+		Verified:    detail.Trust == "trusted",
+		SourceType:  detail.Source,
+		Files:       detail.Files,
+	}, nil
+}
+
+// stripFrontmatter removes YAML frontmatter (delimited by ---) from a SKILL.md file.
+// Returns only the body content after the closing --- delimiter.
+func stripFrontmatter(content string) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return content
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			// Skip the closing --- line itself and any blank line immediately following it
+			start := i + 1
+			for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+				start++
+			}
+			return strings.Join(lines[start:], "\n")
+		}
+	}
+	return content
 }
 
 var _ contract.SkillMarketplaceService = (*skillMarketplaceService)(nil)

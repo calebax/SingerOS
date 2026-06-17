@@ -16,6 +16,8 @@ export type {
 	InstalledSkillsResponse,
 	SearchSkillMarketplaceParams,
 	SearchSkillMarketplaceResponse,
+	SkillDetailData,
+	SkillDetailParams,
 	SkillInstalledItem,
 	SkillMarketplaceItem,
 	UninstallSkillParams,
@@ -91,7 +93,7 @@ export {
 	mergeProjectArtifacts,
 	messageArtifactToProjectArtifact,
 } from "./utils/artifacts";
-export { AUTH_SESSION_EXPIRED_EVENT, getValidJwtToken } from "./utils/authStorage";
+export { AUTH_SESSION_EXPIRED_EVENT, authenticatedFetch, getValidJwtToken } from "./utils/authStorage";
 export {
 	formatDate,
 	formatFileSize,

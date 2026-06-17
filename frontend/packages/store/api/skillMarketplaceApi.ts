@@ -58,6 +58,28 @@ export interface UninstallSkillResponse {
   message: string;
 }
 
+export interface SkillDetailParams {
+  source: string;
+  skill_id: string;
+}
+
+export interface SkillDetailData {
+  skill_id: string;
+  source: string;
+  name: string;
+  description: string;
+  skill_md: string;
+  version: string;
+  author: string;
+  category: string;
+  tags: string[];
+  icon: string;
+  installs: number;
+  verified: boolean;
+  source_type: string;
+  files: string[];
+}
+
 /**
  * 将后端 SkillInstalledItem 映射为兼容 SkillCard 组件的 SkillMarketplaceItem。
  * 用 name 作为 skill_id（卸载接口使用 name 作为标识符）。
@@ -110,6 +132,12 @@ export const skillMarketplaceApi = {
   uninstall: (params: UninstallSkillParams) =>
     apiClient.post<BackendDataResponse<UninstallSkillResponse>>(
       "/skill-marketplace/uninstall",
+      params,
+    ),
+
+  getDetail: (params: SkillDetailParams) =>
+    apiClient.post<BackendDataResponse<SkillDetailData>>(
+      "/skill-marketplace/skill-detail",
       params,
     ),
 };
