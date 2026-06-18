@@ -123,7 +123,7 @@ func (c *Consumer) TaskTopic() string {
 
 // Start subscribes to the worker task topic. On first start (no seq tracker or no
 // history) it creates a durable consumer from the latest position. On restart with
-// existing history it replays from the last completed seq via SubscribeFrom, using
+// existing history it replays from the last terminal seq via SubscribeFrom, using
 // SQLite as the authoritative recovery point. Only one subscription is active.
 func (c *Consumer) Start(ctx context.Context) error {
 	topic := c.TaskTopic()
@@ -133,11 +133,11 @@ func (c *Consumer) Start(ctx context.Context) error {
 		}
 	}
 
-	// Recovery path: if we have prior completed seqs, replay from the last one.
+	// Recovery path: if we have prior terminal seqs, replay from the last one.
 	if c.seqTracker != nil {
-		lastSeq, err := c.seqTracker.GetLastCompletedSeq(ctx, topic)
+		lastSeq, err := c.seqTracker.GetLastTerminalSeq(ctx, topic)
 		if err != nil {
-			logs.WarnContextf(ctx, "Failed to get last completed seq for topic %s: %v", topic, err)
+			logs.WarnContextf(ctx, "Failed to get last terminal seq for topic %s: %v", topic, err)
 		}
 		if lastSeq > 0 {
 			logs.InfoContextf(ctx, "Starting worker task subscription (recovery): %s from seq %d", topic, lastSeq+1)
@@ -182,9 +182,9 @@ func (c *Consumer) handleEvent(ctx context.Context, msg *nats.Msg) error {
 	}
 	topic := c.TaskTopic()
 	if c.seqTracker != nil {
-		// Dedup: skip messages already completed (recovery replay).
-		if isDup, err := c.seqTracker.IsDuplicate(ctx, topic, seq); err == nil && isDup {
-			logs.InfoContextf(ctx, "Skipping duplicate message: topic=%s seq=%d", topic, seq)
+		// Dedup: skip messages that already reached a terminal state during recovery replay.
+		if isTerminal, err := c.seqTracker.IsTerminal(ctx, topic, seq); err == nil && isTerminal {
+			logs.InfoContextf(ctx, "Skipping terminal message: topic=%s seq=%d", topic, seq)
 			<-c.sem
 			return nil
 		}

@@ -102,6 +102,44 @@ func TestGetLastCompletedSeq(t *testing.T) {
 	}
 }
 
+func TestGetLastTerminalSeq(t *testing.T) {
+	tracker := newTestTracker(t)
+	ctx := context.Background()
+
+	seq, err := tracker.GetLastTerminalSeq(ctx, "test.topic")
+	if err != nil {
+		t.Fatalf("GetLastTerminalSeq failed: %v", err)
+	}
+	if seq != 0 {
+		t.Fatalf("expected 0, got %d", seq)
+	}
+
+	tracker.TrackReceived(ctx, "test.topic", 1, "s1", "m1", "t1", "r1")
+	tracker.MarkCompleted(ctx, "test.topic", 1)
+	tracker.TrackReceived(ctx, "test.topic", 2, "s2", "m2", "t2", "r2")
+	tracker.MarkFailed(ctx, "test.topic", 2, "boom")
+	tracker.TrackReceived(ctx, "test.topic", 3, "s3", "m3", "t3", "r3")
+	tracker.MarkProcessing(ctx, "test.topic", 3)
+	tracker.TrackReceived(ctx, "test.topic", 4, "s4", "m4", "t4", "r4")
+
+	seq, err = tracker.GetLastTerminalSeq(ctx, "test.topic")
+	if err != nil {
+		t.Fatalf("GetLastTerminalSeq failed: %v", err)
+	}
+	if seq != 2 {
+		t.Fatalf("expected 2, got %d", seq)
+	}
+
+	tracker.MarkCompleted(ctx, "test.topic", 4)
+	seq, err = tracker.GetLastTerminalSeq(ctx, "test.topic")
+	if err != nil {
+		t.Fatalf("GetLastTerminalSeq failed: %v", err)
+	}
+	if seq != 4 {
+		t.Fatalf("expected 4, got %d", seq)
+	}
+}
+
 func TestIsDuplicate(t *testing.T) {
 	tracker := newTestTracker(t)
 	ctx := context.Background()
@@ -125,6 +163,39 @@ func TestIsDuplicate(t *testing.T) {
 	}
 	if !isDup {
 		t.Fatal("expected duplicate for completed message")
+	}
+}
+
+func TestIsTerminal(t *testing.T) {
+	tracker := newTestTracker(t)
+	ctx := context.Background()
+
+	tracker.TrackReceived(ctx, "test.topic", 500, "s1", "m1", "t1", "r1")
+	isTerminal, err := tracker.IsTerminal(ctx, "test.topic", 500)
+	if err != nil {
+		t.Fatalf("IsTerminal failed: %v", err)
+	}
+	if isTerminal {
+		t.Fatal("expected pending message not to be terminal")
+	}
+
+	tracker.MarkFailed(ctx, "test.topic", 500, "boom")
+	isTerminal, err = tracker.IsTerminal(ctx, "test.topic", 500)
+	if err != nil {
+		t.Fatalf("IsTerminal failed: %v", err)
+	}
+	if !isTerminal {
+		t.Fatal("expected failed message to be terminal")
+	}
+
+	tracker.TrackReceived(ctx, "test.topic", 501, "s1", "m1", "t1", "r1")
+	tracker.MarkCompleted(ctx, "test.topic", 501)
+	isTerminal, err = tracker.IsTerminal(ctx, "test.topic", 501)
+	if err != nil {
+		t.Fatalf("IsTerminal failed: %v", err)
+	}
+	if !isTerminal {
+		t.Fatal("expected completed message to be terminal")
 	}
 }
 

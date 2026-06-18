@@ -41,8 +41,15 @@ type SeqTracker interface {
 	// Returns 0 if no completed records exist.
 	GetLastCompletedSeq(ctx context.Context, topic string) (uint64, error)
 
+	// GetLastTerminalSeq returns the highest seq with a terminal status for the topic.
+	// Returns 0 if no terminal records exist.
+	GetLastTerminalSeq(ctx context.Context, topic string) (uint64, error)
+
 	// IsDuplicate returns true if the seq has already been completed for this topic.
 	IsDuplicate(ctx context.Context, topic string, seq uint64) (bool, error)
+
+	// IsTerminal returns true if the seq already has a terminal status for this topic.
+	IsTerminal(ctx context.Context, topic string, seq uint64) (bool, error)
 
 	// Close closes the database.
 	Close() error
@@ -112,10 +119,29 @@ func (s *sqliteTracker) MarkFailed(_ context.Context, topic string, seq uint64, 
 }
 
 func (s *sqliteTracker) GetLastCompletedSeq(_ context.Context, topic string) (uint64, error) {
+	return s.getLastSeqByStatuses(topic, []Status{StatusCompleted})
+}
+
+func (s *sqliteTracker) GetLastTerminalSeq(_ context.Context, topic string) (uint64, error) {
+	return s.getLastSeqByStatuses(topic, []Status{StatusCompleted, StatusFailed})
+}
+
+func (s *sqliteTracker) getLastSeqByStatuses(topic string, statuses []Status) (uint64, error) {
+	if len(statuses) == 0 {
+		return 0, nil
+	}
+	args := make([]any, 0, len(statuses)+1)
+	args = append(args, topic)
+	placeholders := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		placeholders = append(placeholders, "?")
+		args = append(args, string(status))
+	}
+
 	var lastSeq sql.NullInt64
 	err := s.db.QueryRow(
-		`SELECT MAX(seq) FROM task_seq WHERE topic = ? AND status = ?`,
-		topic, string(StatusCompleted),
+		fmt.Sprintf(`SELECT MAX(seq) FROM task_seq WHERE topic = ? AND status IN (%s)`, joinPlaceholders(placeholders)),
+		args...,
 	).Scan(&lastSeq)
 	if err != nil {
 		return 0, err
@@ -127,15 +153,45 @@ func (s *sqliteTracker) GetLastCompletedSeq(_ context.Context, topic string) (ui
 }
 
 func (s *sqliteTracker) IsDuplicate(_ context.Context, topic string, seq uint64) (bool, error) {
+	return s.hasStatus(topic, seq, []Status{StatusCompleted})
+}
+
+func (s *sqliteTracker) IsTerminal(_ context.Context, topic string, seq uint64) (bool, error) {
+	return s.hasStatus(topic, seq, []Status{StatusCompleted, StatusFailed})
+}
+
+func (s *sqliteTracker) hasStatus(topic string, seq uint64, statuses []Status) (bool, error) {
+	if len(statuses) == 0 {
+		return false, nil
+	}
+	args := make([]any, 0, len(statuses)+2)
+	args = append(args, topic, seq)
+	placeholders := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		placeholders = append(placeholders, "?")
+		args = append(args, string(status))
+	}
+
 	var count int
 	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM task_seq WHERE topic = ? AND seq = ? AND status = ?`,
-		topic, seq, string(StatusCompleted),
+		fmt.Sprintf(`SELECT COUNT(*) FROM task_seq WHERE topic = ? AND seq = ? AND status IN (%s)`, joinPlaceholders(placeholders)),
+		args...,
 	).Scan(&count)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func joinPlaceholders(placeholders []string) string {
+	if len(placeholders) == 0 {
+		return ""
+	}
+	result := placeholders[0]
+	for _, placeholder := range placeholders[1:] {
+		result += "," + placeholder
+	}
+	return result
 }
 
 func (s *sqliteTracker) Close() error {

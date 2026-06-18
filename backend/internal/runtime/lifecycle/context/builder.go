@@ -47,6 +47,12 @@ func (b *ContextBuilder) Prepare(ctx context.Context, req *agent.RequestContext)
 			return nil, err
 		}
 	}
+	// 解析并加载用户显式调用的 skill
+	if err := ApplyInvokedSkills(ctx, cloned); err != nil {
+		logs.WarnContextf(ctx, "Agent invoke skills failed: run_id=%s trace_id=%s error=%v",
+			req.RunID, req.TraceID, err)
+		return nil, err
+	}
 	systemPrompt, err := b.BuildSystemPrompt(ctx, cloned)
 	if err != nil {
 		logs.WarnContextf(ctx, "Agent context build system prompt failed: run_id=%s trace_id=%s error=%v",
