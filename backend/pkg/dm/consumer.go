@@ -25,3 +25,8 @@ func SessionArtifactDeclaredConsumer() string {
 func WorkerSkillConsumer() string {
 	return "worker-skill-mgmt"
 }
+
+// SessionRunStartedConsumer constructs the durable consumer for run start state projection.
+func SessionRunStartedConsumer() string {
+	return "session-run-started-handler"
+}
