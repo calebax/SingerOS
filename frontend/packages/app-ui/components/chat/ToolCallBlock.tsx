@@ -6,8 +6,15 @@ import { cn } from "@leros/ui/lib/utils";
 import { Check, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
 import { useState } from "react";
 
-export function ToolCallBlock({ toolCalls }: { toolCalls: ToolCall[] }) {
+export function ToolCallBlock({
+	toolCalls,
+	variant = "default",
+}: {
+	toolCalls: ToolCall[];
+	variant?: "default" | "timeline";
+}) {
 	const [expanded, setExpanded] = useState(false);
+	const isTimelineVariant = variant === "timeline";
 
 	const totalCalls = toolCalls.length;
 	const successCount = toolCalls.filter((tc) => tc.status === "success").length;
@@ -16,12 +23,22 @@ export function ToolCallBlock({ toolCalls }: { toolCalls: ToolCall[] }) {
 	return (
 		<div
 			data-slot="tool-call-block"
-			className="max-w-[min(780px,92%)] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-sm"
+			className={cn(
+				"max-w-full overflow-hidden text-slate-500",
+				isTimelineVariant
+					? "rounded-none border-0 bg-transparent shadow-none"
+					: "rounded-lg border border-slate-200/80 bg-white/70 shadow-sm",
+			)}
 		>
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
-				className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-sm transition-colors hover:bg-slate-50/90"
+				className={cn(
+					"flex w-full cursor-pointer items-center justify-between transition-colors",
+					isTimelineVariant
+						? "px-0 py-0 text-[13px] hover:bg-transparent"
+						: "px-3 py-2 text-sm hover:bg-slate-50/90",
+				)}
 			>
 				<div className="flex items-center gap-2">
 					{expanded ? (
@@ -29,10 +46,19 @@ export function ToolCallBlock({ toolCalls }: { toolCalls: ToolCall[] }) {
 					) : (
 						<ChevronRight className="size-3.5 text-slate-400" />
 					)}
-					<span className="font-medium text-slate-600">工具调用 ({totalCalls})</span>
+					<span
+						className={cn(
+							"font-medium",
+							isTimelineVariant
+								? "text-[13px] text-[color:var(--leros-chat-text-muted)]"
+								: "text-slate-600",
+						)}
+					>
+						工具调用 ({totalCalls})
+					</span>
 					{runningCount > 0 && (
 						<span className="relative flex size-2">
-							<span className="absolute inline-flex size-full rounded-full bg-yellow-400 opacity-75 animate-ping" />
+							<span className="absolute inline-flex size-full animate-ping rounded-full bg-yellow-400 opacity-75" />
 							<span className="relative inline-flex size-2 rounded-full bg-yellow-500" />
 						</span>
 					)}
@@ -46,9 +72,14 @@ export function ToolCallBlock({ toolCalls }: { toolCalls: ToolCall[] }) {
 			</button>
 
 			{expanded && (
-				<div className="space-y-2 border-t border-slate-200 px-3 py-2">
+				<div
+					className={cn(
+						"space-y-2",
+						isTimelineVariant ? "pt-1" : "border-t border-slate-200 px-3 py-2",
+					)}
+				>
 					{toolCalls.map((tc) => (
-						<ToolCallItem key={tc.id} toolCall={tc} />
+						<ToolCallItem key={tc.id} toolCall={tc} compact={isTimelineVariant} />
 					))}
 				</div>
 			)}
@@ -56,7 +87,7 @@ export function ToolCallBlock({ toolCalls }: { toolCalls: ToolCall[] }) {
 	);
 }
 
-function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
+function ToolCallItem({ toolCall, compact = false }: { toolCall: ToolCall; compact?: boolean }) {
 	const [showArgs, setShowArgs] = useState(false);
 	const [showResult, setShowResult] = useState(false);
 	const hasResult = toolCall.result !== undefined && toolCall.result !== null;
@@ -66,14 +97,23 @@ function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-2">
 					{toolCall.status === "running" && (
-						<Loader2 className="size-3.5 text-yellow-500 animate-spin" />
+						<Loader2 className="size-3.5 animate-spin text-yellow-500" />
 					)}
 					{toolCall.status === "success" && <Check className="size-3.5 text-green-500" />}
 					{toolCall.status === "error" && <X className="size-3.5 text-red-500" />}
 					{toolCall.status === "pending" && (
 						<span className="size-3.5 rounded-full border-2 border-slate-300" />
 					)}
-					<span className="text-sm font-medium text-slate-700">{toolCall.name}</span>
+					<span
+						className={cn(
+							"font-medium",
+							compact
+								? "text-[13px] text-[color:var(--leros-chat-text-muted)]"
+								: "text-sm text-slate-700",
+						)}
+					>
+						{toolCall.name}
+					</span>
 					{toolCall.duration && (
 						<span className="text-xs text-slate-400">{toolCall.duration}ms</span>
 					)}
@@ -101,13 +141,13 @@ function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
 			</div>
 
 			{showArgs && (
-				<div className="rounded bg-slate-100 px-2 py-1.5 text-xs text-slate-600 overflow-x-auto">
+				<div className="overflow-x-auto rounded bg-slate-100 px-2 py-1.5 text-xs text-slate-600">
 					<pre className="whitespace-pre-wrap">{JSON.stringify(toolCall.arguments, null, 2)}</pre>
 				</div>
 			)}
 
 			{showResult && hasResult && (
-				<div className="rounded bg-green-50 px-2 py-1.5 text-xs text-green-700 overflow-x-auto">
+				<div className="overflow-x-auto rounded bg-green-50 px-2 py-1.5 text-xs text-green-700">
 					<pre className="whitespace-pre-wrap">{formatToolCallValue(toolCall.result)}</pre>
 				</div>
 			)}

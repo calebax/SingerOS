@@ -11,7 +11,12 @@ import {
 	useLayoutStore,
 } from "@leros/store";
 import { artifactApi } from "@leros/store/api/artifactApi";
-import type { Message, MessageArtifact } from "@leros/store/types/chat";
+import type {
+	Message,
+	MessageArtifact,
+	MessageProcessStep,
+	ToolCall,
+} from "@leros/store/types/chat";
 import { Avatar, AvatarFallback } from "@leros/ui/components/ui/avatar";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -22,8 +27,10 @@ import {
 	Copy,
 	LoaderCircle,
 	RefreshCw,
+	Rows3,
+	Wrench,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	SHOW_ASSISTANT_MESSAGE_METRICS,
 	SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON,
@@ -43,7 +50,7 @@ function CopyButton({ text }: { text: string }) {
 	return (
 		<Button
 			variant="ghost"
-			size="icon-xs"
+			size="icon-[13px]"
 			className={copied ? "text-green-500" : "text-slate-400 hover:text-slate-600"}
 			onClick={handleCopy}
 		>
@@ -62,8 +69,7 @@ export function AIMessageBubble({
 	const { resendMessage } = useChatStore((s) => s);
 	const content = message.content;
 	const hasContent = content.trim().length > 0;
-	const hasThinking = (message.thinking ?? "").trim().length > 0;
-	const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
+	const hasProcess = Boolean(message.processSteps?.length);
 	const hasArtifacts = message.artifacts && message.artifacts.length > 0;
 	const metricSegments = SHOW_ASSISTANT_MESSAGE_METRICS
 		? getAssistantMessageFooterSegments(message)
@@ -72,24 +78,22 @@ export function AIMessageBubble({
 	return (
 		<div data-slot="ai-message" className="group flex items-start gap-3">
 			<Avatar size="sm">
-				<AvatarFallback className="bg-blue-500 text-white text-xs">AI</AvatarFallback>
+				<AvatarFallback className="bg-blue-500 text-[13px] text-white">AI</AvatarFallback>
 			</Avatar>
 			<div className="min-w-0 flex-1">
 				<div className="mb-1.5 flex items-center gap-2">
-					<span className="text-xs font-medium text-slate-500">AI 助手</span>
-					<span className="text-xs text-slate-400">{formatTime(message.timestamp)}</span>
-					{isStreaming && <span className="text-xs text-blue-500 animate-pulse">生成中</span>}
+					<span className="text-[13px] font-medium text-slate-500">AI 助手</span>
+					<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
+					{isStreaming && <span className="animate-pulse text-[13px] text-blue-500">生成中</span>}
 				</div>
 
-				{hasThinking && (
+				{hasProcess && message.processSteps && (
 					<div className="mb-3">
-						<ThinkingBlock thinking={message.thinking ?? ""} isStreaming={isStreaming} />
-					</div>
-				)}
-
-				{hasToolCalls && message.toolCalls && (
-					<div className="mb-3">
-						<ToolCallBlock toolCalls={message.toolCalls} />
+						<ProcessTimelineBlock
+							steps={message.processSteps}
+							toolCalls={message.toolCalls ?? []}
+							isStreaming={isStreaming}
+						/>
 					</div>
 				)}
 
@@ -101,7 +105,7 @@ export function AIMessageBubble({
 								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
 							/>
 							{isStreaming && (
-								<span className="inline-block w-1.5 h-4 bg-slate-400 animate-pulse ml-0.5 rounded-sm" />
+								<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
 							)}
 						</div>
 					</div>
@@ -113,12 +117,12 @@ export function AIMessageBubble({
 					</div>
 				)}
 
-				{!hasContent && !hasThinking && !hasToolCalls && !hasArtifacts && isStreaming && (
+				{!hasContent && !hasProcess && !hasArtifacts && isStreaming && (
 					<div className="w-fit rounded-2xl rounded-tl-md bg-white/90 px-4 py-3 shadow-sm ring-1 ring-slate-200/50">
 						<div className="flex items-center gap-1">
-							<span className="size-1.5 rounded-full bg-slate-400 animate-pulse" />
-							<span className="size-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:200ms]" />
-							<span className="size-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:400ms]" />
+							<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
+							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
+							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
 						</div>
 					</div>
 				)}
@@ -126,14 +130,14 @@ export function AIMessageBubble({
 				{!isStreaming && (
 					<div className="mt-2 flex items-center gap-3">
 						{metricSegments.length > 0 && (
-							<div className="text-xs text-slate-400">{metricSegments.join(" · ")}</div>
+							<div className="text-[13px] text-slate-400">{metricSegments.join(" · ")}</div>
 						)}
-						<div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+						<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
 							<CopyButton text={content} />
 							{SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON && (
 								<Button
 									variant="ghost"
-									size="icon-xs"
+									size="icon-[13px]"
 									className="text-slate-400 hover:text-slate-600"
 									onClick={() => resendMessage(message.id)}
 								>
@@ -148,21 +152,76 @@ export function AIMessageBubble({
 	);
 }
 
-function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreaming: boolean }) {
-	const [expanded, setExpanded] = useState(false);
-	const trimmedThinking = thinking.trim();
-	const preview = compactText(trimmedThinking);
+function ProcessTimelineBlock({
+	steps,
+	toolCalls,
+	isStreaming,
+}: {
+	steps: MessageProcessStep[];
+	toolCalls: ToolCall[];
+	isStreaming: boolean;
+}) {
+	const [expanded, setExpanded] = useState(isStreaming);
+	const [autoFollow, setAutoFollow] = useState(true);
+	const [showBottomFade, setShowBottomFade] = useState(false);
+	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const toolCallMap = useMemo(
+		() => new Map(toolCalls.map((toolCall) => [toolCall.id, toolCall] as const)),
+		[toolCalls],
+	);
+	const preview = useMemo(() => {
+		for (const step of steps) {
+			if (step.type === "thinking") {
+				const compact = compactText(step.content);
+				if (compact) return compact;
+				continue;
+			}
+			const toolCall = toolCallMap.get(step.toolCallId);
+			if (toolCall?.name?.trim()) return `工具调用：${toolCall.name}`;
+		}
+		return "";
+	}, [steps, toolCallMap]);
 
-	if (!trimmedThinking) return null;
+	useEffect(() => {
+		setExpanded(isStreaming);
+	}, [isStreaming]);
+
+	useEffect(() => {
+		const container = scrollContainerRef.current;
+		if (!expanded || !container) {
+			setShowBottomFade(false);
+			return;
+		}
+
+		// 仅在内容确实超出可视高度且底部还有内容未展示时，显示轻量渐隐蒙层。
+		const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+		const hasOverflow = container.scrollHeight > container.clientHeight + 1;
+		setShowBottomFade(hasOverflow && distanceToBottom > 8);
+
+		if (!autoFollow) return;
+
+		// 默认跟随最新步骤，只有用户主动上滑离开底部时才暂停自动滚动。
+		container.scrollTop = container.scrollHeight;
+	}, [autoFollow, expanded, steps, toolCalls]);
+
+	if (!steps.length) return null;
 
 	return (
 		<div
-			data-slot="thinking-block"
-			className="max-w-[min(780px,92%)] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-sm"
+			data-slot="process-timeline-block"
+			className="max-w-[min(780px,92%)] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-xs"
 		>
 			<button
 				type="button"
-				onClick={() => setExpanded(!expanded)}
+				onClick={() => {
+					setExpanded((value) => {
+						const nextExpanded = !value;
+						if (nextExpanded) {
+							setAutoFollow(true);
+						}
+						return nextExpanded;
+					});
+				}}
 				className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50/90"
 			>
 				<div className="flex min-w-0 items-center gap-2">
@@ -171,28 +230,83 @@ function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreamin
 					) : (
 						<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
 					)}
-					<Brain className="size-3.5 shrink-0 text-blue-500" />
-					<span className="truncate font-medium text-slate-600">
-						{isStreaming ? "正在思考" : "思考过程"}
-					</span>
+					<Rows3 className="size-3.5 shrink-0 text-indigo-500" />
+					<span className="truncate font-medium text-slate-600">执行过程</span>
 					{isStreaming && (
 						<span className="relative flex size-2 shrink-0">
-							<span className="absolute inline-flex size-full rounded-full bg-blue-400 opacity-75 animate-ping" />
+							<span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
 							<span className="relative inline-flex size-2 rounded-full bg-blue-500" />
 						</span>
 					)}
 				</div>
-				{!expanded && (
-					<span className="max-w-[54%] truncate text-xs text-slate-500">{preview}</span>
+				{!expanded && preview && (
+					<span className="max-w-[54%] truncate text-[13px] text-slate-500">{preview}</span>
 				)}
 			</button>
 			{expanded && (
-				<div className="border-t border-slate-200 px-3 py-2">
-					<div className="max-h-48 overflow-y-auto whitespace-pre-wrap border-l-2 border-blue-100 pl-3 text-xs leading-6 text-slate-500">
-						{trimmedThinking}
+				<div className="border-t border-slate-200 px-5 py-3">
+					<div className="relative">
+						<div
+							ref={scrollContainerRef}
+							onScroll={(event) => {
+								const container = event.currentTarget;
+								const distanceToBottom =
+									container.scrollHeight - container.scrollTop - container.clientHeight;
+								const hasOverflow = container.scrollHeight > container.clientHeight + 1;
+
+								setAutoFollow(distanceToBottom <= 24);
+								setShowBottomFade(hasOverflow && distanceToBottom > 8);
+							}}
+							className="no-scrollbar max-h-[min(45vh,25rem)] space-y-3 overflow-y-auto pr-1"
+						>
+							{steps.map((step) => (
+								<ProcessStepItem
+									key={step.id}
+									step={step}
+									toolCall={
+										step.type === "tool_call" ? toolCallMap.get(step.toolCallId) : undefined
+									}
+								/>
+							))}
+						</div>
+						{showBottomFade && (
+							<div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-white via-white/30 to-white/0" />
+						)}
 					</div>
 				</div>
 			)}
+		</div>
+	);
+}
+
+function ProcessStepItem({ step, toolCall }: { step: MessageProcessStep; toolCall?: ToolCall }) {
+	return (
+		<div className="flex gap-3">
+			{/* <div className="flex w-4 shrink-0 justify-center">
+        <div className="w-px bg-slate-200" />
+      </div> */}
+			<div className="min-w-0 flex-1 pb-1">
+				{step.type === "thinking" ? (
+					<div className="min-w-0">
+						<div className="mb-1 flex items-center gap-2 text-[13px] font-medium text-blue-600">
+							<Brain className="size-3.5 text-blue-500" />
+							<span>思考过程</span>
+						</div>
+						<MarkdownRenderer
+							content={step.content}
+							className="max-w-none text-[13px] leading-6 text-[color:var(--leros-chat-text-muted)] [&_*]:text-[color:var(--leros-chat-text-muted)] [&_ol]:my-1 [&_p]:my-1 [&_pre]:my-1.5 [&_strong]:text-[color:var(--leros-chat-text-muted)] [&_ul]:my-1"
+						/>
+					</div>
+				) : toolCall ? (
+					<div>
+						<div className="mb-1 flex items-center gap-2 text-[13px] font-medium text-blue-600">
+							<Wrench className="size-3.5 text-emerald-500" />
+							<span>工具调用</span>
+						</div>
+						<ToolCallBlock toolCalls={[toolCall]} variant="timeline" />
+					</div>
+				) : null}
+			</div>
 		</div>
 	);
 }
@@ -270,7 +384,7 @@ function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {
 							<div className="truncate text-sm font-semibold leading-5 text-slate-700">
 								{artifact.title || artifact.name}
 							</div>
-							<div className="mt-0.5 truncate text-xs leading-4 text-slate-400">
+							<div className="mt-0.5 truncate text-[13px] leading-4 text-slate-400">
 								{artifact.name}
 								{artifact.size ? ` · ${artifact.size}` : ""}
 							</div>

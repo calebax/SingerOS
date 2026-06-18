@@ -32,6 +32,7 @@ export function MessageTimeline({
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const prevMessageCountRef = useRef(0);
 	const prevStreamSignatureRef = useRef("");
+	const autoFollowRef = useRef(true);
 
 	const messages = messageIds
 		.map((id) => messagesMap[id])
@@ -41,8 +42,6 @@ export function MessageTimeline({
 		const container = scrollRef.current;
 		if (!container) return;
 
-		const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
-
 		const messageCountIncreased = messages.length > prevMessageCountRef.current;
 		prevMessageCountRef.current = messages.length;
 
@@ -50,7 +49,11 @@ export function MessageTimeline({
 		const streamSignature = streamingMsg
 			? [
 					streamingMsg.content,
-					streamingMsg.thinking,
+					streamingMsg.processSteps
+						?.map((step) =>
+							step.type === "thinking" ? `thinking:${step.content}` : `tool:${step.toolCallId}`,
+						)
+						.join("|"),
 					streamingMsg.toolCalls?.map((toolCall) => `${toolCall.id}:${toolCall.status}`).join("|"),
 					streamingMsg.todos?.map((todo) => `${todo.id}:${todo.status}`).join("|"),
 					streamingMsg.approvals
@@ -62,7 +65,8 @@ export function MessageTimeline({
 		const streamChanged = streamSignature !== prevStreamSignatureRef.current;
 		prevStreamSignatureRef.current = streamSignature;
 
-		if (nearBottom || messageCountIncreased || streamChanged) {
+		// 仅在仍然处于“跟随最新”模式时自动贴底，避免用户上滑查看历史时被强制拉回。
+		if (autoFollowRef.current && (messageCountIncreased || streamChanged)) {
 			container.scrollTop = container.scrollHeight;
 		}
 	}, [messages.length, streamingMessageId, messagesMap]);
@@ -73,6 +77,13 @@ export function MessageTimeline({
 		<div
 			ref={scrollRef}
 			data-slot="message-timeline"
+			onScroll={(event) => {
+				const container = event.currentTarget;
+				const distanceToBottom =
+					container.scrollHeight - container.scrollTop - container.clientHeight;
+
+				autoFollowRef.current = distanceToBottom <= 120;
+			}}
 			className={cn("min-h-0 flex-1 overflow-y-auto", className)}
 		>
 			{isEmpty ? (

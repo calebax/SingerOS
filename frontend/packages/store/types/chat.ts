@@ -17,6 +17,18 @@ export type ToolCall = {
 	duration?: number;
 };
 
+export type MessageProcessStep =
+	| {
+			id: string;
+			type: "thinking";
+			content: string;
+	  }
+	| {
+			id: string;
+			type: "tool_call";
+			toolCallId: string;
+	  };
+
 export type RuntimeTodoItem = {
 	id: string;
 	title: string;
@@ -84,7 +96,7 @@ export type Message = {
 	approvals?: ApprovalRequest[];
 	artifacts?: MessageArtifact[];
 	attachments?: MessageAttachment[];
-	thinking?: string;
+	processSteps?: MessageProcessStep[];
 	metadata?: MessageMetadata;
 	usage?: MessageUsage;
 };
