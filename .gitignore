@@ -60,3 +60,4 @@ logs/
 .omo/
 .leros-workspace/**
 leros-storage/
+.codex-local/
