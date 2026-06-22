@@ -104,16 +104,14 @@ export function AIMessageBubble({
 				)}
 
 				{hasContent && (
-					<div className="mb-3">
-						<div className="w-fit max-w-[92%] rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-7 text-slate-800 shadow-md ring-1 ring-slate-200/70">
-							<MarkdownRenderer
-								content={content}
-								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
-							/>
-							{isStreaming && (
-								<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
-							)}
-						</div>
+					<div className="mb-3 max-w-[92%] text-sm leading-7 text-slate-800">
+						<MarkdownRenderer
+							content={content}
+							className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
+						/>
+						{isStreaming && (
+							<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
+						)}
 					</div>
 				)}
 
@@ -127,12 +125,10 @@ export function AIMessageBubble({
 				)}
 
 				{!hasContent && !hasProcess && !hasArtifacts && isStreaming && (
-					<div className="w-fit rounded-2xl rounded-tl-md bg-white/90 px-4 py-3 shadow-sm ring-1 ring-slate-200/50">
-						<div className="flex items-center gap-1">
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
-						</div>
+					<div className="flex items-center gap-1">
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
 					</div>
 				)}
 
