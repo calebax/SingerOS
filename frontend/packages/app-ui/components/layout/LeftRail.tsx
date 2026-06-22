@@ -37,7 +37,6 @@ import {
 	ClipboardList,
 	Database,
 	Hash,
-	LayoutGrid,
 	Loader2,
 	LogOut,
 	MoreHorizontal,
@@ -73,7 +72,6 @@ export type AppNavigation = {
 };
 
 const iconMap: Record<string, React.ReactNode> = {
-	IconWorkbench: <LayoutGrid className="size-5" />,
 	IconTask: <ClipboardList className="size-5" />,
 	IconSkill: <Zap className="size-5" />,
 	IconKnowledge: <Database className="size-5" />,
@@ -82,7 +80,6 @@ const iconMap: Record<string, React.ReactNode> = {
 
 const navIdToView: Record<string, ViewMode> = {
 	workbench: "workbench",
-	tasks: "tasks",
 	knowledge: "knowledge",
 	skills: "skills",
 	"ai-1": "digitalAssistant",
@@ -90,7 +87,7 @@ const navIdToView: Record<string, ViewMode> = {
 	"ai-3": "digitalAssistant",
 };
 
-const protectedNavIds = new Set(["tasks", "skills", "knowledge"]);
+const protectedNavIds = new Set(["skills", "knowledge"]);
 const appVersion = getAppVersion();
 const brandVersionLabel = appVersion.startsWith("v") ? appVersion : `v${appVersion}`;
 
@@ -391,7 +388,7 @@ export function LeftRail({
 						<Network className="size-5" />
 					</div>
 					<div className="leros-sidebar-expandable min-w-0">
-						<div className="leros-brand-title">Leros AI</div>
+						<div className="leros-brand-title">Lework</div>
 						<div className="leros-brand-version">{brandVersionLabel}</div>
 					</div>
 				</div>
