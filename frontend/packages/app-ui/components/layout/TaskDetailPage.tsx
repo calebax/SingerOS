@@ -3,6 +3,7 @@
 import type { ProjectArtifact, ProjectTask } from "@leros/store";
 import {
 	collectSessionArtifacts,
+	formatArtifactTime,
 	formatTokenCount,
 	mapBackendArtifactToProjectArtifact,
 	mergeProjectArtifacts,
@@ -44,7 +45,6 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-task-detail-right-sidebar-width";
-const TASK_DETAIL_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY = "leros-task-detail-right-sidebar-collapsed";
 const TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
 const TASK_DETAIL_RIGHT_SIDEBAR_MIN_WIDTH = 300;
 const TASK_DETAIL_RIGHT_SIDEBAR_MAX_WIDTH = 440;
@@ -235,13 +235,6 @@ export function TaskDetailPage({
 		if (Number.isFinite(parsedWidth)) {
 			setRightSidebarWidth(clampTaskDetailRightSidebarWidth(parsedWidth));
 		}
-
-		const savedCollapsed = window.localStorage.getItem(
-			TASK_DETAIL_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY,
-		);
-		if (savedCollapsed) {
-			setRightSidebarCollapsed(savedCollapsed === "true");
-		}
 	}, []);
 
 	useEffect(() => {
@@ -253,12 +246,9 @@ export function TaskDetailPage({
 	}, [rightSidebarWidth]);
 
 	useEffect(() => {
-		if (typeof window === "undefined" || !hasLoadedRightSidebarPreferenceRef.current) return;
-		window.localStorage.setItem(
-			TASK_DETAIL_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY,
-			String(rightSidebarCollapsed),
-		);
-	}, [rightSidebarCollapsed]);
+		// 中文注释：任务详情右侧栏的展开态只属于当前查看上下文，切换任务或会话后应恢复默认展开。
+		setRightSidebarCollapsed(false);
+	}, [resolvedProjectId, resolvedTaskId, resolvedSessionId]);
 
 	const handleRightSidebarResizeStart = (event: React.PointerEvent<HTMLHRElement>) => {
 		if (rightSidebarCollapsed) return;
@@ -704,6 +694,9 @@ function TaskArtifactList({
 							{artifact.name}
 						</div>
 						<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+							{/* 中文注释：任务产物列表补充生成时间，方便和“最新在上”的排序保持一致认知。 */}
+							{formatArtifactTime(artifact.updatedAt)}
+							{artifact.updatedAt && artifact.size ? " · " : ""}
 							{artifact.size}
 						</div>
 					</div>
