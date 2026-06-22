@@ -253,13 +253,13 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					>
 						<Search className="size-5" />
 					</button>
-					<button
+					{/* <button
 						type="button"
 						className="relative rounded-full p-2 transition-colors hover:bg-[var(--leros-primary-softer)]"
 					>
 						<Bell className="size-5" />
 						<span className="absolute right-2 top-2 size-2 rounded-full border-2 border-[var(--leros-app-bg)] bg-destructive" />
-					</button>
+					</button> */}
 					<button
 						type="button"
 						onClick={() => {
