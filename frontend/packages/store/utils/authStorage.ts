@@ -4,6 +4,7 @@ export type StoredAuthUser = {
 	publicId?: string;
 	name: string;
 	email: string;
+	phone?: string;
 	avatarUrl?: string;
 	jwtToken?: string;
 	refreshToken?: string;
@@ -118,7 +119,13 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 				refresh_token?: string;
 				expired_at?: number;
 				uin?: number;
-				user_info?: { public_id?: string; name?: string; email?: string; avatar_url?: string };
+				user_info?: {
+					public_id?: string;
+					name?: string;
+					email?: string;
+					phone?: string;
+					avatar_url?: string;
+				};
 			};
 		};
 		const token = payload.data;
@@ -132,6 +139,7 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 			publicId: token.user_info?.public_id || user.publicId,
 			name: token.user_info?.name || user.name,
 			email: token.user_info?.email || user.email,
+			phone: token.user_info?.phone || user.phone,
 			avatarUrl: token.user_info?.avatar_url || user.avatarUrl,
 			jwtToken: token.jwt_token,
 			refreshToken: token.refresh_token,

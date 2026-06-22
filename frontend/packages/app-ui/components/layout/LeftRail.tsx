@@ -1,7 +1,15 @@
 "use client";
 
 import type { AuthUser, NavItem, Project, ViewMode } from "@leros/store";
-import { useAuthStore, useChatStore, useLayoutStore, userApi } from "@leros/store";
+import {
+	authenticatedFetch,
+	getFileDownloadUrl,
+	projectFileApi,
+	useAuthStore,
+	useChatStore,
+	useLayoutStore,
+	userApi,
+} from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -49,7 +57,12 @@ import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
 const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
+const AVATAR_CACHE_PREFIX = "leros-avatar-cache:";
 const LEFT_RAIL_COLLAPSED_WIDTH = 72;
+
+type PublicEnv = {
+	readonly VITE_LEROS_APP_VERSION?: string;
+};
 
 export type AppNavigation = {
 	currentPath: string;
@@ -77,6 +90,8 @@ const navIdToView: Record<string, ViewMode> = {
 };
 
 const protectedNavIds = new Set(["tasks", "skills", "knowledge"]);
+const appVersion = getAppVersion();
+const brandVersionLabel = appVersion.startsWith("v") ? appVersion : `v${appVersion}`;
 
 export function LeftRail({
 	logoSrc = APP_LOGO_SRC,
@@ -102,7 +117,7 @@ export function LeftRail({
 	} = useLayoutStore((s) => s);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
-	const { isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
+	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
 	const hasLoadedPreferenceRef = useRef(false);
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
 	const [renameValue, setRenameValue] = useState("");
@@ -284,7 +299,7 @@ export function LeftRail({
 					</div>
 					<div className="leros-sidebar-expandable min-w-0">
 						<div className="leros-brand-title">Leros AI</div>
-						<div className="leros-brand-version">v0.1</div>
+						<div className="leros-brand-version">{brandVersionLabel}</div>
 					</div>
 				</div>
 				<button
@@ -338,7 +353,15 @@ export function LeftRail({
 			</ScrollArea>
 
 			<div className="leros-sidebar-footer shrink-0">
-				{isAuthenticated ? (
+				{!isHydrated ? (
+					<div className="leros-profile-trigger" aria-hidden="true">
+						<span className="leros-avatar animate-pulse bg-slate-200" />
+						<div className="leros-sidebar-expandable flex-1 space-y-1.5 overflow-hidden">
+							<span className="block h-3.5 w-24 rounded bg-slate-200" />
+							<span className="block h-2.5 w-16 rounded bg-slate-100" />
+						</div>
+					</div>
+				) : isAuthenticated ? (
 					<DropdownMenu>
 						<DropdownMenuTrigger
 							render={
@@ -353,7 +376,7 @@ export function LeftRail({
 											{user?.name ?? "Leros 用户"}
 										</p>
 										<p className="truncate text-[11px] text-[var(--leros-text-subtle)]">
-											{user?.email ?? "已登录"}
+											{getDisplayPhone(user) ?? "已登录"}
 										</p>
 									</div>
 								</button>
@@ -513,6 +536,7 @@ function AccountManagementDialog({
 	const [savingName, setSavingName] = useState(false);
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
 	const [previewAvatarUrl, setPreviewAvatarUrl] = useState<string | undefined>();
+	const displayPhone = getDisplayPhone(user);
 
 	useEffect(() => {
 		if (!open) {
@@ -551,6 +575,7 @@ function AccountManagementDialog({
 					publicId: updatedUser.public_id || publicId,
 					name: updatedUser.name,
 					email: updatedUser.email || user?.email || "",
+					phone: updatedUser.phone || user?.phone,
 					avatarUrl: updatedUser.avatar_url || user?.avatarUrl,
 				});
 			} else {
@@ -570,19 +595,42 @@ function AccountManagementDialog({
 		const file = event.target.files?.[0];
 		event.target.value = "";
 		if (!file) return;
+		if (!isImageFile(file)) {
+			toast.error("请选择图片文件");
+			return;
+		}
 
 		setUploadingAvatar(true);
+		const previewURL = URL.createObjectURL(file);
+		setPreviewAvatarUrl(previewURL);
 		try {
-			const avatarUrl = await readFileAsDataUrl(file);
-			setPreviewAvatarUrl(avatarUrl);
-			updateLocalUser({ avatarUrl });
-			setPreviewAvatarUrl(undefined);
+			const uploadResponse = await projectFileApi.uploadLoose({ file, purpose: "avatar" });
+			const uploaded = uploadResponse.data;
+			if (!uploaded?.public_id) {
+				throw new Error("头像上传失败");
+			}
+
+			const publicId = requirePublicId();
+			if (!publicId) return;
+
+			const avatarUrl = getFileDownloadUrl(uploaded.public_id);
+			const response = await userApi.update({ public_id: publicId, avatar_url: avatarUrl });
+			const updatedUser = response.data.data;
+			cacheAvatarDataURL(avatarUrl, await blobToDataURL(file));
+			updateLocalUser({
+				publicId: updatedUser?.public_id || publicId,
+				name: updatedUser?.name || user?.name || "",
+				email: updatedUser?.email || user?.email || "",
+				phone: updatedUser?.phone || user?.phone,
+				avatarUrl: updatedUser?.avatar_url || avatarUrl,
+			});
 			toast.success("头像已更新");
 		} catch (err) {
-			setPreviewAvatarUrl(undefined);
 			const message = err instanceof Error ? err.message : "头像更新失败";
 			toast.error(message);
 		} finally {
+			setPreviewAvatarUrl(undefined);
+			URL.revokeObjectURL(previewURL);
 			setUploadingAvatar(false);
 		}
 	};
@@ -611,7 +659,7 @@ function AccountManagementDialog({
 								fallback={
 									user ? (
 										<DiceBearAvatar
-											seed={`user:${user.email || user.name}`}
+											seed={`user:${displayPhone || user.name}`}
 											alt={user.name ?? "Avatar"}
 											className="h-full w-full"
 											size={128}
@@ -687,9 +735,9 @@ function AccountManagementDialog({
 						</div>
 
 						<div>
-							<div className="mb-1.5 text-xs font-medium text-slate-500">邮箱</div>
+							<div className="mb-1.5 text-xs font-medium text-slate-500">手机号</div>
 							<div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-								{user?.email ?? "未绑定邮箱"}
+								{displayPhone ?? "未绑定手机号"}
 							</div>
 						</div>
 					</div>
@@ -699,23 +747,9 @@ function AccountManagementDialog({
 	);
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.addEventListener("load", () => {
-			if (typeof reader.result === "string") {
-				resolve(reader.result);
-				return;
-			}
-			reject(new Error("头像读取失败"));
-		});
-		reader.addEventListener("error", () => reject(new Error("头像读取失败")));
-		reader.readAsDataURL(file);
-	});
-}
-
 function ProfileAvatar({ user }: { user: AuthUser | null }) {
-	const fallbackLabel = getAvatarInitial(user?.name ?? user?.email ?? "Leros");
+	const displayPhone = getDisplayPhone(user);
+	const fallbackLabel = getAvatarInitial(user?.name ?? displayPhone ?? "Leros");
 
 	return (
 		<span
@@ -729,7 +763,7 @@ function ProfileAvatar({ user }: { user: AuthUser | null }) {
 				fallback={
 					user ? (
 						<DiceBearAvatar
-							seed={`user:${user.email || user.name}`}
+							seed={`user:${displayPhone || user.name}`}
 							alt={user.name ?? "Avatar"}
 							className="h-full w-full"
 							size={96}
@@ -741,6 +775,22 @@ function ProfileAvatar({ user }: { user: AuthUser | null }) {
 			/>
 		</span>
 	);
+}
+
+function getDisplayPhone(user: AuthUser | null): string | undefined {
+	if (user?.phone) return user.phone;
+	if (user?.name && /^1[3-9]\d{9}$/.test(user.name)) return user.name;
+	return undefined;
+}
+
+function getAppVersion(): string {
+	const version = (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEROS_APP_VERSION;
+	return version?.trim() || "0.0.0";
+}
+
+function isImageFile(file: File): boolean {
+	if (file.type.startsWith("image/")) return true;
+	return /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(file.name);
 }
 
 function ImageWithFallback({
@@ -755,12 +805,49 @@ function ImageWithFallback({
 	fallback: React.ReactNode;
 }) {
 	const [failed, setFailed] = useState(false);
+	const [imageURL, setImageURL] = useState<string | null>(() => getCachedAvatarDataURL(src));
+
+	useEffect(() => {
+		setFailed(false);
+		if (!src || !isProtectedFileURL(src)) {
+			setImageURL(null);
+			return;
+		}
+
+		const cachedAvatarURL = getCachedAvatarDataURL(src);
+		if (cachedAvatarURL) {
+			setImageURL(cachedAvatarURL);
+		}
+
+		let cancelled = false;
+		authenticatedFetch(src)
+			.then(async (response) => {
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				return response.blob();
+			})
+			.then(async (blob) => {
+				if (cancelled) return;
+				const dataURL = await blobToDataURL(blob);
+				if (cancelled) return;
+				cacheAvatarDataURL(src, dataURL);
+				setImageURL(dataURL);
+			})
+			.catch(() => {
+				if (!cancelled && !cachedAvatarURL) setFailed(true);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [src]);
 
 	if (!src || failed) return <>{fallback}</>;
+	const imageSrc = imageURL || src;
+	if (isProtectedFileURL(src) && !imageURL) return <>{fallback}</>;
 
 	return (
 		<img
-			src={src}
+			src={imageSrc}
 			alt={alt}
 			className={className}
 			loading="lazy"
@@ -769,6 +856,47 @@ function ImageWithFallback({
 			onError={() => setFailed(true)}
 		/>
 	);
+}
+
+function isProtectedFileURL(src: string): boolean {
+	return src.includes("/files/") && src.includes("/download");
+}
+
+function getAvatarCacheKey(src: string): string {
+	return `${AVATAR_CACHE_PREFIX}${src}`;
+}
+
+function getCachedAvatarDataURL(src?: string | null): string | null {
+	if (!src || typeof window === "undefined" || !isProtectedFileURL(src)) return null;
+	try {
+		return window.localStorage.getItem(getAvatarCacheKey(src));
+	} catch {
+		return null;
+	}
+}
+
+function cacheAvatarDataURL(src: string, dataURL: string) {
+	if (typeof window === "undefined" || !isProtectedFileURL(src)) return;
+	try {
+		window.localStorage.setItem(getAvatarCacheKey(src), dataURL);
+	} catch {
+		// Avatar cache is an optional UX optimization.
+	}
+}
+
+function blobToDataURL(blob: Blob): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.addEventListener("load", () => {
+			if (typeof reader.result === "string") {
+				resolve(reader.result);
+				return;
+			}
+			reject(new Error("头像缓存失败"));
+		});
+		reader.addEventListener("error", () => reject(new Error("头像缓存失败")));
+		reader.readAsDataURL(blob);
+	});
 }
 
 function getAvatarInitial(label: string) {
