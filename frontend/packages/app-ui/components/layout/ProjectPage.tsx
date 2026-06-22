@@ -41,6 +41,7 @@ import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ChatInput, PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
+import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import {
 	ProjectFileTypeIcon,
 	SIDEBAR_COMPACT_LIST_CLASS,
@@ -56,7 +57,7 @@ import { SpreadsheetPreview } from "./SpreadsheetPreview";
 import { TaskDeleteDialog } from "./TaskDeleteDialog";
 
 const projectTabs = [
-	{ id: "chat" as const, label: "会话" },
+	{ id: "chat" as const, label: "新建任务" },
 	{ id: "tasks" as const, label: "任务" },
 	{ id: "files" as const, label: "文件" },
 ];
@@ -382,6 +383,8 @@ export function ProjectPage({
 
 	// 中文注释：项目右侧栏只在会话 tab 使用，任务 tab 不展示展开/拖拽能力。
 	const showProjectSidebar = resolvedTab === "chat";
+	const projectChatLayoutMode: ProjectChatLayoutMode =
+		showProjectSidebar && !rightSidebarCollapsed ? "sidebar-expanded" : "sidebar-collapsed";
 	const isWideRightSidebar = rightSidebarWidth >= PROJECT_RIGHT_SIDEBAR_WIDE_BREAKPOINT;
 	const rightSidebarWidthStyle = !rightSidebarCollapsed
 		? { width: `${rightSidebarWidth}px` }
@@ -487,7 +490,7 @@ export function ProjectPage({
 								: "overflow-y-auto px-10 py-8",
 					)}
 				>
-					{resolvedTab === "chat" && <ProjectChat />}
+					{resolvedTab === "chat" && <ProjectChat layoutMode={projectChatLayoutMode} />}
 					{resolvedTab === "tasks" && (
 						<ProjectTasks tasks={project.tasks} onOpenTask={handleOpenTask} />
 					)}
@@ -595,29 +598,36 @@ export function ProjectPage({
 	);
 }
 
-function ProjectChat() {
+function ProjectChat({ layoutMode }: { layoutMode: ProjectChatLayoutMode }) {
+	const layout = getProjectChatLayoutClasses(layoutMode);
+
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<MessageTimeline
-				emptyState={<ProjectEmptyState />}
-				contentClassName="max-w-[780px] px-8 py-8 sm:px-8 lg:px-8"
+				emptyState={<ProjectEmptyState layout={layout} />}
+				contentShellClassName={layout.shell}
+				contentClassName={layout.timelineInner}
 			/>
-			<ChatInput variant="project" />
+			<ChatInput variant="project" projectLayoutMode={layoutMode} />
 		</div>
 	);
 }
 
-function ProjectEmptyState() {
+function ProjectEmptyState({ layout }: { layout: ReturnType<typeof getProjectChatLayoutClasses> }) {
 	return (
-		<div className="flex h-full items-center justify-center px-8">
-			<div className="flex max-w-[320px] flex-col items-center text-center">
-				<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-					<Bot className="size-6" />
+		<div className={cn("flex h-full", layout.shell)}>
+			<div className={cn(layout.inner, "flex h-full items-center justify-center")}>
+				<div className="flex max-w-[320px] flex-col items-center text-center">
+					<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+						<Bot className="size-6" />
+					</div>
+					<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">
+						开始项目会话
+					</h2>
+					<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
+						把需求、问题或上下文发给 AI，后续讨论会沉淀在当前项目中。
+					</p>
 				</div>
-				<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">开始项目会话</h2>
-				<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
-					把需求、问题或上下文发给 AI，后续讨论会沉淀在当前项目中。
-				</p>
 			</div>
 		</div>
 	);

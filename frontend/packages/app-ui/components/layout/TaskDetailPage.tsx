@@ -34,6 +34,7 @@ import { MessageTimeline } from "../chat/MessageTimeline";
 import { ChatInput } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
+import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
 import { TaskTodoProgressPanel } from "./TaskTodoProgressPanel";
 import { getLatestAssistantTodos } from "./taskProgress";
@@ -158,6 +159,10 @@ export function TaskDetailPage({
 	const rightSidebarWidthStyle = !rightSidebarCollapsed
 		? { width: `${rightSidebarWidth}px` }
 		: undefined;
+	const taskChatLayoutMode: ProjectChatLayoutMode = rightSidebarCollapsed
+		? "sidebar-collapsed"
+		: "sidebar-expanded";
+	const taskChatLayout = getProjectChatLayoutClasses(taskChatLayoutMode);
 
 	const fetchArtifacts = useCallback(async (taskId: string) => {
 		try {
@@ -387,10 +392,11 @@ export function TaskDetailPage({
 			<div className="min-h-0 flex flex-1">
 				<main className="flex min-h-0 flex-1 flex-col">
 					<MessageTimeline
-						emptyState={<TaskChatEmptyState />}
-						contentClassName="max-w-[780px] px-8 py-8 sm:px-8 lg:px-8"
+						emptyState={<TaskChatEmptyState layout={taskChatLayout} />}
+						contentShellClassName={taskChatLayout.shell}
+						contentClassName={taskChatLayout.timelineInner}
 					/>
-					<ChatInput variant="project" />
+					<ChatInput variant="project" projectLayoutMode={taskChatLayoutMode} />
 				</main>
 
 				{rightSidebarCollapsed && (
@@ -639,17 +645,23 @@ function splitTokenMetric(
 	};
 }
 
-function TaskChatEmptyState() {
+function TaskChatEmptyState({
+	layout,
+}: {
+	layout: ReturnType<typeof getProjectChatLayoutClasses>;
+}) {
 	return (
-		<div className="flex h-full items-center justify-center px-8">
-			<div className="flex max-w-[320px] flex-col items-center text-center">
-				<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-					<Bot className="size-6" />
+		<div className={cn("flex h-full", layout.shell)}>
+			<div className={cn(layout.inner, "flex h-full items-center justify-center")}>
+				<div className="flex max-w-[320px] flex-col items-center text-center">
+					<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+						<Bot className="size-6" />
+					</div>
+					<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">任务会话</h2>
+					<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
+						在此与 AI 协作完成任务讨论，发送消息即可开始对话。
+					</p>
 				</div>
-				<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">任务会话</h2>
-				<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
-					在此与 AI 协作完成任务讨论，发送消息即可开始对话。
-				</p>
 			</div>
 		</div>
 	);

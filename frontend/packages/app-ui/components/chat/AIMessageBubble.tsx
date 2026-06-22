@@ -105,7 +105,7 @@ export function AIMessageBubble({
 
 				{hasContent && (
 					<div className="mb-3">
-						<div className="w-fit max-w-[min(780px,92%)] rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-7 text-slate-800 shadow-md ring-1 ring-slate-200/70">
+						<div className="w-fit max-w-[92%] rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-7 text-slate-800 shadow-md ring-1 ring-slate-200/70">
 							<MarkdownRenderer
 								content={content}
 								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
@@ -218,7 +218,7 @@ function ProcessTimelineBlock({
 	return (
 		<div
 			data-slot="process-timeline-block"
-			className="max-w-[min(780px,92%)] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-xs"
+			className="max-w-[92%] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-xs"
 		>
 			<button
 				type="button"
@@ -382,7 +382,7 @@ function MessageArtifactList({
 
 	return (
 		<>
-			<div className="grid max-w-[min(780px,92%)] gap-2 sm:grid-cols-2">
+			<div className="grid max-w-[92%] gap-2 sm:grid-cols-2">
 				{visibleArtifacts.map((artifact) => (
 					<button
 						type="button"

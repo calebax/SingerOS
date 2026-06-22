@@ -20,12 +20,23 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+	getProjectChatLayoutClasses,
+	type ProjectChatLayoutMode,
+} from "../layout/project-chat-layout";
 import { StructuredComposer, type StructuredComposerHandle } from "./StructuredComposer";
 
 // 只放开当前已有稳定预览能力的文档类型，避免上传后落到不可预览的兜底体验。
 export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.docx";
 
-export function ChatInput({ variant = "default" }: { variant?: "default" | "project" }) {
+export function ChatInput({
+	variant = "default",
+	projectLayoutMode = "sidebar-expanded",
+}: {
+	variant?: "default" | "project";
+	/** 项目页聊天区布局：随右侧栏展开/收起切换宽度与留白 */
+	projectLayoutMode?: ProjectChatLayoutMode;
+}) {
 	const {
 		activeSessionId,
 		inputText,
@@ -54,6 +65,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
 	const isProjectVariant = variant === "project";
+	const projectLayout = getProjectChatLayoutClasses(projectLayoutMode);
 	const canSend = Boolean(inputText.trim());
 	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
 
@@ -124,6 +136,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 				approval={pendingApproval.approval}
 				messageId={pendingApproval.message.id}
 				variant={variant}
+				projectLayout={projectLayout}
 				onDecide={submitApprovalDecision}
 			/>
 		);
@@ -134,10 +147,10 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 			data-slot="chat-input"
 			className={cn(
 				"bg-transparent px-5 pb-5 sm:px-6 lg:px-8",
-				isProjectVariant && "bg-white px-8 pb-8 sm:px-8 lg:px-8",
+				isProjectVariant && cn("bg-white pb-8", projectLayout.shell),
 			)}
 		>
-			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && "max-w-[780px]")}>
+			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && projectLayout.inner)}>
 				{inputAttachments.length > 0 && (
 					<AttachmentPreview attachments={inputAttachments} onRemove={removeAttachment} />
 				)}
@@ -334,11 +347,13 @@ function ApprovalDecisionInput({
 	approval,
 	messageId,
 	variant,
+	projectLayout,
 	onDecide,
 }: {
 	approval: ApprovalRequest;
 	messageId: string;
 	variant: "default" | "project";
+	projectLayout?: ReturnType<typeof getProjectChatLayoutClasses>;
 	onDecide: (
 		messageId: string,
 		requestId: string,
@@ -349,6 +364,7 @@ function ApprovalDecisionInput({
 	const [expanded, setExpanded] = useState(false);
 	const [alwaysAllow, setAlwaysAllow] = useState(false);
 	const isProjectVariant = variant === "project";
+	const layout = projectLayout ?? getProjectChatLayoutClasses("sidebar-expanded");
 	const isSubmitting = approval.status === "submitting";
 	const argumentText = approval.arguments ? JSON.stringify(approval.arguments, null, 2) : "";
 	const detailText = getApprovalDetail(approval);
@@ -385,10 +401,10 @@ function ApprovalDecisionInput({
 			data-slot="approval-decision-input"
 			className={cn(
 				"bg-transparent px-5 pb-5 sm:px-6 lg:px-8",
-				isProjectVariant && "bg-white px-8 pb-8 sm:px-8 lg:px-8",
+				isProjectVariant && cn("bg-white pb-8", layout.shell),
 			)}
 		>
-			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && "max-w-[780px]")}>
+			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && layout.inner)}>
 				<div className="overflow-hidden rounded-[18px] border border-slate-200 bg-white text-slate-800 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
 					<div className="px-4 pb-4 pt-3.5">
 						<div className="mb-3 flex items-center gap-2 text-sm text-slate-500">

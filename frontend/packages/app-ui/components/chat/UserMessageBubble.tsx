@@ -37,7 +37,7 @@ export function UserMessageBubble({ message }: { message: Message }) {
 	return (
 		<>
 			<div data-slot="user-message" className="flex justify-end group">
-				<div className="flex max-w-[min(720px,78%)] flex-col items-end">
+				<div className="flex max-w-[78%] flex-col items-end">
 					<div className="mb-1.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
 						{visibleText && <CopyButton text={message.content} />}
 						<span className="text-xs text-slate-400">{formatTime(message.timestamp)}</span>

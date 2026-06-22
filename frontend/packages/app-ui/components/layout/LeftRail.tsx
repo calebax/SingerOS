@@ -420,7 +420,7 @@ export function LeftRail({
 			</div>
 
 			<hr
-				className="leros-sidebar-resize-handle"
+				className="leros-sidebar-resize-handle border-0"
 				tabIndex={0}
 				aria-orientation="vertical"
 				aria-label="调整侧边栏宽度"
