@@ -775,53 +775,76 @@ function ProjectTaskList({
   return (
     <div className={cn('w-full', compact && 'mx-auto max-w-[250px]')}>
       <div className={cn(compact ? SIDEBAR_COMPACT_LIST_CLASS : 'space-y-3')}>
-        {tasks.map((task) => (
-          <div
-            key={task.id}
-            className={cn(
-              'group flex items-start border border-[var(--leros-control-border)] bg-[var(--leros-surface)] shadow-sm',
-              onOpen &&
-                'cursor-pointer transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35',
-              compact
-                ? 'gap-3 rounded-lg px-3.5 py-3'
-                : 'gap-3.5 rounded-lg px-4 py-3.5',
-            )}
-          >
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-              {/* 主列表和右侧列表统一使用固定任务图标，避免状态图标和语义图标混用。 */}
-              <TaskCardIcon className="size-5" />
-            </div>
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => onOpen?.(task)}
-              disabled={!onOpen}
-              title={onOpen ? '打开任务会话' : undefined}
-            >
-              <div
-                className={cn(
-                  'text-sm font-normal leading-5 text-[var(--leros-text-strong)]',
-                  'line-clamp-2',
-                )}
-              >
-                {task.title}
+        {tasks.map((task) => {
+          const cardClassName = cn(
+            'group flex w-full items-start border border-[var(--leros-control-border)] bg-[var(--leros-surface)] shadow-sm',
+            onOpen &&
+              'cursor-pointer transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35',
+            compact
+              ? 'gap-3 rounded-lg px-3.5 py-3'
+              : 'gap-3.5 rounded-lg px-4 py-3.5',
+          )
+          const content = (
+            <>
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+                {/* 主列表和右侧列表统一使用固定任务图标，避免状态图标和语义图标混用。 */}
+                <TaskCardIcon className="size-5" />
               </div>
-            </button>
-            {!compact && onDelete && (
+              <div className="min-w-0 flex-1 text-left">
+                <div
+                  className={cn(
+                    'text-sm font-normal leading-5 text-[var(--leros-text-strong)]',
+                    'line-clamp-2',
+                  )}
+                >
+                  {task.title}
+                </div>
+              </div>
+            </>
+          )
+
+          if (!onDelete) {
+            return (
+              <button
+                key={task.id}
+                type="button"
+                className={cardClassName}
+                onClick={() => onOpen?.(task)}
+                disabled={!onOpen}
+                title={onOpen ? '打开任务会话' : undefined}
+              >
+                {content}
+              </button>
+            )
+          }
+
+          return (
+            <div key={task.id} className={cardClassName}>
               <button
                 type="button"
-                className="mt-0.5 shrink-0 rounded p-0.5 text-[var(--leros-text-muted)] opacity-0 transition-opacity hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)] group-hover:opacity-100"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onDelete(task)
-                }}
-                title="删除任务"
+                className="flex min-w-0 flex-1 items-start gap-3.5 text-left"
+                onClick={() => onOpen?.(task)}
+                disabled={!onOpen}
+                title={onOpen ? '打开任务会话' : undefined}
               >
-                <Trash2 className="size-4" />
+                {content}
               </button>
-            )}
-          </div>
-        ))}
+              {!compact && (
+                <button
+                  type="button"
+                  className="mt-0.5 shrink-0 rounded p-0.5 text-[var(--leros-text-muted)] opacity-0 transition-opacity hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)] group-hover:opacity-100"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onDelete(task)
+                  }}
+                  title="删除任务"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
