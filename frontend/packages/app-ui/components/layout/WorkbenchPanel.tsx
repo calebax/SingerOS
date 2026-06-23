@@ -8,9 +8,9 @@ import { cn } from "@leros/ui/lib/utils";
 import {
 	Check,
 	ChevronDown,
+	Files,
 	Folder,
 	FolderOpen,
-	Files,
 	ListTodo,
 	Paperclip,
 	Plus,
@@ -39,7 +39,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	} = useLayoutStore((s) => s);
 	const { startSessionResponseStream, resetLocalMessages, addUploadedAttachment, isGenerating } =
 		useChatStore((s) => s);
-	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, user } = useAuth();
+	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
 	const [input, setInput] = useState("");
@@ -137,7 +137,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 
 	const uploadWorkbenchAttachment = async (file: File) => {
 		// 无项目时先走通用上传，后续随 NewMessage 自动关联到新建项目。
-		const response = await projectFileApi.uploadLoose({ file, purpose: "attachment" });
+		const response = await projectFileApi.uploadLoose({
+			file,
+			purpose: "attachment",
+		});
 		const payload = response.data;
 		const attachment: Attachment = {
 			id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -259,7 +262,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						<Bell className="size-5" />
 						<span className="absolute right-2 top-2 size-2 rounded-full border-2 border-[var(--leros-app-bg)] bg-destructive" />
 					</button> */}
-					<button
+					{/* <button
 						type="button"
 						onClick={() => {
 							if (!isAuthenticated) openAuthDialog("login");
@@ -268,7 +271,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						disabled={!isHydrated}
 					>
 						{!isHydrated ? "" : isAuthenticated ? (user?.name ?? "已登录") : "登录"}
-					</button>
+					</button> */}
 				</div>
 			</header>
 
@@ -533,7 +536,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
 							<div className="mb-5 flex items-center justify-between">
 								<div>
-									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">开始建议</h3>
+									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">
+										开始建议
+									</h3>
 									<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
 										点一下即可填入输入框，适合用来启动工作台对话。
 									</p>
@@ -551,7 +556,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										onClick={() => applyPrompt(prompt)}
 										className="rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
 									>
-										<p className="text-sm font-medium leading-6 text-[var(--leros-text)]">{prompt}</p>
+										<p className="text-sm font-medium leading-6 text-[var(--leros-text)]">
+											{prompt}
+										</p>
 									</button>
 								))}
 							</div>
@@ -562,7 +569,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
 							<div className="mb-5 flex items-center justify-between">
 								<div>
-									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">最近项目</h3>
+									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">
+										最近项目
+									</h3>
 									<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
 										从最近同步的项目里快速恢复上下文。
 									</p>
