@@ -1,4 +1,4 @@
-# Leros
+# Lework
 
 ## Enterprise Digital Workforce Operating System
 
@@ -6,18 +6,18 @@
 
 ---
 
-## 🚀 What is Leros?
+## 🚀 What is Lework?
 
-**Leros** is an enterprise-grade Multi-Agent Operating System designed to power the next generation of digital workforce.
+**Lework** is an enterprise-grade Multi-Agent Operating System designed to power the next generation of digital workforce.
 
 It is not a chatbot framework.
 It is not a simple workflow engine.
 
-Leros is:
+Lework is:
 
 > A distributed, governance-first AI execution system for enterprise digital transformation.
 
-Leros enables organizations to:
+Lework enables organizations to:
 
 * Design AI-powered digital assistants
 * Orchestrate multi-agent workflows
@@ -27,7 +27,7 @@ Leros enables organizations to:
 
 ---
 
-## 🧠 Why Leros?
+## 🧠 Why Lework?
 
 Traditional workflow systems focus on deterministic task automation.
 
@@ -40,20 +40,20 @@ Modern enterprises require:
 * Auditable AI execution
 * Enterprise-grade governance
 
-Leros is built to meet these needs.
+Lework is built to meet these needs.
 
 Compared to traditional workflow engines such as DeerFlow:
 
-* Leros embeds cognitive agents into workflows
-* Leros includes model routing and cost governance
-* Leros supports multi-tenant enterprise deployment
-* Leros is designed as an AI OS, not just a flow engine
+* Lework embeds cognitive agents into workflows
+* Lework includes model routing and cost governance
+* Lework supports multi-tenant enterprise deployment
+* Lework is designed as an AI OS, not just a flow engine
 
 ---
 
 ## 🎯 Design Principles
 
-Leros enforces strict architectural invariants to ensure governance and reliability:
+Lework enforces strict architectural invariants to ensure governance and reliability:
 
 1. **Agent never directly calls external systems** - All external interactions go through Tools
 2. **Skill never performs orchestration logic** - Skills compose Tools, not workflows
@@ -67,7 +67,7 @@ For detailed design philosophy, see [Design Philosophy](docs/DESIGN_PHILOSOPHY.m
 
 ## 🏢 Target Scenarios
 
-Leros is designed for:
+Lework is designed for:
 
 ### Enterprise Internal Digital Transformation
 
@@ -101,7 +101,7 @@ Leros is designed for:
 
 ## 🔄 Execution Flow
 
-Leros follows a unified event-driven execution model:
+Lework follows a unified event-driven execution model:
 
 ```
 User → Event Gateway → EventBus → Control Plane → Orchestrator 
@@ -120,7 +120,7 @@ For detailed architecture, see [Architecture Documentation](docs/ARCHITECTURE.md
 
 ## 🧩 Extensibility
 
-Leros supports plugin-based architecture:
+Lework supports plugin-based architecture:
 
 * Skill plugins
 * Agent templates
@@ -163,7 +163,7 @@ All plugins must be:
 
 ## ⚠ Non-Goals
 
-Leros is NOT:
+Lework is NOT:
 
 * A prompt playground
 * A simple chatbot UI
@@ -174,7 +174,7 @@ Leros is NOT:
 
 ## 🧬 Philosophy
 
-Leros treats AI agents as:
+Lework treats AI agents as:
 
 > First-class digital assistants with governance, accountability, and operational boundaries.
 
@@ -184,7 +184,7 @@ We believe the future enterprise stack will include:
 * Software systems
 * Digital assistants (AI Agents)
 
-Leros is designed to operate the third category.
+Lework is designed to operate the third category.
 
 ---
 
