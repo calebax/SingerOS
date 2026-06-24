@@ -55,6 +55,7 @@
     "electron-builder": "^26.0.12",
     "electron-vite": "^6.0.0-beta.1",
     "jsdom": "catalog:",
+    "png-to-ico": "^2.1.8",
     "tailwindcss": "^4",
     "typescript": "catalog:",
     "vitest": "catalog:",

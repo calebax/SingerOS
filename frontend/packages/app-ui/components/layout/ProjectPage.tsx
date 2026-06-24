@@ -20,7 +20,6 @@ import {
 	X,
 } from "lucide-react";
 import {
-	type ChangeEvent,
 	type ComponentType,
 	type CSSProperties,
 	useEffect,
@@ -31,8 +30,8 @@ import {
 import { toast } from "sonner";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
-import { ChatInput, PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
-import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
+import { ChatInput } from "../input/ChatInput";
+import { ArtifactPreviewDialog, type ArtifactPreviewItem } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import {
@@ -455,7 +454,7 @@ export function ProjectPage({
 						<ProjectChat
 							layoutMode={projectChatLayoutMode}
 							navigation={navigation}
-							projectId={resolvedProjectId}
+							projectId={resolvedProjectId ?? undefined}
 						/>
 					)}
 					{resolvedTab === "tasks" && (
@@ -867,7 +866,8 @@ function ProjectFiles({
 		return () => document.removeEventListener("pointerdown", handlePointerDown);
 	}, [previewFile]);
 
-	const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+	// 中文注释：当前 files 页签的上传入口仍处于注释停用状态，先保留实现并显式标记未启用，避免误恢复旧交互。
+	const _handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
 		const file = event.target.files?.[0];
 		event.target.value = "";
 		if (!file) return;

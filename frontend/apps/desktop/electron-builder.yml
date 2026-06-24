@@ -1,6 +1,6 @@
 appId: com.leros.desktop
 productName: Lework
-icon: resources/icon.svg
+icon: resources/icon.ico
 directories:
   buildResources: build
   output: dist
@@ -24,7 +24,8 @@ mac:
     - target: zip
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 win:
-  signAndEditExecutable: false
+  # 中文注释：Windows 安装后的快捷方式、任务栏和 EXE 图标依赖资源编辑写入，不能显式关闭。
+  signAndEditExecutable: true
   target:
     - target: nsis
       arch:
