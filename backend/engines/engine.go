@@ -14,6 +14,8 @@ const (
 	EngineClaude = "claude"
 	// EngineCodex 是 Codex CLI 的注册名称。
 	EngineCodex = "codex"
+	// EngineOpenCode 是 OpenCode CLI 的注册名称。
+	EngineOpenCode = "opencode"
 )
 
 const (
