@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
+
 	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/ygpkg/yg-go/logs"
@@ -28,7 +30,7 @@ func NewServerInvoker(binary string, extraEnv map[string]string) *ServerInvoker 
 func (inv *ServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
 	// 1. 启动 OpenCode 服务
-	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model)
+	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers)
 	if err != nil {
 		return nil, fmt.Errorf("start opencode server for %s: %w", workDir, err)
 	}
@@ -176,8 +178,12 @@ func (st *runState) waitCompletion(ctx context.Context, cancelSSE context.Cancel
 	case <-st.msgDone:
 		// 消息响应完成，取消 SSE 流
 		cancelSSE()
-		// 等待 SSE 流完全关闭
-		<-st.sseDone
+		// 等待 SSE 流完全关闭（最多 5 秒，防止某些情况下 SSE 不释放）
+		select {
+		case <-st.sseDone:
+		case <-time.After(5 * time.Second):
+			logs.Warnf("OpenCode SSE stream did not close within 5s after cancel, proceeding anyway")
+		}
 		// 发送最终结果
 		finalText := st.lastTextEnded
 		if finalText != "" {

@@ -42,7 +42,7 @@ type OpenCodeServer struct {
 }
 
 // startOpenCodeServer 启动 opcode serve 子进程并等待其就绪。
-func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg engines.ModelConfig) (*OpenCodeServer, error) {
+func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg engines.ModelConfig, mcpServers []engines.MCPServerConfig) (*OpenCodeServer, error) {
 	// 1. 动态端口分配
 	port, err := pickFreePort()
 	if err != nil {
@@ -56,7 +56,7 @@ func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []
 	}
 
 	// 3. 构建配置和环境变量
-	configContent, err := buildConfigContent(modelCfg)
+	configContent, err := buildConfigContent(modelCfg, mcpServers)
 	if err != nil {
 		return nil, fmt.Errorf("build config content: %w", err)
 	}
@@ -414,6 +414,12 @@ func (s *OpenCodeServer) ConnectSSE(ctx context.Context, workDir string) (<-chan
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
+
+		// 监听 context 取消，主动关闭 resp.Body 以中断阻塞的 scanner.Scan()
+		go func() {
+			<-ctx.Done()
+			resp.Body.Close()
+		}()
 
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max line

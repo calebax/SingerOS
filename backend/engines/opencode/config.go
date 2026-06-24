@@ -16,8 +16,9 @@ const (
 	providerNpm = "@ai-sdk/openai-compatible"
 )
 
-// buildConfigContent 根据 ModelConfig 生成 OPENCODE_CONFIG_CONTENT JSON 字符串。
-func buildConfigContent(modelCfg engines.ModelConfig) (string, error) {
+// buildConfigContent 根据 ModelConfig 和 MCPServerConfig 列表
+// 生成 OPENCODE_CONFIG_CONTENT JSON 字符串。
+func buildConfigContent(modelCfg engines.ModelConfig, mcps []engines.MCPServerConfig) (string, error) {
 	modelID := modelCfg.Model
 	if modelID == "" {
 		modelID = "default"
@@ -55,11 +56,61 @@ func buildConfigContent(modelCfg engines.ModelConfig) (string, error) {
 		Model: providerID + "/" + modelID,
 	}
 
+	// 构建 MCP 配置（遵循 opencode V1 config schema）
+	if mcpCfg := buildMCPConfig(mcps); len(mcpCfg) > 0 {
+		cfg.MCP = mcpCfg
+	}
+
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return "", fmt.Errorf("marshal config content: %w", err)
 	}
 	return string(data), nil
+}
+
+// buildMCPConfig 将 MCPServerConfig 列表转为 opencode V1 MCP schema 格式。
+//
+// opencode V1 MCP schema:
+//
+//	Remote (HTTP):  { "type": "remote", "url": "...", "headers": { "Authorization": "Bearer ..." } }
+//	Local (stdio):  { "type": "local", "command": ["cmd", ...], "environment": { ... } }
+func buildMCPConfig(mcps []engines.MCPServerConfig) map[string]any {
+	if len(mcps) == 0 {
+		return nil
+	}
+	mcpServers := make(map[string]any, len(mcps))
+	for _, m := range mcps {
+		name := m.Name
+		if name == "" {
+			name = "leros"
+		}
+		if m.URL != "" {
+			// HTTP 传输 — remote type
+			entry := map[string]any{
+				"type": "remote",
+				"url":  m.URL,
+			}
+			if m.BearerToken != "" {
+				entry["headers"] = map[string]string{
+					"Authorization": "Bearer " + m.BearerToken,
+				}
+			}
+			mcpServers[name] = entry
+		} else if m.Command != "" {
+			// Stdio 传输 — local type
+			cmdArgs := []string{m.Command}
+			cmdArgs = append(cmdArgs, m.Args...)
+			entry := map[string]any{
+				"type":    "local",
+				"command": cmdArgs,
+			}
+			if len(m.Env) > 0 {
+				entry["environment"] = m.Env
+			}
+			mcpServers[name] = entry
+		}
+	}
+	return mcpServers
 }
 
 // buildServerEnv 构建 opcode serve 子进程所需的环境变量。
