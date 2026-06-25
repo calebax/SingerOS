@@ -222,6 +222,28 @@ type healthResponse struct {
 }
 
 // ============================================================================
+// 权限 SSE 事件
+// ============================================================================
+
+// permissionAskedProps 是 permission.asked 事件的 properties。
+// 对应 OpenCode PermissionV1.Request 结构。
+type permissionAskedProps struct {
+	SessionID  string          `json:"sessionID"`
+	ID         string          `json:"id"`
+	Permission string          `json:"permission"`
+	Patterns   []string        `json:"patterns"`
+	Metadata   map[string]any  `json:"metadata"`
+	Always     []string        `json:"always"`
+	Tool       *permissionTool `json:"tool,omitempty"`
+}
+
+// permissionTool 是权限请求中关联的工具调用信息。
+type permissionTool struct {
+	MessageID string `json:"messageID"`
+	CallID    string `json:"callID"`
+}
+
+// ============================================================================
 // 权限响应
 // ============================================================================
 

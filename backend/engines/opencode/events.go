@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/ygpkg/yg-go/logs"
@@ -108,6 +109,34 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 	case "session.next.shell.started":
 		// 以 message delta 展示
 		emitMessageDelta(st.evtChan, st.messageID, "[shell] 正在执行命令...")
+
+	case "permission.asked":
+		var props permissionAskedProps
+		if err := json.Unmarshal(propsJSON, &props); err != nil {
+			return
+		}
+
+		// 构建描述文本
+		desc := props.Permission
+		if len(props.Patterns) > 0 {
+			desc = props.Permission + ": " + strings.Join(props.Patterns, ", ")
+		}
+
+		// 提取 tool_call_id（如有）
+		toolCallID := ""
+		if props.Tool != nil {
+			toolCallID = props.Tool.CallID
+		}
+
+		payload := events.ApprovalRequestPayload{
+			RequestID:   props.ID,
+			ToolName:    props.Permission,
+			ToolCallID:  toolCallID,
+			Description: desc,
+			Arguments:   map[string]any{"patterns": props.Patterns},
+			Metadata:    props.Metadata,
+		}
+		sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, payload)
 
 	case "session.next.agent.switched":
 		// 记录但不产生事件
