@@ -12,6 +12,10 @@ import (
 // SSE 消息事件解析
 // ============================================================================
 
+var filteredToolNames = []string{
+	"question",
+}
+
 // handleSSEEvent 解析 SSE 事件并将消息相关事件转换为引擎事件。
 // 消息事件包括：文本增量、工具调用、推理内容等。
 func (st *runState) handleSSEEvent(event sseEvent) {
@@ -54,6 +58,10 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
+		if isFilteredToolName(props.Tool) {
+			st.markFilteredToolCall(props.CallID)
+			return
+		}
 		sendEventPayloadTo(st.evtChan, events.EventToolCallStarted, events.ToolCallPayload{
 			ToolCallID: props.CallID,
 			Name:       props.Tool,
@@ -65,8 +73,12 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
+		if isFilteredToolName(props.Tool) || st.isFilteredToolCall(props.CallID) {
+			return
+		}
 		sendEventPayloadTo(st.evtChan, events.EventToolCallCompleted, events.ToolCallResultPayload{
 			ToolCallID: props.CallID,
+			Name:       props.Tool,
 			Result:     props.Result,
 		})
 
@@ -75,8 +87,12 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
+		if isFilteredToolName(props.Tool) || st.isFilteredToolCall(props.CallID) {
+			return
+		}
 		sendEventPayloadTo(st.evtChan, events.EventToolCallFailed, events.ToolCallResultPayload{
 			ToolCallID: props.CallID,
+			Name:       props.Tool,
 			Error:      props.Error.Message,
 			IsError:    true,
 		})
@@ -142,6 +158,47 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 		// 记录但不产生事件
 		logs.Infof("OpenCode agent switched: %s", string(propsJSON))
 
+	case "question.asked", "question.v2.asked":
+		var props questionAskedProps
+		if err := json.Unmarshal(propsJSON, &props); err != nil {
+			return
+		}
+
+		// 映射 question items
+		questions := make([]events.QuestionItem, 0, len(props.Questions))
+		for _, q := range props.Questions {
+			options := make([]events.QuestionOption, 0, len(q.Options))
+			for _, o := range q.Options {
+				options = append(options, events.QuestionOption{
+					Label:       o.Label,
+					Description: o.Description,
+				})
+			}
+			questions = append(questions, events.QuestionItem{
+				Question:    q.Question,
+				Header:      q.Header,
+				Options:     options,
+				MultiSelect: q.Multiple,
+				Custom:      q.Custom,
+			})
+		}
+
+		toolCallID := ""
+		messageID := ""
+		if props.Tool != nil {
+			toolCallID = props.Tool.CallID
+			messageID = props.Tool.MessageID
+		}
+
+		payload := events.QuestionRequestPayload{
+			RequestID:  props.ID,
+			SessionID:  props.SessionID,
+			Questions:  questions,
+			ToolCallID: toolCallID,
+			MessageID:  messageID,
+		}
+		sendEventDirect(st.evtChan, events.NewQuestionAsked(payload))
+
 	case "session.next.model.switched":
 		// 记录但不产生事件
 		logs.Infof("OpenCode model switched: %s", string(propsJSON))
@@ -154,4 +211,37 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 
 	default:
 	}
+}
+
+func isFilteredToolName(toolName string) bool {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return false
+	}
+	for _, filteredToolName := range filteredToolNames {
+		if strings.EqualFold(toolName, strings.TrimSpace(filteredToolName)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (st *runState) markFilteredToolCall(callID string) {
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return
+	}
+	if st.filteredToolCalls == nil {
+		st.filteredToolCalls = make(map[string]struct{})
+	}
+	st.filteredToolCalls[callID] = struct{}{}
+}
+
+func (st *runState) isFilteredToolCall(callID string) bool {
+	callID = strings.TrimSpace(callID)
+	if callID == "" || st.filteredToolCalls == nil {
+		return false
+	}
+	_, ok := st.filteredToolCalls[callID]
+	return ok
 }

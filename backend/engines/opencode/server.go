@@ -348,15 +348,15 @@ func (s *OpenCodeServer) DeleteSession(ctx context.Context, sessionID string) er
 }
 
 // SendPermissionDecision 响应权限请求。
-func (s *OpenCodeServer) SendPermissionDecision(ctx context.Context, sessionID, permissionID, decision string) error {
-	reqBody := permissionDecision{Response: decision}
+func (s *OpenCodeServer) SendPermissionDecision(ctx context.Context, permissionID, decision string) error {
+	reqBody := permissionDecision{Reply: decision}
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("marshal permission decision: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/session/%s/permissions/%s", s.baseURL, sessionID, permissionID)
+	url := fmt.Sprintf("%s/permission/%s/reply", s.baseURL, permissionID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("permission decision request: %w", err)
@@ -373,6 +373,37 @@ func (s *OpenCodeServer) SendPermissionDecision(ctx context.Context, sessionID, 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("permission decision returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// SendQuestionAnswer 响应 question 请求，发送用户选择的答案。
+func (s *OpenCodeServer) SendQuestionAnswer(ctx context.Context, questionID string, answers [][]string) error {
+	reqBody := questionAnswerReq{Answers: answers}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("marshal question answer: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/question/%s/reply", s.baseURL, questionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("question answer request: %w", err)
+	}
+	req.Header.Set("Authorization", s.authHeader)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send question answer: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("question answer returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	return nil

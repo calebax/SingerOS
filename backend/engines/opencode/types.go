@@ -50,8 +50,8 @@ type messagePart struct {
 
 // messageResponse 是 POST /session/:id/message 的响应体。
 type messageResponse struct {
-	Info  messageInfo        `json:"info"`
-	Parts []messagePartResp  `json:"parts"`
+	Info  messageInfo       `json:"info"`
+	Parts []messagePartResp `json:"parts"`
 }
 
 // messageInfo 是消息的元信息。
@@ -87,10 +87,10 @@ type sseEvent struct {
 
 // textDeltaProps 是 session.next.text.delta 事件的 properties。
 type textDeltaProps struct {
-	SessionID           string `json:"sessionID"`
-	AssistantMessageID  string `json:"assistantMessageID"`
-	TextID              string `json:"textID"`
-	Delta               string `json:"delta"`
+	SessionID          string `json:"sessionID"`
+	AssistantMessageID string `json:"assistantMessageID"`
+	TextID             string `json:"textID"`
+	Delta              string `json:"delta"`
 }
 
 // textStartedProps 是 session.next.text.started 事件的 properties。
@@ -119,10 +119,11 @@ type toolCalledProps struct {
 
 // toolSuccessProps 是 session.next.tool.success 事件的 properties。
 type toolSuccessProps struct {
-	SessionID          string `json:"sessionID"`
-	AssistantMessageID string `json:"assistantMessageID"`
-	CallID             string `json:"callID"`
-	Result             any    `json:"result,omitempty"`
+	SessionID          string   `json:"sessionID"`
+	AssistantMessageID string   `json:"assistantMessageID"`
+	CallID             string   `json:"callID"`
+	Tool               string   `json:"tool"`
+	Result             any      `json:"result,omitempty"`
 	OutputPaths        []string `json:"outputPaths,omitempty"`
 }
 
@@ -131,6 +132,7 @@ type toolFailedProps struct {
 	SessionID          string `json:"sessionID"`
 	AssistantMessageID string `json:"assistantMessageID"`
 	CallID             string `json:"callID"`
+	Tool               string `json:"tool"`
 	Error              struct {
 		Message string `json:"message"`
 	} `json:"error"`
@@ -138,9 +140,9 @@ type toolFailedProps struct {
 
 // stepEndedProps 是 session.next.step.ended 事件的 properties。
 type stepEndedProps struct {
-	SessionID          string `json:"sessionID"`
-	AssistantMessageID string `json:"assistantMessageID"`
-	Finish             string `json:"finish"`
+	SessionID          string  `json:"sessionID"`
+	AssistantMessageID string  `json:"assistantMessageID"`
+	Finish             string  `json:"finish"`
 	Cost               float64 `json:"cost"`
 	Tokens             struct {
 		Input  int `json:"input"`
@@ -247,7 +249,47 @@ type permissionTool struct {
 // 权限响应
 // ============================================================================
 
-// permissionDecision 是 POST /session/:id/permissions/:permissionID 的请求体。
+// permissionDecision 是 POST /permission/:requestID/reply 的请求体。
 type permissionDecision struct {
-	Response string `json:"response"`
+	Reply   string `json:"reply"`
+	Message string `json:"message,omitempty"`
+}
+
+// ============================================================================
+// Question SSE 事件类型（question.v2.asked / question.asked）
+// ============================================================================
+
+// questionAskedProps 是 question.v2.asked 事件的 properties。
+// 对应 OpenCode QuestionV2.Ask 结构。
+type questionAskedProps struct {
+	SessionID string            `json:"sessionID"`
+	ID        string            `json:"id"`
+	Questions []questionItem    `json:"questions"`
+	Tool      *questionToolInfo `json:"tool,omitempty"`
+}
+
+// questionItem 是单个问题的结构。
+type questionItem struct {
+	Question string           `json:"question"`
+	Header   string           `json:"header,omitempty"`
+	Options  []questionOption `json:"options"`
+	Multiple bool             `json:"multiple"`
+	Custom   bool             `json:"custom"`
+}
+
+// questionOption 是问题的单个选项。
+type questionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// questionToolInfo 是 question 事件中关联的工具调用信息。
+type questionToolInfo struct {
+	MessageID string `json:"messageID"`
+	CallID    string `json:"callID"`
+}
+
+// questionAnswerReq 是 POST /question/:requestID/reply 的请求体。
+type questionAnswerReq struct {
+	Answers [][]string `json:"answers"`
 }

@@ -1,4 +1,5 @@
 package opencode
+
 import (
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/ygpkg/yg-go/logs"
 )
+
 // ============================================================================
 // ServerInvoker — opencode serve 模式的调用器
 // ============================================================================
@@ -19,6 +21,7 @@ type ServerInvoker struct {
 	binary  string
 	baseEnv []string
 }
+
 // NewServerInvoker 创建新的 ServerInvoker。
 func NewServerInvoker(binary string, extraEnv map[string]string) *ServerInvoker {
 	return &ServerInvoker{
@@ -26,6 +29,7 @@ func NewServerInvoker(binary string, extraEnv map[string]string) *ServerInvoker 
 		baseEnv: engines.BuildBaseEnv(extraEnv),
 	}
 }
+
 // Run 启动 opcode serve，创建会话并执行提示。
 func (inv *ServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
@@ -65,27 +69,32 @@ func (inv *ServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*eng
 	go st.waitCompletion(ctx, cancelSSE)
 	return st.buildHandle(req)
 }
+
 // ============================================================================
 // runState — 单次 Run 的上下文
 // ============================================================================
 type runState struct {
-	srv     *OpenCodeServer
-	evtChan chan events.Event
-	mu            sync.Mutex
-	sessionID     string
-	messageID     string
-	lastTextEnded string
-	tokenUsage    *events.UsagePayload
-	sseDone chan struct{}
-	msgDone chan struct{}
+	srv               *OpenCodeServer
+	evtChan           chan events.Event
+	mu                sync.Mutex
+	sessionID         string
+	messageID         string
+	lastTextEnded     string
+	tokenUsage        *events.UsagePayload
+	filteredToolCalls map[string]struct{}
+	sseDone           chan struct{}
+	msgDone           chan struct{}
 }
+
 func (st *runState) buildHandle(_ engines.RunRequest) (*engines.RunHandle, error) {
 	return &engines.RunHandle{
 		Process:   st.srv,
 		Events:    (<-chan events.Event)(st.evtChan),
-		Responder: &serverResponder{srv: st.srv, sessionID: st.sessionID},
+		Responder: &serverResponder{srv: st.srv},
+		Questions: &questionResponder{srv: st.srv},
 	}, nil
 }
+
 // ============================================================================
 // 会话管理
 // ============================================================================
@@ -110,6 +119,7 @@ func (st *runState) ensureSession(ctx context.Context, req engines.RunRequest) (
 	st.sessionID = session.ID
 	return session.ID, nil
 }
+
 // ============================================================================
 // 消息发送
 // ============================================================================
@@ -142,6 +152,7 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req engines.RunRe
 	st.mu.Unlock()
 	// 响应事件由 SSE 流式路径处理，同步响应体中的 parts 不再处理
 }
+
 // ============================================================================
 // SSE 事件流处理
 // ============================================================================
@@ -159,6 +170,7 @@ func (st *runState) processSSEStream(ctx context.Context, ch <-chan sseEvent) {
 		}
 	}
 }
+
 // ============================================================================
 // 完成等待和清理
 // ============================================================================
@@ -196,6 +208,7 @@ func (st *runState) waitCompletion(ctx context.Context, cancelSSE context.Cancel
 		sendEventTo(st.evtChan, events.EventCompleted, finalText)
 	}
 }
+
 // ============================================================================
 // 辅助函数
 // ============================================================================
@@ -214,6 +227,7 @@ func emitMessageDelta(ch chan<- events.Event, messageID, content string) {
 	default:
 	}
 }
+
 // sendEventTo 发送简单事件到通道。
 func sendEventTo(ch chan<- events.Event, eventType events.EventType, content string) {
 	if ch == nil {
@@ -224,6 +238,7 @@ func sendEventTo(ch chan<- events.Event, eventType events.EventType, content str
 	default:
 	}
 }
+
 // sendEventPayloadTo 发送带 payload 的事件到通道。
 func sendEventPayloadTo(ch chan<- events.Event, eventType events.EventType, payload any) {
 	if ch == nil {
@@ -240,6 +255,7 @@ func sendEventPayloadTo(ch chan<- events.Event, eventType events.EventType, payl
 	default:
 	}
 }
+
 // sendEventDirect 直接发送已有的事件指针到通道。
 func sendEventDirect(ch chan<- events.Event, evt *events.Event) {
 	if ch == nil || evt == nil {
