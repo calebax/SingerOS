@@ -91,6 +91,7 @@ type SessionMessage struct {
 	SessionID   string                    `json:"session_id"`
 	Role        string                    `json:"role"`
 	Content     string                    `json:"content"`
+	ErrorMsg    string                    `json:"error_msg,omitempty"`
 	Chunks      []SessionEvent            `json:"chunks,omitempty"`
 	Artifacts   []types.MessageArtifact   `json:"artifacts,omitempty"`
 	Attachments []types.MessageAttachment `json:"attachments,omitempty"`

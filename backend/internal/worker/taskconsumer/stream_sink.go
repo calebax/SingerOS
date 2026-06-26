@@ -24,6 +24,8 @@ type MQStreamSink struct {
 	task      protocol.WorkerTaskMessage
 }
 
+const terminalPublishTimeout = 5 * time.Second
+
 // NewMQStreamSink creates a stream sink for one worker task.
 func NewMQStreamSink(publisher ResultPublisher, task protocol.WorkerTaskMessage) *MQStreamSink {
 	return &MQStreamSink{
@@ -66,14 +68,35 @@ func (s *MQStreamSink) Emit(ctx context.Context, event *events.Event) error {
 		msg.Body.Error = &protocol.StreamError{Message: event.Content}
 	}
 
-	if err := s.publisher.Publish(ctx, topic, msg); err != nil {
+	publishCtx := ctx
+	publishCancel := func() {}
+	if isTerminalStreamEvent(msg.Body.Event) {
+		publishCtx, publishCancel = terminalPublishContext(ctx)
+	}
+	defer publishCancel()
+
+	if err := s.publisher.Publish(publishCtx, topic, msg); err != nil {
 		logs.WarnContextf(ctx, "Failed to publish worker stream event to %s: %v", topic, err)
 	}
 
-	if msg.Body.Event == protocol.StreamEventRunCompleted || msg.Body.Event == protocol.StreamEventRunFailed {
-		s.emitCompleted(ctx, event)
+	if isTerminalStreamEvent(msg.Body.Event) {
+		s.emitCompleted(publishCtx, event)
 	}
 	return nil
+}
+
+func isTerminalStreamEvent(event protocol.StreamEventType) bool {
+	return event == protocol.StreamEventRunCompleted ||
+		event == protocol.StreamEventRunFailed ||
+		event == protocol.StreamEventRunCancelled
+}
+
+func terminalPublishContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	base := context.Background()
+	if ctx != nil {
+		base = context.WithoutCancel(ctx)
+	}
+	return context.WithTimeout(base, terminalPublishTimeout)
 }
 
 func (s *MQStreamSink) streamTopic() string {
@@ -100,8 +123,10 @@ func (s *MQStreamSink) emitCompleted(ctx context.Context, event *events.Event) e
 	}
 
 	streamEvent := protocol.StreamEventRunCompleted
-	if event.Type == events.EventFailed || event.Type == events.EventCancelled {
+	if event.Type == events.EventFailed {
 		streamEvent = protocol.StreamEventRunFailed
+	} else if event.Type == events.EventCancelled {
+		streamEvent = protocol.StreamEventRunCancelled
 	}
 
 	msg := protocol.MessageStreamMessage{
@@ -245,7 +270,9 @@ func streamEventType(eventType events.EventType) protocol.StreamEventType {
 		return protocol.StreamEventRunStarted
 	case events.EventCompleted:
 		return protocol.StreamEventRunCompleted
-	case events.EventFailed, events.EventCancelled:
+	case events.EventCancelled:
+		return protocol.StreamEventRunCancelled
+	case events.EventFailed:
 		return protocol.StreamEventRunFailed
 	case events.EventMessageDelta:
 		return protocol.StreamEventMessageDelta

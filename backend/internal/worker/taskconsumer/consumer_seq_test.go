@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
+	runtimeevents "github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/nats-io/nats.go"
@@ -101,14 +102,22 @@ func (f *fakePublisher) Request(context.Context, string, any) (*nats.Msg, error)
 }
 
 type fakeRunner struct {
-	err   error
-	calls int
+	err    error
+	result *agent.RunResult
+	emit   *runtimeevents.Event
+	calls  int
 }
 
-func (f *fakeRunner) Run(_ context.Context, req *agent.RequestContext) (*agent.RunResult, error) {
+func (f *fakeRunner) Run(ctx context.Context, req *agent.RequestContext) (*agent.RunResult, error) {
 	f.calls++
+	if f.emit != nil && req.EventSink != nil {
+		_ = req.EventSink.Emit(ctx, f.emit)
+	}
 	if f.err != nil {
-		return nil, f.err
+		return f.result, f.err
+	}
+	if f.result != nil {
+		return f.result, nil
 	}
 	return &agent.RunResult{RunID: req.RunID, Status: agent.RunStatusCompleted}, nil
 }
@@ -203,6 +212,60 @@ func TestConsumerExecuteWithTrackerMarksAllSeqsFailed(t *testing.T) {
 	if streamMsg, ok := publisher.calls[0].event.(protocol.MessageStreamMessage); !ok ||
 		streamMsg.Body.Event != protocol.StreamEventRunFailed {
 		t.Fatalf("first published event = %#v, want run.failed stream event", publisher.calls[0].event)
+	}
+}
+
+func TestConsumerExecuteWithTrackerDoesNotEmitRunFailedForCancelledRun(t *testing.T) {
+	t.Setenv(leros.EnvWorkspaceRoot, t.TempDir())
+
+	tracker := &fakeSeqTracker{}
+	publisher := &fakePublisher{}
+	cancelledEvent := runtimeevents.NewRunCompleted(runtimeevents.RunCompletedPayload{
+		Status: string(agent.RunStatusCancelled),
+		Result: runtimeevents.RunResultPayload{
+			Message: "已取消",
+		},
+	}, "已取消")
+	cancelledEvent.Type = runtimeevents.EventCancelled
+	consumer := &Consumer{
+		cfg:       Config{OrgID: 1, WorkerID: 2},
+		publisher: publisher,
+		runner: &fakeRunner{
+			err: context.Canceled,
+			result: &agent.RunResult{
+				RunID:  "run_1",
+				Status: agent.RunStatusCancelled,
+				Error:  context.Canceled.Error(),
+			},
+			emit: cancelledEvent,
+		},
+		seqTracker: tracker,
+	}
+	msg := testWorkerTaskMessage()
+	msg.Route.SessionID = "session_1"
+	setSeqs(&msg, []uint64{7})
+
+	if err := consumer.executeWithTracker(context.Background(), msg); err != nil {
+		t.Fatalf("executeWithTracker error = %v, want nil for cancellation", err)
+	}
+
+	if !sameSeqs(tracker.completed, []uint64{7}) {
+		t.Fatalf("completed seqs = %v, want [7]", tracker.completed)
+	}
+	if len(tracker.failed) != 0 {
+		t.Fatalf("failed seqs = %#v, want none", tracker.failed)
+	}
+	if len(publisher.calls) != 2 {
+		t.Fatalf("published events = %d, want stream and completed cancellation events", len(publisher.calls))
+	}
+	for _, call := range publisher.calls {
+		streamMsg, ok := call.event.(protocol.MessageStreamMessage)
+		if !ok {
+			t.Fatalf("published event = %#v, want MessageStreamMessage", call.event)
+		}
+		if streamMsg.Body.Event == protocol.StreamEventRunFailed {
+			t.Fatalf("published run.failed for cancellation: %#v", streamMsg)
+		}
 	}
 }
 

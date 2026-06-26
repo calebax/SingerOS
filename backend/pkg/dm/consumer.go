@@ -30,3 +30,8 @@ func WorkerSkillConsumer() string {
 func SessionRunStartedConsumer() string {
 	return "session-run-started-handler"
 }
+
+// WorkerControlConsumer returns the durable consumer name for worker control messages.
+func WorkerControlConsumer() string {
+	return "worker-control-handler"
+}

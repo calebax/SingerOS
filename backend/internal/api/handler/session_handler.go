@@ -35,6 +35,7 @@ func (h *SessionHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/GetSessionMessages", h.GetSessionMessages)
 	r.POST("/DeleteMessage", h.DeleteMessage)
 	r.POST("/ClearSessionMessages", h.ClearSessionMessages)
+	r.POST("/CancelSessionRun", h.CancelSessionRun)
 }
 
 func RegisterSessionRoutes(r gin.IRouter, service contract.SessionService) {
@@ -502,4 +503,22 @@ func handleSessionServiceError(ctx *gin.Context, err error) {
 		return
 	}
 	ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+}
+
+// CancelSessionRun cancels an active agent run for the given session.
+// POST /CancelSessionRun
+func (h *SessionHandler) CancelSessionRun(ctx *gin.Context) {
+	var req contract.CancelSessionRunRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.CancelSessionRun(ctx, req.SessionID, &req)
+	if err != nil {
+		handleSessionServiceError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, dto.Success(result))
 }

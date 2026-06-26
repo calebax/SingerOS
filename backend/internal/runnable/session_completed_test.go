@@ -286,6 +286,60 @@ func TestHandleSessionCompletedMessageUsesFailedRunCompletedPayload(t *testing.T
 	}
 }
 
+func TestHandleSessionCompletedMessageNormalizesCancelledFailedPayload(t *testing.T) {
+	service := &recordingSessionService{}
+	createdAt := time.Now().UTC()
+	chunkPayload, err := json.Marshal(events.MessageDeltaPayload{
+		MessageID: "msg_1",
+		Role:      "assistant",
+		Content:   "partial",
+	})
+	if err != nil {
+		t.Fatalf("marshal chunk payload: %v", err)
+	}
+	streamMsg := protocol.MessageStreamMessage{
+		CreatedAt: createdAt,
+		Route: protocol.RouteContext{
+			SessionID: "sess_test",
+		},
+		Body: protocol.StreamBody{
+			Seq:   10,
+			Event: protocol.StreamEventRunFailed,
+			RunCompleted: &events.RunCompletedPayload{
+				Status: "cancelled",
+				Result: events.RunResultPayload{
+					Message: "context canceled",
+				},
+				Events: []events.RunEventRecord{
+					{Seq: 1, Type: events.EventMessageDelta, Timestamp: 1779243000000, Payload: chunkPayload},
+				},
+			},
+			Error: &protocol.StreamError{
+				Message: "context canceled",
+			},
+		},
+	}
+	body, err := json.Marshal(streamMsg)
+	if err != nil {
+		t.Fatalf("marshal stream message: %v", err)
+	}
+
+	handleSessionCompletedMessage(context.Background(), service, nil, &nats.Msg{Data: body})
+
+	if service.failedReq == nil {
+		t.Fatal("expected FailedSessionMessage to be called")
+	}
+	if service.failedReq.Status != string(types.MessageStatusCancelled) {
+		t.Fatalf("status = %q, want cancelled", service.failedReq.Status)
+	}
+	if service.failedReq.Content != "已取消" || service.failedReq.ErrorMsg != "context canceled" {
+		t.Fatalf("unexpected cancelled content/error: %#v", service.failedReq)
+	}
+	if len(service.failedReq.Chunks) != 1 || service.failedReq.Chunks[0].Type != string(events.EventMessageDelta) {
+		t.Fatalf("expected archived chunks to be preserved, got %#v", service.failedReq.Chunks)
+	}
+}
+
 func TestMessageMetadataFromRunCompletedEnrichesDisplayFields(t *testing.T) {
 	startedAt := time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC)
 	completedAt := startedAt.Add(1500 * time.Millisecond)
@@ -393,6 +447,10 @@ func (s *recordingSessionService) SubmitApproval(context.Context, *contract.Subm
 
 func (s *recordingSessionService) SubmitQuestionAnswer(context.Context, *contract.SubmitQuestionAnswerRequest) error {
 	return nil
+}
+
+func (s *recordingSessionService) CancelSessionRun(_ context.Context, _ string, _ *contract.CancelSessionRunRequest) (*contract.CancelSessionRunResponse, error) {
+	return &contract.CancelSessionRunResponse{Status: "cancelled"}, nil
 }
 
 var _ contract.SessionService = (*recordingSessionService)(nil)

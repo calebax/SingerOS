@@ -208,6 +208,65 @@ func TestMQStreamSinkPublishesCompletedEventToSessionCompletedTopic(t *testing.T
 	}
 }
 
+func TestMQStreamSinkPublishesTerminalEventWithCancelledContext(t *testing.T) {
+	orgID := uint(1)
+	sessionID := "session_test"
+	task := protocol.WorkerTaskMessage{
+		Trace: protocol.TraceContext{
+			TraceID:   "trace_test",
+			RequestID: "request_test",
+			TaskID:    "task_test",
+			RunID:     "run_test",
+		},
+		Route: protocol.RouteContext{
+			OrgID:     orgID,
+			SessionID: sessionID,
+			WorkerID:  2,
+		},
+	}
+	publisher := &cancelSensitivePublisher{}
+	sink := NewMQStreamSink(publisher, task)
+	payload := events.RunCompletedPayload{
+		Status: "cancelled",
+		Result: events.RunResultPayload{
+			Message: "已取消",
+		},
+		Events: []events.RunEventRecord{
+			{Seq: 1, Type: events.EventMessageDelta},
+		},
+		CompletedAt: time.Now().UTC(),
+	}
+	event := events.NewRunCompleted(payload, "已取消")
+	event.Type = events.EventCancelled
+	event.ID = "event_test"
+	event.RunID = "run_test"
+	event.TraceID = "trace_test"
+	event.Seq = 7
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sink.Emit(ctx, event); err != nil {
+		t.Fatalf("Emit() error = %v", err)
+	}
+
+	if len(publisher.calls) != 2 {
+		t.Fatalf("expected terminal publishes despite cancelled context, got %d", len(publisher.calls))
+	}
+	completedMsg, ok := publisher.calls[1].event.(protocol.MessageStreamMessage)
+	if !ok {
+		t.Fatalf("expected completed publish event type MessageStreamMessage, got %T", publisher.calls[1].event)
+	}
+	if completedMsg.Body.Event != protocol.StreamEventRunCancelled {
+		t.Fatalf("expected completed event %q, got %q", protocol.StreamEventRunCancelled, completedMsg.Body.Event)
+	}
+	if completedMsg.Body.RunCompleted == nil || completedMsg.Body.RunCompleted.Status != "cancelled" {
+		t.Fatalf("expected cancelled run_completed payload, got %#v", completedMsg.Body.RunCompleted)
+	}
+	if len(completedMsg.Body.RunCompleted.Events) != 1 {
+		t.Fatalf("expected archived chunks to be forwarded, got %#v", completedMsg.Body.RunCompleted.Events)
+	}
+}
+
 func TestMQStreamSinkPublishesTodoPayload(t *testing.T) {
 	orgID := uint(1)
 	sessionID := "session_test"
@@ -313,4 +372,23 @@ func (p *recordingPublisher) Publish(_ context.Context, topic string, event any)
 
 func (p *recordingPublisher) Request(_ context.Context, _ string, _ any) (*nats.Msg, error) {
 	return nil, fmt.Errorf("recordingPublisher: Request not supported")
+}
+
+type cancelSensitivePublisher struct {
+	calls []publishCall
+}
+
+func (p *cancelSensitivePublisher) Publish(ctx context.Context, topic string, event any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	p.calls = append(p.calls, publishCall{
+		topic: topic,
+		event: event,
+	})
+	return nil
+}
+
+func (p *cancelSensitivePublisher) Request(_ context.Context, _ string, _ any) (*nats.Msg, error) {
+	return nil, fmt.Errorf("cancelSensitivePublisher: Request not supported")
 }

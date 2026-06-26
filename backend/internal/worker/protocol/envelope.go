@@ -10,6 +10,8 @@ const (
 	MessageTypeWorkerTask MessageType = "worker.task"
 	// MessageTypeStream represents stream messages from Worker to Server (forwarded to UI).
 	MessageTypeStream MessageType = "message.stream"
+	// MessageTypeWorkerControl represents control messages from Server to Worker.
+	MessageTypeWorkerControl MessageType = "worker.control"
 	// MessageTypeSkillInstall represents skill installation requests from Server to Worker.
 	// Deprecated: use MessageTypeSkillManagement instead.
 	MessageTypeSkillInstall MessageType = "skill.install"

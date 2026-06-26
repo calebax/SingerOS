@@ -1130,6 +1130,70 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 	}
 }
 
+func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	if err := database.AutoMigrate(
+		&types.Session{},
+		&types.SessionMessage{},
+		&types.LLMModel{},
+		&types.DigitalAssistant{},
+		&types.WorkerDeployment{},
+	); err != nil {
+		t.Fatalf("failed to migrate test database: %v", err)
+	}
+	if err := database.Create(&types.LLMModel{
+		OrgID:           1,
+		Code:            "default",
+		Name:            "Default",
+		Provider:        "openai",
+		ModelName:       "gpt-test",
+		BaseURL:         "https://api.openai.com",
+		BaseURLHasV1:    true,
+		APIKeyEncrypted: "sk-test",
+		Status:          string(types.LLMModelStatusActive),
+		IsDefault:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to seed default llm model: %v", err)
+	}
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
+		Type: string(types.SessionTypeUserChat),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	err = service.FailedSessionMessage(ctx, &contract.FailedSessionMessageRequest{
+		SessionID: session.SessionID,
+		Content:   "已取消",
+		ErrorMsg:  "scan repo for reconciliation: context canceled",
+		Status:    string(types.MessageStatusCancelled),
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("FailedSessionMessage failed: %v", err)
+	}
+
+	result, err := service.GetSessionMessages(ctx, session.SessionID, 1, 20)
+	if err != nil {
+		t.Fatalf("GetSessionMessages failed: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one message, got %d", len(result.Items))
+	}
+	if result.Items[0].Content != "已取消" {
+		t.Fatalf("response content = %q, want 已取消", result.Items[0].Content)
+	}
+	if result.Items[0].ErrorMsg != "scan repo for reconciliation: context canceled" {
+		t.Fatalf("response error_msg = %q", result.Items[0].ErrorMsg)
+	}
+}
+
 func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 	database := setupTestDB(t)
 	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")

@@ -76,13 +76,16 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 		recordSkillInvocations(ctx, db, streamMsg.Route.OrgID, streamMsg.Route.SessionID, completed.Events)
 
 	case protocol.StreamEventRunFailed:
+		content := streamMsg.Body.Payload.Content
 		errMsg := streamMsg.Body.Payload.Content
 		status := string(types.MessageStatusFailed)
 		completed := streamMsg.Body.RunCompleted
 		if completed != nil && completed.Result.Message != "" {
+			content = completed.Result.Message
 			errMsg = completed.Result.Message
 			if completed.Status == string(types.MessageStatusCancelled) {
 				status = string(types.MessageStatusCancelled)
+				content = "已取消"
 			}
 		}
 		if streamMsg.Body.Error != nil {
@@ -92,7 +95,7 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 		replyToMessageIDs := replyToMessageIDsFromStream(streamMsg)
 		req := &contract.FailedSessionMessageRequest{
 			SessionID:         sessionID,
-			Content:           errMsg,
+			Content:           content,
 			ReplyToMessageIDs: replyToMessageIDs,
 			ErrorMsg:          errMsg,
 			Status:            status,
@@ -108,6 +111,31 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 		}
 		if err := service.FailedSessionMessage(ctx, req); err != nil {
 			logs.WarnContextf(ctx, "failed session message: %v", err)
+		}
+
+	case protocol.StreamEventRunCancelled:
+		completed := streamMsg.Body.RunCompleted
+		content := "已取消"
+		if completed != nil && completed.Result.Message != "" {
+			content = completed.Result.Message
+		}
+		projectCompletedArtifacts(completed)
+		replyToMessageIDs := replyToMessageIDsFromStream(streamMsg)
+		req := &contract.FailedSessionMessageRequest{
+			SessionID:         sessionID,
+			Content:           content,
+			ReplyToMessageIDs: replyToMessageIDs,
+			ErrorMsg:          "run cancelled",
+			Status:            string(types.MessageStatusCancelled),
+			Chunks:            runEventChunks(runCompletedEvents(completed)),
+			Artifacts:         messageArtifactsFromRunCompleted(runCompletedArtifacts(completed)),
+			Metadata:          messageMetadataFromRunCompleted(completed),
+			Usage:             messageUsageFromRuntime(runCompletedUsage(completed)),
+			Seq:               streamMsg.Body.Seq,
+			CreatedAt:         streamMsg.CreatedAt,
+		}
+		if err := service.FailedSessionMessage(ctx, req); err != nil {
+			logs.WarnContextf(ctx, "cancelled session message: %v", err)
 		}
 
 	default:

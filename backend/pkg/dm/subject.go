@@ -52,6 +52,17 @@ func WorkerSkillSubject(orgid, workerid uint) (string, error) {
 	return fmt.Sprintf("org.%d.worker.%d.skill", orgid, workerid), nil
 }
 
+// WorkerControlSubject 构造 worker 控制 topic，格式为 "org.{org_id}.worker.{worker_id}.control"。
+func WorkerControlSubject(orgid, workerid uint) (string, error) {
+	if orgid == 0 {
+		return "", errors.New("orgid is required")
+	}
+	if workerid == 0 {
+		return "", errors.New("workerid is required")
+	}
+	return fmt.Sprintf("org.%d.worker.%d.control", orgid, workerid), nil
+}
+
 // SessionMessageRequestSubject 构造会话请求 topic，格式为 "org.{org_id}.session.{session_id}.request"。
 func SessionMessageRequestSubject(orgid uint, sessionid string) (string, error) {
 	if orgid == 0 {

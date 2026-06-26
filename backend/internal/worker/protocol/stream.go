@@ -12,6 +12,8 @@ const (
 	StreamEventRunCompleted StreamEventType = "run.completed"
 	// StreamEventRunFailed indicates a run failed.
 	StreamEventRunFailed StreamEventType = "run.failed"
+	// StreamEventRunCancelled indicates a run was cancelled.
+	StreamEventRunCancelled StreamEventType = "run.cancelled"
 
 	// StreamEventMessageDelta indicates incremental text output from assistant.
 	StreamEventMessageDelta StreamEventType = "message.delta"

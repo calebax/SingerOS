@@ -175,6 +175,12 @@ func TestRunnerEmitsCancelledThroughSink(t *testing.T) {
 	if result == nil || result.Status != agent.RunStatusCancelled {
 		t.Fatalf("expected cancelled result, got %+v", result)
 	}
+	if result.Message != "已取消" {
+		t.Fatalf("expected cancelled user message, got %q", result.Message)
+	}
+	if result.Error != context.DeadlineExceeded.Error() {
+		t.Fatalf("expected cancelled error detail, got %q", result.Error)
+	}
 	got := sink.Events()
 	if len(got) != 2 {
 		t.Fatalf("expected started and terminal events, got %d", len(got))
@@ -184,6 +190,13 @@ func TestRunnerEmitsCancelledThroughSink(t *testing.T) {
 	}
 	if got[1].Type != events.EventCancelled {
 		t.Fatalf("expected cancelled event, got %s", got[1].Type)
+	}
+	completed, err := events.DecodePayload[events.RunCompletedPayload](got[1])
+	if err != nil {
+		t.Fatalf("decode cancelled payload: %v", err)
+	}
+	if completed.Result.Message != "已取消" {
+		t.Fatalf("expected cancelled payload user message, got %q", completed.Result.Message)
 	}
 }
 

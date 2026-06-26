@@ -14,12 +14,12 @@ import (
 
 	"gorm.io/gorm"
 
+	"code.gitea.io/sdk/gitea"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"code.gitea.io/sdk/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
@@ -814,6 +814,7 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 		SessionID:   publicID,
 		Role:        message.Role,
 		Content:     message.Content,
+		ErrorMsg:    message.ErrorMsg,
 		MessageType: message.MessageType,
 		Timestamp:   message.Timestamp,
 		Sequence:    message.Sequence,
@@ -970,6 +971,58 @@ func messageIDFromRequestID(requestID string) (uint, bool) {
 	return uint(id), true
 }
 
+func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string, req *contract.CancelSessionRunRequest) (*contract.CancelSessionRunResponse, error) {
+	session, caller, err := s.getSessionForCaller(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	workerID := session.AllocatedAssistantID
+	if workerID == 0 {
+		return &contract.CancelSessionRunResponse{
+			SessionID: sessionID,
+			Status:    "no_active_run",
+		}, nil
+	}
+
+	topic, err := dm.WorkerControlSubject(caller.OrgID, workerID)
+	if err != nil {
+		return nil, fmt.Errorf("build control topic: %w", err)
+	}
+
+	msg := protocol.WorkerControlMessage{
+		ID:        fmt.Sprintf("ctrl_%s", snowflake.GenerateIDBase58()),
+		Type:      protocol.MessageTypeWorkerControl,
+		CreatedAt: time.Now().UTC(),
+		Trace: protocol.TraceContext{
+			RunID: req.RunID,
+		},
+		Route: protocol.RouteContext{
+			OrgID:     caller.OrgID,
+			WorkerID:  workerID,
+			SessionID: sessionID,
+		},
+		Body: protocol.WorkerControlBody{
+			ControlType: protocol.ControlTypeCancelRun,
+			SessionID:   sessionID,
+			RunID:       req.RunID,
+			Reason:      req.Reason,
+		},
+	}
+
+	if err := s.eventbus.Publish(ctx, topic, msg); err != nil {
+		return nil, fmt.Errorf("publish cancel control: %w", err)
+	}
+
+	logs.InfoContextf(ctx, "CancelSessionRun: session=%s worker=%d run=%s",
+		sessionID, workerID, req.RunID)
+
+	return &contract.CancelSessionRunResponse{
+		SessionID: sessionID,
+		Status:    "cancelled",
+	}, nil
+}
+
 func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contract.CompleteSessionMessageRequest) error {
 	if req.SessionID == "" {
 		return errors.New("session_id is required")
@@ -1062,11 +1115,15 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 	msgEntity := &types.SessionMessage{
 		SessionID:   session.ID,
 		Role:        string(types.MessageRoleAssistant),
-		Content:     req.ErrorMsg,
+		Content:     req.Content,
+		ErrorMsg:    req.ErrorMsg,
 		MessageType: string(types.MessageTypeText),
 		Status:      status,
 		Sequence:    sequence,
 		Timestamp:   req.CreatedAt.UnixMilli(),
+	}
+	if msgEntity.Content == "" {
+		msgEntity.Content = req.ErrorMsg
 	}
 	if req.Chunks != nil && len(req.Chunks) > 0 {
 		msgEntity.Chunks = req.Chunks

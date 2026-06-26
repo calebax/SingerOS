@@ -299,6 +299,7 @@ func runTaskWorker(defaultRuntime string) {
 
 	// 启动任务消费（阻塞式订阅，独立 goroutine）
 	go func() { _ = consumer.Start(ctx) }()
+	go func() { _ = consumer.StartControlListener(ctx) }()
 	go func() { _ = approvalSub.Start(ctx) }()
 	go func() { _ = skillMgmtConsumer.Start(ctx) }()
 

@@ -4,6 +4,7 @@ package taskconsumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,6 +60,17 @@ type Consumer struct {
 	pending    map[string][]chan struct{}
 	pendingMu  sync.Mutex
 	giteaCfg   *config.GiteaConfig
+
+	activeRuns   map[string]*activeRun
+	activeRunsMu sync.RWMutex
+}
+
+// activeRun tracks a running agent execution that can be cancelled.
+type activeRun struct {
+	runID     string
+	taskID    string
+	cancel    context.CancelFunc
+	startedAt time.Time
 }
 
 // New creates a worker task consumer.
@@ -107,6 +119,7 @@ func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, 
 		seqTracker: tracker,
 		sem:        make(chan struct{}, maxConcurrency*2),
 		pending:    make(map[string][]chan struct{}),
+		activeRuns: make(map[string]*activeRun),
 		giteaCfg:   giteaCfg,
 	}
 
@@ -352,8 +365,25 @@ func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessa
 		req.Assistant.ID,
 	)
 
-	result, err := c.runner.Run(ctx, req)
+	runCtx, cancel := context.WithCancel(ctx)
+	key := sessionTaskKey(taskMsg)
+	c.registerRun(key, req.RunID, req.TaskID, cancel)
+	defer c.unregisterRun(key)
+
+	result, err := c.runner.Run(runCtx, req)
+	// 如果 runCtx 已被取消，确保返回的 error 是 context.Canceled，
+	// 这样下游 lifecycle journal 能正确识别为 cancelled 而非 failed。
+	if err != nil && runCtx.Err() == context.Canceled {
+		err = context.Canceled
+	}
 	if err != nil {
+		if isRunCancelled(result, err) {
+			if result == nil {
+				c.emitRunCancelled(ctx, req)
+			}
+			logs.InfoContextf(ctx, "Worker task cancelled: task_id=%s run_id=%s", req.TaskID, req.RunID)
+			return nil
+		}
 		c.emitRunFailed(ctx, req, err)
 		return err
 	}
@@ -362,6 +392,29 @@ func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessa
 		logs.InfoContextf(ctx, "Worker task completed: task_id=%s run_id=%s status=%s", req.TaskID, result.RunID, result.Status)
 	}
 	return nil
+}
+
+func isRunCancelled(result *agent.RunResult, err error) bool {
+	if result != nil && result.Status == agent.RunStatusCancelled {
+		return true
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func (c *Consumer) emitRunCancelled(ctx context.Context, req *agent.RequestContext) {
+	if req == nil || req.EventSink == nil {
+		return
+	}
+	if err := req.EventSink.Emit(ctx, &runtimeevents.Event{
+		RunID:     req.RunID,
+		TraceID:   req.TraceID,
+		Type:      runtimeevents.EventCancelled,
+		CreatedAt: time.Now().UTC(),
+		Content:   "已取消",
+	}); err != nil {
+		logs.WarnContextf(ctx, "Failed to emit worker run cancellation event: task_id=%s run_id=%s error=%v",
+			req.TaskID, req.RunID, err)
+	}
 }
 
 func (c *Consumer) emitRunFailed(ctx context.Context, req *agent.RequestContext, runErr error) {
@@ -533,6 +586,82 @@ func (c *Consumer) Close() error {
 		return c.seqTracker.Close()
 	}
 	return nil
+}
+
+// registerRun records an active agent run that can be cancelled.
+func (c *Consumer) registerRun(sessionKey, runID, taskID string, cancel context.CancelFunc) {
+	if sessionKey == "" {
+		return
+	}
+	c.activeRunsMu.Lock()
+	if c.activeRuns == nil {
+		c.activeRuns = make(map[string]*activeRun)
+	}
+	c.activeRuns[sessionKey] = &activeRun{
+		runID:     runID,
+		taskID:    taskID,
+		cancel:    cancel,
+		startedAt: time.Now(),
+	}
+	c.activeRunsMu.Unlock()
+}
+
+// unregisterRun removes a previously registered active run.
+func (c *Consumer) unregisterRun(sessionKey string) {
+	if sessionKey == "" {
+		return
+	}
+	c.activeRunsMu.Lock()
+	delete(c.activeRuns, sessionKey)
+	c.activeRunsMu.Unlock()
+}
+
+// cancelSessionRun cancels an active run for the given session, if any.
+func (c *Consumer) cancelSessionRun(ctx context.Context, sessionID, runID string) {
+	key := fmt.Sprintf("%d:%d:%s", c.cfg.OrgID, c.cfg.WorkerID, sessionID)
+
+	c.activeRunsMu.RLock()
+	ar, ok := c.activeRuns[key]
+	c.activeRunsMu.RUnlock()
+
+	if !ok {
+		logs.InfoContextf(ctx, "cancelSessionRun: no active run for session=%s", sessionID)
+		return
+	}
+
+	if runID != "" && ar.runID != runID {
+		logs.InfoContextf(ctx, "cancelSessionRun: run_id mismatch session=%s want=%s got=%s", sessionID, runID, ar.runID)
+		return
+	}
+
+	logs.InfoContextf(ctx, "cancelSessionRun: cancelling session=%s run=%s task=%s", sessionID, ar.runID, ar.taskID)
+	ar.cancel()
+}
+
+// StartControlListener subscribes to worker control messages and handles cancellation requests.
+func (c *Consumer) StartControlListener(ctx context.Context) error {
+	topic, err := dm.WorkerControlSubject(c.cfg.OrgID, c.cfg.WorkerID)
+	if err != nil {
+		return fmt.Errorf("build control topic: %w", err)
+	}
+
+	logs.InfoContextf(ctx, "Starting worker control listener: %s", topic)
+	return c.subscriber.Subscribe(ctx, topic, dm.WorkerControlConsumer(), func(msg *nats.Msg) {
+		var ctrlMsg protocol.WorkerControlMessage
+		if err := json.Unmarshal(msg.Data, &ctrlMsg); err != nil {
+			logs.WarnContextf(ctx, "unmarshal worker control message: %v", err)
+			return
+		}
+		if ctrlMsg.Type != protocol.MessageTypeWorkerControl {
+			return
+		}
+		switch ctrlMsg.Body.ControlType {
+		case protocol.ControlTypeCancelRun:
+			c.cancelSessionRun(ctx, ctrlMsg.Body.SessionID, ctrlMsg.Body.RunID)
+		default:
+			logs.WarnContextf(ctx, "unknown worker control type: %s", ctrlMsg.Body.ControlType)
+		}
+	})
 }
 
 func sessionTaskKey(msg protocol.WorkerTaskMessage) string {

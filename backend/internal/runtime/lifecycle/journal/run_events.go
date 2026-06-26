@@ -42,7 +42,11 @@ func EmitFailed(ctx context.Context, journal *RunJournal, req *agent.RequestCont
 	}
 
 	status, eventType := failureStatus(err)
-	message := err.Error()
+	errMsg := err.Error()
+	message := ""
+	if status == agent.RunStatusCancelled {
+		message = "已取消"
+	}
 	logs.WarnContextf(ctx, "Agent run failed: run_id=%s trace_id=%s task_id=%s runtime=%s phase=%s status=%s error=%v",
 		requestRunID(req),
 		requestTraceID(req),
@@ -57,7 +61,8 @@ func EmitFailed(ctx context.Context, journal *RunJournal, req *agent.RequestCont
 		RunID:       requestRunID(req),
 		TraceID:     requestTraceID(req),
 		Status:      status,
-		Error:       message,
+		Message:     message,
+		Error:       errMsg,
 		StartedAt:   failureStartedAt(journal),
 		CompletedAt: time.Now().UTC(),
 		Metadata:    metadataWithLifecyclePhase(metadata, phase),

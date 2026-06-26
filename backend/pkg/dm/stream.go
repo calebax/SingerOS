@@ -16,7 +16,7 @@ const (
 var StreamSubjects = map[string]nats.StreamConfig{
 	streamNameTask: {
 		Name:              streamNameTask,
-		Subjects:          []string{"org.*.worker.*.task", "org.*.worker.*.approval", "org.*.worker.*.skill"},
+		Subjects:          []string{"org.*.worker.*.task", "org.*.worker.*.approval", "org.*.worker.*.skill", "org.*.worker.*.control"},
 		Storage:           nats.FileStorage,
 		Retention:         nats.LimitsPolicy,
 		Discard:           nats.DiscardOld,
