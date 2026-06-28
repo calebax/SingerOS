@@ -110,7 +110,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		{messaging.LaneRun, messaging.WorkerRunConsumer(), d.handleRun},
 		{messaging.LaneControl, messaging.WorkerControlConsumer(), d.handleControl},
 		{messaging.LaneInteraction, messaging.WorkerInteractionConsumer(), d.handleInteraction},
-		{messaging.LaneSkill, "", d.handleSkill},
+		{messaging.LaneSkill, messaging.WorkerSkillConsumer(), d.handleSkill},
 	}
 
 	errCh := make(chan error, len(lanes))
