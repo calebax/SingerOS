@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/ygpkg/storage-go"
@@ -84,7 +85,7 @@ func Upload(ctx context.Context, db *gorm.DB, params UploadParams) (*types.FileU
 		OriginalName: originalName,
 		MimeType:     params.MimeType,
 		FileSize:     fileSize,
-		StorageURI:  putResult.Path.URI(),
+		StorageURI:   putResult.Path.URI(),
 		Sha256:       sha256Hex,
 		Purpose:      params.Purpose,
 		Status:       "active",
@@ -188,6 +189,7 @@ type RecordUploadParams struct {
 	Sha256       string
 	Purpose      string
 	Metadata     map[string]interface{}
+	PublicID     string // 可选，指定 FileUpload 的 PublicID；为空时自动生成
 }
 
 // RecordUpload 仅创建 FileUpload 记录，不上传文件。
@@ -208,7 +210,10 @@ func RecordUpload(ctx context.Context, db *gorm.DB, params RecordUploadParams) (
 	storagePath := pb.Build(DefaultBucket(), storageKeyFromStorageURI(params.StorageURI))
 	normalizedURI := storagePath.URI()
 
-	publicID := fmt.Sprintf("file_%s", snowflake.GenerateIDBase58())
+	publicID := strings.TrimSpace(params.PublicID)
+	if publicID == "" {
+		publicID = fmt.Sprintf("file_%s", snowflake.GenerateIDBase58())
+	}
 	originalName := params.OriginalName
 	if originalName == "" {
 		originalName = params.Filename
@@ -226,7 +231,7 @@ func RecordUpload(ctx context.Context, db *gorm.DB, params RecordUploadParams) (
 		OriginalName: originalName,
 		MimeType:     params.MimeType,
 		FileSize:     fileSize,
-		StorageURI:  normalizedURI,
+		StorageURI:   normalizedURI,
 		Sha256:       params.Sha256,
 		Purpose:      params.Purpose,
 		Status:       "active",

@@ -394,7 +394,9 @@ type declaredArtifactPersister struct {
 	db *gorm.DB
 }
 
-// PersistDeclaredArtifact persists a declared artifact to the database.
+// PersistDeclaredArtifact persists a declared artifact as FileUpload + ProjectFile in a transaction.
+// Uses ProjectFile.FilePublicID unique index for event replay idempotency.
+// Skips persistence when storage_uri is missing (ProjectFile cannot point to an inaccessible file).
 func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context, route messaging.RouteContext, item events.ArtifactPayload) error {
 	if p == nil || p.db == nil {
 		return nil
@@ -413,18 +415,19 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 	if sessionID == "" {
 		return fmt.Errorf("session_id is required")
 	}
-	storageKey := strings.TrimSpace(item.StorageKey)
-	if storageKey == "" {
-		logs.WarnContextf(ctx, "persist declared artifact: storage_key is empty, artifact_id=%s session_id=%s", artifactID, sessionID)
-		return fmt.Errorf("storage_key is required")
+	storageURI := strings.TrimSpace(item.StorageURI)
+	if storageURI == "" {
+		logs.InfoContextf(ctx, "persist declared artifact: storage_uri is empty, skipping persistence artifact_id=%s session_id=%s", artifactID, sessionID)
+		return nil
 	}
 
-	existing, err := infradb.GetArtifactByPublicID(ctx, p.db, route.OrgID, artifactID)
+	// Check idempotency via ProjectFile.FilePublicID unique index.
+	existingPF, err := infradb.GetProjectFileByFilePublicID(ctx, p.db, route.OrgID, artifactID)
 	if err != nil {
 		return err
 	}
-	if existing != nil {
-		logs.InfoContextf(ctx, "persist declared artifact: already exists, artifact_id=%s session_id=%s", artifactID, sessionID)
+	if existingPF != nil {
+		logs.InfoContextf(ctx, "persist declared artifact: already exists (project_file), artifact_id=%s session_id=%s", artifactID, sessionID)
 		return nil
 	}
 
@@ -452,16 +455,6 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		return fmt.Errorf("session task_id is required for artifact persistence")
 	}
 
-	projects, err := infradb.GetProjectsByIDs(ctx, p.db, []uint{*session.ProjectID})
-	if err != nil {
-		return fmt.Errorf("find project %d: %w", *session.ProjectID, err)
-	}
-	if len(projects) == 0 {
-		return fmt.Errorf("project %d not found", *session.ProjectID)
-	}
-	project := projects[0]
-	projectPublicID := project.PublicID
-
 	filename := strings.TrimSpace(item.Filename)
 	if filename == "" {
 		filename = item.Title
@@ -470,108 +463,46 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 	if originalName == "" {
 		originalName = filename
 	}
-	storageURI := strings.TrimSpace(item.StorageURI)
-	fileURL := storageURI
-	if fileURL == "" {
-		fileURL = projectPublicID + "/" + storageKey
-	}
 
-	artifact := &types.Artifact{
-		PublicID:     artifactID,
-		OrgID:        session.OrgID,
-		OwnerID:      session.Uin,
-		TaskID:       *session.TaskID,
-		ProjectID:    *session.ProjectID,
-		SessionID:    &session.ID,
-		Title:        artifactTitle(item),
-		Filename:     filename,
-		Description:  strings.TrimSpace(item.Description),
-		ArtifactType: artifactType(item.ArtifactType),
-		FileURL:      fileURL,
-		FileSize:     item.FileSize,
-		RelativePath: item.RelativePath,
-		StorageKey:   storageKey,
-		MimeType:     item.MimeType,
-		Sha256:       item.Sha256,
-		Source:       artifactSource(item.Source),
-		Status:       artifactStatus(item.Status),
-		Metadata: types.ObjectMetadata{
-			Extra: map[string]interface{}{
-				"worker_id":         route.WorkerID,
-				"project_public_id": projectPublicID,
-			},
-		},
-	}
-	if artifact.Title == "" {
-		artifact.Title = filename
-	}
-	if err := infradb.CreateArtifact(ctx, p.db, artifact); err != nil {
-		logs.WarnContextf(ctx, "persist declared artifact: create artifact record failed, artifact_id=%s err=%v", artifactID, err)
-		existing, findErr := infradb.GetArtifactByPublicID(ctx, p.db, route.OrgID, artifactID)
-		if findErr == nil && existing != nil {
-			return nil
+	// Use transaction to ensure FileUpload and ProjectFile are created atomically.
+	err = p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		fileUpload, err := filestore.RecordUpload(ctx, tx, filestore.RecordUploadParams{
+			StorageURI:   storageURI,
+			Filename:     filename,
+			OriginalName: originalName,
+			MimeType:     strings.TrimSpace(item.MimeType),
+			OrgID:        session.OrgID,
+			OwnerID:      session.Uin,
+			FileSize:     item.FileSize,
+			Sha256:       item.Sha256,
+			Purpose:      filestore.PurposeArtifact,
+			PublicID:     artifactID,
+		})
+		if err != nil {
+			return fmt.Errorf("record artifact upload: %w", err)
 		}
+
+		projectFile := &types.ProjectFile{
+			FilePublicID: fileUpload.PublicID,
+			OrgID:        session.OrgID,
+			ProjectID:    *session.ProjectID,
+			TaskID:       *session.TaskID,
+			ResourceID:   fileUpload.ID,
+			ResourceType: types.ProjectFileResourceTypeArtifact,
+			Uin:          session.Uin,
+		}
+		if err := infradb.CreateProjectFile(ctx, tx, projectFile); err != nil {
+			return fmt.Errorf("create artifact project file: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		logs.WarnContextf(ctx, "persist declared artifact: transaction failed, artifact_id=%s err=%v", artifactID, err)
 		return err
 	}
 
-	if storageURI == "" {
-		return nil
-	}
-	fileUpload, err := filestore.RecordUpload(ctx, p.db, filestore.RecordUploadParams{
-		StorageURI:   storageURI,
-		Filename:     filename,
-		OriginalName: originalName,
-		MimeType:     strings.TrimSpace(item.MimeType),
-		OrgID:        session.OrgID,
-		OwnerID:      session.Uin,
-		FileSize:     item.FileSize,
-		Sha256:       item.Sha256,
-		Purpose:      filestore.PurposeArtifact,
-	})
-	if err != nil {
-		return fmt.Errorf("record artifact upload: %w", err)
-	}
-	projectFile := &types.ProjectFile{
-		FilePublicID: fileUpload.PublicID,
-		OrgID:        session.OrgID,
-		ProjectID:    *session.ProjectID,
-		TaskID:       *session.TaskID,
-		ResourceID:   artifact.ID,
-		ResourceType: types.ProjectFileResourceTypeArtifact,
-		Uin:          session.Uin,
-	}
-	if err := infradb.CreateProjectFile(ctx, p.db, projectFile); err != nil {
-		return fmt.Errorf("create artifact project file: %w", err)
-	}
+	logs.InfoContextf(ctx, "persist declared artifact: success, artifact_id=%s session_id=%s", artifactID, sessionID)
 	return nil
-}
-
-func artifactTitle(item events.ArtifactPayload) string {
-	if t := strings.TrimSpace(item.Title); t != "" {
-		return t
-	}
-	return strings.TrimSpace(item.Filename)
-}
-
-func artifactType(value string) string {
-	if v := strings.TrimSpace(value); v != "" {
-		return v
-	}
-	return "unknown"
-}
-
-func artifactSource(value string) string {
-	if v := strings.TrimSpace(value); v != "" {
-		return v
-	}
-	return "unknown"
-}
-
-func artifactStatus(value string) string {
-	if v := strings.TrimSpace(value); v != "" {
-		return v
-	}
-	return "pending"
 }
 
 func extractSkillName(toolName string, arguments json.RawMessage) string {

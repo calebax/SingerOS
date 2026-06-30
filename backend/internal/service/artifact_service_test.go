@@ -4,21 +4,21 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/insmtx/Leros/backend/types"
 )
 
 func TestListTaskArtifactsDoesNotExposeDownloadURL(t *testing.T) {
-	result := convertToContractArtifact(&types.Artifact{
-		PublicID:     "art_result",
-		Title:        "Result",
+	result := convertFileUploadToContractArtifact(&types.FileUpload{
+		PublicID:     "file_abc123",
 		Filename:     "result.md",
-		ArtifactType: "file",
+		OriginalName: "result.md",
 		MimeType:     "text/markdown",
 		FileSize:     12,
 		Sha256:       "abc123",
-		StorageKey:   "projects/1/1/repo/result.md",
-	})
+		StorageURI:   "s3://bucket/projects/1/1/repo/result.md",
+	}, time.Now())
 	payload, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("failed to marshal response: %v", err)

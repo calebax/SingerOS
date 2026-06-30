@@ -383,15 +383,29 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		result.Tasks = append(result.Tasks, item)
 	}
 
-	// 查询项目产物
-	artifacts, err := db.ListArtifactsByProjectID(ctx, s.db, caller.OrgID, project.ID)
+	// 查询项目产物（通过 ProjectFile 关联）
+	projectFiles, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, string(types.ProjectFileResourceTypeArtifact))
 	if err != nil {
 		return nil, err
 	}
-	for _, a := range artifacts {
-		if converted := convertToContractArtifact(a); converted != nil {
-			result.Artifacts = append(result.Artifacts, *converted)
+	for _, pf := range projectFiles {
+		fileUpload, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, pf.FilePublicID)
+		if err != nil {
+			return nil, err
 		}
+		if fileUpload == nil {
+			continue
+		}
+		result.Artifacts = append(result.Artifacts, contract.Artifact{
+			ArtifactID:   fileUpload.PublicID,
+			Title:        fileUpload.Filename,
+			Filename:     fileUpload.Filename,
+			ArtifactType: string(types.ArtifactTypeFile),
+			MimeType:     fileUpload.MimeType,
+			FileSize:     fileUpload.FileSize,
+			Sha256:       fileUpload.Sha256,
+			CreatedAt:    pf.CreatedAt,
+		})
 	}
 
 	// 查询项目成员
