@@ -1532,7 +1532,7 @@ export class ChatActionImpl {
     content: string,
     projectId?: string | null,
     attachments?: Attachment[],
-    metadata?: MessageMetadata,
+    _metadata?: MessageMetadata,
   ) => {
     const trimmed = content.trim();
     if (!trimmed || !projectId) return null;
@@ -1552,21 +1552,14 @@ export class ChatActionImpl {
         activeTaskDetailProjectId: data.project_id,
         activeTaskDetailTaskId: data.task_id,
         activeTaskDetailSessionId: data.session_id,
-        // 先标记这个新 session 正在接管流式响应，避免切页副作用把旧消息列表提前刷回来。
-        pendingBootstrapSessionId: data.session_id,
+        // 此处不设置 pendingBootstrapSessionId，SSE 回放由 TaskDetailPage 的
+        // loadConversationMessages 来建立，不需要防止历史消息覆盖。
         currentView: "taskDetail",
         activeProjectTab: "chat",
         conversationListOpen: false,
         inputText: "",
         inputAttachments: [],
       });
-
-      await this.startSessionResponseStream(
-        data.session_id,
-        trimmed,
-        attachments,
-        metadata,
-      );
 
       const fullState = this.#fullGet() as {
         fetchProjectDetail?: (projectId: string) => Promise<void>;
@@ -1825,14 +1818,16 @@ export class ChatActionImpl {
   #loadConversationMessages = async (
     sessionId: string,
     options?: { resumeStream?: boolean },
-  ) => {
+  ): Promise<void> => {
     try {
       const shouldCheckRuntime = options?.resumeStream !== false;
       let runtimeStatus: string | undefined;
+      let messageCount: number | undefined;
       if (shouldCheckRuntime) {
         try {
           const sessionRes = await sessionApi.get({ session_id: sessionId });
           runtimeStatus = sessionRes.data.data?.runtime_status;
+          messageCount = sessionRes.data.data?.message_count;
         } catch (err) {
           console.error("loadConversationMessages get session error:", err);
         }
@@ -1844,6 +1839,11 @@ export class ChatActionImpl {
         sessionId,
       ).filter(isOptimisticMessage).length;
       const items = await this.#fetchAllConversationMessages(sessionId);
+
+      const shouldPoll =
+        runtimeStatus !== "responding" &&
+        messageCount === 1;
+
       const persistedMessages = items.map(mapBackendMessage);
       const state = this.#get();
       if (state.pendingBootstrapSessionId === sessionId) return;
@@ -1913,6 +1913,59 @@ export class ChatActionImpl {
       if (resumeMessage) {
         this.#startSSE(sessionId, resumeMessage.id, true);
       }
+
+      // workbench 跳转场景：runtime_status 尚未流转，后台轮询等待 responding 后建 SSE 回放
+      if (shouldPoll) {
+        // 先插入 assistant 占位消息，显示"任务执行中"的 UI 状态
+        const pollPlaceholderMsg: Message = {
+          id: `msg-assistant-poll-${Date.now()}`,
+          conversationId: sessionId,
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+        };
+        this.#set({
+          messagesMap: {
+            ...this.#get().messagesMap,
+            [pollPlaceholderMsg.id]: pollPlaceholderMsg,
+          },
+          messageIds: [...this.#get().messageIds, pollPlaceholderMsg.id],
+          streamingMessageId: pollPlaceholderMsg.id,
+          isGenerating: true,
+        });
+        pollRuntimeStatus(sessionId, 60_000).then((pollResult) => {
+          if (!pollResult) return;
+          const st = this.#get();
+          if (st.activeSessionId !== sessionId) return;
+          if (pollResult.status === "responding") {
+            // 用回放占位替换轮询占位，SSE 回放接管输出
+            const resumeMsgId = `msg-assistant-resume-${Date.now()}`;
+            const newMap = { ...st.messagesMap };
+            delete newMap[pollPlaceholderMsg.id];
+            const resumeMsg: Message = {
+              id: resumeMsgId,
+              conversationId: sessionId,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+            };
+            newMap[resumeMsgId] = resumeMsg;
+            const newIds = st.messageIds.map((id) =>
+              id === pollPlaceholderMsg.id ? resumeMsgId : id,
+            );
+            this.#set({
+              messagesMap: newMap,
+              messageIds: newIds,
+              streamingMessageId: resumeMsgId,
+              isGenerating: true,
+            });
+            this.#startSSE(sessionId, resumeMsgId, true);
+          } else {
+            // 消息已增加但未 responding，重新拉取消息列表同步最新数据
+            this.#loadConversationMessages(sessionId, { resumeStream: false });
+          }
+        });
+      }
     } catch (err) {
       console.error("loadConversationMessages error:", err);
     }
@@ -1930,6 +1983,34 @@ export class ChatActionImpl {
       streamingMessageId: null,
       isGenerating: false,
       pendingBootstrapSessionId: null,
+      streamCancelRef: null,
+    });
+  };
+
+  /** 只关闭 SSE 连接并重置流标记位，保留 messagesMap/messageIds/activeSessionId 等会话数据。 */
+  closeSseConnection = () => {
+    if (this.#sseClient) {
+      this.#sseClient.close();
+      this.#sseClient = null;
+    }
+    this.#set({
+      streamingMessageId: null,
+      isGenerating: false,
+      streamCancelRef: null,
+    });
+  };
+
+  /** 关闭 SSE 连接并清空本地消息数据，保留 activeSessionId 等会话路由状态。 */
+  clearLocalMessages = () => {
+    if (this.#sseClient) {
+      this.#sseClient.close();
+      this.#sseClient = null;
+    }
+    this.#set({
+      messagesMap: {},
+      messageIds: [],
+      streamingMessageId: null,
+      isGenerating: false,
       streamCancelRef: null,
     });
   };
@@ -2323,3 +2404,28 @@ export const chatSlice: SliceCreator<ChatStore> = (...params) => ({
     ),
   ]),
 });
+
+/** 轮询等待 session 的 runtime_status 变为 "responding"，最长等待 timeoutMs 毫秒。 */
+async function pollRuntimeStatus(
+  sessionId: string,
+  timeoutMs: number,
+): Promise<{ status: string; messageCount?: number } | undefined> {
+  const startTime = Date.now();
+  const POLL_INTERVAL = 2000;
+  while (Date.now() - startTime < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+    try {
+      const res = await sessionApi.get({ session_id: sessionId });
+      const status = res.data.data?.runtime_status;
+      const messageCount = res.data.data?.message_count;
+      if (status === "responding") return { status: "responding", messageCount };
+      // 状态未变但消息已增加，说明 worker 已完成但状态还未流转
+      if (messageCount !== undefined && messageCount > 1) {
+        return { status: "completed", messageCount };
+      }
+    } catch {
+      // 轮询失败继续
+    }
+  }
+  return undefined;
+}
