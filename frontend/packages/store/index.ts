@@ -1,4 +1,3 @@
-export { artifactApi, fetchArtifactDownload } from "./api/artifactApi";
 export type {
 	AuthOrgInfo,
 	AuthTokenResponse,
@@ -46,6 +45,8 @@ export type {
 	UninstallSkillResponse,
 } from "./api/skillMarketplaceApi";
 export { installedToCardItem, skillMarketplaceApi } from "./api/skillMarketplaceApi";
+export { taskApi } from "./api/taskApi";
+export type { BackendTask } from "./api/types";
 export type { UpdateUserParams, UserInfo } from "./api/userApi";
 export { userApi } from "./api/userApi";
 export type { AppAction, AppStore } from "./appStore";
@@ -82,7 +83,6 @@ export type {
 	Workspace,
 	WorkspaceMode,
 } from "./slices/layoutSlice";
-export { mapBackendArtifactToProjectArtifact } from "./slices/layoutSlice";
 export type { Topic, TopicAction, TopicState, TopicStore } from "./slices/topicSlice";
 export type { PublicActions, SliceCreator } from "./types";
 export type {
@@ -121,8 +121,6 @@ export type {
 } from "./types/chat";
 export { flattenActions } from "./utils";
 export {
-	collectSessionArtifacts,
-	mergeProjectArtifacts,
 	messageArtifactToProjectArtifact,
 	sortProjectArtifactsByNewestFirst,
 } from "./utils/artifacts";
