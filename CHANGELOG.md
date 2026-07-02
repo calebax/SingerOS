@@ -1,5 +1,40 @@
 # Changelog
 
+## [v0.1.20] - 2026-07-02
+
+### k3s Worker 镜像收敛、工作台项目触发与 CI 规则修复
+
+本版本增强 k3s 环境下 Worker Deployment 的自动收敛能力，支持按期望 worker 镜像更新运行中的 Worker，并优化工作台输入框中的项目/任务选择体验，同时修复 GitLab CI 中 desktop 打包触发和 worker 镜像构建变量覆盖问题。
+
+- Worker Deployment reconciler 支持检测运行中 Worker 镜像是否偏离期望配置，并在漂移时自动重新启动部署
+- Kubernetes Scheduler 新增 WorkerSpecReconciler 能力，通过 Deployment 中的 worker 容器镜像判断是否需要重新收敛
+- Scheduler 配置补充 `worker_image` 传递链路，确保 server 配置中的期望镜像能驱动 k3s worker 更新
+- 新增 k3s 发布脚本 `update-leros-images.sh`，支持更新 server 镜像、写回 `scheduler.worker_image` 并重启 server Deployment
+- 新增 k3s 部署说明与 server 配置示例，明确 ConfigMap、命名空间、worker 镜像更新开关和生产环境变量要求
+- 工作台输入框支持通过 `#` 触发项目/任务选择，选择完成后自动清理触发文本，提升项目上下文切换效率
+- 项目/任务选择器改为统一搜索弹窗，支持项目与任务高亮匹配、展开任务列表和选择新建项目/任务
+- 优化 StructuredComposer 的 mention 删除行为，支持一次 Backspace 清理 mention 及尾随空格，并补充相关测试
+- 修复 GitLab CI tag 流水线误触发 desktop 打包的问题，将 desktop 作为 app 维度独立触发
+- 修复 worker 镜像构建规则变量覆盖问题，避免 server 发布时 worker 镜像产物缺失或部署变量异常
+
+## [v0.1.19] - 2026-07-01
+
+### Worker 异步可靠投递、全局搜索与桌面发布增强
+
+本版本重构 Worker 运行命令分发链路，引入持久化 inbox 和 at-least-once 崩溃恢复能力，统一 artifact 与 plan 持久化到 project_file，并新增全局任务搜索弹窗，同时完善桌面端多平台打包、COS 上传和 macOS 签名发布流程。
+
+- Worker run command 支持异步分发与持久化 inbox，新增手动 ack/delivery 处理，提升任务在崩溃恢复场景下的可靠性
+- 重构 Worker 命令 dispatcher、run handler 与事件发布链路，补充 NATS delivery、event sink 和运行状态投影相关测试
+- artifact 与 plan 持久化迁移到 project_file，移除旧 artifact API、DAO、Service 与类型，统一项目文件访问和预览数据来源
+- 工作区扫描改为基于 git diff 与 ignore checker 识别变更文件，优化 artifact 声明、上传和最终文件同步逻辑
+- 新增全局任务搜索弹窗，支持从左侧栏快速搜索和跳转任务，提升项目与任务导航效率
+- 前端新增 PlanBlock 展示组件并优化 MarkdownRenderer、AI 消息气泡、聊天输入区和最近技能面板交互
+- 修复 Windows 桌面端重复启动多窗口问题，完善应用生命周期和自动更新退出处理
+- 新增 GitLab CI 桌面端多平台打包、COS 上传流水线，并拆分 desktop 打包任务提升发布流程可维护性
+- 修复 macOS desktop 签名证书导入、签名身份名称与依赖下载问题，提升 CI 发布稳定性
+- 更新 Agent Runtime 与工作区 artifact 架构文档，清理过期执行架构规划文档并同步架构 HTML
+- 修复 Dockerfile.worker 与前端类型检查问题，统一标题字重并保护本地 `.env.local` 配置
+
 ## [v0.1.18] - 2026-06-30
 
 ### Plan Mode、SSE 回放与预览体验增强
