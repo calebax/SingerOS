@@ -8,6 +8,10 @@ import type { Attachment, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
 import { parseOptionalTimestamp } from "../utils/format";
 
+// 左侧栏可拖动宽度的上下限（px）
+export const LEFT_RAIL_MIN_WIDTH = 236;
+export const LEFT_RAIL_MAX_WIDTH = 320;
+
 export type WorkspaceMode = "remote" | "local";
 
 export type Conversation = {
@@ -240,7 +244,6 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 	};
 }
 
-
 const _initialState: LayoutState = {
 	leftRailCollapsed: false,
 	leftRailWidth: 240,
@@ -330,7 +333,10 @@ export class LayoutActionImpl {
 
 	setLeftRailWidth = (width: number) => {
 		// 左侧栏宽度仅允许在可读与不挤压主内容的范围内变化
-		const nextWidth = Math.min(320, Math.max(220, Math.round(width)));
+		const nextWidth = Math.min(
+			LEFT_RAIL_MAX_WIDTH,
+			Math.max(LEFT_RAIL_MIN_WIDTH, Math.round(width)),
+		);
 		this.#set({ leftRailWidth: nextWidth });
 	};
 
@@ -416,11 +422,13 @@ export class LayoutActionImpl {
 	sendWorkbenchMessage = async (
 		content: string,
 		projectId?: string | null,
+		executionMode?: "default" | "plan",
 		attachments?: Attachment[],
 		_metadata?: MessageMetadata,
 	) => {
 		const trimmed = content.trim();
 		if (!trimmed) return;
+		const mode = executionMode ?? "default";
 
 		const state = this.#get();
 		const selectedTaskId = state.activeWorkbenchTaskId;
@@ -470,9 +478,7 @@ export class LayoutActionImpl {
 						session_id: selectedTask.sessionId,
 						role: "user",
 						content: trimmed,
-						execution_mode:
-							(this.#get() as LayoutStore & { executionMode?: "default" | "plan" })
-								.executionMode ?? "default",
+						execution_mode: mode,
 						message_type: "text",
 						attachments: attachments
 							?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
@@ -500,7 +506,9 @@ export class LayoutActionImpl {
 						activeTaskDetailSessionId: data.session_id,
 						currentView: "taskDetail",
 						conversationListOpen: false,
-					});
+						executionMode: mode,
+					} as Partial<LayoutState>);
+					await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
 					return data;
 				} catch (err) {
 					console.error("sendWorkbenchMessage addMessage error:", err);
@@ -513,13 +521,14 @@ export class LayoutActionImpl {
 			content: string;
 			project_id?: string;
 			task_id?: string;
+			execution_mode?: "default" | "plan";
 			attachments?: {
 				file_upload_id: string;
 				name: string;
 				mime_type: string;
 				size: number;
 			}[];
-		} = { content: trimmed };
+		} = { content: trimmed, execution_mode: mode };
 
 		if (workbenchProjectId) {
 			params.project_id = workbenchProjectId;
@@ -553,7 +562,9 @@ export class LayoutActionImpl {
 					activeTaskDetailSessionId: data.session_id,
 					currentView: "taskDetail",
 					conversationListOpen: false,
-				});
+					executionMode: mode,
+				} as Partial<LayoutState>);
+				await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
 				// 新建项目/任务后立即拉详情，确保 store 有数据供 SSE 标题 patch 与详情页展示。
 				await this.fetchProjectDetail(data.project_id);
 			}
@@ -832,19 +843,19 @@ export class LayoutActionImpl {
 								},
 							]
 						: [];
-					return {
-						projects: [
-							{
-								id: payload.project_id,
-								name: payload.project_name,
-								description: "",
-								skills: [],
-								createdAt: now,
-								updatedAt: now,
-								messages: [],
-								tasks: task,
-								files: [],
-							},
+				return {
+					projects: [
+						{
+							id: payload.project_id,
+							name: payload.project_name,
+							description: "",
+							skills: [],
+							createdAt: now,
+							updatedAt: now,
+							messages: [],
+							tasks: task,
+							files: [],
+						},
 						...state.projects,
 					],
 				};
@@ -909,6 +920,50 @@ export class LayoutActionImpl {
 		} catch (err) {
 			console.error("fetchProjectDetail error:", err);
 			this.#set({ projectDetailLoading: false, projectDetailError: "获取项目详情失败" });
+		}
+	};
+
+	fetchRecentWorkbenchContext = async () => {
+		if (this.#get().activeWorkbenchProjectId) return;
+		try {
+			const res = await projectApi.getWorkbenchRecentContext();
+			const recent = res.data.data;
+			if (!recent?.project_id || this.#get().activeWorkbenchProjectId) return;
+
+			if (!this.#get().projects.some((project) => project.id === recent.project_id)) {
+				await this.fetchProjectDetail(recent.project_id);
+			}
+			if (recent.task_id) {
+				await this.fetchTasks(recent.project_id);
+			}
+			if (this.#get().activeWorkbenchProjectId) return;
+
+			const project = this.#get().projects.find((item) => item.id === recent.project_id);
+			if (!project) return;
+			const taskId =
+				recent.task_id && project.tasks.some((task) => task.id === recent.task_id)
+					? recent.task_id
+					: null;
+
+			// 中文注释：最近上下文只作为首页初始值，用户手动选择后不再覆盖。
+			this.#set({
+				activeWorkbenchProjectId: recent.project_id,
+				activeWorkbenchTaskId: taskId,
+			});
+		} catch (err) {
+			console.error("fetchRecentWorkbenchContext error:", err);
+		}
+	};
+
+	saveWorkbenchRecentContext = async (projectId: string, taskId?: string | null) => {
+		if (!projectId) return;
+		try {
+			await projectApi.saveWorkbenchRecentContext({
+				project_id: projectId,
+				task_id: taskId ?? null,
+			});
+		} catch (err) {
+			console.error("saveWorkbenchRecentContext error:", err);
 		}
 	};
 
