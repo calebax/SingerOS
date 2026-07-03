@@ -43,8 +43,14 @@ function createWindow(): void {
 		minHeight: 600,
 		show: false,
 		autoHideMenuBar: true,
-		// mac 沉浸式一体化标题栏：隐藏系统标题栏，红绿灯按钮内嵌到页面顶部
-		...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
+		// mac 沉浸式一体化标题栏：隐藏系统标题栏，红绿灯按钮内嵌到侧栏左上角。
+		// trafficLightPosition 与侧栏品牌行 padding-top 配合，让红绿灯落在 Logo 行左侧空白区。
+		...(process.platform === "darwin"
+			? {
+					titleBarStyle: "hiddenInset" as const,
+					trafficLightPosition: { x: 16, y: 14 },
+				}
+			: {}),
 		icon: join(
 			__dirname,
 			"../../resources",
