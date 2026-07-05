@@ -1,15 +1,14 @@
 package contract
 
 import (
-	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/types"
 )
 
 // NewMessageRequest is the homepage new-message request that atomically creates
 // Project + Task + Session and dispatches to the allocated AgentWorker.
 type NewMessageRequest struct {
-	Content       string                    `json:"content" binding:"required"`
-	ExecutionMode agent.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
+	Content       string                    `json:"content,omitempty"`
+	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
 	ProjectID     string                    `json:"project_id,omitempty"`
 	TaskID        string                    `json:"task_id,omitempty"`
 	AssistantID   uint                      `json:"assistant_id,omitempty"`

@@ -4,6 +4,7 @@ import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/s
 import {
 	authenticatedFetch,
 	getFileDownloadUrl,
+	getFilePublicUrlFromStorageUri,
 	LEFT_RAIL_MAX_WIDTH,
 	LEFT_RAIL_MIN_WIDTH,
 	projectFileApi,
@@ -985,7 +986,9 @@ function AccountManagementDialog({
 			const publicId = requirePublicId();
 			if (!publicId) return;
 
-			const avatarUrl = getFileDownloadUrl(uploaded.public_id);
+			const avatarUrl =
+				getFilePublicUrlFromStorageUri(uploaded.storage_uri) ??
+				getFileDownloadUrl(uploaded.public_id);
 			const response = await userApi.update({ public_id: publicId, avatar_url: avatarUrl });
 			const updatedUser = response.data.data;
 			cacheAvatarDataURL(avatarUrl, await blobToDataURL(file));
