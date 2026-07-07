@@ -19,7 +19,7 @@ const (
 // DigitalAssistant 数字助手信息
 type DigitalAssistant struct {
 	ID           uint                    `json:"id"`
-	Code         string                  `json:"code"`
+	PublicID     string                  `json:"public_id"`
 	OrgID        uint                    `json:"org_id"`
 	OwnerID      uint                    `json:"owner_id"`
 	Name         string                  `json:"name"`
@@ -45,7 +45,6 @@ type WorkerDeploymentStatus struct {
 
 // CreateDigitalAssistantRequest 创建数字助手请求
 type CreateDigitalAssistantRequest struct {
-	Code         string   `json:"code"`
 	Name         string   `json:"name" binding:"required"`
 	Description  string   `json:"description"`
 	Avatar       string   `json:"avatar"`
@@ -93,7 +92,6 @@ type DigitalAssistantDetail struct {
 // CreateDigitalAssistantFromTemplateRequest 基于模板创建数字助手请求
 type CreateDigitalAssistantFromTemplateRequest struct {
 	TemplateID   uint     `json:"template_id" binding:"required"`
-	Code         string   `json:"code"`
 	Name         string   `json:"name"`
 	Description  string   `json:"description"`
 	Avatar       string   `json:"avatar"`

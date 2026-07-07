@@ -124,3 +124,23 @@ func firstOrDefault(ids []uint) uint {
 	}
 	return 0
 }
+
+func resolveAssistantIDsByPublicID(ctx context.Context, database *gorm.DB, orgID uint, publicIDs []string) ([]uint, error) {
+	if len(publicIDs) == 0 {
+		return nil, nil
+	}
+	result := make([]uint, 0, len(publicIDs))
+	for _, pid := range publicIDs {
+		if pid == "" || pid == "0" {
+			continue
+		}
+		id, err := resolveAssistantByPublicID(ctx, database, orgID, pid)
+		if err != nil {
+			return nil, err
+		}
+		if id > 0 {
+			result = append(result, id)
+		}
+	}
+	return result, nil
+}

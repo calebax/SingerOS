@@ -152,7 +152,13 @@ func (p *MessagePoster) RunNewMessage(
 		caller: caller,
 	}
 
-	logs.DebugContextf(ctx, "NewMessage: caller=%d org=%d assistant=%v", caller.Uin, caller.OrgID, req.AssistantIDs)
+	assistantIDs, err := resolveAssistantIDsByPublicID(ctx, p.db, caller.OrgID, req.AssistantIDs)
+	if err != nil {
+		return nil, err
+	}
+	o.assistantIDs = assistantIDs
+
+	logs.DebugContextf(ctx, "NewMessage: caller=%d org=%d assistant=%v", caller.Uin, caller.OrgID, assistantIDs)
 
 	if err := o.resolveOrCreateProject(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
@@ -213,15 +219,16 @@ func (p *MessagePoster) RunNewMessage(
 		logs.WarnContextf(ctx, "NewMessage touch project updated_at failed: %v", err)
 	}
 
-	logs.InfoContextf(ctx, "NewMessage completed: project=%s task=%s session=%s message=%s assistant=%d",
-		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, messageID, o.taskSession.AllocatedAssistantID)
+	assistantPublicID := assistantIDToPublicID(o.poster.db, o.taskSession.AssistantID)
+	logs.InfoContextf(ctx, "NewMessage completed: project=%s task=%s session=%s message=%s assistant=%s",
+		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, messageID, assistantPublicID)
 
 	return &contract.NewMessageResponse{
 		ProjectID:   o.project.PublicID,
 		TaskID:      o.task.PublicID,
 		SessionID:   o.taskSession.PublicID,
 		MessageID:   messageID,
-		AssistantID: o.taskSession.AssistantID,
+		AssistantID: assistantPublicID,
 	}, nil
 }
 
@@ -233,9 +240,10 @@ type newMessageOrchestrator struct {
 	req    *contract.NewMessageRequest
 	caller *types.Caller
 
-	project     *types.Project
-	task        *types.Task
-	taskSession *types.Session
+	project      *types.Project
+	task         *types.Task
+	taskSession  *types.Session
+	assistantIDs []uint
 }
 
 func (o *newMessageOrchestrator) resolveOrCreateProject() error {
@@ -311,14 +319,14 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		logs.WarnContextf(o.ctx, "create project member failed: %v", err)
 	}
 
-	if err := o.bindDefaultProjectAssistant(); err != nil {
+	if err := o.bindProjectAssistants(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (o *newMessageOrchestrator) bindDefaultProjectAssistant() error {
+func (o *newMessageOrchestrator) bindProjectAssistants() error {
 	defaultAssistantID, err := infradb.GetDefaultAssistantIDByOrg(o.ctx, o.poster.db, o.caller.OrgID)
 	if err != nil {
 		return fmt.Errorf("get default assistant: %w", err)
@@ -335,6 +343,21 @@ func (o *newMessageOrchestrator) bindDefaultProjectAssistant() error {
 	}); err != nil {
 		return fmt.Errorf("create default project member: %w", err)
 	}
+
+	for _, id := range o.assistantIDs {
+		if id == 0 || id == defaultAssistantID {
+			continue
+		}
+		if err := infradb.CreateProjectMember(o.ctx, o.poster.db, &types.ProjectMember{
+			ProjectID:  o.project.ID,
+			MemberID:   id,
+			MemberType: types.MemberTypeAssistant,
+			MemberRole: types.MemberRoleMember,
+			IsDefault:  false,
+		}); err != nil {
+			return fmt.Errorf("create project member for assistant %d: %w", id, err)
+		}
+	}
 	return nil
 }
 
@@ -347,7 +370,7 @@ func (o *newMessageOrchestrator) ensureProjectSession() error {
 		return nil
 	}
 
-	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.req.AssistantIDs, o.poster.inferrer)
+	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.assistantIDs, o.poster.inferrer)
 	if err != nil {
 		return err
 	}
@@ -415,10 +438,10 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 }
 
 func (o *newMessageOrchestrator) defaultTitle(fallback string) string {
-	if o == nil || o.poster == nil || o.poster.db == nil || o.req == nil || len(o.req.AssistantIDs) == 0 {
+	if o == nil || o.poster == nil || o.poster.db == nil || o.req == nil || len(o.assistantIDs) == 0 {
 		return fallback
 	}
-	da, err := infradb.GetDigitalAssistantByID(o.ctx, o.poster.db, o.req.AssistantIDs[0])
+	da, err := infradb.GetDigitalAssistantByID(o.ctx, o.poster.db, o.assistantIDs[0])
 	if err != nil || da == nil || strings.TrimSpace(da.Name) == "" {
 		return fallback
 	}
@@ -426,7 +449,7 @@ func (o *newMessageOrchestrator) defaultTitle(fallback string) string {
 }
 
 func (o *newMessageOrchestrator) createTaskSession() error {
-	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.req.AssistantIDs, o.poster.inferrer)
+	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.assistantIDs, o.poster.inferrer)
 	if err != nil {
 		return err
 	}

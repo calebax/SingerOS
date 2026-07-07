@@ -147,10 +147,6 @@ func ListSessions(ctx context.Context, db *gorm.DB, opt *types.PageQuery) ([]*ty
 			if len(filter.Value) > 0 {
 				query = query.Where("assistant_id = ?", filter.Value[0])
 			}
-		case "assistant_code":
-			if len(filter.Value) > 0 {
-				query = query.Where("assistant_code = ?", filter.Value[0])
-			}
 		case "keyword":
 			if len(filter.Value) > 0 {
 				kw := filter.Value[0]

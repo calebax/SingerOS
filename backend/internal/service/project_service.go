@@ -133,7 +133,7 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 		}
 	}
 
-	if err := s.bindProjectMembers(ctx, project.ID, caller, req.AssistantIDs); err != nil {
+	if err := s.bindProjectMembers(ctx, project.ID, caller, req.Members); err != nil {
 		return nil, err
 	}
 
@@ -156,7 +156,7 @@ func (s *projectService) GetProject(ctx context.Context, publicID string) (*cont
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
 		return nil, err
 	}
 	return convertToContractProject(project), nil
@@ -226,8 +226,8 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 			return err
 		}
 
-		if req.AssistantIDs != nil {
-			if err := s.syncProjectAssistants(ctx, tx, project.ID, caller.OrgID, req.AssistantIDs); err != nil {
+		if len(req.Members) > 0 {
+			if err := s.syncProjectMembers(ctx, tx, project.ID, caller.OrgID, caller.Uin, req.Members); err != nil {
 				return err
 			}
 		}
@@ -273,7 +273,21 @@ func (s *projectService) ListProjects(ctx context.Context, req *contract.ListPro
 	}
 	req.Fill()
 
+	projectIDs, err := db.ListProjectIDsByUser(ctx, s.db, caller.OrgID, caller.Uin)
+	if err != nil {
+		return nil, err
+	}
+	if len(projectIDs) == 0 {
+		return &contract.ProjectList{
+			Total:  0,
+			Offset: req.Offset,
+			Limit:  req.Limit,
+			Items:  []contract.Project{},
+		}, nil
+	}
+
 	opt := types.NewPageQuery(*caller, req.Offset, req.Limit)
+	opt.ProjectIDs = projectIDs
 	opt.ListAll = req.ListAll
 	if req.Keyword != nil && *req.Keyword != "" {
 		opt.AddFilter("name", *req.Keyword)
@@ -287,13 +301,16 @@ func (s *projectService) ListProjects(ctx context.Context, req *contract.ListPro
 		return nil, err
 	}
 
-	projectIDs := make([]uint, 0, len(projects))
+	projIDsForCount := make([]uint, 0, len(projects))
 	for _, project := range projects {
-		projectIDs = append(projectIDs, project.ID)
+		projIDsForCount = append(projIDsForCount, project.ID)
 	}
-	taskCountMap, err := db.CountTasksByProjectIDs(ctx, s.db, caller.OrgID, projectIDs)
-	if err != nil {
-		return nil, err
+	var taskCountMap map[uint]int64
+	if len(projIDsForCount) > 0 {
+		taskCountMap, err = db.CountTasksByProjectIDs(ctx, s.db, caller.OrgID, projIDsForCount)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	items := make([]contract.Project, 0, len(projects))
@@ -328,7 +345,7 @@ func (s *projectService) GetWorkbenchRecentContext(ctx context.Context) (*contra
 	if err != nil {
 		return nil, err
 	}
-	if project == nil || project.OrgID != caller.OrgID || verifyUserPermission(project.OwnerID, caller.Uin) != nil {
+	if project == nil || project.OrgID != caller.OrgID || s.verifyProjectAccess(ctx, s.db, project, caller) != nil {
 		return nil, nil
 	}
 
@@ -362,7 +379,7 @@ func (s *projectService) SaveWorkbenchRecentContext(ctx context.Context, req *co
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
 		return nil, err
 	}
 
@@ -401,7 +418,7 @@ func (s *projectService) SaveWorkbenchRecentContext(ctx context.Context, req *co
 }
 
 // bindProjectMembers 创建项目时绑定默认 AI 队友 + 用户指定的额外 AI 队友 + 创建者本人。
-func (s *projectService) bindProjectMembers(ctx context.Context, projectID uint, caller *types.Caller, assistantIDs []uint) error {
+func (s *projectService) bindProjectMembers(ctx context.Context, projectID uint, caller *types.Caller, inputs []contract.MemberInput) error {
 	defaultAssistantID, err := db.GetDefaultAssistantIDByOrg(ctx, s.db, caller.OrgID)
 	if err != nil {
 		return fmt.Errorf("get default assistant: %w", err)
@@ -410,8 +427,23 @@ func (s *projectService) bindProjectMembers(ctx context.Context, projectID uint,
 		return ErrNoDefaultAssistantInOrg
 	}
 
+	assistantPublicIDs, userPublicIDs, err := parseMemberInputs(inputs)
+	if err != nil {
+		return err
+	}
+
+	assistantIDs, err := resolveAssistantIDsByPublicID(ctx, s.db, caller.OrgID, assistantPublicIDs)
+	if err != nil {
+		return fmt.Errorf("resolve assistant public ids: %w", err)
+	}
+
 	if err := validateAssistantIDs(assistantIDs, defaultAssistantID); err != nil {
 		return err
+	}
+
+	userUins, err := db.GetUinsByPublicIDs(ctx, s.db, caller.OrgID, userPublicIDs)
+	if err != nil {
+		return fmt.Errorf("get user uins: %w", err)
 	}
 
 	var members []*types.ProjectMember
@@ -445,12 +477,40 @@ func (s *projectService) bindProjectMembers(ctx context.Context, projectID uint,
 		JoinedAt:   now,
 	})
 
+	for _, uin := range userUins {
+		if uin == caller.Uin {
+			continue
+		}
+		members = append(members, &types.ProjectMember{
+			ProjectID:  projectID,
+			MemberID:   uin,
+			MemberType: types.MemberTypeUser,
+			MemberRole: types.MemberRoleMember,
+			JoinedAt:   now,
+		})
+	}
+
 	return db.BatchCreateProjectMembers(ctx, s.db, members)
 }
 
-// syncProjectAssistants 在 UpdateProject 时 diff 当前助理成员与传入列表：
+// parseMemberInputs 将 MemberInput 列表拆分为 assistant public_id 和 user public_id 两组。
+func parseMemberInputs(inputs []contract.MemberInput) (assistantPublicIDs []string, userPublicIDs []string, err error) {
+	for _, m := range inputs {
+		switch m.Type {
+		case "assistant":
+			assistantPublicIDs = append(assistantPublicIDs, m.ID)
+		case "user":
+			userPublicIDs = append(userPublicIDs, m.ID)
+		default:
+			return nil, nil, fmt.Errorf("invalid member type: %s", m.Type)
+		}
+	}
+	return assistantPublicIDs, userPublicIDs, nil
+}
+
+// syncProjectMembers 在 UpdateProject 时 diff 当前成员与传入列表：
 // 新增的添加，要移除的删除（is_default=true 的不可移除）。
-func (s *projectService) syncProjectAssistants(ctx context.Context, tx *gorm.DB, projectID, orgID uint, requestedIDs []uint) error {
+func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, projectID, orgID, callerUin uint, inputs []contract.MemberInput) error {
 	defaultAssistantID, err := db.GetDefaultAssistantIDByOrg(ctx, tx, orgID)
 	if err != nil {
 		return fmt.Errorf("get default assistant: %w", err)
@@ -459,41 +519,51 @@ func (s *projectService) syncProjectAssistants(ctx context.Context, tx *gorm.DB,
 		return ErrNoDefaultAssistantInOrg
 	}
 
-	if err := validateAssistantIDs(requestedIDs, defaultAssistantID); err != nil {
+	assistantPublicIDs, userPublicIDs, err := parseMemberInputs(inputs)
+	if err != nil {
 		return err
 	}
 
-	existing, err := db.ListProjectAssistantMembers(ctx, tx, projectID)
+	assistantIDs, err := resolveAssistantIDsByPublicID(ctx, tx, orgID, assistantPublicIDs)
+	if err != nil {
+		return fmt.Errorf("resolve assistant public ids: %w", err)
+	}
+
+	if err := validateAssistantIDs(assistantIDs, defaultAssistantID); err != nil {
+		return err
+	}
+
+	userUins, err := db.GetUinsByPublicIDs(ctx, tx, orgID, userPublicIDs)
+	if err != nil {
+		return fmt.Errorf("get user uins: %w", err)
+	}
+
+	now := time.Now()
+
+	// 同步 AI 队友
+	existingAssistants, err := db.ListProjectAssistantMembers(ctx, tx, projectID)
 	if err != nil {
 		return fmt.Errorf("list project assistants: %w", err)
 	}
-
 	existingNonDefault := make(map[uint]*types.ProjectMember)
-	for _, m := range existing {
+	for _, m := range existingAssistants {
 		if m.IsDefault {
 			continue
 		}
 		existingNonDefault[m.MemberID] = m
 	}
-
-	requestedSet := make(map[uint]bool, len(requestedIDs))
-	for _, id := range requestedIDs {
-		requestedSet[id] = true
+	requestedAssistantSet := make(map[uint]bool, len(assistantIDs))
+	for _, id := range assistantIDs {
+		requestedAssistantSet[id] = true
 	}
-
-	now := time.Now()
-
-	// 移除不再需要的成员
 	for _, m := range existingNonDefault {
-		if !requestedSet[m.MemberID] {
+		if !requestedAssistantSet[m.MemberID] {
 			if err := db.DeleteProjectMember(ctx, tx, m.ID); err != nil {
-				return fmt.Errorf("delete project member %d: %w", m.MemberID, err)
+				return fmt.Errorf("delete project assistant member %d: %w", m.MemberID, err)
 			}
 		}
 	}
-
-	// 新增未存在的成员
-	for _, id := range requestedIDs {
+	for _, id := range assistantIDs {
 		if _, ok := existingNonDefault[id]; !ok {
 			if err := db.CreateProjectMember(ctx, tx, &types.ProjectMember{
 				ProjectID:  projectID,
@@ -503,11 +573,66 @@ func (s *projectService) syncProjectAssistants(ctx context.Context, tx *gorm.DB,
 				IsDefault:  false,
 				JoinedAt:   now,
 			}); err != nil {
-				return fmt.Errorf("create project member %d: %w", id, err)
+				return fmt.Errorf("create project assistant member %d: %w", id, err)
 			}
 		}
 	}
 
+	// 同步用户成员
+	existingUsers, err := db.ListProjectMemberByType(ctx, tx, projectID, types.MemberTypeUser)
+	if err != nil {
+		return fmt.Errorf("list project user members: %w", err)
+	}
+	existingUserMap := make(map[uint]*types.ProjectMember)
+	for _, m := range existingUsers {
+		if m.MemberRole == types.MemberRoleOwner {
+			continue
+		}
+		existingUserMap[m.MemberID] = m
+	}
+	requestedUserSet := make(map[uint]bool, len(userUins))
+	for _, uin := range userUins {
+		requestedUserSet[uin] = true
+	}
+	for _, m := range existingUserMap {
+		if !requestedUserSet[m.MemberID] {
+			if err := db.DeleteProjectMember(ctx, tx, m.ID); err != nil {
+				return fmt.Errorf("delete project user member %d: %w", m.MemberID, err)
+			}
+		}
+	}
+	for _, uin := range userUins {
+		if uin == callerUin {
+			continue
+		}
+		if _, ok := existingUserMap[uin]; !ok {
+			if err := db.CreateProjectMember(ctx, tx, &types.ProjectMember{
+				ProjectID:  projectID,
+				MemberID:   uin,
+				MemberType: types.MemberTypeUser,
+				MemberRole: types.MemberRoleMember,
+				JoinedAt:   now,
+			}); err != nil {
+				return fmt.Errorf("create project user member %d: %w", uin, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// verifyProjectAccess 校验调用方是否有权限访问项目（owner 或成员）。
+func (s *projectService) verifyProjectAccess(ctx context.Context, dbConn *gorm.DB, project *types.Project, caller *types.Caller) error {
+	if project.OwnerID == caller.Uin {
+		return nil
+	}
+	isMember, err := db.IsProjectUserMember(ctx, dbConn, caller.OrgID, caller.Uin, project.ID)
+	if err != nil {
+		return err
+	}
+	if !isMember {
+		return errors.New("permission denied")
+	}
 	return nil
 }
 
@@ -603,7 +728,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
 		return nil, err
 	}
 
@@ -616,7 +741,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	// 查询项目会话
 	prjSession, _ := db.GetProjectSession(ctx, s.db, project.ID)
 	if prjSession != nil {
-		result.Session = convertToContractSession(prjSession)
+		result.Session = convertToContractSession(prjSession, s.db)
 	}
 
 	// 查询项目任务
@@ -650,7 +775,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		}
 		if t.SessionID != nil {
 			if sess, ok := sessionMap[*t.SessionID]; ok {
-				item.Session = convertToContractSession(sess)
+				item.Session = convertToContractSession(sess, s.db)
 			}
 		}
 		result.Tasks = append(result.Tasks, item)
@@ -727,7 +852,7 @@ func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) 
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
 		return nil, err
 	}
 
@@ -781,6 +906,9 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
+	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
+		return nil, err
+	}
 
 	var files []types.ProjectFile
 	if taskPublicID != "" {
@@ -827,6 +955,9 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	}
 	if project == nil {
 		return nil, "", 0, errors.New("project not found")
+	}
+	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
+		return nil, "", 0, err
 	}
 
 	if !isPathAllowed(filePath) {

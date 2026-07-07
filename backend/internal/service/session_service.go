@@ -160,7 +160,11 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 		return nil, errors.New("session with this public_id already exists")
 	}
 
-	assistantID, workerID, err := s.resolveRuntimeWorker(ctx, caller.OrgID, req.AssistantID)
+	assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, req.AssistantID)
+	if err != nil {
+		return nil, err
+	}
+	assistantID, workerID, err := resolveRuntimeWorker(ctx, s.db, caller.OrgID, assistantID, s.inferrer)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +189,7 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 		return nil, err
 	}
 
-	return convertToContractSession(session), nil
+	return convertToContractSession(session, s.db), nil
 }
 
 func (s *sessionService) resolveRuntimeWorker(ctx context.Context, orgID, assistantID uint) (uint, uint, error) {
@@ -205,7 +209,7 @@ func (s *sessionService) GetSession(ctx context.Context, sessionID string) (*con
 		return nil, err
 	}
 
-	result := convertToContractSession(session)
+	result := convertToContractSession(session, s.db)
 	result.RuntimeStatus = s.sessionRuntimeStatus(ctx, session.ID)
 	return result, nil
 }
@@ -233,7 +237,7 @@ func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, re
 		return nil, err
 	}
 
-	return convertToContractSession(session), nil
+	return convertToContractSession(session, s.db), nil
 }
 
 func (s *sessionService) DeleteSession(ctx context.Context, sessionID string) error {
@@ -261,11 +265,14 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 	if req.Status != nil && *req.Status != "" {
 		opt.AddFilter("status", *req.Status)
 	}
-	if req.AssistantID != nil && *req.AssistantID > 0 {
-		opt.AddFilter("assistant_id", fmt.Sprintf("%d", *req.AssistantID))
-	}
-	if req.AssistantCode != nil && *req.AssistantCode != "" {
-		opt.AddFilter("assistant_code", *req.AssistantCode)
+	if req.AssistantID != nil && *req.AssistantID != "" {
+		assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, *req.AssistantID)
+		if err != nil {
+			return nil, err
+		}
+		if assistantID > 0 {
+			opt.AddFilter("assistant_id", fmt.Sprintf("%d", assistantID))
+		}
 	}
 	if req.Keyword != nil && *req.Keyword != "" {
 		opt.AddFilter("keyword", *req.Keyword)
@@ -278,7 +285,7 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 
 	items := make([]contract.Session, 0, len(sessions))
 	for _, session := range sessions {
-		items = append(items, *convertToContractSession(session))
+		items = append(items, *convertToContractSession(session, s.db))
 	}
 
 	return &contract.SessionList{
@@ -900,24 +907,27 @@ func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID str
 //   - run.state:  terminal, approval, question 等关键状态事件
 //
 // 两个 lane 的事件互不重复，Seq 去重仅作保底。
-func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, assistantID uint, sink contract.SessionEventSink) error {
+func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, assistantPublicID string, sink contract.SessionEventSink) error {
 	session, caller, err := s.getSessionForCaller(ctx, sessionPID)
 	if err != nil {
 		return err
 	}
 
-	// Resolve DigitalAssistant.ID → WorkerDeployment.WorkerID for event filtering.
-	// 客户端传入的 assistantID 是 DigitalAssistant.ID（message.created 暴露的值），
-	// 而 RunEvent.Route.WorkerID 是 WorkerDeployment.WorkerID（= session.AllocatedAssistantID）。
-	// 两者在不同组织下数值不同，必须解析后才能正确比较。
 	var filterWorkerID uint
-	if assistantID > 0 {
+	if assistantPublicID != "" {
+		assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, assistantPublicID)
+		if err != nil {
+			return err
+		}
+		if assistantID == 0 {
+			return fmt.Errorf("digital assistant not found: %s", assistantPublicID)
+		}
 		deployment, err := db.GetWorkerDeploymentByAssistantID(ctx, s.db, assistantID)
 		if err != nil {
 			return fmt.Errorf("resolve assistant worker deployment: %w", err)
 		}
 		if deployment == nil {
-			return fmt.Errorf("worker deployment not found for assistant %d", assistantID)
+			return fmt.Errorf("worker deployment not found for assistant %s", assistantPublicID)
 		}
 		if deployment.OrgID != caller.OrgID {
 			return errors.New("permission denied: assistant belongs to different org")
@@ -1150,14 +1160,14 @@ func runEventMatchesReplyIDs(runEvent messaging.RunEvent, ids map[string]struct{
 	return false
 }
 
-func convertToContractSession(session *types.Session) *contract.Session {
+func convertToContractSession(session *types.Session, db *gorm.DB) *contract.Session {
 	result := &contract.Session{
 		SessionID:            session.PublicID,
 		Type:                 string(session.Type),
 		Uin:                  session.Uin,
 		OrgID:                session.OrgID,
-		AssistantID:          session.AssistantID,
-		AllocatedAssistantID: session.AllocatedAssistantID,
+		AssistantID:          assistantIDToPublicID(db, session.AssistantID),
+		AllocatedAssistantID: assistantIDToPublicID(db, session.AllocatedAssistantID),
 		Status:               session.Status,
 		Title:                session.Title,
 		TitleManuallySet:     session.TitleManuallySet,
@@ -1198,8 +1208,8 @@ func publishAssistantReplyStartedEvent(
 		RunID:      runID,
 	}
 	if session.AssistantID > 0 {
-		assistantID := session.AssistantID
-		data.AssistantID = &assistantID
+		publicID := assistantIDToPublicID(gdb, session.AssistantID)
+		data.AssistantID = &publicID
 		if da, err := db.GetDigitalAssistantByID(ctx, gdb, session.AssistantID); err == nil && da != nil {
 			data.AssistantName = da.Name
 		} else if err != nil {
@@ -1410,6 +1420,13 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 	}
 
 	workerID := session.AllocatedAssistantID
+	if req.AssistantID != "" {
+		wid, err := db.GetWorkerIDByAssistantPublicID(ctx, s.db, req.AssistantID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve worker by assistant: %w", err)
+		}
+		workerID = wid
+	}
 	if workerID == 0 {
 		return &contract.CancelSessionRunResponse{
 			SessionID: sessionID,
@@ -1440,8 +1457,8 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 		return nil, fmt.Errorf("publish cancel control: %w", err)
 	}
 
-	logs.InfoContextf(ctx, "CancelSessionRun: session=%s worker=%d run=%s",
-		sessionID, workerID, req.RunID)
+	logs.InfoContextf(ctx, "CancelSessionRun: session=%s worker=%d run=%s assistant=%s",
+		sessionID, workerID, req.RunID, req.AssistantID)
 
 	return &contract.CancelSessionRunResponse{
 		SessionID: sessionID,
@@ -1650,4 +1667,32 @@ func stateStartSeq(metadata types.ObjectMetadata) (uint64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func resolveAssistantByPublicID(ctx context.Context, database *gorm.DB, orgID uint, publicID string) (uint, error) {
+	if publicID == "" || publicID == "0" {
+		return 0, nil
+	}
+	da, err := db.GetDigitalAssistantByPublicID(ctx, database, publicID)
+	if err != nil {
+		return 0, err
+	}
+	if da == nil {
+		return 0, nil
+	}
+	if da.OrgID != orgID {
+		return 0, errors.New("digital assistant organization mismatch")
+	}
+	return da.ID, nil
+}
+
+func assistantIDToPublicID(database *gorm.DB, assistantID uint) string {
+	if database == nil || assistantID == 0 {
+		return ""
+	}
+	da, err := db.GetDigitalAssistantByID(context.Background(), database, assistantID)
+	if err != nil || da == nil {
+		return ""
+	}
+	return da.PublicID
 }

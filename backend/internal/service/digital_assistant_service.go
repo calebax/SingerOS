@@ -48,16 +48,13 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 		return nil, errors.New("user not authenticated or org not set")
 	}
 
-	req.Code = strings.TrimSpace(req.Code)
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Code == "" {
-		req.Code = generateAssistantCode()
-	}
+	publicID := generateAssistantPublicID()
 	if req.Name == "" {
 		return nil, errors.New("name is required")
 	}
 
-	count, err := db.CountDigitalAssistantsByOwner(ctx, s.db, caller.OrgID, caller.Uin, defaultWorkerCode(caller.OrgID))
+	count, err := db.CountDigitalAssistantsByOwner(ctx, s.db, caller.OrgID, caller.Uin, defaultWorkerPublicID(caller.OrgID))
 	if err != nil {
 		return nil, err
 	}
@@ -71,12 +68,12 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 		}
 	}
 
-	exists, err := db.DigitalAssistantCodeExists(ctx, s.db, req.Code, 0)
+	exists, err := db.DigitalAssistantPublicIDExists(ctx, s.db, publicID, 0)
 	if err != nil {
 		return nil, err
 	}
 	if exists {
-		return nil, errors.New("digital assistant with this code already exists")
+		return nil, errors.New("digital assistant with this public_id already exists")
 	}
 
 	source := strings.TrimSpace(req.Source)
@@ -89,7 +86,7 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 	}
 
 	da := &types.DigitalAssistant{
-		Code:         req.Code,
+		PublicID:     publicID,
 		OrgID:        caller.OrgID,
 		OwnerID:      caller.Uin,
 		Name:         req.Name,
@@ -142,13 +139,13 @@ func (s *digitalAssistantService) GetDigitalAssistantByID(ctx context.Context, i
 	}, nil
 }
 
-func (s *digitalAssistantService) GetDigitalAssistantByCode(ctx context.Context, code string) (*contract.DigitalAssistantDetail, error) {
+func (s *digitalAssistantService) GetDigitalAssistantByPublicID(ctx context.Context, publicID string) (*contract.DigitalAssistantDetail, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	da, err := db.GetDigitalAssistantByCode(ctx, s.db, code)
+	da, err := db.GetDigitalAssistantByPublicID(ctx, s.db, publicID)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +344,6 @@ func (s *digitalAssistantService) CreateDigitalAssistantFromTemplate(ctx context
 	}
 
 	createReq := &contract.CreateDigitalAssistantRequest{
-		Code:         req.Code,
 		Name:         firstNonEmpty(req.Name, tpl.Name),
 		Description:  firstNonEmpty(req.Description, tpl.Description),
 		Avatar:       firstNonEmpty(req.Avatar, tpl.Avatar),
@@ -393,7 +389,7 @@ func (s *digitalAssistantService) markAssistantActive(ctx context.Context, da *t
 func (s *digitalAssistantService) convertToContractDigitalAssistant(ctx context.Context, da *types.DigitalAssistant) *contract.DigitalAssistant {
 	item := &contract.DigitalAssistant{
 		ID:           da.ID,
-		Code:         da.Code,
+		PublicID:     da.PublicID,
 		OrgID:        da.OrgID,
 		OwnerID:      da.OwnerID,
 		Name:         da.Name,
@@ -421,7 +417,7 @@ func (s *digitalAssistantService) convertToContractDigitalAssistant(ctx context.
 	return item
 }
 
-func generateAssistantCode() string {
+func generateAssistantPublicID() string {
 	return fmt.Sprintf("assistant_%s", snowflake.GenerateIDBase58())
 }
 

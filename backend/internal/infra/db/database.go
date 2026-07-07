@@ -49,6 +49,7 @@ var legacyColumns = []legacyColumn{
 }
 
 var renamesToApply = []renameColumn{
+	{table: types.TableNameDigitalAssistant, oldCol: "code", newCol: "public_id"},
 	{table: types.TableNameFileUpload, oldCol: "storage_path", newCol: "storage_uri"},
 }
 
@@ -537,14 +538,14 @@ func seedDefaultWorkerDeployment(d *gorm.DB) error {
 	}
 
 	assistant := &types.DigitalAssistant{}
-	code := fmt.Sprintf("default_o%d", org.ID)
-	err := d.Where("org_id = ? AND code = ?", org.ID, code).First(assistant).Error
+	code := fmt.Sprintf("assistant_default_o%d", org.ID)
+	err := d.Where("org_id = ? AND public_id = ?", org.ID, code).First(assistant).Error
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("find default worker assistant: %w", err)
 		}
 		assistant = &types.DigitalAssistant{
-			Code:         code,
+			PublicID:     code,
 			OrgID:        org.ID,
 			OwnerID:      user.ID,
 			Name:         "lework",

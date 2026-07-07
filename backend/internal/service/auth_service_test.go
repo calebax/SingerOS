@@ -348,9 +348,9 @@ func TestAuthServiceCreateOrganizationEnsuresDefaultWorker(t *testing.T) {
 		t.Fatalf("unexpected worker deployment: %#v", deployment)
 	}
 
-	assistant, err := db.GetDigitalAssistantByCode(ctx, database, defaultWorkerCode(created.Org.ID))
+	assistant, err := db.GetDigitalAssistantByPublicID(ctx, database, defaultWorkerPublicID(created.Org.ID))
 	if err != nil {
-		t.Fatalf("GetDigitalAssistantByCode failed: %v", err)
+		t.Fatalf("GetDigitalAssistantByPublicID failed: %v", err)
 	}
 	if assistant == nil || assistant.OwnerID != registered.Uin {
 		t.Fatalf("unexpected default assistant: %#v", assistant)
