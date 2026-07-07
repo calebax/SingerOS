@@ -76,6 +76,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if props.Info.Role == "assistant" {
 			if usage := usageFromOpenCodeTokens(props.Info.Tokens); usage != nil {
 				st.tokenUsage = usage
+				logs.Debugf("[opencode] message usage updated: execution_id=%s session_id=%s message_id=%s input_tokens=%d output_tokens=%d total_tokens=%d",
+					st.executionID, props.SessionID, props.Info.ID, usage.InputTokens, usage.OutputTokens, usage.TotalTokens)
 			}
 		}
 
@@ -116,20 +118,28 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			// 完整文本（非 synthetic）
 			if !isTrue(part.Synthetic) && part.Text != "" {
 				st.lastTextEnded = part.Text
+				logs.Debugf("[opencode] text part updated: execution_id=%s session_id=%s message_id=%s text_len=%d",
+					st.executionID, props.SessionID, part.MessageID, len(part.Text))
 			}
 
 		case "step-start":
 			if part.MessageID != "" {
 				st.messageID = part.MessageID
 			}
+			logs.Infof("[opencode] step started: execution_id=%s session_id=%s message_id=%s",
+				st.executionID, props.SessionID, part.MessageID)
 
 		case "step-finish":
 			if usage := usageFromOpenCodeTokens(part.Tokens); usage != nil {
 				st.tokenUsage = usage
+				logs.Debugf("[opencode] step usage updated: execution_id=%s session_id=%s message_id=%s input_tokens=%d output_tokens=%d total_tokens=%d",
+					st.executionID, props.SessionID, part.MessageID, usage.InputTokens, usage.OutputTokens, usage.TotalTokens)
 			}
 			if part.Reason == "error" && st.runErr == "" {
 				st.runErr = "step finished with error"
 			}
+			logs.Infof("[opencode] step finished: execution_id=%s session_id=%s message_id=%s reason=%s",
+				st.executionID, props.SessionID, part.MessageID, part.Reason)
 
 		case "tool":
 			if part.State == nil {
@@ -142,12 +152,16 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			case "pending":
 				if isFilteredToolName(toolName) {
 					st.markFilteredToolCall(callID, toolName)
+					logs.Debugf("[opencode] filtered tool pending: execution_id=%s session_id=%s tool=%s call_id=%s",
+						st.executionID, props.SessionID, toolName, callID)
 				}
 
 			case "running":
 				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
 					return
 				}
+				logs.Infof("[opencode] tool started: execution_id=%s session_id=%s tool=%s call_id=%s",
+					st.executionID, props.SessionID, toolName, callID)
 				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionStart, &agent.ToolExecutionStartPayload{
 					ToolCallID: callID,
 					Name:       toolName,
@@ -157,8 +171,12 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			case "completed":
 				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
 					st.clearFilteredToolCall(callID)
+					logs.Debugf("[opencode] filtered tool completed: execution_id=%s session_id=%s tool=%s call_id=%s",
+						st.executionID, props.SessionID, toolName, callID)
 					return
 				}
+				logs.Infof("[opencode] tool completed: execution_id=%s session_id=%s tool=%s call_id=%s output_len=%d",
+					st.executionID, props.SessionID, toolName, callID, len(part.State.Output))
 				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd, &agent.ToolExecutionEndPayload{
 					ToolCallID: callID,
 					Name:       toolName,
@@ -169,12 +187,16 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			case "error":
 				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
 					st.clearFilteredToolCall(callID)
+					logs.Debugf("[opencode] filtered tool errored: execution_id=%s session_id=%s tool=%s call_id=%s",
+						st.executionID, props.SessionID, toolName, callID)
 					return
 				}
 				toolErr := part.State.Error
 				if toolErr == "" {
 					toolErr = "tool execution failed"
 				}
+				logs.Warnf("[opencode] tool errored: execution_id=%s session_id=%s tool=%s call_id=%s err=%s",
+					st.executionID, props.SessionID, toolName, callID, toolErr)
 				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd, &agent.ToolExecutionEndPayload{
 					ToolCallID: callID,
 					Name:       toolName,
@@ -193,6 +215,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 					msgID = st.messageID
 				}
 				evt := agent.NewReasoningUpdateEvent(msgID, part.Text)
+				logs.Debugf("[opencode] reasoning updated: execution_id=%s session_id=%s message_id=%s text_len=%d",
+					st.executionID, props.SessionID, msgID, len(part.Text))
 				sendEventDirect(st.evtChan, evt)
 			}
 		}
@@ -224,6 +248,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			Arguments:   agent.MarshalRawJSON(map[string]any{"patterns": props.Patterns}),
 			Metadata:    map[string]string{"engine": "opencode"},
 		}
+		logs.Infof("[opencode] permission requested: execution_id=%s session_id=%s request_id=%s permission=%s tool_call_id=%s",
+			st.executionID, props.SessionID, props.ID, props.Permission, toolCallID)
 		sendEventPayloadTo(st.evtChan, agent.NodeEventApprovalRequested, &payload)
 
 	// ============================================================
@@ -295,6 +321,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if isPlanConfirmation {
 			payload.InteractionType = "plan_confirmation"
 		}
+		logs.Infof("[opencode] question asked: execution_id=%s session_id=%s request_id=%s question_count=%d tool_call_id=%s interaction_type=%s",
+			st.executionID, props.SessionID, props.ID, len(questions), toolCallID, payload.InteractionType)
 		sendEventDirect(st.evtChan, agent.NewQuestionAskedEvent(payload))
 
 	// ============================================================
@@ -309,6 +337,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if len(items) == 0 {
 			return
 		}
+		logs.Debugf("[opencode] todo updated: execution_id=%s session_id=%s item_count=%d",
+			st.executionID, props.SessionID, len(items))
 		sendEventDirect(st.evtChan, agent.NewTodoUpdatedEvent(items))
 
 	// ============================================================
@@ -322,6 +352,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if st.tokenUsage == nil {
 			if usage := usageFromOpenCodeTokens(props.Info.Tokens); usage != nil {
 				st.tokenUsage = usage
+				logs.Debugf("[opencode] session usage fallback updated: execution_id=%s session_id=%s input_tokens=%d output_tokens=%d total_tokens=%d",
+					st.executionID, props.SessionID, usage.InputTokens, usage.OutputTokens, usage.TotalTokens)
 			}
 		}
 
@@ -348,13 +380,13 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 	// session.idle — SSE 空闲信号，不再作为终态
 	// ============================================================
 	case "session.idle":
-		logs.Debugf("[opencode] session idle (ignored for termination)")
+		logs.Debugf("[opencode] session idle ignored: execution_id=%s session_id=%s", st.executionID, st.sessionID)
 
 	// ============================================================
 	// 生命周期事件
 	// ============================================================
 	case "server.connected":
-		logs.Infof("OpenCode SSE connected")
+		logs.Infof("OpenCode SSE connected: execution_id=%s session_id=%s", st.executionID, st.sessionID)
 
 	case "server.heartbeat":
 		// 忽略心跳
