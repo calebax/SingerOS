@@ -10,8 +10,8 @@ type DigitalAssistantService interface {
 	// 根据 ID 获取数字助手详情（从上下文获取权限信息）
 	GetDigitalAssistantByID(ctx context.Context, id uint) (*DigitalAssistantDetail, error)
 
-	// 根据 Code 获取数字助手详情（从上下文获取权限信息）
-	GetDigitalAssistantByCode(ctx context.Context, code string) (*DigitalAssistantDetail, error)
+	// 根据 PublicID 获取数字助手详情（从上下文获取权限信息）
+	GetDigitalAssistantByPublicID(ctx context.Context, publicID string) (*DigitalAssistantDetail, error)
 
 	// 更新数字助手信息（从上下文获取权限信息）
 	UpdateDigitalAssistant(ctx context.Context, id uint, req *UpdateDigitalAssistantRequest) (*DigitalAssistant, error)

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -124,4 +125,26 @@ func MarkWorkerDeploymentStatus(ctx context.Context, database *gorm.DB, id uint,
 		LastReconciledAt: &now,
 	}
 	return database.WithContext(ctx).Model(&types.WorkerDeployment{}).Where("id = ?", id).Updates(updates).Error
+}
+
+// GetWorkerIDByAssistantPublicID 根据 DigitalAssistant 的 public ID 反查对应的 worker_id。
+func GetWorkerIDByAssistantPublicID(ctx context.Context, database *gorm.DB, publicID string) (uint, error) {
+	if publicID == "" {
+		return 0, errors.New("publicID is empty")
+	}
+	da, err := GetDigitalAssistantByPublicID(ctx, database, publicID)
+	if err != nil {
+		return 0, err
+	}
+	if da == nil {
+		return 0, fmt.Errorf("digital assistant not found: %s", publicID)
+	}
+	deployment, err := GetWorkerDeploymentByAssistantID(ctx, database, da.ID)
+	if err != nil {
+		return 0, err
+	}
+	if deployment == nil {
+		return 0, fmt.Errorf("worker deployment not found for assistant: %s", publicID)
+	}
+	return deployment.WorkerID, nil
 }

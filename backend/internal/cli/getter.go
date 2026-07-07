@@ -76,6 +76,16 @@ func GetDigitalAssistantByID(ctx context.Context, serverAddr, authToken string, 
 	return &result, nil
 }
 
+// GetDigitalAssistantByPublicID 通过 PublicID 调用服务端 GetDigitalAssistant API。
+func GetDigitalAssistantByPublicID(ctx context.Context, serverAddr, authToken string, publicID string) (*contract.DigitalAssistantDetail, error) {
+	var result contract.DigitalAssistantDetail
+	if err := doPostRequest(ctx, serverAddr, authToken, "GetDigitalAssistant",
+		map[string]interface{}{"public_id": publicID}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // ResolveUserName 通过 Uin 解析用户名称。
 func ResolveUserName(ctx context.Context, serverAddr, authToken string, uin uint) string {
 	member, err := getOrgMemberByUin(ctx, serverAddr, authToken, uin)

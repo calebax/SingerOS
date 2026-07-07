@@ -40,7 +40,6 @@ func TestCreateDigitalAssistant_ValidInput(t *testing.T) {
 	service := NewDigitalAssistantService(db, nil)
 
 	req := &contract.CreateDigitalAssistantRequest{
-		Code:         "test-code",
 		Name:         "Test Name",
 		Description:  "Test Description",
 		SystemPrompt: "You are a test assistant",
@@ -51,8 +50,8 @@ func TestCreateDigitalAssistant_ValidInput(t *testing.T) {
 		t.Fatalf("CreateDigitalAssistant failed: %v", err)
 	}
 
-	if result.Code != "test-code" {
-		t.Errorf("expected code test-code, got %s", result.Code)
+	if result.PublicID == "" {
+		t.Fatal("expected generated public_id")
 	}
 	if result.Name != "Test Name" {
 		t.Errorf("expected name 'Test Name', got %s", result.Name)
@@ -66,7 +65,6 @@ func TestCreateDigitalAssistant_WithoutCaller(t *testing.T) {
 	service := NewDigitalAssistantService(db, nil)
 
 	req := &contract.CreateDigitalAssistantRequest{
-		Code: "test-code",
 		Name: "Test Name",
 	}
 
@@ -93,8 +91,8 @@ func TestCreateDigitalAssistant_GeneratesCodeWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDigitalAssistant failed: %v", err)
 	}
-	if result.Code == "" {
-		t.Fatal("expected generated code")
+	if result.PublicID == "" {
+		t.Fatal("expected generated public_id")
 	}
 }
 
@@ -104,9 +102,7 @@ func TestCreateDigitalAssistant_MissingName(t *testing.T) {
 
 	service := NewDigitalAssistantService(db, nil)
 
-	req := &contract.CreateDigitalAssistantRequest{
-		Code: "test-code",
-	}
+	req := &contract.CreateDigitalAssistantRequest{}
 
 	_, err := service.CreateDigitalAssistant(ctx, req)
 	if err == nil {
@@ -120,7 +116,7 @@ func TestCreateDigitalAssistant_LimitsPerUserToFive(t *testing.T) {
 
 	service := NewDigitalAssistantService(db, nil)
 	if err := db.Create(&types.DigitalAssistant{
-		Code:    defaultWorkerCode(1),
+		PublicID: defaultWorkerPublicID(1),
 		OrgID:   1,
 		OwnerID: 1,
 		Name:    "lework",
@@ -131,7 +127,6 @@ func TestCreateDigitalAssistant_LimitsPerUserToFive(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		_, err := service.CreateDigitalAssistant(ctx, &contract.CreateDigitalAssistantRequest{
-			Code: "limit-test-" + string(rune('a'+i)),
 			Name: "Limit Test",
 		})
 		if err != nil {
@@ -140,7 +135,6 @@ func TestCreateDigitalAssistant_LimitsPerUserToFive(t *testing.T) {
 	}
 
 	_, err := service.CreateDigitalAssistant(ctx, &contract.CreateDigitalAssistantRequest{
-		Code: "limit-test-overflow",
 		Name: "Overflow",
 	})
 	if err == nil {
@@ -157,7 +151,7 @@ func TestUpdateDigitalAssistantRejectsTemplateCreatedAssistant(t *testing.T) {
 	service := NewDigitalAssistantService(database, nil)
 
 	assistant := &types.DigitalAssistant{
-		Code:        "template-assistant",
+		PublicID:    "template-assistant",
 		OrgID:       1,
 		OwnerID:     1,
 		Name:        "Template Assistant",
@@ -196,7 +190,6 @@ func TestUpdateDigitalAssistantStatusActiveMarksDeploymentPending(t *testing.T) 
 	service := NewDigitalAssistantServiceWithProvisioning(db, nil, provisioning)
 
 	result, err := service.CreateDigitalAssistant(ctx, &contract.CreateDigitalAssistantRequest{
-		Code:         "deploy-pending",
 		Name:         "Deploy Pending",
 		Description:  "wait for scheduler health",
 		SystemPrompt: "stay pending until worker is ready",

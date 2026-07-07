@@ -11,7 +11,7 @@ type NewMessageRequest struct {
 	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
 	ProjectID     string                    `json:"project_id,omitempty"`
 	TaskID        string                    `json:"task_id,omitempty"`
-	AssistantIDs  []uint                    `json:"assistant_ids,omitempty"`
+	AssistantIDs  []string                 `json:"assistant_ids,omitempty"`
 	MessageType   string                    `json:"message_type,omitempty"`
 	Objective     string                    `json:"objective,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
@@ -25,5 +25,5 @@ type NewMessageResponse struct {
 	TaskID      string `json:"task_id"`
 	SessionID   string `json:"session_id"`
 	MessageID   string `json:"message_id"`
-	AssistantID uint   `json:"assistant_id"`
+	AssistantID string `json:"assistant_id"`
 }

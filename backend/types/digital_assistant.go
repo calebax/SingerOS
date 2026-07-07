@@ -7,8 +7,8 @@ import (
 // DigitalAssistant 数字助手结构体定义了AI数字助手的基本信息与配置
 type DigitalAssistant struct {
 	gorm.Model
-	// digital_assistant - 助手标识符，在组织内唯一标识数字助手，VARCHAR(255)，NOT NULL
-	Code string `gorm:"column:code;type:varchar(255);not null;index"`
+	// digital_assistant - 公开标识符，在组织内唯一标识数字助手，VARCHAR(255)，NOT NULL
+	PublicID string `gorm:"column:public_id;type:varchar(255);not null;uniqueIndex"`
 
 	// digital_assistant - 所属组织ID，INTEGER，NOT NULL
 	OrgID uint `gorm:"column:org_id;type:integer;not null;index"`

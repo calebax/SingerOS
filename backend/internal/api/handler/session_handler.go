@@ -219,7 +219,7 @@ func (h *SessionHandler) ListSessions(ctx *gin.Context) {
 type SessionEventsRequest struct {
 	SessionID   string `json:"session_id" binding:"required"`
 	Replay      bool   `json:"replay,omitempty"`
-	AssistantID uint   `json:"assistant_id,omitempty"`
+	AssistantID string `json:"assistant_id,omitempty"`
 }
 
 // @Summary 订阅会话事件流

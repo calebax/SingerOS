@@ -11,7 +11,7 @@ import (
 type CreateSessionRequest struct {
 	SessionID   string                `json:"session_id,omitempty"`
 	Type        string                `json:"type" binding:"required"`
-	AssistantID uint                  `json:"assistant_id,omitempty"`
+	AssistantID string                `json:"assistant_id,omitempty"`
 	Title       string                `json:"title,omitempty"`
 	Metadata    *types.ObjectMetadata `json:"metadata,omitempty"`
 	ExpiredAt   *time.Time            `json:"expired_at,omitempty"`
@@ -28,8 +28,7 @@ type UpdateSessionRequest struct {
 type ListSessionsRequest struct {
 	Type          *string `json:"type,omitempty"`
 	Status        *string `json:"status,omitempty"`
-	AssistantID   *uint   `json:"assistant_id,omitempty"`
-	AssistantCode *string `json:"assistant_code,omitempty"`
+	AssistantID   *string `json:"assistant_id,omitempty"`
 	Keyword       *string `json:"keyword,omitempty"`
 	types.Pagination
 }
@@ -39,7 +38,7 @@ type AddMessageRequest struct {
 	Role          string                    `json:"role" binding:"required"`
 	Content       string                    `json:"content" binding:"required"`
 	ExecutionMode agent.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
-	AssistantIDs  []uint                    `json:"assistant_ids,omitempty"`
+	AssistantIDs  []string                 `json:"assistant_ids,omitempty"`
 	MessageType   string                    `json:"message_type,omitempty"`
 	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
@@ -73,9 +72,8 @@ type Session struct {
 	Type                 string                `json:"type"`
 	Uin                  uint                  `json:"uin"`
 	OrgID                uint                  `json:"org_id"`
-	AssistantID          uint                  `json:"assistant_id"`
-	AllocatedAssistantID uint                  `json:"allocated_assistant_id"`
-	AssistantCode        string                `json:"assistant_code"`
+	AssistantID          string                `json:"assistant_id"`
+	AllocatedAssistantID string                `json:"allocated_assistant_id"`
 	Status               string                `json:"status"`
 	RuntimeStatus        string                `json:"runtime_status"`
 	Title                string                `json:"title"`

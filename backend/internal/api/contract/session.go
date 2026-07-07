@@ -38,9 +38,9 @@ type SessionService interface {
 	ClearSessionMessages(ctx context.Context, sessionID string) error
 
 	// Event streaming
-	// When assistantID > 0, only RunEvents whose Route.WorkerID matches the
-	// requested AI teammate are delivered; assistantID == 0 disables filtering.
-	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, assistantID uint, sink SessionEventSink) error
+	// When assistantID is non-empty, only RunEvents whose Route.WorkerID matches the
+	// requested AI teammate are delivered; assistantID == "" disables filtering.
+	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, assistantID string, sink SessionEventSink) error
 
 	// StreamGlobalEvents subscribes the caller to project-level global notify events
 	// (message.created, etc.) for all projects the caller is a member of.
@@ -75,9 +75,10 @@ type SessionService interface {
 
 // CancelSessionRunRequest is the request body for cancelling a session agent run.
 type CancelSessionRunRequest struct {
-	SessionID string `json:"session_id" binding:"required"`
-	RunID     string `json:"run_id,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	SessionID   string `json:"session_id" binding:"required"`
+	RunID       string `json:"run_id,omitempty"`
+	AssistantID string `json:"assistant_id,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 // CancelSessionRunResponse is the response for a cancel session run request.

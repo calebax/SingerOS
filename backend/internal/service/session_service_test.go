@@ -1034,11 +1034,11 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 		t.Fatalf("failed to seed default llm model: %v", err)
 	}
 	if err := database.Create(&types.DigitalAssistant{
-		Code:    "da-1",
-		OrgID:   1,
-		OwnerID: 1,
-		Name:    "CodeReviewer",
-		Status:  "active",
+		PublicID: "da-1",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "CodeReviewer",
+		Status:   "active",
 	}).Error; err != nil {
 		t.Fatalf("failed to seed digital assistant: %v", err)
 	}
@@ -1311,7 +1311,7 @@ func TestStreamSessionEvents_MissingCaller(t *testing.T) {
 	service := setupTestServiceWithSubscriber(t, nil)
 	ctx := setupTestContextWithoutCaller(t)
 
-	err := service.StreamSessionEvents(ctx, "test_session", false, 0, nil)
+	err := service.StreamSessionEvents(ctx, "test_session", false, "", nil)
 	if err == nil {
 		t.Error("expected error when caller is not authenticated")
 	}
@@ -1373,7 +1373,7 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 	var emitted []string
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, 0, contract.SessionEventSinkFunc(func(
+	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, "", contract.SessionEventSinkFunc(func(
 		ctx context.Context,
 		event *contract.SessionEvent,
 	) error {
@@ -1418,20 +1418,29 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	sessionService := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
 	session := createTestSession(t, database, sessionService, ctx)
 
+	assistant100 := &types.DigitalAssistant{PublicID: "assistant-100", OrgID: 1, Name: "Assistant 100"}
+	if err := database.Create(assistant100).Error; err != nil {
+		t.Fatalf("seed assistant 100: %v", err)
+	}
+	assistant200 := &types.DigitalAssistant{PublicID: "assistant-200", OrgID: 1, Name: "Assistant 200"}
+	if err := database.Create(assistant200).Error; err != nil {
+		t.Fatalf("seed assistant 200: %v", err)
+	}
+
 	// Seed WorkerDeployments with DISTINCT DigitalAssistant.ID and WorkerID
 	// to verify the filter resolves DigitalAssistant.ID → WorkerDeployment.WorkerID
 	// instead of comparing them directly.
 	//   Assistant 100 → WorkerID 1000
 	//   Assistant 200 → WorkerID 2000
 	if err := db.CreateWorkerDeployment(ctx, database, &types.WorkerDeployment{
-		OrgID: 1, DigitalAssistantID: 100, WorkerID: 1000,
-		DeploymentName: "dep-100", Status: string(types.WorkerDeploymentStatusReady),
+		OrgID: 1, DigitalAssistantID: assistant100.ID, WorkerID: 1000,
+		PublicID: "dep-100", DeploymentName: "dep-100", Status: string(types.WorkerDeploymentStatusReady),
 	}); err != nil {
 		t.Fatalf("seed worker deployment 100: %v", err)
 	}
 	if err := db.CreateWorkerDeployment(ctx, database, &types.WorkerDeployment{
-		OrgID: 1, DigitalAssistantID: 200, WorkerID: 2000,
-		DeploymentName: "dep-200", Status: string(types.WorkerDeploymentStatusReady),
+		OrgID: 1, DigitalAssistantID: assistant200.ID, WorkerID: 2000,
+		PublicID: "dep-200", DeploymentName: "dep-200", Status: string(types.WorkerDeploymentStatusReady),
 	}); err != nil {
 		t.Fatalf("seed worker deployment 200: %v", err)
 	}
@@ -1451,7 +1460,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 		},
 	}
 
-	// assistantID=100 (DigitalAssistant.ID) resolves to WorkerID=1000 → matches → event delivered.
+	// assistantID=assistant-100 (PublicID) resolves to WorkerID=1000 → matches → event delivered.
 	t.Run("matching assistant receives event", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
 		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
@@ -1459,7 +1468,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, 100, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, assistant100.PublicID, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
 			data, _ := json.Marshal(event)
 			emitted = append(emitted, string(data))
 			cancel()
@@ -1473,7 +1482,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 		}
 	})
 
-	// assistantID=200 (DigitalAssistant.ID) resolves to WorkerID=2000 ≠ 1000 → event filtered out.
+	// assistantID=assistant-200 (PublicID) resolves to WorkerID=2000 ≠ 1000 → event filtered out.
 	t.Run("non-matching assistant receives no event", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
 		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
@@ -1485,7 +1494,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 			cancel()
 		}()
-		_ = service.StreamSessionEvents(streamCtx, session.PublicID, false, 200, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+		_ = service.StreamSessionEvents(streamCtx, session.PublicID, false, assistant200.PublicID, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
 			data, _ := json.Marshal(event)
 			emitted = append(emitted, string(data))
 			return nil
@@ -1495,15 +1504,15 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 		}
 	})
 
-	// assistantID=0 (disabled) → event delivered regardless of WorkerID.
-	t.Run("zero assistant receives event unfiltered", func(t *testing.T) {
+	// empty assistantID → event delivered regardless of WorkerID.
+	t.Run("empty assistant receives event unfiltered", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
 		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
 
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, 0, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, "", contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
 			data, _ := json.Marshal(event)
 			emitted = append(emitted, string(data))
 			cancel()
@@ -1513,7 +1522,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 			t.Fatalf("StreamSessionEvents (unfiltered) failed: %v", err)
 		}
 		if len(emitted) != 1 {
-			t.Fatalf("zero assistantID: emitted = %v, want exactly one event", emitted)
+			t.Fatalf("empty assistantID: emitted = %v, want exactly one event", emitted)
 		}
 	})
 }
@@ -1703,7 +1712,7 @@ func TestCompleteSessionMessageDoesNotPublishAssistantEvent(t *testing.T) {
 	service := NewSessionService(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test")
 	ctx := setupTestContextWithCaller(t)
 
-	assistant := &types.DigitalAssistant{OrgID: 1, Name: "Beta"}
+	assistant := &types.DigitalAssistant{PublicID: "beta-assistant", OrgID: 1, Name: "Beta"}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("seed assistant: %v", err)
 	}
@@ -1969,8 +1978,9 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 
 	// seed DigitalAssistant so AssistantName can be resolved
 	assistant := &types.DigitalAssistant{
-		OrgID: 1,
-		Name:  "Alpha",
+		PublicID: "alpha-assistant",
+		OrgID:    1,
+		Name:     "Alpha",
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("seed assistant: %v", err)
@@ -2042,7 +2052,7 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 	if data.AssistantName != "Alpha" {
 		t.Fatalf("assistant_name = %q, want %q", data.AssistantName, "Alpha")
 	}
-	if data.AssistantID == nil || *data.AssistantID != assistant.ID {
+	if data.AssistantID == nil || *data.AssistantID != assistant.PublicID {
 		t.Fatalf("assistant_id = %v, want %d", data.AssistantID, assistant.ID)
 	}
 }
@@ -2050,7 +2060,7 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
 	t.Helper()
 	if err := database.Create(&types.DigitalAssistant{
-		Code:         "default",
+		PublicID:     "default-assistant",
 		OrgID:        1,
 		OwnerID:      1,
 		Name:         "Default Assistant",
@@ -2082,7 +2092,7 @@ func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
 func seedReadyAssistant(t *testing.T, database *gorm.DB, code, name, systemPrompt string) *types.DigitalAssistant {
 	t.Helper()
 	assistant := &types.DigitalAssistant{
-		Code:         code,
+		PublicID:     "assistant-" + code,
 		OrgID:        1,
 		OwnerID:      1,
 		Name:         name,
@@ -2261,7 +2271,7 @@ func TestCreateInitialMessage_EmptySummonCreatesAssistantBoundSession(t *testing
 	assistant := seedReadyAssistant(t, database, "contract-reviewer", "合同审查专家", "只做合同风险审查")
 
 	resp, err := service.CreateInitialMessage(ctx, &contract.NewMessageRequest{
-		AssistantIDs: []uint{assistant.ID},
+		AssistantIDs: []string{assistant.PublicID},
 	})
 	if err != nil {
 		t.Fatalf("CreateInitialMessage empty summon failed: %v", err)
@@ -2269,8 +2279,8 @@ func TestCreateInitialMessage_EmptySummonCreatesAssistantBoundSession(t *testing
 	if resp.MessageID != "" {
 		t.Fatalf("message id = %q, want empty for empty summon", resp.MessageID)
 	}
-	if resp.AssistantID != assistant.ID {
-		t.Fatalf("response assistant id = %d, want %d", resp.AssistantID, assistant.ID)
+	if resp.AssistantID != assistant.PublicID {
+		t.Fatalf("response assistant id = %q, want %q", resp.AssistantID, assistant.PublicID)
 	}
 
 	var session types.Session
@@ -2308,7 +2318,7 @@ func TestCreateInitialMessage_RejectsInactiveAssistantSummon(t *testing.T) {
 	}
 
 	_, err := service.CreateInitialMessage(ctx, &contract.NewMessageRequest{
-		AssistantIDs: []uint{assistant.ID},
+		AssistantIDs: []string{assistant.PublicID},
 	})
 	if err == nil {
 		t.Fatal("expected inactive assistant summon to fail")
@@ -2330,7 +2340,7 @@ func TestCreateInitialMessage_RejectsAssistantBeforeDeploymentReady(t *testing.T
 	}
 
 	_, err := service.CreateInitialMessage(ctx, &contract.NewMessageRequest{
-		AssistantIDs: []uint{assistant.ID},
+		AssistantIDs: []string{assistant.PublicID},
 	})
 	if err == nil {
 		t.Fatal("expected provisioning assistant summon to fail")

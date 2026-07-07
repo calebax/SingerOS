@@ -210,7 +210,7 @@ func printTaskDetail(out *taskDetailOutput) {
 	}
 
 	if out.Assignee != nil {
-		fmt.Fprintf(w, "Assignee:\t%s (ID=%d, Code=%s)\n", out.Assignee.Name, out.Assignee.ID, out.Assignee.Code)
+		fmt.Fprintf(w, "Assignee:\t%s (ID=%d, PublicID=%s)\n", out.Assignee.Name, out.Assignee.ID, out.Assignee.PublicID)
 	} else if out.AssigneeName != "" {
 		fmt.Fprintf(w, "Assignee:\t%s (id=%d)\n", out.AssigneeName, *t.AssigneeID)
 	} else if t.AssigneeID != nil {
