@@ -7,10 +7,16 @@ import type {
 	BackendWorkbenchRecentContext,
 } from "./types";
 
+export type ProjectMemberInput = {
+	type: "assistant" | "user";
+	id: string;
+};
+
 export type CreateProjectParams = {
 	name: string;
 	description?: string;
 	objective?: string;
+	members?: ProjectMemberInput[];
 	metadata?: Record<string, unknown>;
 };
 
@@ -33,6 +39,7 @@ export type UpdateProjectParams = {
 	objective?: string;
 	status?: string;
 	owner_id?: number;
+	members?: ProjectMemberInput[];
 	metadata?: Record<string, unknown>;
 };
 

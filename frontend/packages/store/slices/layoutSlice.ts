@@ -1,8 +1,13 @@
+import type { ProjectMemberInput } from "../api/projectApi";
 import { projectApi } from "../api/projectApi";
-import type { CreateInitialMessageParams } from "../api/sessionApi";
-import { sessionApi } from "../api/sessionApi";
+import { type CreateInitialMessageParams, sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
-import type { BackendProject, BackendSession, BackendTask } from "../api/types";
+import type {
+	BackendProject,
+	BackendProjectMemberItem,
+	BackendSession,
+	BackendTask,
+} from "../api/types";
 import type { SliceCreator } from "../types";
 import type { Attachment, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
@@ -76,6 +81,21 @@ export type ProjectSkill = {
 	trust?: string;
 };
 
+export type ProjectMemberType = "assistant" | "user";
+
+export type ProjectMember = {
+	id: string;
+	memberId: number;
+	publicId?: string;
+	type: ProjectMemberType;
+	role: string;
+	name: string;
+	description?: string;
+	avatarUrl?: string;
+	joinedAt?: string;
+	isDefault?: boolean;
+};
+
 export type Project = {
 	id: string;
 	name: string;
@@ -83,6 +103,7 @@ export type Project = {
 	objective?: string;
 	metadata?: Record<string, unknown>;
 	skills: ProjectSkill[];
+	members: ProjectMember[];
 	taskCount: number;
 	createdAt: number;
 	updatedAt: number;
@@ -164,6 +185,7 @@ function mapSessionToConversation(s: BackendSession): Conversation {
 
 function mapBackendProject(bp: BackendProject): Project {
 	const metadata = bp.metadata ?? undefined;
+	const backendMembers = (bp as BackendProject & { members?: BackendProjectMemberItem[] }).members;
 	return {
 		id: bp.public_id,
 		name: bp.name,
@@ -173,6 +195,10 @@ function mapBackendProject(bp: BackendProject): Project {
 		updatedAt: new Date(bp.updated_at).getTime(),
 		metadata,
 		skills: extractProjectSkills(metadata),
+		members:
+			backendMembers && backendMembers.length > 0
+				? backendMembers.map(mapBackendProjectMember)
+				: extractProjectMembers(metadata),
 		messages: [],
 		tasks: [],
 		files: [],
@@ -194,6 +220,7 @@ export function mergeProjectsFromListResult(
 			...project,
 			// 中文注释：列表接口只提供项目基础信息，这里保留本地已经加载过的详情字段，避免切页时把任务树清空。
 			objective: project.objective ?? localProject.objective,
+			members: project.members.length > 0 ? project.members : localProject.members,
 			messages: project.messages.length > 0 ? project.messages : localProject.messages,
 			tasks: project.tasks.length > 0 ? project.tasks : localProject.tasks,
 			files: project.files.length > 0 ? project.files : localProject.files,
@@ -204,6 +231,106 @@ export function mergeProjectsFromListResult(
 	return mergedApiProjects;
 }
 
+function mapBackendProjectMember(member: BackendProjectMemberItem): ProjectMember {
+	const type = normalizeProjectMemberType(member.member_type);
+	const publicId = member.public_id;
+	return {
+		id: publicId ? `${type}-${publicId}` : `${type}-${member.member_id}`,
+		memberId: member.member_id,
+		publicId,
+		type,
+		role: member.member_role || "member",
+		name: member.name || (type === "assistant" ? "AI 队友" : "项目成员"),
+		description: member.description,
+		avatarUrl: member.avatar_url,
+		joinedAt: member.joined_at,
+		isDefault: member.is_default,
+	};
+}
+
+function normalizeProjectMemberType(value: string): ProjectMemberType {
+	const normalized = value.toLowerCase();
+	if (normalized === "assistant" || normalized === "ai" || normalized === "digital_assistant") {
+		return "assistant";
+	}
+	return "user";
+}
+
+function extractProjectMembers(metadata?: Record<string, unknown>): ProjectMember[] {
+	const extra = metadata?.extra;
+	if (!extra || typeof extra !== "object" || Array.isArray(extra)) return [];
+
+	const rawMembers = (extra as Record<string, unknown>).members;
+	if (!Array.isArray(rawMembers)) return [];
+
+	return rawMembers
+		.map((item): ProjectMember | null => {
+			if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+			const data = item as Record<string, unknown>;
+			const memberId = Number(data.memberId ?? data.member_id);
+			const rawType = typeof data.type === "string" ? data.type : String(data.member_type ?? "");
+			const type = normalizeProjectMemberType(rawType);
+			const name = typeof data.name === "string" ? data.name : "";
+			const publicId =
+				typeof data.publicId === "string"
+					? data.publicId
+					: typeof data.public_id === "string"
+						? data.public_id
+						: typeof data.id === "string"
+							? data.id.replace(/^(assistant|human|user)-/, "")
+							: undefined;
+			if (!Number.isFinite(memberId) || !name) return null;
+
+			return {
+				id:
+					typeof data.id === "string" && data.id
+						? data.id
+						: publicId
+							? `${type}-${publicId}`
+							: `${type}-${memberId}`,
+				memberId,
+				publicId,
+				type,
+				role:
+					typeof data.role === "string"
+						? data.role
+						: typeof data.member_role === "string"
+							? data.member_role
+							: "member",
+				name,
+				description: typeof data.description === "string" ? data.description : undefined,
+				avatarUrl:
+					typeof data.avatarUrl === "string"
+						? data.avatarUrl
+						: typeof data.avatar_url === "string"
+							? data.avatar_url
+							: undefined,
+				joinedAt:
+					typeof data.joinedAt === "string"
+						? data.joinedAt
+						: typeof data.joined_at === "string"
+							? data.joined_at
+							: undefined,
+				isDefault:
+					typeof data.isDefault === "boolean"
+						? data.isDefault
+						: typeof data.is_default === "boolean"
+							? data.is_default
+							: undefined,
+			};
+		})
+		.filter((item): item is ProjectMember => item !== null);
+}
+
+export function projectMembersToInputs(members: ProjectMember[]): ProjectMemberInput[] {
+	return members
+		.filter((member) => Boolean(member.publicId))
+		.map((member) => ({
+			type: member.type,
+			// 中文注释：成员更新接口要求 AI 员工和真实成员都传 public_id，不能回退到内部数字 member_id。
+			id: member.publicId as string,
+		}));
+}
 function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[] {
 	const extra = metadata?.extra;
 	if (!extra || typeof extra !== "object" || Array.isArray(extra)) return [];
@@ -233,6 +360,8 @@ function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[
 
 function mapBackendTask(bt: BackendTask): ProjectTask {
 	const taskWithSession = bt as BackendTask & { session?: BackendSession };
+	const rawAssistantId = taskWithSession.session?.assistant_id;
+	const assistantId = rawAssistantId !== undefined ? Number(rawAssistantId) : undefined;
 	return {
 		id: bt.public_id,
 		title: bt.title,
@@ -244,7 +373,9 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 		taskType: bt.task_type,
 		deadline: bt.deadline,
 		description: bt.description,
-		assistantId: taskWithSession.session?.assistant_id,
+		// 中文注释：后端 session.assistant_id 以字符串返回，前端任务模型统一保存数字 ID。
+		assistantId:
+			assistantId !== undefined && Number.isFinite(assistantId) ? assistantId : undefined,
 	};
 }
 
@@ -695,6 +826,7 @@ export class LayoutActionImpl {
 	createProject = async (params: {
 		name: string;
 		description?: string;
+		members?: ProjectMemberInput[];
 		metadata?: Record<string, unknown>;
 	}) => {
 		try {
@@ -718,6 +850,7 @@ export class LayoutActionImpl {
 		description?: string;
 		status?: string;
 		owner_id?: number;
+		members?: ProjectMemberInput[];
 		metadata?: Record<string, unknown>;
 	}) => {
 		try {
@@ -732,6 +865,7 @@ export class LayoutActionImpl {
 								...p,
 								...item,
 								tasks: p.tasks,
+								members: item.members.length > 0 ? item.members : p.members,
 								messages: p.messages,
 								files: p.files,
 							}
@@ -913,6 +1047,7 @@ export class LayoutActionImpl {
 							name: payload.project_name,
 							description: "",
 							skills: [],
+							members: [],
 							taskCount: 0,
 							createdAt: now,
 							updatedAt: now,

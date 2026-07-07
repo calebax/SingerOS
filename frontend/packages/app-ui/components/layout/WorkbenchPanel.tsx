@@ -93,6 +93,14 @@ function resolveMentionedAssistant(
 		if (assistant) return assistant;
 	}
 
+	const matchedByText = assistantOptions.find((option) => {
+		const mention = `@${option.name}`;
+		return (
+			content === mention || content.includes(`${mention} `) || content.includes(` ${mention}`)
+		);
+	});
+	if (matchedByText) return matchedByText;
+
 	for (const match of content.matchAll(/(?:^|\s)@([^\s@/#]+)(?=\s|$)/g)) {
 		const name = match[1] ?? "";
 		const assistant = assistantOptions.find((option) => option.name === name);
@@ -285,13 +293,17 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				? removeAssistantMentionText(content, composerTokens, mentionedAssistant)
 				: content;
 			const messageMetadata = mentionedAssistant ? undefined : composerMetadata;
+			// 中文注释：输入框 @ 队友保留 publicId，发送 NewMessage 时需转换为后端数字 assistant_id。
+			const mentionedAssistantId = mentionedAssistant
+				? assistants.find((assistant) => assistant.publicId === mentionedAssistant.id)?.id
+				: undefined;
 			const data = await sendWorkbenchMessage(
 				messageContent,
 				activeWorkbenchProjectId,
 				executionMode,
 				attachments,
 				messageMetadata,
-				mentionedAssistant?.id,
+				mentionedAssistantId,
 			);
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
@@ -393,12 +405,13 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const availableAssistantOptions = useMemo<ComposerAssistantOption[]>(
 		() =>
 			assistants.filter(isSummonableAssistant).map((assistant) => ({
-				id: assistant.id,
-				code: String(assistant.id),
+				id: assistant.publicId,
+				code: assistant.publicId,
 				name: assistant.name,
 				description:
 					assistant.description ||
 					(assistant.expertise.length > 0 ? assistant.expertise.join("、") : "AI 队友"),
+				avatarUrl: assistant.avatar,
 			})),
 		[assistants],
 	);
@@ -713,6 +726,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								placeholder="在这里开始新任务，或输入指令以同步您的项目进度..."
 								isProjectVariant
 								assistantOptions={availableAssistantOptions}
+								assistantSelectionMode="single"
 								directivesDisabled={Boolean(activeProject)}
 								onProjectTrigger={handleProjectTrigger}
 							/>
@@ -731,6 +745,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										return true;
 									}}
 									assistantOptions={availableAssistantOptions}
+									assistantSelectionMode="single"
 									disableAssistantAndSkill={Boolean(activeProject)}
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}

@@ -16,6 +16,15 @@ vi.mock("@leros/store", () => ({
 	useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			resendMessage: vi.fn(),
+			messagesMap: {},
+		}),
+	useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			assistants: [],
+		}),
+	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			projects: [],
 		}),
 }));
 

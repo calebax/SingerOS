@@ -7,7 +7,7 @@ import type {
 } from "./types";
 
 export type CreateDAParams = {
-	code?: string;
+	public_id?: string;
 	name: string;
 	description?: string;
 	avatar?: string;
@@ -43,12 +43,12 @@ export type ListDAParams = {
 
 export type GetDAParams = {
 	id?: number;
-	code?: string;
+	public_id?: string;
 };
 
 export type CreateDAFromTemplateParams = {
 	template_id: number;
-	code?: string;
+	public_id?: string;
 	name?: string;
 	description?: string;
 	avatar?: string;

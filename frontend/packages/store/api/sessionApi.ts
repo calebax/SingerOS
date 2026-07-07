@@ -13,8 +13,7 @@ import type {
 export type CreateSessionParams = {
 	type: string;
 	title?: string;
-	assistant_id?: number;
-	assistant_code?: string;
+	assistant_id?: string;
 	session_id?: string;
 	user_id?: number;
 	expired_at?: string;
@@ -44,8 +43,7 @@ export type ListSessionsParams = {
 	type?: string;
 	status?: string;
 	keyword?: string;
-	assistant_id?: number;
-	assistant_code?: string;
+	assistant_id?: string;
 	user_id?: number;
 };
 
@@ -59,6 +57,7 @@ export type AddMessageParams = {
 	role: string;
 	content: string;
 	execution_mode?: "default" | "plan";
+	assistant_ids?: string[];
 	message_type?: string;
 	attachments?: {
 		file_upload_id: string;
@@ -117,6 +116,7 @@ export type CreateInitialMessageParams = {
 	task_id?: string;
 	message_type?: string;
 	assistant_id?: number;
+	assistant_ids?: string[];
 	metadata?: BackendMessageMetadata;
 	attachments?: {
 		file_upload_id: string;

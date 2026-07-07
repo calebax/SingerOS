@@ -36,6 +36,8 @@ export {
 export type { Department, ListDepartmentsResponse, OrgInfo } from "./api/orgAdminApi";
 export { orgAdminApi } from "./api/orgAdminApi";
 export { projectFileApi } from "./api/projectFileApi";
+export type { HumanProjectMemberOption } from "./api/projectMemberApi";
+export { projectMemberApi } from "./api/projectMemberApi";
 export { sessionApi } from "./api/sessionApi";
 export type {
 	ImportSkillParams,
@@ -81,6 +83,8 @@ export type {
 	NavItem,
 	Project,
 	ProjectArtifact,
+	ProjectMember,
+	ProjectMemberType,
 	ProjectMessage,
 	ProjectSkill,
 	ProjectTask,
@@ -89,7 +93,11 @@ export type {
 	Workspace,
 	WorkspaceMode,
 } from "./slices/layoutSlice";
-export { LEFT_RAIL_MAX_WIDTH, LEFT_RAIL_MIN_WIDTH } from "./slices/layoutSlice";
+export {
+	LEFT_RAIL_MAX_WIDTH,
+	LEFT_RAIL_MIN_WIDTH,
+	projectMembersToInputs,
+} from "./slices/layoutSlice";
 export type { Topic, TopicAction, TopicState, TopicStore } from "./slices/topicSlice";
 export type { PublicActions, SliceCreator } from "./types";
 export type {

@@ -5,6 +5,7 @@ import { flattenActions } from "../utils";
 
 export type DigitalAssistantItem = {
 	id: number;
+	publicId: string;
 	code: string;
 	name: string;
 	description: string;
@@ -34,9 +35,12 @@ export type DigitalAssistantAction = Pick<DASliceImpl, keyof DASliceImpl>;
 export type DAStore = DigitalAssistantState & DigitalAssistantAction;
 
 function mapBackendDA(da: BackendDigitalAssistant): DigitalAssistantItem {
+	const publicId = da.public_id || da.code || String(da.id);
 	return {
 		id: da.id,
-		code: da.code,
+		publicId,
+		// 中文注释：输入框选择器仍使用 code 作为本地选项值，后端交互统一取 publicId。
+		code: publicId,
 		name: da.name,
 		description: da.description ?? "",
 		avatar: da.avatar ?? "",
@@ -90,7 +94,7 @@ export class DASliceImpl {
 	};
 
 	createAssistant = async (params: {
-		code?: string;
+		public_id?: string;
 		name: string;
 		description?: string;
 		avatar?: string;
@@ -118,7 +122,7 @@ export class DASliceImpl {
 
 	createAssistantFromTemplate = async (params: {
 		template_id: number;
-		code?: string;
+		public_id?: string;
 		name?: string;
 		description?: string;
 		avatar?: string;
