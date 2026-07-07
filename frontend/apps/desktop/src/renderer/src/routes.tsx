@@ -103,6 +103,10 @@ function useDesktopNavigation(): AppNavigation {
 			navigate(`/projects/${projectId}`);
 		},
 
+		goToProjectTasks(projectId) {
+			navigate(`/projects/${projectId}/tasks`);
+		},
+
 		goToTaskDetail(projectId, taskId, sessionId) {
 			const search = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
 

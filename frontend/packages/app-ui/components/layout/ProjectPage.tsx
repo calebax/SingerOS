@@ -84,7 +84,7 @@ import { TaskDeleteDialog } from "./TaskDeleteDialog";
 
 const projectTabs = [
 	{ id: "chat" as const, label: "新建任务" },
-	{ id: "tasks" as const, label: "任务" },
+	{ id: "tasks" as const, label: "任务列表" },
 	{ id: "files" as const, label: "项目文件" },
 ];
 
@@ -1090,7 +1090,7 @@ function ProjectTasks({
 	return (
 		// 中文注释：任务 tab 需要占用更宽的主内容区域，避免大屏下卡片挤在中间留下过多留白。
 		<div className="mx-auto w-full max-w-[1100px]">
-			<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">任务</h2>
+			<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">任务列表</h2>
 			<div className="mt-4">
 				<ProjectTaskList
 					tasks={tasks}

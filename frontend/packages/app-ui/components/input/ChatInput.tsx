@@ -226,10 +226,9 @@ export function ChatInput({
 	const handlePasteFiles = useCallback(
 		(e: React.ClipboardEvent<HTMLElement>) => {
 			const files = Array.from(e.clipboardData.files);
+			if (!files.length) return;
+
 			for (const file of files) {
-				if (!file.type.startsWith("image/") && !file.type.startsWith("text/")) {
-					continue;
-				}
 				void uploadProjectAttachment(file).then((uploaded) => {
 					if (!uploaded) {
 						addAttachment(file);

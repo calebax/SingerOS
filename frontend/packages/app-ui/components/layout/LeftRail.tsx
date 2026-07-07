@@ -88,6 +88,7 @@ export type AppNavigation = {
 	currentPath: string;
 	goToRoute: (route: ViewMode) => void;
 	goToProject: (projectId: string) => void;
+	goToProjectTasks: (projectId: string) => void;
 	goToTaskDetail: (projectId: string, taskId: string, sessionId?: string | null) => void;
 };
 

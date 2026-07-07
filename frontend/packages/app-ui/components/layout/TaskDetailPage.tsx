@@ -82,6 +82,7 @@ export function TaskDetailPage({
 		projects,
 		fetchProjects,
 		setTaskDetailRoute,
+		setProjectRoute,
 		switchProject,
 		updateTask,
 	} = useLayoutStore((s) => s);
@@ -462,15 +463,18 @@ export function TaskDetailPage({
 						type="button"
 						onClick={() => {
 							if (navigation && resolvedProjectId) {
-								navigation.goToProject(resolvedProjectId);
+								navigation.goToProjectTasks(resolvedProjectId);
 								return;
 							}
-							resolvedProjectId && switchProject(resolvedProjectId);
+							if (resolvedProjectId) {
+								switchProject(resolvedProjectId);
+								setProjectRoute(resolvedProjectId, "tasks");
+							}
 						}}
 						className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 					>
 						<ArrowLeft className="size-3.5" />
-						返回新建任务
+						任务列表
 					</button>
 				</div>
 			</header>

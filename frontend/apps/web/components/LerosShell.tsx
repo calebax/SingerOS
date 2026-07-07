@@ -35,6 +35,9 @@ export function useWebNavigation(): AppNavigation {
 		goToProject(projectId) {
 			router.push(`/projects/${projectId}`);
 		},
+		goToProjectTasks(projectId) {
+			router.push(`/projects/${projectId}/tasks`);
+		},
 		goToTaskDetail(projectId, taskId, sessionId) {
 			const search = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
 			router.push(`/projects/${projectId}/tasks/${taskId}${search}`);

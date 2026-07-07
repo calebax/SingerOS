@@ -1697,6 +1697,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					aria-multiline="true"
 					tabIndex={0}
 					contentEditable
+					spellCheck={false}
 					aria-label={placeholder}
 					suppressContentEditableWarning
 					onInput={() => syncFromEditor()}
