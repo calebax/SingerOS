@@ -7,6 +7,7 @@ import {
 	type ProjectSkill,
 	type ProjectTask,
 	projectFileApi,
+	projectMemberApi,
 	projectMembersToInputs,
 	type SkillInstalledItem,
 	skillMarketplaceApi,
@@ -705,16 +706,81 @@ function ProjectConfigSidebar({
 		(member) => !(member.type === "assistant" && member.isDefault),
 	);
 
+	const resolveProjectMembersForUpdate = async (nextMembers: ProjectMember[]) => {
+		let resolvedMembers = nextMembers.map((member) => ({ ...member }));
+		const needAssistantPublicIds = resolvedMembers.some(
+			(member) => member.type === "assistant" && !member.isDefault && !member.publicId,
+		);
+		if (needAssistantPublicIds && !assistantsLoaded) {
+			await fetchAssistants();
+		}
+
+		const latestAssistants = useAppStore.getState().assistants;
+		const assistantPublicIdByMemberId = new Map(
+			latestAssistants.map((assistant) => [assistant.id, assistant.publicId]),
+		);
+		resolvedMembers = resolvedMembers.map((member) => {
+			if (member.type !== "assistant" || member.publicId) return member;
+			const publicId = assistantPublicIdByMemberId.get(member.memberId);
+			return publicId ? { ...member, publicId, id: `assistant-${publicId}` } : member;
+		});
+
+		const needUserPublicIds = resolvedMembers.some(
+			(member) => member.type === "user" && member.role !== "owner" && !member.publicId,
+		);
+		if (needUserPublicIds) {
+			const unresolvedUsers = resolvedMembers.filter(
+				(member) => member.type === "user" && member.role !== "owner" && !member.publicId,
+			);
+			const userPublicIdByName = new Map<string, string>();
+			await Promise.all(
+				unresolvedUsers.map(async (member) => {
+					const users = await projectMemberApi.listHumanMembers({
+						keyword: member.name,
+						limit: 20,
+					});
+					const exactMatches = users.filter((user) => user.name === member.name);
+					// 中文注释：ListUsers 不返回内部 uin，只能在姓名唯一命中时回填 public_id，避免误保留错误成员。
+					const matchedUser = exactMatches[0];
+					if (exactMatches.length === 1 && matchedUser) {
+						userPublicIdByName.set(member.name, matchedUser.public_id);
+					}
+				}),
+			);
+			resolvedMembers = resolvedMembers.map((member) => {
+				if (member.type !== "user" || member.publicId) return member;
+				const publicId = userPublicIdByName.get(member.name);
+				return publicId ? { ...member, publicId, id: `user-${publicId}` } : member;
+			});
+		}
+
+		const unresolvedMembers = resolvedMembers.filter(
+			(member) =>
+				!member.publicId &&
+				!(member.type === "assistant" && member.isDefault) &&
+				member.role !== "owner",
+		);
+		if (unresolvedMembers.length > 0) {
+			throw new Error("成员身份解析失败，请稍后重试");
+		}
+
+		return resolvedMembers;
+	};
+
 	const updateProjectMembers = async (nextMembers: ProjectMember[]) => {
 		setSavingMembers(true);
 		try {
+			const resolvedMembers = await resolveProjectMembersForUpdate(nextMembers);
 			const updated = await onUpdateProject({
 				public_id: project.id,
-				members: projectMembersToInputs(nextMembers),
+				members: projectMembersToInputs(resolvedMembers),
 			});
 			if (updated) {
 				toast.success("项目成员已更新");
 			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "项目成员更新失败";
+			toast.error(message);
 		} finally {
 			setSavingMembers(false);
 		}
