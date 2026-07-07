@@ -188,6 +188,9 @@ func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id
 	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
 		return nil, err
 	}
+	if da.Source == "template" {
+		return nil, errors.New("template-created digital assistant cannot be modified")
+	}
 
 	if req.Name != "" {
 		da.Name = req.Name
@@ -409,6 +412,7 @@ func (s *digitalAssistantService) convertToContractDigitalAssistant(ctx context.
 		deployment, err := db.GetWorkerDeploymentByAssistantID(ctx, s.db, da.ID)
 		if err == nil && deployment != nil {
 			item.Deployment = &contract.WorkerDeploymentStatus{
+				PublicID:  deployment.PublicID,
 				Status:    deployment.Status,
 				LastError: deployment.LastError,
 			}
