@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
 import { ArrowLeft, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import type { AppNavigation } from "../layout";
 import { AssistantCard } from "./AssistantCard";
 import { AssistantCreateDialog } from "./AssistantCreateDialog";
 import { AssistantDeleteDialog } from "./AssistantDeleteDialog";
@@ -21,7 +22,7 @@ const statusFilters = [
 	{ value: "draft", label: "草稿" },
 ];
 
-export function AssistantListView() {
+export function AssistantListView({ navigation }: { navigation?: AppNavigation }) {
 	const {
 		assistants,
 		assistantSearchQuery,
@@ -30,7 +31,7 @@ export function AssistantListView() {
 		setAssistantSearchQuery,
 		setAssistantStatusFilter,
 	} = useDAStore((s) => s);
-	const { sendWorkbenchMessage } = useLayoutStore((s) => s);
+	const { createProject, setProjectComposerPrefill } = useLayoutStore((s) => s);
 
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
 	const [detailTarget, setDetailTarget] = useState<DigitalAssistantItem | null>(null);
@@ -74,22 +75,39 @@ export function AssistantListView() {
 		if (summoningId) return;
 		setSummoningId(assistant.id);
 		try {
-			// 召唤走 NewMessage：带 assistant_id 创建任务会话。
-			// - 有 prompt（点击「试试这样问我」）：发首条消息，落地后即开始对话。
-			// - 无 prompt（点击 footer「召唤」）：空 content，仅创建空任务会话，不发首条消息。
-			const content = prompt?.trim() || "";
-			const data = await sendWorkbenchMessage(
-				content,
-				"",
-				undefined,
-				undefined,
-				undefined,
-				assistant.id,
-			);
-			if (!data?.project_id || !data.task_id || !data.session_id) {
-				throw new Error("No task session returned");
+			const assistantIdentity = assistant.publicId || String(assistant.id);
+			const project = await createProject({
+				name: buildSummonProjectName(assistant),
+				description: `与 ${assistant.name} 协作`,
+				members: [{ type: "assistant", id: assistantIdentity }],
+				metadata: {
+					extra: {
+						source: "assistant_summon",
+						summoned_assistant_id: assistantIdentity,
+						summoned_assistant_name: assistant.name,
+					},
+				},
+			});
+			if (!project) {
+				throw new Error("No project returned");
 			}
-			navigateToTaskDetail(data.project_id, data.task_id, data.session_id);
+
+			const mention = `@${assistant.name}`;
+			const content = buildSummonPrompt(assistant, prompt);
+			setProjectComposerPrefill({
+				projectId: project.id,
+				value: `${mention} ${content}`,
+				tokens: [
+					{
+						kind: "assistant",
+						id: assistantIdentity,
+						label: mention,
+						start: 0,
+						end: mention.length,
+					},
+				],
+			});
+			navigateToProject(project.id, navigation);
 			toast.success(`已召唤 ${assistant.name}`);
 			setDetailTarget(null);
 		} catch (err) {
@@ -101,6 +119,10 @@ export function AssistantListView() {
 	};
 
 	const navigateToAITeammates = () => {
+		if (navigation) {
+			navigation.goToRoute("aiTeammates");
+			return;
+		}
 		if (window.location.hash) {
 			window.location.hash = "/ai-teammates";
 			return;
@@ -210,11 +232,26 @@ export function AssistantListView() {
 	);
 }
 
-function navigateToTaskDetail(projectId: string, taskId: string, sessionId: string) {
-	const path = `/projects/${projectId}/tasks/${taskId}?sessionId=${encodeURIComponent(sessionId)}`;
+function navigateToProject(projectId: string, navigation?: AppNavigation) {
+	if (navigation) {
+		navigation.goToProject(projectId);
+		return;
+	}
+	const path = `/projects/${projectId}`;
 	if (window.location.hash) {
 		window.location.hash = path;
 		return;
 	}
 	window.location.href = path;
+}
+
+function buildSummonProjectName(assistant: DigitalAssistantItem): string {
+	return `与 ${assistant.name} 协作`;
+}
+
+function buildSummonPrompt(assistant: DigitalAssistantItem, prompt?: string): string {
+	const trimmedPrompt = prompt?.trim();
+	if (trimmedPrompt) return trimmedPrompt;
+
+	return `请以“${assistant.name}”的身份加入这个项目，先帮我看看可以从哪里开始。`;
 }

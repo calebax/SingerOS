@@ -9,7 +9,7 @@ import type {
 	BackendTask,
 } from "../api/types";
 import type { SliceCreator } from "../types";
-import type { Attachment, MessageMetadata } from "../types/chat";
+import type { Attachment, ComposerToken, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
 import { parseOptionalTimestamp } from "../utils/format";
 
@@ -112,6 +112,13 @@ export type Project = {
 	files: ProjectArtifact[];
 };
 
+export type ProjectComposerPrefill = {
+	id: string;
+	projectId: string;
+	value: string;
+	tokens: ComposerToken[];
+};
+
 export type NavGroup = {
 	id: string;
 	label: string;
@@ -167,6 +174,7 @@ export type LayoutState = {
 	activeProjectSessionId: string | null;
 	projectSessionId: string | null;
 	projectSessionProjectId: string | null;
+	projectComposerPrefill: ProjectComposerPrefill | null;
 };
 
 export type LayoutAction = Pick<LayoutActionImpl, keyof LayoutActionImpl>;
@@ -430,6 +438,7 @@ const _initialState: LayoutState = {
 	activeProjectSessionId: null,
 	projectSessionId: null,
 	projectSessionProjectId: null,
+	projectComposerPrefill: null,
 };
 
 type SetState = (
@@ -534,7 +543,11 @@ export class LayoutActionImpl {
 
 	switchProject = (projectId: string) => {
 		const state = this.#get();
-		if (state.currentView !== "project" || state.activeProjectId !== projectId) {
+		const keepsPendingPrefill = state.projectComposerPrefill?.projectId === projectId;
+		if (
+			!keepsPendingPrefill &&
+			(state.currentView !== "project" || state.activeProjectId !== projectId)
+		) {
 			this.#clearComposerDraft();
 		}
 		this.#set({
@@ -550,7 +563,11 @@ export class LayoutActionImpl {
 
 	setProjectRoute = (projectId: string, tab: "chat" | "tasks" | "files" = "chat") => {
 		const state = this.#get();
-		if (state.currentView !== "project" || state.activeProjectId !== projectId) {
+		const keepsPendingPrefill = state.projectComposerPrefill?.projectId === projectId;
+		if (
+			!keepsPendingPrefill &&
+			(state.currentView !== "project" || state.activeProjectId !== projectId)
+		) {
 			this.#clearComposerDraft();
 		}
 		this.#set({
@@ -585,6 +602,22 @@ export class LayoutActionImpl {
 
 	setActiveProjectTab = (tab: "chat" | "tasks" | "files") => {
 		this.#set({ activeProjectTab: tab });
+	};
+
+	setProjectComposerPrefill = (prefill: Omit<ProjectComposerPrefill, "id">) => {
+		this.#set({
+			projectComposerPrefill: {
+				...prefill,
+				id: `prefill_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+			},
+		});
+	};
+
+	consumeProjectComposerPrefill = (prefillId: string) => {
+		this.#set((state) => ({
+			projectComposerPrefill:
+				state.projectComposerPrefill?.id === prefillId ? null : state.projectComposerPrefill,
+		}));
 	};
 
 	sendWorkbenchMessage = async (

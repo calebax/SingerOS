@@ -86,6 +86,7 @@ export type StructuredComposerHandle = {
 	insertSkill: (skillLabel: string) => void;
 	removeAssistant: (assistantName: string) => void;
 	removeSkill: (skillLabel: string) => void;
+	setContent: (value: string, tokens?: ComposerToken[]) => void;
 	getComposerTokens: () => ComposerToken[];
 };
 
@@ -103,6 +104,12 @@ type StructuredComposerProps = {
 	directivesDisabled?: boolean;
 	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
 	assistantSelectionMode?: "single" | "multiple";
+	prefill?: {
+		id: string;
+		value: string;
+		tokens: ComposerToken[];
+	};
+	onPrefillConsumed?: (prefillId: string) => void;
 };
 
 function findTrigger(value: string, cursor: number): ActiveTrigger | null {
@@ -342,12 +349,57 @@ function resolveVirtualSkillTokens(value: string, tokens: InsertedToken[]): Inse
 	return result;
 }
 
-function resolveDisplayTokens(value: string, tokens: InsertedToken[]): InsertedToken[] {
+function resolveVirtualAssistantTokens(
+	value: string,
+	tokens: InsertedToken[],
+	assistantOptions: AssistantOption[] = [],
+): InsertedToken[] {
+	const result: InsertedToken[] = [];
+	const orderedOptions = [...assistantOptions]
+		.filter((assistant) => assistant.name.trim())
+		.sort((a, b) => b.name.length - a.name.length);
+
+	for (const assistant of orderedOptions) {
+		const label = `@${assistant.name}`;
+		const pattern = new RegExp(`(^|\\s)${escapeRegExp(label)}(?=\\s|$)`, "g");
+		for (const match of value.matchAll(pattern)) {
+			const matchedText = match[0] ?? "";
+			const start = (match.index ?? 0) + (matchedText.startsWith("@") ? 0 : 1);
+			const end = start + label.length;
+			const overlapsExistingToken = [...tokens, ...result].some(
+				(token) => start < token.end && end > token.start,
+			);
+			if (overlapsExistingToken) continue;
+
+			result.push({
+				label,
+				id: String(assistant.id),
+				start,
+				end,
+				kind: "assistant",
+			});
+		}
+	}
+
+	return result;
+}
+
+function resolveDisplayTokens(
+	value: string,
+	tokens: InsertedToken[],
+	assistantOptions: AssistantOption[] = [],
+): InsertedToken[] {
 	const explicitTokens = tokens.filter(
 		(token) => value.slice(token.start, token.end) === token.label,
 	);
-	// 中文注释：常规 token 仍只来自弹窗/按钮选择；skill-creator 是技能库创作入口注入的虚拟指令。
-	return sortTokens([...explicitTokens, ...resolveVirtualSkillTokens(value, explicitTokens)]);
+	// 中文注释：召唤队友跳转时可能只恢复了文本，这里按项目成员把 @队友名 补成可发送的结构化 token。
+	const assistantTokens = resolveVirtualAssistantTokens(value, explicitTokens, assistantOptions);
+	const skillTokens = resolveVirtualSkillTokens(value, [...explicitTokens, ...assistantTokens]);
+	return sortTokens([...explicitTokens, ...assistantTokens, ...skillTokens]);
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isCursorInsideToken(cursor: number, tokens: InsertedToken[]): boolean {
@@ -365,6 +417,7 @@ function areTokensEqual(left: InsertedToken[], right: InsertedToken[]): boolean 
 		return (
 			target &&
 			token.label === target.label &&
+			token.id === target.id &&
 			token.start === target.start &&
 			token.end === target.end &&
 			token.kind === target.kind
@@ -389,6 +442,7 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 			const label = node.dataset.mentionLabel ?? node.textContent ?? "";
 			tokens.push({
 				label,
+				id: node.dataset.mentionId,
 				start: cursor,
 				end: cursor + label.length,
 				kind: node.dataset.mentionKind === "skill" ? "skill" : "assistant",
@@ -529,6 +583,9 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 		mention.dataset.mentionNode = "true";
 		mention.dataset.mentionLabel = token.label;
 		mention.dataset.mentionKind = token.kind;
+		if (token.id) {
+			mention.dataset.mentionId = token.id;
+		}
 		mention.setAttribute("contenteditable", "false");
 		if (token.kind === "skill") {
 			mention.className =
@@ -783,6 +840,8 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			directivesDisabled = false,
 			onProjectTrigger,
 			assistantSelectionMode = "multiple",
+			prefill,
+			onPrefillConsumed,
 		},
 		ref,
 	) {
@@ -803,12 +862,16 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const shouldAutoScrollPickerRef = useRef(false);
 		const valueRef = useRef(value);
 		const tokensRef = useRef<InsertedToken[]>([]);
+		const appliedPrefillIdsRef = useRef<Set<string>>(new Set());
 
 		const availableAssistantOptions = useMemo<AssistantOption[]>(
 			() => assistantOptions,
 			[assistantOptions],
 		);
-		const displayTokens = useMemo(() => resolveDisplayTokens(value, tokens), [tokens, value]);
+		const displayTokens = useMemo(
+			() => resolveDisplayTokens(value, tokens, availableAssistantOptions),
+			[availableAssistantOptions, tokens, value],
+		);
 		const selectedAssistantNames = useMemo(
 			() =>
 				dedupeValues(
@@ -903,11 +966,15 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				}
 
 				// 中文注释：程序化插入 mention 后立即同步 DOM，避免首个技能在 effect 前被读成普通文本。
-				buildEditorContent(editor, nextValue, resolveDisplayTokens(nextValue, nextTokens));
+				buildEditorContent(
+					editor,
+					nextValue,
+					resolveDisplayTokens(nextValue, nextTokens, availableAssistantOptions),
+				);
 				pendingCaretRef.current = null;
 				focusAt(nextCaret);
 			},
-			[focusAt, onChange],
+			[availableAssistantOptions, focusAt, onChange],
 		);
 
 		const getActiveTrigger = useCallback((text: string, caret: number) => {
@@ -979,7 +1046,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			const editor = editorRef.current;
 			if (!editor) return;
 
-			const resolvedTokens = resolveDisplayTokens(value, tokens);
+			const resolvedTokens = resolveDisplayTokens(value, tokens, availableAssistantOptions);
 			const snapshot = extractSnapshot(editor);
 
 			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, resolvedTokens)) {
@@ -991,7 +1058,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				setCaretOffset(editor, pendingCaretRef.current);
 				pendingCaretRef.current = null;
 			}
-		}, [tokens, value]);
+		}, [availableAssistantOptions, tokens, value]);
 
 		useEffect(() => {
 			if (!isEmptyEditorValue(value)) return;
@@ -1088,7 +1155,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 			if (!composingRef.current) {
 				const caret = getCaretOffset(editor);
-				const nextTokens = resolveDisplayTokens(text, snapshot.tokens);
+				const nextTokens = resolveDisplayTokens(text, snapshot.tokens, availableAssistantOptions);
 				if (isCursorInsideToken(caret, nextTokens)) {
 					setTrigger(null);
 					return;
@@ -1103,7 +1170,13 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 				setTrigger(directivesDisabled || nextTrigger?.kind === "project" ? null : nextTrigger);
 			}
-		}, [directivesDisabled, getActiveTrigger, notifyProjectTrigger, onChange]);
+		}, [
+			availableAssistantOptions,
+			directivesDisabled,
+			getActiveTrigger,
+			notifyProjectTrigger,
+			onChange,
+		]);
 
 		const handlePaste = useCallback(
 			(event: ClipboardEvent<HTMLDivElement>) => {
@@ -1240,7 +1313,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const prefix = kind === "assistant" ? "@" : "/";
 				const normalizedLabel = rawLabel.startsWith(prefix) ? rawLabel : `${prefix}${rawLabel}`;
 				const currentValue = valueRef.current;
-				const currentTokens = resolveDisplayTokens(currentValue, tokensRef.current);
+				const currentTokens = resolveDisplayTokens(
+					currentValue,
+					tokensRef.current,
+					availableAssistantOptions,
+				);
 				const target = currentTokens.find(
 					(token) => token.kind === kind && token.label === normalizedLabel,
 				);
@@ -1279,7 +1356,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				dismissTrigger(false);
 				commitProgrammaticEdit(nextValue, nextTokens, start);
 			},
-			[commitProgrammaticEdit, dismissTrigger],
+			[availableAssistantOptions, commitProgrammaticEdit, dismissTrigger],
 		);
 
 		const removeAssistantToken = useCallback(
@@ -1291,6 +1368,34 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			(skillLabel: string) => removeMentionToken("skill", skillLabel),
 			[removeMentionToken],
 		);
+
+		const setContent = useCallback(
+			(nextValue: string, nextComposerTokens: ComposerToken[] = []) => {
+				const nextTokens = sortTokens(
+					nextComposerTokens
+						.map((token) => ({
+							label: token.label,
+							id: token.id,
+							start: token.start,
+							end: token.end,
+							kind: token.kind,
+						}))
+						.filter((token) => nextValue.slice(token.start, token.end) === token.label),
+				);
+				dismissedTriggerStartRef.current = null;
+				dismissTrigger(false);
+				commitProgrammaticEdit(nextValue, nextTokens, nextValue.length);
+			},
+			[commitProgrammaticEdit, dismissTrigger],
+		);
+
+		useEffect(() => {
+			if (!prefill) return;
+			if (appliedPrefillIdsRef.current.has(prefill.id)) return;
+			appliedPrefillIdsRef.current.add(prefill.id);
+			setContent(prefill.value, prefill.tokens);
+			onPrefillConsumed?.(prefill.id);
+		}, [onPrefillConsumed, prefill, setContent]);
 
 		const handleEditorMouseDown = useCallback(
 			(event: MouseEvent<HTMLDivElement>) => {
@@ -1328,9 +1433,18 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				insertSkill: (skillLabel: string) => insertToolbarToken("skill", `/${skillLabel}`),
 				removeAssistant: removeAssistantToken,
 				removeSkill: removeSkillToken,
-				getComposerTokens: () => resolveDisplayTokens(valueRef.current, tokensRef.current),
+				setContent,
+				getComposerTokens: () =>
+					resolveDisplayTokens(valueRef.current, tokensRef.current, availableAssistantOptions),
 			}),
-			[insertToolbarToken, insertTrigger, removeAssistantToken, removeSkillToken],
+			[
+				availableAssistantOptions,
+				insertToolbarToken,
+				insertTrigger,
+				removeAssistantToken,
+				removeSkillToken,
+				setContent,
+			],
 		);
 
 		const selectToken = useCallback(
@@ -1442,7 +1556,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				if (selection.start !== selection.end) return false;
 
 				const currentValue = valueRef.current;
-				const currentTokens = resolveDisplayTokens(currentValue, tokensRef.current);
+				const currentTokens = resolveDisplayTokens(
+					currentValue,
+					tokensRef.current,
+					availableAssistantOptions,
+				);
 				const caret = selection.start;
 				const target =
 					key === "Backspace"
@@ -1487,7 +1605,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				commitProgrammaticEdit(nextValue, nextTokens, start);
 				return true;
 			},
-			[commitProgrammaticEdit, dismissTrigger],
+			[availableAssistantOptions, commitProgrammaticEdit, dismissTrigger],
 		);
 
 		const handleKeyDown = useCallback(
