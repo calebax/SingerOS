@@ -32,33 +32,26 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// TitleUpdater handles session title generation.
-type TitleUpdater interface {
-	HandleSessionTitleRequest(ctx context.Context, sessionPID string) error
-}
-
 // MessagePoster 无状态的消息投递器，负责消息创建、统计更新、事件发布、Worker 任务投递。
 // 多个 goroutine 可安全并发使用。
 type MessagePoster struct {
-	db           *gorm.DB
-	eventbus     eventbus.EventBus
-	inferrer     AssistantInferrer
-	giteaClient  *gitea.Client
-	giteaCfg     *config.GiteaConfig
-	env          string
-	titleUpdater TitleUpdater
+	db          *gorm.DB
+	eventbus    eventbus.EventBus
+	inferrer    AssistantInferrer
+	giteaClient *gitea.Client
+	giteaCfg    *config.GiteaConfig
+	env         string
 }
 
 // NewMessagePoster 创建 MessagePoster 实例。
-func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, titleUpdater TitleUpdater) *MessagePoster {
+func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) *MessagePoster {
 	return &MessagePoster{
-		db:           db,
-		eventbus:     eb,
-		inferrer:     inferrer,
-		giteaClient:  giteaClient,
-		giteaCfg:     giteaCfg,
-		env:          env,
-		titleUpdater: titleUpdater,
+		db:          db,
+		eventbus:    eb,
+		inferrer:    inferrer,
+		giteaClient: giteaClient,
+		giteaCfg:    giteaCfg,
+		env:         env,
 	}
 }
 
@@ -103,27 +96,6 @@ func (p *MessagePoster) PostMessage(
 	}
 	if err := infradb.UpdateLastMessageAt(ctx, p.db, session.ID, now); err != nil {
 		return nil, err
-	}
-
-	// Trigger title update asynchronously via local call.
-	if session.OrgID > 0 {
-		go func() {
-			if p.titleUpdater == nil {
-				return
-			}
-			titleCtx := context.Background()
-			if caller, _ := auth.FromContext(ctx); caller != nil && caller.OrgID > 0 {
-				titleCtx = auth.WithContext(titleCtx, caller, nil)
-			} else {
-				titleCtx = auth.WithContext(titleCtx, &types.Caller{
-					Uin:   session.Uin,
-					OrgID: session.OrgID,
-				}, nil)
-			}
-			if err := p.titleUpdater.HandleSessionTitleRequest(titleCtx, session.PublicID); err != nil {
-				logs.Warnf("title update failed for session %s: %v", session.PublicID, err)
-			}
-		}()
 	}
 
 	logs.DebugContextf(ctx, "published message events for session=%s", session.PublicID)
@@ -179,7 +151,7 @@ func (p *MessagePoster) RunNewMessage(
 	// 中文注释：content 为空时表示"召唤队友落地空对话"——仅创建 Project/Task/Session + 分配 worker，不发首条消息。
 	// 后续用户在任务详情页发送的消息走 AddMessage 路径，persona 通过 publishWorkerTask 自动注入。
 	var messageID string
-		if strings.TrimSpace(req.Content) != "" || len(req.Attachments) > 0 {
+	if strings.TrimSpace(req.Content) != "" || len(req.Attachments) > 0 {
 		message, err := p.PostMessage(ctx, o.taskSession, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
 			msgType := req.MessageType
 			if msgType == "" {

@@ -15,12 +15,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	db "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -85,13 +83,15 @@ func (m *mockEventBus) Publish(ctx context.Context, topic string, event any) err
 }
 
 type recordingEventBus struct {
-	topic string
-	event any
+	topic  string
+	event  any
+	events []publishedEvent
 }
 
 func (m *recordingEventBus) Publish(ctx context.Context, topic string, event any) error {
 	m.topic = topic
 	m.event = event
+	m.events = append(m.events, publishedEvent{topic: topic, event: event})
 	return nil
 }
 
@@ -243,17 +243,6 @@ func setupTestContextWithCaller(t *testing.T) context.Context {
 		TraceID:   "test-trace-id",
 	}
 	return auth.WithContext(context.Background(), caller, trace)
-}
-
-func addMessage(t *testing.T, service contract.SessionService, ctx context.Context, sessionID string, content string) {
-	t.Helper()
-	_, err := service.AddMessage(ctx, sessionID, &contract.AddMessageRequest{
-		Role:    string(types.MessageRoleUser),
-		Content: content,
-	})
-	if err != nil {
-		t.Fatalf("AddMessage failed: %v", err)
-	}
 }
 
 func createTestSession(t *testing.T, database *gorm.DB, svc contract.SessionService, ctx context.Context) *types.Session {
@@ -593,38 +582,6 @@ func TestUpdateSession_MarksTitleManuallySet(t *testing.T) {
 	}
 }
 
-func TestHandleSessionTitleRequest_AfterManualRename(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	_, err = service.UpdateSession(ctx, session.SessionID, &contract.UpdateSessionRequest{Title: "Manual title"})
-	if err != nil {
-		t.Fatalf("UpdateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "Manual title" {
-		t.Errorf("expected title %q, got %q", "Manual title", retrieved.Title)
-	}
-	if !retrieved.TitleManuallySet {
-		t.Error("expected TitleManuallySet to be true")
-	}
-}
-
 func TestDeleteSession(t *testing.T) {
 	service := setupTestService(t)
 	ctx := setupTestContextWithCaller(t)
@@ -799,326 +756,6 @@ func TestAddMessage_MissingContent(t *testing.T) {
 	if err.Error() != "content is required" {
 		t.Errorf("expected 'content is required' error, got %s", err.Error())
 	}
-}
-
-func TestHandleSessionTitleRequest_EmptyTitle(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "hello" {
-		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
-	}
-}
-
-func TestHandleSessionTitleRequest_XinSessionTitle(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
-		Type:  string(types.SessionTypeUserChat),
-		Title: "New Session",
-	})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "hello" {
-		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
-	}
-}
-
-func TestHandleSessionTitleRequest_Truncated(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	longContent := ""
-	for i := 0; i < 150; i++ {
-		longContent += "a"
-	}
-
-	addMessage(t, service, ctx, session.SessionID, longContent)
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if len([]rune(retrieved.Title)) != 100 {
-		t.Errorf("expected title length 100, got %d", len([]rune(retrieved.Title)))
-	}
-}
-
-func TestHandleSessionTitleRequest_CustomTitleUnchanged(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
-		Type:  string(types.SessionTypeUserChat),
-		Title: "Manual title",
-	})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "Manual title" {
-		t.Errorf("expected title %q, got %q", "Manual title", retrieved.Title)
-	}
-}
-
-func TestHandleSessionTitleRequest_ManuallySetFlag(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	_, err = service.UpdateSession(ctx, session.SessionID, &contract.UpdateSessionRequest{Title: "鎵嬪姩鏍囬"})
-	if err != nil {
-		t.Fatalf("UpdateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "鎵嬪姩鏍囬" {
-		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
-	}
-	if !retrieved.TitleManuallySet {
-		t.Error("expected TitleManuallySet to be true")
-	}
-}
-
-func createTaskSessionWithFirstMessage(
-	t *testing.T,
-	database *gorm.DB,
-	content string,
-	projectName string,
-	taskTitle string,
-) *types.Session {
-	t.Helper()
-	ctx := context.Background()
-	project := &types.Project{
-		PublicID: "prj_test_work_title",
-		OrgID:    1,
-		OwnerID:  1,
-		Name:     projectName,
-		Status:   string(types.ProjectStatusActive),
-	}
-	if err := db.CreateProject(ctx, database, project); err != nil {
-		t.Fatalf("CreateProject failed: %v", err)
-	}
-	task := &types.Task{
-		PublicID:  "task_test_work_title",
-		OrgID:     1,
-		OwnerID:   1,
-		ProjectID: project.ID,
-		TaskType:  types.TaskTypeGeneral,
-		Title:     taskTitle,
-		Status:    string(types.TaskStatusCreated),
-	}
-	if err := db.CreateTask(ctx, database, task); err != nil {
-		t.Fatalf("CreateTask failed: %v", err)
-	}
-	session := &types.Session{
-		PublicID:     "sess_test_work_title",
-		Type:         types.SessionTypeTask,
-		Uin:          1,
-		OrgID:        1,
-		AssistantID:  1,
-		ProjectID:    &project.ID,
-		TaskID:       &task.ID,
-		Status:       string(types.SessionStatusActive),
-		Title:        taskTitle,
-		MessageCount: 1,
-	}
-	if err := db.CreateSession(ctx, database, session); err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-	message := &types.SessionMessage{
-		SessionID: session.ID,
-		Role:      string(types.MessageRoleUser),
-		Content:   content,
-		Sequence:  1,
-		Timestamp: time.Now().UnixMilli(),
-		Status:    string(types.MessageStatusPending),
-	}
-	if err := db.CreateMessage(ctx, database, message); err != nil {
-		t.Fatalf("CreateMessage failed: %v", err)
-	}
-	return session
-}
-
-func TestHandleSessionTitleRequest_UpdatesWorkTitle(t *testing.T) {
-	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
-	ctx := setupTestContextWithCaller(t)
-	prompts.SetDefaultExecutor(workTitlePromptExecutor("生成的任务标题"))
-	t.Cleanup(func() {
-		prompts.SetDefaultExecutor(prompts.NewEinoExecutor())
-	})
-
-	content := "请帮我做一份季度经营分析报告"
-	session := createTaskSessionWithFirstMessage(
-		t,
-		database,
-		content,
-		fallbackWorkTitle(content),
-		fallbackWorkTitle(content),
-	)
-
-	if err := service.HandleSessionTitleRequest(ctx, session.PublicID); err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	project, err := db.GetProjectByID(ctx, database, *session.ProjectID)
-	if err != nil {
-		t.Fatalf("GetProjectByID failed: %v", err)
-	}
-	if project.Name != "生成的任务标题" {
-		t.Fatalf("expected project name %q, got %q", "生成的任务标题", project.Name)
-	}
-
-	var task types.Task
-	if err := database.WithContext(ctx).First(&task, *session.TaskID).Error; err != nil {
-		t.Fatalf("load task failed: %v", err)
-	}
-	if task.Title != "生成的任务标题" {
-		t.Fatalf("expected task title %q, got %q", "生成的任务标题", task.Title)
-	}
-}
-
-func TestHandleSessionTitleRequest_PublishesWorkTitleUpdatedStreamEvent(t *testing.T) {
-	database := setupTestDB(t)
-	bus := &recordingEventBus{}
-	service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
-	ctx := setupTestContextWithCaller(t)
-	prompts.SetDefaultExecutor(workTitlePromptExecutor("生成的任务标题"))
-	t.Cleanup(func() {
-		prompts.SetDefaultExecutor(prompts.NewEinoExecutor())
-	})
-
-	content := "请帮我做一份季度经营分析报告"
-	session := createTaskSessionWithFirstMessage(
-		t,
-		database,
-		content,
-		fallbackWorkTitle(content),
-		fallbackWorkTitle(content),
-	)
-
-	if err := service.HandleSessionTitleRequest(ctx, session.PublicID); err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	if bus.event == nil {
-		t.Fatal("expected work title stream event to be published")
-	}
-	runEvent, ok := bus.event.(messaging.RunEvent)
-	if !ok {
-		t.Fatalf("expected RunEvent, got %T", bus.event)
-	}
-	if runEvent.Body.Event != messaging.RunEventWorkTitleUpdated {
-		t.Fatalf("got stream event %q, want %q", runEvent.Body.Event, messaging.RunEventWorkTitleUpdated)
-	}
-	if runEvent.Body.Payload.WorkTitle == nil || runEvent.Body.Payload.WorkTitle.ProjectName != "生成的任务标题" {
-		t.Fatalf("unexpected work title payload: %#v", runEvent.Body.Payload.WorkTitle)
-	}
-	expectedTopic, err := messaging.RunEventSubject(session.OrgID, session.PublicID, messaging.RunEventLaneState)
-	if err != nil {
-		t.Fatalf("RunEventSubject failed: %v", err)
-	}
-	if bus.topic != expectedTopic {
-		t.Fatalf("got topic %q, want %q", bus.topic, expectedTopic)
-	}
-}
-
-func TestHandleSessionTitleRequest_DoesNotOverwriteCustomWorkTitle(t *testing.T) {
-	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
-	ctx := setupTestContextWithCaller(t)
-	prompts.SetDefaultExecutor(workTitlePromptExecutor("生成的任务标题"))
-	t.Cleanup(func() {
-		prompts.SetDefaultExecutor(prompts.NewEinoExecutor())
-	})
-
-	content := "请帮我做一份季度经营分析报告"
-	session := createTaskSessionWithFirstMessage(
-		t,
-		database,
-		content,
-		"自定义项目名",
-		fallbackWorkTitle(content),
-	)
-
-	if err := service.HandleSessionTitleRequest(ctx, session.PublicID); err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	project, err := db.GetProjectByID(ctx, database, *session.ProjectID)
-	if err != nil {
-		t.Fatalf("GetProjectByID failed: %v", err)
-	}
-	if project.Name != "自定义项目名" {
-		t.Fatalf("expected project name unchanged, got %q", project.Name)
-	}
-}
-
-type workTitlePromptExecutor string
-
-func (e workTitlePromptExecutor) Execute(_ context.Context, _ string, _ config.LLMConfig) (string, error) {
-	return string(e), nil
 }
 
 func TestDeleteMessage_UpdatesSession(t *testing.T) {
@@ -1919,7 +1556,7 @@ func TestGetSessionForCallerDeniesNonMemberForTaskSession(t *testing.T) {
 func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 	database := setupTestDB(t)
 	bus := &recordingEventBus{}
-	poster := NewMessagePoster(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	poster := NewMessagePoster(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
 	ctx := setupTestContextWithCaller(t)
 
 	proj := &types.Project{

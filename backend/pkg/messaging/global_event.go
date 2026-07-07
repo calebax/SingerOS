@@ -13,6 +13,10 @@ type GlobalEventType string
 // 通知群聊成员有新消息到达。
 const GlobalEventMessageCreated GlobalEventType = "message.created"
 
+// GlobalEventWorkTitleUpdated 在项目/任务/会话标题自动更新后触发，
+// 通知项目成员刷新工作台标题展示。
+const GlobalEventWorkTitleUpdated GlobalEventType = "work.title.updated"
+
 // SenderType 区分消息发送方是真人员工还是 AI 队友。
 type SenderType string
 
@@ -51,7 +55,7 @@ type MessageCreatedData struct {
 	RunID         string     `json:"run_id,omitempty"`
 
 	// 前端 human 消息渲染所需字段（assistant 事件不设置，omitempty 保证不出现）
-	MessageType string                  `json:"message_type,omitempty"`
+	MessageType string                    `json:"message_type,omitempty"`
 	Attachments []types.MessageAttachment `json:"attachments,omitempty"`
 	Metadata    *types.ObjectMetadata     `json:"metadata,omitempty"`
 }

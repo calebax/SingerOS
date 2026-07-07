@@ -1,8 +1,8 @@
 import { projectApi } from "../api/projectApi";
+import type { CreateInitialMessageParams } from "../api/sessionApi";
 import { sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
 import type { BackendProject, BackendSession, BackendTask } from "../api/types";
-import type { CreateInitialMessageParams } from "../api/sessionApi";
 import type { SliceCreator } from "../types";
 import type { Attachment, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
@@ -875,9 +875,22 @@ export class LayoutActionImpl {
 		task_id?: string;
 		task_title?: string;
 		session_id?: string;
+		session_title?: string;
 	}) => {
 		this.#set((state) => {
 			const existing = state.projects.find((project) => project.id === payload.project_id);
+			const updatedConversations =
+				payload.session_id && payload.session_title
+					? state.conversations.map((conversation) =>
+							conversation.id === payload.session_id
+								? {
+										...conversation,
+										title: payload.session_title ?? conversation.title,
+										updatedAt: Date.now(),
+									}
+								: conversation,
+						)
+					: state.conversations;
 			if (!existing) {
 				const now = Date.now();
 				const task =
@@ -909,6 +922,7 @@ export class LayoutActionImpl {
 						},
 						...state.projects,
 					],
+					conversations: updatedConversations,
 				};
 			}
 
@@ -921,11 +935,16 @@ export class LayoutActionImpl {
 						updatedAt: Date.now(),
 						tasks: project.tasks.map((task) =>
 							payload.task_id && task.id === payload.task_id
-								? { ...task, title: payload.task_title ?? task.title }
+								? {
+										...task,
+										title: payload.task_title ?? task.title,
+										sessionId: payload.session_id ?? task.sessionId,
+									}
 								: task,
 						),
 					};
 				}),
+				conversations: updatedConversations,
 			};
 		});
 	};
