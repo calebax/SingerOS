@@ -290,15 +290,28 @@ type BackendGlobalMessagePayload = {
 	assistant_name?: string;
 	metadata?: BackendMessageMetadata;
 };
-type BackendGlobalEvent = {
-	type?: string;
+type BackendGlobalPayload = BackendGlobalMessagePayload | BackendWorkTitleUpdatedPayload;
+type BackendGlobalEventBase<TType extends string = string, TPayload = BackendGlobalPayload> = {
+	type?: TType;
 	project_id?: string;
 	task_id?: string;
 	session_id?: string;
 	timestamp?: number;
-	payload?: BackendGlobalMessagePayload;
-	data?: BackendGlobalMessagePayload;
+	payload?: TPayload;
+	data?: TPayload;
 };
+type BackendGlobalMessageCreatedEvent = BackendGlobalEventBase<
+	"message.created",
+	BackendGlobalMessagePayload
+>;
+type BackendGlobalWorkTitleUpdatedEvent = BackendGlobalEventBase<
+	"work.title.updated",
+	BackendWorkTitleUpdatedPayload
+>;
+type BackendGlobalEvent =
+	| BackendGlobalMessageCreatedEvent
+	| BackendGlobalWorkTitleUpdatedEvent
+	| BackendGlobalEventBase;
 
 function mapGlobalMessageAttachments(
 	attachments: BackendMessageAttachment[] | undefined,
@@ -1367,10 +1380,10 @@ function getSessionLocalMessages(state: ChatState, sessionId: string): Message[]
 		.filter((message): message is Message => message?.conversationId === sessionId);
 }
 
-function parseWorkTitleUpdatedPayload(
-	data: SSEMessageEvent,
+function parseWorkTitleUpdatedRecord(
+	payload: unknown,
+	fallbackSessionId?: string,
 ): BackendWorkTitleUpdatedPayload | null {
-	const payload = data.payload;
 	if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
 		return null;
 	}
@@ -1383,9 +1396,16 @@ function parseWorkTitleUpdatedPayload(
 		project_name: record.project_name,
 		task_id: typeof record.task_id === "string" ? record.task_id : undefined,
 		task_title: typeof record.task_title === "string" ? record.task_title : undefined,
-		session_id: typeof record.session_id === "string" ? record.session_id : (data.session_id ?? ""),
+		session_id:
+			typeof record.session_id === "string" ? record.session_id : (fallbackSessionId ?? ""),
 		session_title: typeof record.session_title === "string" ? record.session_title : undefined,
 	};
+}
+
+function parseWorkTitleUpdatedPayload(
+	data: SSEMessageEvent,
+): BackendWorkTitleUpdatedPayload | null {
+	return parseWorkTitleUpdatedRecord(data.payload, data.session_id);
 }
 
 function parseGlobalEvent(raw: string, fallbackType?: string): BackendGlobalEvent | null {
@@ -1401,7 +1421,8 @@ function parseGlobalEvent(raw: string, fallbackType?: string): BackendGlobalEven
 }
 
 function getGlobalMessagePayload(event: BackendGlobalEvent): BackendGlobalMessagePayload {
-	return event.data ?? event.payload ?? {};
+	const payload = event.data ?? event.payload;
+	return isRecord(payload) ? (payload as BackendGlobalMessagePayload) : {};
 }
 
 function createGlobalUserMessageFromEvent(
@@ -1655,6 +1676,19 @@ export class ChatActionImpl {
 	};
 
 	#handleGlobalEvent = (event: BackendGlobalEvent) => {
+		if (event.type === "work.title.updated") {
+			const workTitlePayload = parseWorkTitleUpdatedRecord(
+				event.data ?? event.payload,
+				event.session_id,
+			);
+			if (workTitlePayload) {
+				const fullState = this.#fullGet() as {
+					applyWorkTitleUpdated?: (payload: BackendWorkTitleUpdatedPayload) => void;
+				};
+				fullState.applyWorkTitleUpdated?.(workTitlePayload);
+			}
+			return;
+		}
 		if (event.type !== "message.created") return;
 		if (!this.#isCurrentGlobalSession(event)) {
 			this.#bufferPendingGlobalEvent(event);

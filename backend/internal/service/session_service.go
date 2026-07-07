@@ -23,7 +23,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
@@ -331,7 +330,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 }
 
 func (s *sessionService) newMessagePoster() *MessagePoster {
-	return NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s)
+	return NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
 }
 
 func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {
@@ -380,159 +379,6 @@ func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence 
 	return message
 }
 
-func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.Session) {
-	if session.TitleManuallySet {
-		return
-	}
-	if session.MessageCount >= 3 {
-		return
-	}
-
-	if err := s.renameSession(ctx, session); err != nil {
-		logs.WarnContextf(ctx, "failed to auto-update session title: %v", err)
-	}
-}
-
-func (s *sessionService) renameSession(ctx context.Context, session *types.Session) error {
-	recentMessages := s.buildRecentMessages(ctx, session.ID)
-
-	title, err := prompts.Run(ctx, prompts.KeySessionTitle, map[string]any{
-		"current_title":   session.Title,
-		"recent_messages": recentMessages,
-	})
-	title = strings.TrimSpace(title)
-	if err != nil {
-		logs.WarnContextf(ctx, "LLM title generation failed, fallback: %v", err)
-		if session.Title != "" && session.Title != "New Session" {
-			return nil
-		}
-		latestMsg, _ := db.GetLatestMessage(ctx, s.db, session.ID)
-		if latestMsg != nil {
-			runes := []rune(latestMsg.Content)
-			if len(runes) > 100 {
-				title = string(runes[:100])
-			} else {
-				title = latestMsg.Content
-			}
-		}
-		if title == "" {
-			return nil
-		}
-	} else if title == "KEEP" {
-		return nil
-	}
-	logs.InfoContextf(ctx, "auto-updating session title to: %s, old title: %s", title, session.Title)
-	session.Title = title
-	session.UpdatedAt = time.Now()
-	return db.UpdateSession(ctx, s.db, session)
-}
-
-func (s *sessionService) buildRecentMessages(ctx context.Context, sessionID uint) string {
-	const maxMessages = 10
-	messages, err := db.GetRecentSessionMessages(ctx, s.db, sessionID, maxMessages)
-	if err != nil || len(messages) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	for _, msg := range messages {
-		sb.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
-	}
-	return sb.String()
-}
-
-func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
-	if err != nil {
-		return fmt.Errorf("get session %s: %w", sessionID, err)
-	}
-	if session == nil {
-		return nil
-	}
-
-	logs.DebugContextf(ctx, "handling session title request for session %s", sessionID)
-	s.tryAutoUpdateTitle(ctx, session)
-	s.tryAutoUpdateWorkTitle(ctx, session)
-	return nil
-}
-
-func (s *sessionService) tryAutoUpdateWorkTitle(ctx context.Context, session *types.Session) {
-	if session == nil || session.Type != types.SessionTypeTask {
-		return
-	}
-	if session.ProjectID == nil || session.TaskID == nil {
-		return
-	}
-	if session.MessageCount >= 3 {
-		return
-	}
-
-	project, err := db.GetProjectByID(ctx, s.db, *session.ProjectID)
-	if err != nil || project == nil {
-		return
-	}
-	var task types.Task
-	if err := s.db.WithContext(ctx).First(&task, *session.TaskID).Error; err != nil {
-		return
-	}
-
-	firstMsg, err := s.firstUserMessage(ctx, session.ID)
-	if err != nil || firstMsg == nil {
-		return
-	}
-	fallbackTitle := fallbackWorkTitle(firstMsg.Content)
-	if project.Name != fallbackTitle && task.Title != fallbackTitle {
-		return
-	}
-
-	title, err := prompts.Run(ctx, prompts.KeyWorkTitle, map[string]any{
-		"user_message": firstMsg.Content,
-	})
-	if err != nil {
-		logs.WarnContextf(ctx, "work title: LLM generation failed for session %s: %v", session.PublicID, err)
-		return
-	}
-	title = sanitizeGeneratedWorkTitle(title)
-	if title == "" {
-		return
-	}
-
-	projectUpdated := false
-	if project.Name == fallbackTitle {
-		project.Name = title
-		project.UpdatedAt = time.Now()
-		if err := db.UpdateProject(ctx, s.db, project); err != nil {
-			logs.WarnContextf(ctx, "work title: update project %s: %v", project.PublicID, err)
-		} else {
-			projectUpdated = true
-		}
-	}
-	taskUpdated := false
-	if task.Title == fallbackTitle {
-		task.Title = title
-		task.UpdatedAt = time.Now()
-		if err := db.UpdateTask(ctx, s.db, &task); err != nil {
-			logs.WarnContextf(ctx, "work title: update task %s: %v", task.PublicID, err)
-		} else {
-			taskUpdated = true
-		}
-	}
-	if !projectUpdated && !taskUpdated {
-		return
-	}
-
-	if session.Title == fallbackTitle {
-		session.Title = title
-		session.UpdatedAt = time.Now()
-		if err := db.UpdateSession(ctx, s.db, session); err != nil {
-			logs.WarnContextf(ctx, "work title: update session %s: %v", session.PublicID, err)
-		}
-	}
-
-	if err := s.publishWorkTitleUpdated(ctx, session, project, &task); err != nil {
-		logs.WarnContextf(ctx, "work title: publish stream event for session %s: %v", session.PublicID, err)
-	}
-}
-
 func (s *sessionService) firstUserMessage(ctx context.Context, sessionID uint) (*types.SessionMessage, error) {
 	var message types.SessionMessage
 	err := s.db.WithContext(ctx).
@@ -554,62 +400,6 @@ func fallbackWorkTitle(content string) string {
 		return string(runes[:workTitleMaxRunes])
 	}
 	return string(runes)
-}
-
-func sanitizeGeneratedWorkTitle(title string) string {
-	title = strings.TrimSpace(title)
-	title = strings.Trim(title, "\"'`“”‘’「」『』")
-	title = strings.TrimSpace(title)
-	runes := []rune(title)
-	if len(runes) > workTitleMaxRunes {
-		return string(runes[:workTitleMaxRunes])
-	}
-	return title
-}
-
-func (s *sessionService) publishWorkTitleUpdated(
-	ctx context.Context,
-	session *types.Session,
-	project *types.Project,
-	task *types.Task,
-) error {
-	if s == nil || s.eventbus == nil || session == nil || project == nil || task == nil {
-		return nil
-	}
-	if session.OrgID == 0 || session.PublicID == "" {
-		return nil
-	}
-
-	workTitle := messaging.WorkTitleUpdatedPayload{
-		ProjectID:    project.PublicID,
-		ProjectName:  project.Name,
-		TaskID:       task.PublicID,
-		TaskTitle:    task.Title,
-		SessionID:    session.PublicID,
-		SessionTitle: session.Title,
-	}
-	topic, err := messaging.RunEventSubject(session.OrgID, session.PublicID, messaging.RunEventLaneState)
-	if err != nil {
-		return err
-	}
-
-	msg := messaging.RunEvent{
-		ID:        fmt.Sprintf("work-title:%s:%d", session.PublicID, time.Now().UnixMilli()),
-		Type:      messaging.MessageTypeRunEvent,
-		CreatedAt: time.Now().UTC(),
-		Route: messaging.RouteContext{
-			OrgID:     session.OrgID,
-			SessionID: session.PublicID,
-		},
-		Body: messaging.RunEventBody{
-			Seq:   time.Now().UnixMilli(),
-			Event: messaging.RunEventWorkTitleUpdated,
-			Payload: messaging.RunEventPayload{
-				WorkTitle: &workTitle,
-			},
-		},
-	}
-	return s.eventbus.Publish(ctx, topic, msg)
 }
 
 func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.SubmitApprovalRequest) error {
@@ -1525,6 +1315,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 	}
 
 	logs.DebugContextf(ctx, "persisted completed session message: session_id=%s seq=%d", req.SessionID, sequence)
+	s.scheduleFirstTurnWorkTitleUpdate(ctx, session, msgEntity, true)
 
 	return nil
 }
@@ -1615,8 +1406,50 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 	}
 
 	logs.DebugContextf(ctx, "persisted failed session message: session_id=%s seq=%d", req.SessionID, sequence)
+	s.scheduleFirstTurnWorkTitleUpdate(ctx, session, msgEntity, false)
 
 	return nil
+}
+
+func (s *sessionService) scheduleFirstTurnWorkTitleUpdate(
+	ctx context.Context,
+	session *types.Session,
+	message *types.SessionMessage,
+	includeAssistantMessage bool,
+) {
+	if s == nil || session == nil || message == nil || session.OrgID == 0 {
+		logs.DebugContextf(ctx, "work title: skip schedule due to missing service/session/message/org")
+		return
+	}
+	if session.Type != types.SessionTypeTask || session.ProjectID == nil || session.TaskID == nil {
+		logs.DebugContextf(ctx, "work title: skip schedule for non-task session=%s type=%s", session.PublicID, session.Type)
+		return
+	}
+
+	sessionID := session.PublicID
+	assistantMessage := ""
+	if includeAssistantMessage {
+		assistantMessage = message.Content
+	}
+
+	caller, _ := auth.FromContext(ctx)
+	if caller == nil || caller.OrgID == 0 {
+		caller = &types.Caller{Uin: session.Uin, OrgID: session.OrgID}
+	}
+
+	logs.InfoContextf(ctx, "work title: scheduled first-turn update session=%s include_assistant=%t", sessionID, includeAssistantMessage)
+	go func() {
+		titleCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		titleCtx = auth.WithContext(titleCtx, caller, nil)
+
+		updater := NewWorkTitleUpdater(s.db, s.eventbus)
+		if err := updater.UpdateAfterFirstTurn(titleCtx, sessionID, assistantMessage); err != nil {
+			logs.WarnContextf(titleCtx, "first-turn work title update failed for session %s: %v", sessionID, err)
+			return
+		}
+		logs.DebugContextf(titleCtx, "work title: first-turn update finished session=%s", sessionID)
+	}()
 }
 
 func stateStartSeq(metadata types.ObjectMetadata) (uint64, bool) {

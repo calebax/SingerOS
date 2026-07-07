@@ -13,7 +13,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
 	recorder := &recordingEventBus{}
-	poster := NewMessagePoster(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	poster := NewMessagePoster(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test")
 
 	assistant := seedReadyAssistant(t, database, "bid-strategist", "投标策略师", "按投标策略师身份回答")
 	project := &types.Project{
@@ -90,7 +90,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
 	recorder := &recordingEventBus{}
-	poster := NewMessagePoster(database, recorder, nil, nil, nil, "test", nil)
+	poster := NewMessagePoster(database, recorder, nil, nil, nil, "test")
 
 	assistant := seedReadyAssistant(t, database, "contract-review", "合同审查专家", "只做合同风险审查。")
 	block := &types.DigitalAssistantPromptBlock{
@@ -201,7 +201,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 func TestSyncSkillEntriesToProject_SkipsNonProjectSession(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil)
+	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test")
 
 	session := &types.Session{PublicID: "sess_no_project", OrgID: 1}
 	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal"})
@@ -210,7 +210,7 @@ func TestSyncSkillEntriesToProject_SkipsNonProjectSession(t *testing.T) {
 func TestSyncSkillEntriesToProject_AddsSkill(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil)
+	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test")
 
 	project := &types.Project{
 		PublicID: "prj_sync_skill_add",
@@ -261,7 +261,7 @@ func TestSyncSkillEntriesToProject_AddsSkill(t *testing.T) {
 func TestSyncSkillEntriesToProject_DeduplicatesSkills(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil)
+	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test")
 
 	project := &types.Project{
 		PublicID: "prj_sync_skill_dedup",
@@ -309,7 +309,7 @@ func TestSyncSkillEntriesToProject_DeduplicatesSkills(t *testing.T) {
 func TestSyncSkillEntriesToProject_MultipleSkills(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil)
+	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test")
 
 	project := &types.Project{
 		PublicID: "prj_sync_skill_multi",

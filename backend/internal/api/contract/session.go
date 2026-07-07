@@ -55,9 +55,6 @@ type SessionService interface {
 	// FailedSessionMessage persists the final assistant message for a failed session run.
 	FailedSessionMessage(ctx context.Context, req *FailedSessionMessageRequest) error
 
-	// HandleSessionTitleRequest handles an asynchronous session title update request.
-	HandleSessionTitleRequest(ctx context.Context, sessionID string) error
-
 	// SubmitApproval forwards an approval decision to the worker via NATS.
 	SubmitApproval(ctx context.Context, req *SubmitApprovalRequest) error
 
