@@ -86,7 +86,9 @@ export function ChatInput({
 		activeTaskDetailTaskId,
 		activeTaskDetailSessionId,
 		currentView,
+		projectComposerPrefill,
 		projects,
+		consumeProjectComposerPrefill,
 	} = useLayoutStore((s) => s);
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -119,6 +121,13 @@ export function ChatInput({
 		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
 		[projectSkillOptions],
 	);
+	const activeProjectComposerPrefill =
+		isProjectVariant &&
+		currentView === "project" &&
+		activeProjectId &&
+		projectComposerPrefill?.projectId === activeProjectId
+			? projectComposerPrefill
+			: undefined;
 
 	useEffect(() => {
 		if (!isProjectVariant) {
@@ -328,6 +337,8 @@ export function ChatInput({
 						assistantOptions={projectAssistantOptions}
 						projectSkillOptions={projectSkillOptions}
 						assistantSelectionMode="single"
+						prefill={activeProjectComposerPrefill}
+						onPrefillConsumed={consumeProjectComposerPrefill}
 					/>
 					<input
 						ref={fileInputRef}

@@ -64,7 +64,9 @@ export function TaskDetailRoutePage() {
 }
 
 export function AssistantsRoutePage() {
-	return <AssistantListView />;
+	const navigation = useWebNavigation();
+
+	return <AssistantListView navigation={navigation} />;
 }
 
 export function SkillsRoutePage() {

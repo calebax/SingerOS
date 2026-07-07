@@ -45,7 +45,7 @@ export function AppRoutes() {
 
 				<Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailRoutePage />} />
 
-				<Route path="/assistants" element={<AssistantListView />} />
+				<Route path="/assistants" element={<AssistantListView navigation={navigation} />} />
 
 				<Route path="/ai-teammates" element={<AiTeammatesView />} />
 
