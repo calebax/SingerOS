@@ -221,10 +221,10 @@ export function TaskDetailPage({
 		loadConversationMessages(resolvedSessionId, {
 			resumeStream: !(bootstrapPending && sessionHasMessages),
 		});
+		// 中文注释：这里不要依赖 messageIds.length，否则群聊中新消息回推会重复触发恢复流，与 GlobalEvents 的 assistant 流式回复并行显示。
 	}, [
 		resolvedSessionId,
 		pendingBootstrapSessionId,
-		messageIds.length,
 		isGenerating,
 		setActiveSession,
 		hasSessionMessages,
@@ -297,21 +297,27 @@ export function TaskDetailPage({
 		let cancelled = false;
 		const resolveTeammate = async () => {
 			try {
-				let assistantId = storeTask?.assistantId;
-				if (!assistantId) {
-					const res = await sessionApi.get({ session_id: resolvedSessionId });
-					assistantId = res.data.data?.assistant_id;
-				}
-				if (cancelled || !assistantId) {
-					setTeammate(null);
-					return;
-				}
 				if (!assistantsLoaded) {
 					await fetchAssistants();
 				}
 				if (cancelled) return;
 				const latest = useAppStore.getState().assistants;
-				const found = latest.find((a) => a.id === assistantId) ?? null;
+
+				// 中文注释：store 任务保存数字 assistantId，session 接口返回 publicId 字符串，需分别匹配。
+				if (storeTask?.assistantId !== undefined) {
+					const fromStore =
+						latest.find((assistant) => assistant.id === storeTask.assistantId) ?? null;
+					setTeammate(fromStore);
+					return;
+				}
+
+				const res = await sessionApi.get({ session_id: resolvedSessionId });
+				const assistantPublicId = res.data.data?.assistant_id;
+				if (cancelled || !assistantPublicId) {
+					setTeammate(null);
+					return;
+				}
+				const found = latest.find((assistant) => assistant.publicId === assistantPublicId) ?? null;
 				setTeammate(found);
 			} catch (err) {
 				console.error("TaskDetailPage resolve teammate error:", err);

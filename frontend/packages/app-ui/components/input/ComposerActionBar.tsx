@@ -15,6 +15,7 @@ import { cn } from "@leros/ui/lib/utils";
 import { Bot, ClipboardPenLine, Plus, Sparkles, WandSparkles } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
 import { renderHighlightedText } from "../common/searchText";
+import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 import type {
 	ComposerAssistantOption,
 	ComposerSkillOption,
@@ -31,6 +32,7 @@ type ComposerActionBarProps = {
 	assistantOptions?: ComposerAssistantOption[];
 	projectSkillOptions?: ComposerSkillOption[];
 	disableAssistantAndSkill?: boolean;
+	assistantSelectionMode?: "single" | "multiple";
 	executionMode?: "default" | "plan";
 	setExecutionMode?: (mode: "default" | "plan") => void;
 	isGenerating?: boolean;
@@ -128,6 +130,7 @@ export function ComposerActionBar({
 	assistantOptions = [],
 	projectSkillOptions,
 	disableAssistantAndSkill = false,
+	assistantSelectionMode = "multiple",
 	executionMode,
 	setExecutionMode,
 	isGenerating,
@@ -156,14 +159,19 @@ export function ComposerActionBar({
 	const filteredAssistants = useMemo(() => {
 		const query = assistantSearch.trim().toLowerCase();
 		return assistantOptions.filter((assistant) => {
-			if (selectedAssistantNames.includes(assistant.name)) return false;
+			if (
+				assistantSelectionMode === "multiple" &&
+				selectedAssistantNames.includes(assistant.name)
+			) {
+				return false;
+			}
 			if (!query) return true;
 			return [assistant.name, assistant.code, assistant.description]
 				.join(" ")
 				.toLowerCase()
 				.includes(query);
 		});
-	}, [assistantOptions, assistantSearch, selectedAssistantNames]);
+	}, [assistantOptions, assistantSearch, assistantSelectionMode, selectedAssistantNames]);
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
 		return skillOptions.filter((skill) => {
@@ -303,9 +311,7 @@ export function ComposerActionBar({
 										}}
 										className="rounded-xl px-2.5 py-2"
 									>
-										<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-											<Bot className="size-4" />
-										</div>
+										<AssistantAvatar name={assistant.name} src={assistant.avatarUrl} size="sm" />
 										<div className="min-w-0">
 											<div className="truncate text-sm font-medium text-slate-700">
 												{renderHighlightedText(assistant.name, assistantSearch)}

@@ -26,6 +26,7 @@ export type {
 	DeleteProjectParams,
 	GetProjectParams,
 	ListProjectsParams,
+	ProjectMemberInput,
 	SaveWorkbenchRecentContextParams,
 	UpdateProjectParams,
 } from "./projectApi";

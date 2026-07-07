@@ -286,7 +286,7 @@ type BackendGlobalMessagePayload = {
 	attachments?: BackendMessageAttachment[];
 	created_at?: string;
 	run_id?: string;
-	assistant_id?: number;
+	assistant_id?: string;
 	assistant_name?: string;
 	metadata?: BackendMessageMetadata;
 };
@@ -313,6 +313,19 @@ type BackendGlobalEvent =
 	| BackendGlobalWorkTitleUpdatedEvent
 	| BackendGlobalEventBase;
 
+function extractAssistantIdsFromMetadata(metadata?: MessageMetadata): string[] | undefined {
+	const assistantIds = Array.from(
+		new Set(
+			(metadata?.composerTokens ?? [])
+				.filter((token) => token.kind === "assistant" && token.id?.trim())
+				.map((token) => token.id?.trim())
+				.filter((id): id is string => Boolean(id)),
+		),
+	);
+	// 中文注释：只有显式选择 AI 队友时才传 assistant_ids，避免覆盖后端默认分配逻辑。
+	return assistantIds.length > 0 ? assistantIds : undefined;
+}
+
 function mapGlobalMessageAttachments(
 	attachments: BackendMessageAttachment[] | undefined,
 	messageCreatedAt?: number,
@@ -321,6 +334,52 @@ function mapGlobalMessageAttachments(
 		?.map((attachment) => mapBackendAttachment(attachment, messageCreatedAt))
 		.filter((attachment): attachment is MessageAttachment => attachment !== undefined);
 	return mapped?.length ? mapped : undefined;
+}
+
+function getReplyTargetMessageId(runId?: string): string | undefined {
+	const match = runId?.match(/^req_(.+)$/);
+	return match?.[1]?.trim() || undefined;
+}
+
+function buildReplyToFromMessage(message?: Message): Message["replyTo"] | undefined {
+	if (message?.role !== "user") return undefined;
+	const content = message.content.trim();
+	if (!content && !message.attachments?.length) return undefined;
+	return {
+		messageId: message.id,
+		authorName: message.author?.name,
+		content,
+	};
+}
+
+function resolveActiveRunIdForCancel(state: Pick<ChatState, "streamingMessageId" | "messagesMap">) {
+	const streamingMessage = state.streamingMessageId
+		? state.messagesMap[state.streamingMessageId]
+		: undefined;
+	// 中文注释：run_id 由 GlobalEvents 的 message.created 写入流式 assistant 消息，取消时一并传给后端。
+	return streamingMessage?.runId?.trim() || undefined;
+}
+
+function resolveReplyToFromRunId(
+	runId: string | undefined,
+	messagesMap: Record<string, Message>,
+	sessionId?: string,
+): Message["replyTo"] | undefined {
+	const replyTargetMessageId = getReplyTargetMessageId(runId);
+	if (!replyTargetMessageId) return undefined;
+	const target = messagesMap[replyTargetMessageId];
+	if (!target || (sessionId && target.conversationId !== sessionId)) return undefined;
+	return buildReplyToFromMessage(target);
+}
+
+export function attachAssistantReplyTargets(messages: Message[]): Message[] {
+	const messagesMap = Object.fromEntries(messages.map((message) => [message.id, message]));
+	return messages.map((message) => {
+		if (message.role !== "assistant" || message.replyTo) return message;
+		const replyTo = resolveReplyToFromRunId(message.runId, messagesMap, message.conversationId);
+		if (!replyTo) return message;
+		return { ...message, replyTo };
+	});
 }
 
 function mapUsage(usage?: {
@@ -1171,6 +1230,7 @@ function inheritStreamingAssistantState(target: Message, source?: Message): Mess
 	if (!source) return target;
 	return {
 		...target,
+		replyTo: target.replyTo ?? source.replyTo,
 		content: source.content || target.content,
 		toolCalls: source.toolCalls ?? target.toolCalls,
 		todos: source.todos ?? target.todos,
@@ -1592,6 +1652,8 @@ export class ChatActionImpl {
 			timestamp: now + 100,
 			status: "waiting",
 			statusText: "正在提交问题并分配 AI 员工...",
+			// 中文注释：等待 GlobalEvents 回填前，先用本次输入的 @ 队友信息稳定展示头像和名称。
+			metadata: _options?.metadata,
 			author: {
 				id: "pending-assistant",
 				name: "Lework",
@@ -1821,6 +1883,8 @@ export class ChatActionImpl {
 			timestamp: event.timestamp || Date.now(),
 			status: "streaming",
 			statusText: "AI 员工已接单，正在生成回复...",
+			// 中文注释：后端当前用 req_用户消息ID 作为 run_id，前端据此展示本轮 AI 回复对应的问题。
+			replyTo: resolveReplyToFromRunId(runId, state.messagesMap, sessionId),
 			author: {
 				id: payload.assistant_id !== undefined ? String(payload.assistant_id) : runId,
 				name: payload.assistant_name || payload.sender_name || "Lework",
@@ -1857,7 +1921,7 @@ export class ChatActionImpl {
 	#startAssistantStreamAfterGlobalEvent = async (
 		sessionId: string,
 		assistantMsg: Message,
-		assistantId?: number,
+		assistantId?: string,
 	) => {
 		try {
 			const sessionRes = await sessionApi.get({ session_id: sessionId });
@@ -1898,6 +1962,8 @@ export class ChatActionImpl {
 			timestamp: now + 100,
 			status: "waiting",
 			statusText: "正在提交问题并分配 AI 员工...",
+			// 中文注释：等待 GlobalEvents 回填前，先用本次输入的 @ 队友信息稳定展示头像和名称。
+			metadata: params.metadata,
 			author: {
 				id: "pending-assistant",
 				name: "Lework",
@@ -1919,6 +1985,7 @@ export class ChatActionImpl {
 				role: "user",
 				content: trimmed,
 				execution_mode: this.#get().executionMode,
+				assistant_ids: extractAssistantIdsFromMetadata(params.metadata),
 				message_type: "text",
 				attachments: mapOutgoingAttachments(attachments),
 				metadata: params.metadata?.composerTokens
@@ -1999,6 +2066,7 @@ export class ChatActionImpl {
 				role: "user",
 				content,
 				execution_mode: state.executionMode,
+				assistant_ids: extractAssistantIdsFromMetadata(metadata),
 				message_type: "text",
 				attachments: mapOutgoingAttachments(attachments),
 				metadata: metadata?.composerTokens
@@ -2027,6 +2095,7 @@ export class ChatActionImpl {
 			role: "assistant",
 			content: "",
 			timestamp: now + 100,
+			replyTo: buildReplyToFromMessage(userMsg),
 		};
 
 		this.#dispatchChat({ type: "addMessage", value: userMsg });
@@ -2057,6 +2126,7 @@ export class ChatActionImpl {
 				content: trimmed,
 				execution_mode: this.#get().executionMode,
 				project_id: projectId,
+				assistant_ids: extractAssistantIdsFromMetadata(metadata),
 				attachments: mapOutgoingAttachments(attachments),
 			});
 			const data = res.data.data;
@@ -2130,6 +2200,7 @@ export class ChatActionImpl {
 			role: "assistant",
 			content: "",
 			timestamp: now + 100,
+			replyTo: buildReplyToFromMessage(fallbackUserMsg),
 		};
 
 		const messagesMap: Record<string, Message> = {};
@@ -2194,7 +2265,7 @@ export class ChatActionImpl {
 		sessionId: string,
 		assistantMsgId: string,
 		replay = false,
-		assistantId?: number,
+		assistantId?: string,
 	) => {
 		if (this.#sseClient) {
 			this.#sseClient.close();
@@ -2309,13 +2380,19 @@ export class ChatActionImpl {
 
 	cancelGeneration = () => {
 		const state = this.#get();
+		const runId = resolveActiveRunIdForCancel(state);
 
 		// 标记此 session 正在取消 + 通知后端真实取消 agent 执行（异步，不阻塞 UI 清理）
 		if (state.activeSessionId) {
 			this.#set({ cancellingSessionId: state.activeSessionId });
-			sessionApi.cancelSessionRun({ session_id: state.activeSessionId }).catch(() => {
-				// 取消 API 调用失败不影响前端状态重置
-			});
+			sessionApi
+				.cancelSessionRun({
+					session_id: state.activeSessionId,
+					...(runId ? { run_id: runId } : {}),
+				})
+				.catch(() => {
+					// 取消 API 调用失败不影响前端状态重置
+				});
 		}
 
 		state.streamCancelRef?.();
@@ -2398,7 +2475,7 @@ export class ChatActionImpl {
 			).length;
 			const items = await this.#fetchAllConversationMessages(sessionId);
 
-			const persistedMessages = items.map(mapBackendMessage);
+			const persistedMessages = attachAssistantReplyTargets(items.map(mapBackendMessage));
 			const state = this.#get();
 			if (state.pendingBootstrapSessionId === sessionId) return;
 			const localSessionMessages = getSessionLocalMessages(state, sessionId);

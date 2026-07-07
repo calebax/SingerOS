@@ -1,6 +1,6 @@
 "use client";
 
-import { authenticatedFetch } from "@leros/store";
+import { authenticatedFetch, fetchFilePreviewByPublicId } from "@leros/store";
 import { type ReactNode, useEffect, useState } from "react";
 
 const PROTECTED_IMAGE_CACHE_PREFIX = "leros-avatar-cache:";
@@ -9,12 +9,20 @@ export function isProtectedFileURL(src: string): boolean {
 	return src.includes("/files/") && src.includes("/download");
 }
 
+function isFilePublicId(src: string): boolean {
+	return /^file_[A-Za-z0-9_-]+$/.test(src.trim());
+}
+
+function isProtectedImageSource(src: string): boolean {
+	return isProtectedFileURL(src) || isFilePublicId(src);
+}
+
 function getProtectedImageCacheKey(src: string): string {
 	return `${PROTECTED_IMAGE_CACHE_PREFIX}${src}`;
 }
 
 export function getCachedProtectedImageDataURL(src?: string | null): string | null {
-	if (!src || typeof window === "undefined" || !isProtectedFileURL(src)) return null;
+	if (!src || typeof window === "undefined" || !isProtectedImageSource(src)) return null;
 	try {
 		return window.localStorage.getItem(getProtectedImageCacheKey(src));
 	} catch {
@@ -23,7 +31,7 @@ export function getCachedProtectedImageDataURL(src?: string | null): string | nu
 }
 
 export function cacheProtectedImageDataURL(src: string, dataURL: string) {
-	if (typeof window === "undefined" || !isProtectedFileURL(src)) return;
+	if (typeof window === "undefined" || !isProtectedImageSource(src)) return;
 	try {
 		window.localStorage.setItem(getProtectedImageCacheKey(src), dataURL);
 	} catch {
@@ -44,6 +52,15 @@ export function blobToDataURL(blob: Blob): Promise<string> {
 		reader.addEventListener("error", () => reject(new Error("图片读取失败")));
 		reader.readAsDataURL(blob);
 	});
+}
+
+function fetchProtectedImageSource(src: string): Promise<Response> {
+	if (isFilePublicId(src)) {
+		// 中文注释：头像字段保存的是文件 public_id，展示时统一走 preview 接口读取受保护文件。
+		return fetchFilePreviewByPublicId(src);
+	}
+
+	return authenticatedFetch(src);
 }
 
 type ProtectedImageProps = {
@@ -72,7 +89,7 @@ export function ProtectedImage({
 
 	useEffect(() => {
 		setFailed(false);
-		if (!src || !isProtectedFileURL(src)) {
+		if (!src || !isProtectedImageSource(src)) {
 			setImageURL(null);
 			return;
 		}
@@ -85,7 +102,7 @@ export function ProtectedImage({
 		}
 
 		let cancelled = false;
-		authenticatedFetch(src)
+		fetchProtectedImageSource(src)
 			.then(async (response) => {
 				if (!response.ok) throw new Error(`HTTP ${response.status}`);
 				return response.blob();
@@ -128,7 +145,7 @@ export function ProtectedImage({
 
 	if (!src || failed) return <>{fallback}</>;
 	const imageSrc = imageURL || src;
-	if (isProtectedFileURL(src) && !imageURL) return <>{fallback}</>;
+	if (isProtectedImageSource(src) && !imageURL) return <>{fallback}</>;
 
 	return (
 		<img
