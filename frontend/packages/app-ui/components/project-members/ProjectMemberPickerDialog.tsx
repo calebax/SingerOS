@@ -26,7 +26,7 @@ import {
 } from "@leros/ui/components/ui/dialog";
 import { cn } from "@leros/ui/lib/utils";
 import { Bot, Check, LoaderCircle, UserRound, X } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
@@ -129,9 +129,14 @@ export function ProjectMemberPickerDialog({
 	const [humanOptions, setHumanOptions] = useState<ProjectMember[]>([]);
 	const [humansLoading, setHumansLoading] = useState(false);
 	const [humansError, setHumansError] = useState<string | null>(null);
+	const wasOpenRef = useRef(false);
 
 	useEffect(() => {
-		if (!open) return;
+		const wasOpen = wasOpenRef.current;
+		wasOpenRef.current = open;
+		if (!open || wasOpen) return;
+
+		// 中文注释：弹窗草稿只在打开瞬间初始化，避免 AI/成员列表异步刷新把用户刚删除的成员重置回来。
 		setDraftMembers(selectedMembers);
 		setActiveTab("assistant");
 		setAssistantSearch("");

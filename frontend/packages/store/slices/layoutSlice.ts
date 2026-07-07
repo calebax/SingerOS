@@ -324,10 +324,12 @@ function extractProjectMembers(metadata?: Record<string, unknown>): ProjectMembe
 
 export function projectMembersToInputs(members: ProjectMember[]): ProjectMemberInput[] {
 	return members
-		.filter((member) => Boolean(member.publicId))
+		.filter(
+			(member) => Boolean(member.publicId) && !(member.type === "assistant" && member.isDefault),
+		)
 		.map((member) => ({
 			type: member.type,
-			// 中文注释：成员更新接口要求 AI 员工和真实成员都传 public_id，不能回退到内部数字 member_id。
+			// 中文注释：成员更新接口要求 AI 员工和真实成员都传 public_id，默认 AI 由后端保留不参与 diff。
 			id: member.publicId as string,
 		}));
 }
