@@ -91,7 +91,7 @@ func builtinSkillForSearch(skillID string) types.BuiltinSkillMarketplaceItem {
 		Name:        skillID,
 		Description: "builtin description",
 		Version:     "1.0.0",
-		Author:      "Leros",
+		Author:      "Lework",
 		Category:    "",
 		LocalPath:   skillID,
 		Verified:    true,
