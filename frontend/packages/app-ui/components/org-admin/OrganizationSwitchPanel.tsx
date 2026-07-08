@@ -1,6 +1,12 @@
 "use client";
 
-import { type AuthUser, useAuthStore, useChatStore, useLayoutStore } from "@leros/store";
+import {
+	type AuthUser,
+	resolveLogoUrl,
+	useAuthStore,
+	useChatStore,
+	useLayoutStore,
+} from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
 import { cn } from "@leros/ui/lib/utils";
@@ -175,7 +181,7 @@ function OrganizationList({
 					>
 						<span className="flex size-10 shrink-0 overflow-hidden rounded-full bg-[var(--leros-primary)]">
 							<ProtectedImage
-								src={org.logo}
+								src={resolveLogoUrl(org.logo)}
 								alt={org.name}
 								className="h-full w-full object-cover"
 								fallback={

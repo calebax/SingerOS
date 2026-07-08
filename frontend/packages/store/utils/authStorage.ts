@@ -7,6 +7,7 @@ export type StoredAuthOrg = {
 	name: string;
 	logo?: string;
 	isDefault?: boolean;
+	createdByUin?: number;
 };
 
 export type StoredAuthUser = {

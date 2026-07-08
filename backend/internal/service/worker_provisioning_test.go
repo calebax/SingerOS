@@ -44,6 +44,27 @@ func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {
 	if defaultAssistant.PublicID != "assistant_default_o12" {
 		t.Fatalf("default assistant public_id = %q, want assistant_default_o12", defaultAssistant.PublicID)
 	}
+	defaultDeploymentAgain, err := provisioning.EnsureDefaultWorkerForOrg(ctx, 12, 34)
+	if err != nil {
+		t.Fatalf("ensure default worker again: %v", err)
+	}
+	if defaultDeploymentAgain.ID != defaultDeployment.ID {
+		t.Fatalf("default deployment id = %d, want %d", defaultDeploymentAgain.ID, defaultDeployment.ID)
+	}
+	var defaultAssistantCount int64
+	if err := database.Model(&types.DigitalAssistant{}).Where("org_id = ? AND code = ?", 12, "default_o12").Count(&defaultAssistantCount).Error; err != nil {
+		t.Fatalf("count default assistants: %v", err)
+	}
+	if defaultAssistantCount != 1 {
+		t.Fatalf("default assistant count = %d, want 1", defaultAssistantCount)
+	}
+	var defaultDeploymentCount int64
+	if err := database.Model(&types.WorkerDeployment{}).Where("org_id = ? AND worker_id = ?", 12, 1).Count(&defaultDeploymentCount).Error; err != nil {
+		t.Fatalf("count default deployments: %v", err)
+	}
+	if defaultDeploymentCount != 1 {
+		t.Fatalf("default deployment count = %d, want 1", defaultDeploymentCount)
+	}
 
 	assistant := &types.DigitalAssistant{
 		PublicID: "custom-agent",

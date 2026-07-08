@@ -25,14 +25,24 @@ func (s *accountOrganizationService) CreateMemberDepartment(ctx context.Context,
 		return nil, err
 	}
 	if req.Uin == 0 {
-		return nil, errors.New("uin is required")
+		return nil, errors.New("成员Uin不能为空")
 	}
 	if req.DepartmentID == 0 {
-		return nil, errors.New("department_id is required")
+		return nil, errors.New("部门ID不能为空")
 	}
 	userOrg, err := s.verifyMemberDepartmentRefs(ctx, s.db, caller.OrgID, req.Uin, req.DepartmentID)
 	if err != nil {
 		return nil, err
+	}
+
+	existing, err := db.ListMemberDepartmentsByUinAndOrgID(ctx, s.db, req.Uin, userOrg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	for _, rel := range existing {
+		if rel.DepartmentID == req.DepartmentID {
+			return nil, errors.New("组织成员部门关联已存在")
+		}
 	}
 
 	relation := &types.MemberDepartment{
@@ -52,14 +62,14 @@ func (s *accountOrganizationService) GetMemberDepartment(ctx context.Context, id
 		return nil, err
 	}
 	if id == 0 {
-		return nil, errors.New("id is required")
+		return nil, errors.New("id不能为空")
 	}
 	relation, err := db.GetMemberDepartmentByID(ctx, s.db, id)
 	if err != nil {
 		return nil, err
 	}
 	if relation == nil {
-		return nil, errors.New("member department relation not found")
+		return nil, errors.New("成员部门关联不存在")
 	}
 	return convertToContractMemberDepartment(relation), nil
 }
@@ -70,7 +80,7 @@ func (s *accountOrganizationService) UpdateMemberDepartment(ctx context.Context,
 		return nil, err
 	}
 	if id == 0 {
-		return nil, errors.New("id is required")
+		return nil, errors.New("id不能为空")
 	}
 
 	var relation *types.MemberDepartment
@@ -81,20 +91,20 @@ func (s *accountOrganizationService) UpdateMemberDepartment(ctx context.Context,
 			return err
 		}
 		if relation == nil {
-			return errors.New("member department relation not found")
+			return errors.New("成员部门关联不存在")
 		}
 
 		nextUin := relation.Uin
 		nextDepartmentID := relation.DepartmentID
 		if req.Uin != nil {
 			if *req.Uin == 0 {
-				return errors.New("uin is required")
+				return errors.New("成员Uin不能为空")
 			}
 			nextUin = *req.Uin
 		}
 		if req.DepartmentID != nil {
 			if *req.DepartmentID == 0 {
-				return errors.New("department_id is required")
+				return errors.New("部门ID不能为空")
 			}
 			nextDepartmentID = *req.DepartmentID
 		}
@@ -106,6 +116,19 @@ func (s *accountOrganizationService) UpdateMemberDepartment(ctx context.Context,
 		relation.Uin = nextUin
 		relation.OrgID = userOrg.OrgID
 		relation.DepartmentID = nextDepartmentID
+
+		if req.Uin != nil || req.DepartmentID != nil {
+			existing, listErr := db.ListMemberDepartmentsByUinAndOrgID(ctx, tx, nextUin, relation.OrgID)
+			if listErr != nil {
+				return listErr
+			}
+			for _, rel := range existing {
+				if rel.ID != relation.ID && rel.DepartmentID == nextDepartmentID {
+					return errors.New("组织成员部门关联已存在")
+				}
+			}
+		}
+
 		if req.IsPrimary != nil {
 			relation.IsPrimary = *req.IsPrimary
 		}
@@ -121,7 +144,7 @@ func (s *accountOrganizationService) DeleteMemberDepartment(ctx context.Context,
 		return err
 	}
 	if id == 0 {
-		return errors.New("id is required")
+		return errors.New("id不能为空")
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		relation, err := db.GetMemberDepartmentByID(ctx, tx, id)
@@ -129,7 +152,7 @@ func (s *accountOrganizationService) DeleteMemberDepartment(ctx context.Context,
 			return err
 		}
 		if relation == nil {
-			return errors.New("member department relation not found")
+			return errors.New("成员部门关联不存在")
 		}
 		return db.DeleteMemberDepartment(ctx, tx, id)
 	})
@@ -170,12 +193,12 @@ func (s *accountOrganizationService) ListMemberDepartments(ctx context.Context, 
 
 // verifyMemberDepartmentRefs 校验 uin 和 departmentID 都属于 callerOrgID，返回查到的 UserOrg 供调用方使用。
 func (s *accountOrganizationService) verifyMemberDepartmentRefs(ctx context.Context, tx *gorm.DB, callerOrgID, uin, departmentID uint) (*types.UserOrg, error) {
-	userOrg, err := db.GetUserOrgByUin(ctx, tx, uin)
+	userOrg, err := db.GetUserOrgByUinAndOrgID(ctx, tx, uin, callerOrgID)
 	if err != nil {
 		return nil, err
 	}
 	if userOrg == nil {
-		return nil, errors.New("user org not found")
+		return nil, errors.New("用户组织不存在")
 	}
 	if err := verifyAccountOrgEntity(userOrg.OrgID, callerOrgID); err != nil {
 		return nil, err
@@ -186,10 +209,10 @@ func (s *accountOrganizationService) verifyMemberDepartmentRefs(ctx context.Cont
 		return nil, err
 	}
 	if department == nil {
-		return nil, errors.New("department not found")
+		return nil, errors.New("部门不存在")
 	}
 	if err := verifyAccountOrgEntity(department.OrgID, userOrg.OrgID); err != nil {
-		return nil, errors.New("department does not belong to user org")
+		return nil, errors.New("部门不属于该用户组织")
 	}
 	return userOrg, nil
 }

@@ -41,10 +41,10 @@ export function AssistantCard({ assistant, onSelect, onEdit, onDelete }: Assista
 		>
 			<button
 				type="button"
-				className="flex min-w-0 flex-1 cursor-pointer gap-4 text-left outline-none"
+				className="flex min-w-0 flex-1 cursor-pointer items-center gap-4 text-left outline-none"
 				onClick={() => onSelect(assistant)}
 			>
-				<AssistantAvatar name={assistant.name} src={assistant.avatar} />
+				<AssistantAvatar name={assistant.name} src={assistant.avatar} size="md" />
 
 				<div className="flex flex-1 flex-col gap-1 min-w-0">
 					<div className="flex items-center gap-2">

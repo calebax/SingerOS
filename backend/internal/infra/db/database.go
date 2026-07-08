@@ -53,6 +53,11 @@ var renamesToApply = []renameColumn{
 	{table: types.TableNameFileUpload, oldCol: "storage_path", newCol: "storage_uri"},
 }
 
+var legacyIndexes = []string{
+	"idx_leros_user_org_uin",
+	"idx_user_org_uin",
+}
+
 // dbName 是数据库名称常量
 const dbName = "leros"
 
@@ -136,7 +141,20 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	if err := dropLegacyIndexes(db); err != nil {
+		return err
+	}
+
 	if err := dbtools.InitModel(db, models...); err != nil {
+		return err
+	}
+
+	if err := backfillSystemLLMModelsForOrgs(db); err != nil {
+		return err
+	}
+
+	// 清理已从模型定义中移除的唯一索引
+	if err := db.Exec("DROP INDEX IF EXISTS uni_member_dept").Error; err != nil {
 		return err
 	}
 
@@ -145,6 +163,14 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	if err := backfillMemberDepartmentOrgID(db); err != nil {
+		return err
+	}
+
+	if err := backfillDefaultDepartments(db); err != nil {
+		return err
+	}
+
+	if err := backfillMemberDefaultDepartments(db); err != nil {
 		return err
 	}
 
@@ -190,6 +216,15 @@ func backfillWorkerDeploymentPublicIDs(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&types.WorkerDeployment{}, "idx_worker_deploy_public_id") {
 		if err := db.Migrator().CreateIndex(&types.WorkerDeployment{}, "idx_worker_deploy_public_id"); err != nil {
 			return fmt.Errorf("create worker deployment public_id index: %w", err)
+		}
+	}
+	return nil
+}
+
+func dropLegacyIndexes(db *gorm.DB) error {
+	for _, indexName := range legacyIndexes {
+		if err := db.Exec(fmt.Sprintf("DROP INDEX IF EXISTS %s", indexName)).Error; err != nil {
+			logs.Warnf("[migration] drop legacy index %s: %v", indexName, err)
 		}
 	}
 	return nil
@@ -268,6 +303,92 @@ func backfillMemberDepartmentOrgID(db *gorm.DB) error {
 	`).Error
 	if err != nil {
 		logs.Warnf("[migration] backfillMemberDepartmentOrgID: %v", err)
+	}
+	return nil
+}
+
+// backfillDefaultDepartments 为没有部门的组织回填默认部门（部门名称为组织名称）。
+func backfillDefaultDepartments(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameDepartment) || !d.Migrator().HasTable(types.TableNameOrganization) {
+		return nil
+	}
+	err := d.Exec(`
+		INSERT INTO leros_department (name, parent_id, parent_ids, sort, org_id, created_at, updated_at)
+		SELECT o.name, 0, 'null', 1000, o.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		FROM leros_organization o
+		WHERE o.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_department d
+			WHERE d.org_id = o.id AND d.parent_id = 0 AND d.deleted_at IS NULL
+		  )
+	`).Error
+	if err != nil {
+		logs.Warnf("[migration] backfillDefaultDepartments: %v", err)
+	}
+	return nil
+}
+
+// backfillSystemLLMModelsForOrgs 将系统 LLM 模型回填到缺少它们的存量组织。
+func backfillSystemLLMModelsForOrgs(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameLLMModel) || !d.Migrator().HasTable(types.TableNameOrganization) {
+		return nil
+	}
+	err := d.Exec(`
+		INSERT INTO ` + types.TableNameLLMModel + ` (
+			org_id, code, name, description, provider, model, base_url,
+			base_url_has_v1, api_key_encrypted, api_key_masked,
+			max_tokens, temperature, timeout_sec, status, is_default, is_system, config,
+			created_at, updated_at
+		)
+		SELECT o.id, src.code, src.name, src.description, src.provider, src.model, src.base_url,
+		       src.base_url_has_v1, src.api_key_encrypted, src.api_key_masked,
+		       src.max_tokens, src.temperature, src.timeout_sec, src.status, src.is_default, src.is_system, src.config,
+		       NOW(), NOW()
+		FROM ` + types.TableNameOrganization + ` o
+		CROSS JOIN ` + types.TableNameLLMModel + ` src
+		WHERE src.org_id = 1 AND src.is_system = true AND src.deleted_at IS NULL
+		  AND o.deleted_at IS NULL AND o.id != 1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM ` + types.TableNameLLMModel + ` t
+		      WHERE t.org_id = o.id AND t.is_system = true AND t.deleted_at IS NULL
+		  )
+		ON CONFLICT (org_id, code) DO NOTHING
+	`).Error
+	if err != nil {
+		logs.Warnf("[migration] backfillSystemLLMModelsForOrgs: %v", err)
+	}
+	return nil
+}
+
+// backfillMemberDefaultDepartments 将没有部门关系的组织成员挂到默认顶级部门。
+func backfillMemberDefaultDepartments(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameMemberDepartment) ||
+		!d.Migrator().HasTable(types.TableNameUserOrg) ||
+		!d.Migrator().HasTable(types.TableNameDepartment) {
+		return nil
+	}
+	err := d.Exec(`
+		WITH default_departments AS (
+			SELECT id, org_id
+			FROM (
+				SELECT id, org_id, ROW_NUMBER() OVER (PARTITION BY org_id ORDER BY sort ASC, id ASC) AS rn
+				FROM leros_department
+				WHERE parent_id = 0 AND deleted_at IS NULL
+			) ranked_departments
+			WHERE rn = 1
+		)
+		INSERT INTO leros_rel_user_org_department (uin, org_id, department_id, is_primary, created_at, updated_at)
+		SELECT uo.uin, uo.org_id, dd.id, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		FROM leros_user_org uo
+		JOIN default_departments dd ON dd.org_id = uo.org_id
+		WHERE uo.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_rel_user_org_department md
+			WHERE md.uin = uo.uin AND md.org_id = uo.org_id AND md.deleted_at IS NULL
+		  )
+	`).Error
+	if err != nil {
+		logs.Warnf("[migration] backfillMemberDefaultDepartments: %v", err)
 	}
 	return nil
 }

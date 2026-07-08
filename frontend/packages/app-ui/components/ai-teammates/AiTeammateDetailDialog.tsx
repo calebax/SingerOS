@@ -13,6 +13,7 @@ import { cn } from "@leros/ui/lib/utils";
 import { Eye, Heart, type LucideIcon } from "lucide-react";
 import { APP_LOGO_SRC } from "../../assets";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 
 export type AiTeammateDetailDialogItem = {
 	id: number;
@@ -24,6 +25,7 @@ export type AiTeammateDetailDialogItem = {
 	icon: LucideIcon;
 	iconBg: string;
 	iconColor: string;
+	avatar?: string;
 	categoryLabel: string;
 	template: BackendAITeammateTemplate;
 };
@@ -66,16 +68,20 @@ export function AiTeammateDetailDialog({
 				<DialogDescription className="sr-only">{item.description}</DialogDescription>
 
 				<div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-6 sm:px-6">
-					<div className="flex items-start gap-4 pr-7">
-						<div
-							className={cn(
-								"flex size-20 shrink-0 items-center justify-center rounded-2xl",
-								item.iconBg,
-								item.iconColor,
-							)}
-						>
-							<Icon className="size-10" aria-hidden="true" />
-						</div>
+					<div className="flex items-center gap-4 pr-7">
+						{item.avatar ? (
+							<AssistantAvatar name={item.name} src={item.avatar} size="2xl" />
+						) : (
+							<div
+								className={cn(
+									"flex size-24 shrink-0 items-center justify-center rounded-2xl",
+									item.iconBg,
+									item.iconColor,
+								)}
+							>
+								<Icon className="size-12" aria-hidden="true" />
+							</div>
+						)}
 
 						<div className="min-w-0 flex-1">
 							<h2 className="truncate text-xl font-semibold text-[var(--leros-text-strong)]">

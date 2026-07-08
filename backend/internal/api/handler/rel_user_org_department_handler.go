@@ -38,7 +38,7 @@ func (h *MemberDepartmentHandler) CreateMemberDepartment(ctx *gin.Context) {
 	}
 	result, err := h.service.CreateMemberDepartment(ctx, &req)
 	if err != nil {
-		handleOrganizationServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -56,7 +56,7 @@ func (h *MemberDepartmentHandler) GetMemberDepartment(ctx *gin.Context) {
 	}
 	result, err := h.service.GetMemberDepartment(ctx, req.ID)
 	if err != nil {
-		handleOrganizationServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -75,7 +75,7 @@ func (h *MemberDepartmentHandler) UpdateMemberDepartment(ctx *gin.Context) {
 	}
 	result, err := h.service.UpdateMemberDepartment(ctx, req.ID, &req.UpdateMemberDepartmentRequest)
 	if err != nil {
-		handleOrganizationServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -92,7 +92,7 @@ func (h *MemberDepartmentHandler) DeleteMemberDepartment(ctx *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteMemberDepartment(ctx, req.ID); err != nil {
-		handleOrganizationServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(nil))
@@ -107,7 +107,7 @@ func (h *MemberDepartmentHandler) ListMemberDepartments(ctx *gin.Context) {
 	req.Fill()
 	result, err := h.service.ListMemberDepartments(ctx, &req)
 	if err != nil {
-		handleOrganizationServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))

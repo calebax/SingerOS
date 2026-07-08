@@ -195,6 +195,7 @@ export function AiTeammatesView() {
 				icon: visual.icon,
 				iconBg: visual.iconBg,
 				iconColor: visual.iconColor,
+				avatar: item.avatar,
 				categoryLabel: visual.label,
 				template: item,
 			};

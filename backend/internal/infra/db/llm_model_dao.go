@@ -129,6 +129,25 @@ func DeleteLLMModel(ctx context.Context, db *gorm.DB, id uint) error {
 	return db.WithContext(ctx).Delete(&types.LLMModel{}, id).Error
 }
 
+// CloneSystemLLMModelsByOrg 将初始化组织的系统模型复制到新组织。
+func CloneSystemLLMModelsByOrg(ctx context.Context, d *gorm.DB, fromOrgID, toOrgID uint) error {
+	return d.WithContext(ctx).Exec(`
+		INSERT INTO `+types.TableNameLLMModel+` (
+			org_id, code, name, description, provider, model, base_url,
+			base_url_has_v1, api_key_encrypted, api_key_masked,
+			max_tokens, temperature, timeout_sec, status, is_default, is_system, config,
+			created_at, updated_at
+		)
+		SELECT ?, code, name, description, provider, model, base_url,
+		       base_url_has_v1, api_key_encrypted, api_key_masked,
+		       max_tokens, temperature, timeout_sec, status, is_default, is_system, config,
+		       NOW(), NOW()
+		FROM `+types.TableNameLLMModel+`
+		WHERE org_id = ? AND is_system = true AND deleted_at IS NULL
+		ON CONFLICT (org_id, code) DO NOTHING
+	`, toOrgID, fromOrgID).Error
+}
+
 // ListLLMModels 查询LLM模型配置列表
 func ListLLMModels(ctx context.Context, db *gorm.DB, opt *types.PageQuery) ([]*types.LLMModel, int64, error) {
 	var entities []*types.LLMModel

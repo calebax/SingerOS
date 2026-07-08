@@ -7,7 +7,10 @@ import { ProtectedImage } from "../avatar/ProtectedImage";
 const sizeClassMap = {
 	sm: "size-7 text-xs",
 	default: "size-12 text-lg",
+	md: "size-14 text-xl",
 	lg: "size-16 text-2xl",
+	xl: "size-20 text-3xl",
+	"2xl": "size-24 text-4xl",
 };
 
 export function AssistantAvatar({
@@ -22,7 +25,18 @@ export function AssistantAvatar({
 	className?: string;
 }) {
 	const sizeClass = sizeClassMap[size];
-	const pixelSize = size === "lg" ? 128 : size === "sm" ? 56 : 96;
+	const pixelSize =
+		size === "2xl"
+			? 192
+			: size === "xl"
+				? 160
+				: size === "lg"
+					? 128
+					: size === "md"
+						? 112
+						: size === "sm"
+							? 56
+							: 96;
 	const fallback = (
 		<DiceBearAvatar
 			seed={`digital-assistant:${name}`}
@@ -35,7 +49,8 @@ export function AssistantAvatar({
 	return (
 		<div
 			className={cn(
-				"flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 font-semibold text-white",
+				"flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold text-white",
+				src ? "bg-transparent" : "bg-gradient-to-br from-blue-500 to-indigo-600",
 				sizeClass,
 				className,
 			)}

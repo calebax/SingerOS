@@ -55,6 +55,7 @@ export type AuthOrgInfo = {
 	name: string;
 	logo?: string;
 	is_default?: boolean;
+	created_by_uin?: number;
 };
 
 export type AuthSessionResponse = {

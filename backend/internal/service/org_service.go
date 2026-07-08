@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"gorm.io/gorm"
@@ -33,22 +34,14 @@ func NewOrgServiceWithProvisioning(d *gorm.DB, provisioning *WorkerProvisioningS
 func (s *orgService) CreateOrg(ctx context.Context, req *contract.CreateOrgRequest) (*contract.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, errors.New("用户未登录")
 	}
 
 	if strings.TrimSpace(req.Name) == "" {
-		return nil, errors.New("name is required")
+		return nil, errors.New("组织名称不能为空")
 	}
 	if strings.TrimSpace(req.Code) == "" {
-		return nil, errors.New("code is required")
-	}
-
-	existing, err := db.GetOrgByCode(ctx, s.db, strings.TrimSpace(req.Code))
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		return nil, errors.New("org code already exists")
+		return nil, errors.New("组织编码不能为空")
 	}
 
 	orgType := strings.TrimSpace(req.Type)
@@ -61,25 +54,48 @@ func (s *orgService) CreateOrg(ctx context.Context, req *contract.CreateOrgReque
 	}
 
 	org := &types.Organization{
-		PublicID:    fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
-		Type:        orgType,
-		Code:        strings.TrimSpace(req.Code),
-		Name:        strings.TrimSpace(req.Name),
-		Status:      status,
-		Description: strings.TrimSpace(req.Description),
-		Logo:        strings.TrimSpace(req.Logo),
-		Address:     strings.TrimSpace(req.Address),
-		Website:     strings.TrimSpace(req.Website),
+		PublicID:     fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
+		Type:         orgType,
+		Code:         strings.TrimSpace(req.Code),
+		Name:         strings.TrimSpace(req.Name),
+		Status:       status,
+		Description:  strings.TrimSpace(req.Description),
+		Logo:         strings.TrimSpace(req.Logo),
+		Address:      strings.TrimSpace(req.Address),
+		Website:      strings.TrimSpace(req.Website),
 		CreatedByUin: caller.Uin,
 	}
 
-	if err := db.CreateOrg(ctx, s.db, org); err != nil {
-		return nil, err
-	}
-	if s.workerProvisioning != nil {
-		if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, org.ID, caller.Uin); err != nil {
-			return nil, fmt.Errorf("ensure default worker deployment: %w", err)
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		existing, err := db.GetOrgByCode(ctx, tx, org.Code)
+		if err != nil {
+			return err
 		}
+		if existing != nil {
+			return errors.New("组织编码已存在")
+		}
+		if err := db.CreateOrg(ctx, tx, org); err != nil {
+			return err
+		}
+
+		department := &types.Department{
+			Name:     org.Name,
+			ParentID: 0,
+			Sort:     db.DepartmentSortGap,
+			OrgID:    org.ID,
+		}
+		if err := db.CreateDepartment(ctx, tx, department); err != nil {
+			return err
+		}
+
+		if s.workerProvisioning != nil {
+			if _, err := s.workerProvisioning.ensureDefaultWorkerForOrg(ctx, tx, org.ID, caller.Uin); err != nil {
+				return fmt.Errorf("ensure default worker deployment: %w", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	return convertToContractOrg(org), nil
@@ -88,7 +104,7 @@ func (s *orgService) CreateOrg(ctx context.Context, req *contract.CreateOrgReque
 func (s *orgService) GetOrg(ctx context.Context, publicID string, code string) (*contract.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, errors.New("用户未登录")
 	}
 
 	var org *types.Organization
@@ -99,14 +115,14 @@ func (s *orgService) GetOrg(ctx context.Context, publicID string, code string) (
 	} else if code != "" {
 		org, err = db.GetOrgByCode(ctx, s.db, code)
 	} else {
-		return nil, errors.New("public_id or code is required")
+		return nil, errors.New("组织ID或编码不能为空")
 	}
 
 	if err != nil {
 		return nil, err
 	}
 	if org == nil {
-		return nil, errors.New("org not found")
+		return nil, errors.New("组织不存在")
 	}
 
 	return convertToContractOrg(org), nil
@@ -115,10 +131,10 @@ func (s *orgService) GetOrg(ctx context.Context, publicID string, code string) (
 func (s *orgService) UpdateOrg(ctx context.Context, publicID string, req *contract.UpdateOrgRequest) (*contract.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, errors.New("用户未登录")
 	}
 	if strings.TrimSpace(publicID) == "" {
-		return nil, errors.New("public_id is required")
+		return nil, errors.New("组织ID不能为空")
 	}
 
 	var org *types.Organization
@@ -129,16 +145,16 @@ func (s *orgService) UpdateOrg(ctx context.Context, publicID string, req *contra
 			return err
 		}
 		if org == nil {
-			return errors.New("org not found")
+			return errors.New("组织不存在")
 		}
 		if org.ID != caller.OrgID {
-			return errors.New("permission denied")
+			return errors.New("无权操作")
 		}
 
 		if req.Name != nil {
 			org.Name = strings.TrimSpace(*req.Name)
 			if org.Name == "" {
-				return errors.New("name cannot be empty")
+				return errors.New("组织名称不可为空")
 			}
 		}
 		if req.Type != nil {
@@ -171,10 +187,10 @@ func (s *orgService) UpdateOrg(ctx context.Context, publicID string, req *contra
 func (s *orgService) DeleteOrg(ctx context.Context, publicID string) error {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return errors.New("user not authenticated")
+		return errors.New("用户未登录")
 	}
 	if strings.TrimSpace(publicID) == "" {
-		return errors.New("public_id is required")
+		return errors.New("组织ID不能为空")
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -183,7 +199,7 @@ func (s *orgService) DeleteOrg(ctx context.Context, publicID string) error {
 			return err
 		}
 		if org == nil {
-			return errors.New("org not found")
+			return errors.New("组织不存在")
 		}
 		return db.DeleteOrg(ctx, tx, org.ID)
 	})
@@ -192,7 +208,7 @@ func (s *orgService) DeleteOrg(ctx context.Context, publicID string) error {
 func (s *orgService) ListOrgs(ctx context.Context, req *contract.ListOrgsRequest) (*contract.OrgList, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, errors.New("用户未登录")
 	}
 	req.Fill()
 
@@ -224,11 +240,130 @@ func (s *orgService) ListOrgs(ctx context.Context, req *contract.ListOrgsRequest
 
 func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOrgMemberRequest) (*contract.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
-	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
+		return nil, errors.New("用户未登录")
 	}
+	if err := s.requireDefaultOrgUser(ctx, caller.Uin, caller.OrgID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.UserID) != "" || strings.TrimSpace(req.OrgID) != "" {
+		return s.createExistingOrgMember(ctx, caller.OrgID, req)
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, errors.New("组织名称不能为空")
+	}
+	phone, err := normalizeOrgMemberPhone(req.Phone)
+	if err != nil {
+		return nil, err
+	}
+	departmentIDs := uniqueDepartmentIDs(req.DepartmentIDs)
+	if len(departmentIDs) == 0 {
+		return nil, errors.New("部门ID列表不能为空")
+	}
+
+	var userOrg *types.UserOrg
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		departments, err := db.GetDepartmentsByIDs(ctx, tx, departmentIDs)
+		if err != nil {
+			return err
+		}
+		departmentByID := make(map[uint]*types.Department, len(departments))
+		for _, department := range departments {
+			if department.OrgID != caller.OrgID {
+				return errors.New("部门不属于该组织")
+			}
+			departmentByID[department.ID] = department
+		}
+		if len(departmentByID) != len(departmentIDs) {
+			return errors.New("部门不存在")
+		}
+
+		user, err := db.GetUserByPhone(ctx, tx, phone)
+		if err != nil {
+			return err
+		}
+		if user != nil {
+			existing, err := db.GetUserOrgByUserIDAndOrgID(ctx, tx, user.ID, caller.OrgID)
+			if err != nil {
+				return err
+			}
+			if existing != nil {
+				return errors.New("手机号已存在于该组织")
+			}
+		} else {
+			user = &types.User{
+				PublicID:    fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
+				GithubLogin: fmt.Sprintf("phone_%s", snowflake.GenerateIDBase58()),
+				Name:        name,
+				Phone:       phone,
+			}
+			if err := db.CreateUser(ctx, tx, user); err != nil {
+				if isUniqueConstraintError(err) {
+					return errors.New("手机号已存在")
+				}
+				return err
+			}
+		}
+
+		orgCount, err := db.CountUserOrgsByUserID(ctx, tx, user.ID)
+		if err != nil {
+			return err
+		}
+		userOrg = &types.UserOrg{
+			Uin:       user.ID,
+			UserID:    user.ID,
+			OrgID:     caller.OrgID,
+			IsDefault: orgCount == 0,
+		}
+		if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
+			if isUniqueConstraintError(err) {
+				return errors.New("组织成员已存在")
+			}
+			return err
+		}
+
+		seen := make(map[uint]bool, len(departmentIDs))
+		uniqueDeptIDs := make([]uint, 0, len(departmentIDs))
+		for _, deptID := range departmentIDs {
+			if !seen[deptID] {
+				seen[deptID] = true
+				uniqueDeptIDs = append(uniqueDeptIDs, deptID)
+			}
+		}
+		departmentIDs = uniqueDeptIDs
+
+		existing, err := db.ListMemberDepartmentsByUinAndOrgID(ctx, tx, userOrg.Uin, caller.OrgID)
+		if err != nil {
+			return err
+		}
+		for _, rel := range existing {
+			if seen[rel.DepartmentID] {
+				return errors.New("组织成员部门关联已存在")
+			}
+		}
+
+		relations := make([]*types.MemberDepartment, 0, len(departmentIDs))
+		for i, departmentID := range departmentIDs {
+			relations = append(relations, &types.MemberDepartment{
+				Uin:          userOrg.Uin,
+				OrgID:        caller.OrgID,
+				DepartmentID: departmentID,
+				IsPrimary:    i == 0,
+			})
+		}
+		return db.CreateMemberDepartments(ctx, tx, relations)
+	}); err != nil {
+		return nil, err
+	}
+
+	return s.enrichOrgMember(ctx, userOrg), nil
+}
+
+func (s *orgService) createExistingOrgMember(ctx context.Context, callerOrgID uint, req *contract.CreateOrgMemberRequest) (*contract.OrgMember, error) {
 	if strings.TrimSpace(req.UserID) == "" {
-		return nil, errors.New("user_id is required")
+		return nil, errors.New("用户ID不能为空")
 	}
 	if strings.TrimSpace(req.OrgID) == "" {
 		return nil, errors.New("org_id is required")
@@ -239,7 +374,7 @@ func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOr
 		return nil, err
 	}
 	if user == nil {
-		return nil, errors.New("user not found")
+		return nil, errors.New("用户不存在")
 	}
 
 	org, err := db.GetOrgByPublicID(ctx, s.db, req.OrgID)
@@ -247,7 +382,10 @@ func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOr
 		return nil, err
 	}
 	if org == nil {
-		return nil, errors.New("org not found")
+		return nil, errors.New("组织不存在")
+	}
+	if org.ID != callerOrgID {
+		return nil, errors.New("无权操作")
 	}
 
 	userOrg := &types.UserOrg{
@@ -258,8 +396,8 @@ func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOr
 	}
 
 	if err := db.CreateUserOrg(ctx, s.db, userOrg); err != nil {
-		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "Duplicate") {
-			return nil, errors.New("org member already exists")
+		if isUniqueConstraintError(err) {
+			return nil, errors.New("组织成员已存在")
 		}
 		return nil, err
 	}
@@ -269,8 +407,8 @@ func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOr
 
 func (s *orgService) GetOrgMember(ctx context.Context, id uint, uin uint) (*contract.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
-	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
+		return nil, errors.New("用户未登录")
 	}
 
 	var userOrg *types.UserOrg
@@ -279,16 +417,19 @@ func (s *orgService) GetOrgMember(ctx context.Context, id uint, uin uint) (*cont
 	if id > 0 {
 		userOrg, err = db.GetUserOrgByID(ctx, s.db, id)
 	} else if uin > 0 {
-		userOrg, err = db.GetUserOrgByUin(ctx, s.db, uin)
+		userOrg, err = db.GetUserOrgByUinAndOrgID(ctx, s.db, uin, caller.OrgID)
 	} else {
-		return nil, errors.New("id or uin is required")
+		return nil, errors.New("id或uin不能为空")
 	}
 
 	if err != nil {
 		return nil, err
 	}
 	if userOrg == nil {
-		return nil, errors.New("org member not found")
+		return nil, errors.New("组织成员不存在")
+	}
+	if userOrg.OrgID != caller.OrgID {
+		return nil, errors.New("无权操作")
 	}
 
 	return s.enrichOrgMember(ctx, userOrg), nil
@@ -296,11 +437,14 @@ func (s *orgService) GetOrgMember(ctx context.Context, id uint, uin uint) (*cont
 
 func (s *orgService) UpdateOrgMember(ctx context.Context, id uint, req *contract.UpdateOrgMemberRequest) (*contract.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
-	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
+		return nil, errors.New("用户未登录")
+	}
+	if err := s.requireDefaultOrgUser(ctx, caller.Uin, caller.OrgID); err != nil {
+		return nil, err
 	}
 	if id == 0 {
-		return nil, errors.New("id is required")
+		return nil, errors.New("id不能为空")
 	}
 
 	var userOrg *types.UserOrg
@@ -311,7 +455,10 @@ func (s *orgService) UpdateOrgMember(ctx context.Context, id uint, req *contract
 			return err
 		}
 		if userOrg == nil {
-			return errors.New("org member not found")
+			return errors.New("组织成员不存在")
+		}
+		if userOrg.OrgID != caller.OrgID {
+			return errors.New("无权操作")
 		}
 
 		if req.OrgID != nil && strings.TrimSpace(*req.OrgID) != "" {
@@ -320,12 +467,61 @@ func (s *orgService) UpdateOrgMember(ctx context.Context, id uint, req *contract
 				return err
 			}
 			if org == nil {
-				return errors.New("org not found")
+				return errors.New("组织不存在")
+			}
+			if org.ID != caller.OrgID {
+				return errors.New("无权操作")
 			}
 			userOrg.OrgID = org.ID
 		}
 		if req.IsDefault != nil {
 			userOrg.IsDefault = *req.IsDefault
+		}
+
+		if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
+			user, err := db.GetUserByID(ctx, tx, userOrg.UserID)
+			if err != nil {
+				return err
+			}
+			if user == nil {
+				return errors.New("用户不存在")
+			}
+			user.Name = strings.TrimSpace(*req.Name)
+			if err := db.UpdateUser(ctx, tx, user); err != nil {
+				return err
+			}
+		}
+
+		if req.DepartmentIDs != nil {
+			if len(req.DepartmentIDs) == 0 {
+				return errors.New("部门ID列表不可为空")
+			}
+			if err := db.DeleteMemberDepartmentsByUinAndOrgID(ctx, tx, userOrg.Uin, userOrg.OrgID); err != nil {
+				return err
+			}
+			seen := make(map[uint]bool, len(req.DepartmentIDs))
+			relations := make([]*types.MemberDepartment, 0, len(req.DepartmentIDs))
+			for i, deptID := range req.DepartmentIDs {
+				if deptID == 0 {
+					continue
+				}
+				if seen[deptID] {
+					return errors.New("部门ID重复")
+				}
+				seen[deptID] = true
+				relations = append(relations, &types.MemberDepartment{
+					Uin:          userOrg.Uin,
+					OrgID:        userOrg.OrgID,
+					DepartmentID: deptID,
+					IsPrimary:    i == 0,
+				})
+			}
+			if len(relations) == 0 {
+				return errors.New("部门ID列表不可为空")
+			}
+			if err := db.CreateMemberDepartments(ctx, tx, relations); err != nil {
+				return err
+			}
 		}
 
 		return db.UpdateUserOrg(ctx, tx, userOrg)
@@ -336,44 +532,22 @@ func (s *orgService) UpdateOrgMember(ctx context.Context, id uint, req *contract
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *orgService) DeleteOrgMember(ctx context.Context, id uint) error {
-	caller, _ := auth.FromContext(ctx)
-	if caller == nil || caller.Uin == 0 {
-		return errors.New("user not authenticated")
-	}
-	if id == 0 {
-		return errors.New("id is required")
-	}
-
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		userOrg, err := db.GetUserOrgByID(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		if userOrg == nil {
-			return errors.New("org member not found")
-		}
-		return db.DeleteUserOrg(ctx, tx, id)
-	})
-}
-
 func (s *orgService) ListOrgMembers(ctx context.Context, req *contract.ListOrgMembersRequest) (*contract.OrgMemberList, error) {
 	caller, _ := auth.FromContext(ctx)
-	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
+		return nil, errors.New("用户未登录")
 	}
 	req.Fill()
 
 	opt := types.NewPageQuery(*caller, req.Offset, req.Limit)
 	opt.ListAll = req.ListAll
-	if req.OrgID != nil && strings.TrimSpace(*req.OrgID) != "" {
-		org, err := db.GetOrgByPublicID(ctx, s.db, *req.OrgID)
-		if err != nil {
-			return nil, err
+	if req.OrgID != nil && *req.OrgID > 0 {
+		if *req.OrgID != caller.OrgID {
+			return nil, errors.New("无权操作")
 		}
-		if org != nil {
-			opt.AddExactFilter("org_id", fmt.Sprintf("%d", org.ID))
-		}
+		opt.AddExactFilter("org_id", fmt.Sprintf("%d", *req.OrgID))
+	} else {
+		opt.AddExactFilter("org_id", fmt.Sprintf("%d", caller.OrgID))
 	}
 	if req.UserID != nil && strings.TrimSpace(*req.UserID) != "" {
 		user, err := db.GetUserByPublicID(ctx, s.db, *req.UserID)
@@ -383,6 +557,17 @@ func (s *orgService) ListOrgMembers(ctx context.Context, req *contract.ListOrgMe
 		if user != nil {
 			opt.AddExactFilter("user_id", fmt.Sprintf("%d", user.ID))
 		}
+	}
+	if req.DepartmentID != nil && *req.DepartmentID > 0 {
+		subDeptIDs, err := db.ListDepartmentAndDescendantIDs(ctx, s.db, *req.DepartmentID, caller.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		deptFilterValues := make([]string, len(subDeptIDs))
+		for i, id := range subDeptIDs {
+			deptFilterValues[i] = fmt.Sprintf("%d", id)
+		}
+		opt.AddExactFilter("department_id", deptFilterValues...)
 	}
 
 	userOrgs, total, err := db.ListUserOrgs(ctx, s.db, opt)
@@ -416,6 +601,7 @@ func (s *orgService) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *co
 		result.UserID = user.PublicID
 		result.UserName = user.Name
 		result.UserLogin = user.GithubLogin
+		result.UserPhone = user.Phone
 		result.AvatarURL = user.AvatarURL
 	}
 
@@ -425,7 +611,71 @@ func (s *orgService) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *co
 		result.OrgName = org.Name
 	}
 
+	relations, _ := db.ListMemberDepartmentsByUinAndOrgID(ctx, s.db, uo.Uin, uo.OrgID)
+	departmentIDs := make([]uint, 0, len(relations))
+	for _, relation := range relations {
+		departmentIDs = append(departmentIDs, relation.DepartmentID)
+	}
+	departments, _ := db.GetDepartmentsByIDs(ctx, s.db, departmentIDs)
+	departmentByID := make(map[uint]*types.Department, len(departments))
+	for _, department := range departments {
+		departmentByID[department.ID] = department
+	}
+	result.Departments = make([]contract.OrgMemberDepartment, 0, len(relations))
+	for _, relation := range relations {
+		departmentName := ""
+		if department := departmentByID[relation.DepartmentID]; department != nil {
+			departmentName = department.Name
+		}
+		result.Departments = append(result.Departments, contract.OrgMemberDepartment{
+			ID:           relation.ID,
+			DepartmentID: relation.DepartmentID,
+			Name:         departmentName,
+			IsPrimary:    relation.IsPrimary,
+		})
+	}
+
 	return result
+}
+
+func normalizeOrgMemberPhone(phone string) (string, error) {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return "", errors.New("手机号不能为空")
+	}
+	phone = strings.TrimPrefix(phone, "+86")
+	phone = strings.TrimPrefix(phone, "86")
+	if !regexp.MustCompile(`^1[3-9]\d{9}$`).MatchString(phone) {
+		return "", errors.New("手机号格式不正确")
+	}
+	return phone, nil
+}
+
+func uniqueDepartmentIDs(ids []uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	result := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func (s *orgService) requireDefaultOrgUser(ctx context.Context, uin, orgID uint) error {
+	org, err := db.GetOrgByID(ctx, s.db, orgID)
+	if err != nil {
+		return err
+	}
+	if org == nil || org.CreatedByUin != uin {
+		return errors.New("无权操作")
+	}
+	return nil
 }
 
 func convertToContractOrg(org *types.Organization) *contract.Org {

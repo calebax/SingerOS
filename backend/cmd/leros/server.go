@@ -14,10 +14,11 @@ import (
 
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api"
-	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/service"
+	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -90,6 +91,12 @@ func newServerCommand() *cobra.Command {
 				return
 			}
 			logs.Info("Storage initialized successfully")
+			if db != nil {
+				if err := service.SeedAITeammateTemplates(cmd.Context(), db, ""); err != nil {
+					logs.Fatalf("Failed to seed AI teammate templates: %v", err)
+					return
+				}
+			}
 
 			r := api.SetupRouter(*cfg, publisher, db)
 
