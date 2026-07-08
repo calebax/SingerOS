@@ -81,6 +81,11 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agentrundom
 		sectionNames = append(sectionNames, "memory_guidance")
 	}
 
+	if project := strings.TrimSpace(buildProjectContextSection(req)); project != "" {
+		sections = append(sections, project)
+		sectionNames = append(sectionNames, "project")
+	}
+
 	if workspace := strings.TrimSpace(buildWorkspaceContext(req)); workspace != "" {
 		sections = append(sections, workspace)
 		sectionNames = append(sectionNames, "workspace")
@@ -159,6 +164,22 @@ func buildMemoryContext(ctx context.Context, reader MemoryReader) string {
 	}
 	logs.InfoContextf(ctx, "Agent memory context built: len=%d", len(block))
 	return block
+}
+
+func buildProjectContextSection(req *agentrundomain.RunRequest) string {
+	if req == nil || len(req.Project.Members) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 协作成员\n")
+	for _, m := range req.Project.Members {
+		label := "用户"
+		if m.MemberType == "assistant" {
+			label = "AI 队友"
+		}
+		sb.WriteString(fmt.Sprintf("- %s：%s（%s）\n", label, m.Name, m.MemberRole))
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 func buildWorkspaceContext(req *agentrundomain.RunRequest) string {

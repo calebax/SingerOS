@@ -38,6 +38,12 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			TaskID:    task.Trace.TaskID,
 			RequestID: firstNonEmpty(task.Trace.RequestID, task.ID),
 		},
+		Project: agentrundomain.ProjectContext{
+			Name:        task.Project.Name,
+			Description: task.Project.Description,
+			Objective:   task.Project.Objective,
+			Members:     membersFromTask(task.Project.Members),
+		},
 		Input: agentrundomain.InputContext{
 			Type:        agentrundomain.InputType(task.Input.Type),
 			Messages:    inputMessagesFromTask(task.Input.Messages),
@@ -90,6 +96,25 @@ func attachmentsFromTask(attachments []messaging.Attachment) []agentrundomain.At
 			Name:     attachment.Name,
 			MimeType: attachment.MimeType,
 			URL:      attachment.URL,
+		})
+	}
+	return result
+}
+
+func membersFromTask(members []messaging.MemberBrief) []agentrundomain.MemberBrief {
+	if len(members) == 0 {
+		return nil
+	}
+	result := make([]agentrundomain.MemberBrief, 0, len(members))
+	for _, m := range members {
+		result = append(result, agentrundomain.MemberBrief{
+			MemberID:      m.MemberID,
+			MemberType:    m.MemberType,
+			MemberRole:    m.MemberRole,
+			Name:          m.Name,
+			IsDefault:     m.IsDefault,
+			IsCurrentExec: m.IsCurrentExec,
+			IsCurrentUser: m.IsCurrentUser,
 		})
 	}
 	return result

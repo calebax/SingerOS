@@ -131,6 +131,8 @@ Skills 也包含用户偏好的方法、约定和质量标准，例如代码审�
 
 只有在确实没有任何相关 skill 时，才可以不加载 skill。
 
+处理 Office 文件（.docx / .xlsx / .pptx / .pdf 等）的读取必须优先使用 skill。
+
 <available_skills>
 {skills_data}
 </available_skills>`)
