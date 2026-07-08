@@ -271,7 +271,14 @@ func processWorkerEndpoint(spec *worker.WorkerSpec, cfg *config.SchedulerConfig)
 		if spec != nil && spec.WorkerID != 0 {
 			workerID = spec.WorkerID
 		}
-		listenAddr = "127.0.0.1:" + strconv.FormatUint(uint64(18080+workerID), 10)
+		orgID := uint(0)
+		if spec != nil && spec.OrgID != 0 {
+			orgID = spec.OrgID
+		}
+		// Assign a unique port block per org to avoid collisions when multiple
+		// organizations have the same worker_id (e.g. every org's first worker).
+		port := 18080 + uint64(orgID)*100 + uint64(workerID)
+		listenAddr = "127.0.0.1:" + strconv.FormatUint(port, 10)
 	}
 	if strings.HasPrefix(listenAddr, "http://") || strings.HasPrefix(listenAddr, "https://") {
 		return strings.TrimRight(listenAddr, "/")

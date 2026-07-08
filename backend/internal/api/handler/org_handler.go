@@ -27,7 +27,6 @@ func (h *OrgHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/CreateOrgMember", h.CreateOrgMember)
 	r.POST("/GetOrgMember", h.GetOrgMember)
 	r.POST("/UpdateOrgMember", h.UpdateOrgMember)
-	r.POST("/DeleteOrgMember", h.DeleteOrgMember)
 	r.POST("/ListOrgMembers", h.ListOrgMembers)
 }
 
@@ -56,7 +55,7 @@ func (h *OrgHandler) CreateOrg(ctx *gin.Context) {
 
 	result, err := h.service.CreateOrg(ctx, &req)
 	if err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -88,7 +87,7 @@ func (h *OrgHandler) GetOrg(ctx *gin.Context) {
 
 	result, err := h.service.GetOrg(ctx, req.PublicID, req.Code)
 	if err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -120,7 +119,7 @@ func (h *OrgHandler) UpdateOrg(ctx *gin.Context) {
 
 	result, err := h.service.UpdateOrg(ctx, req.PublicID, &req.UpdateOrgRequest)
 	if err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -150,7 +149,7 @@ func (h *OrgHandler) DeleteOrg(ctx *gin.Context) {
 	}
 
 	if err := h.service.DeleteOrg(ctx, req.PublicID); err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(nil))
@@ -178,7 +177,7 @@ func (h *OrgHandler) ListOrgs(ctx *gin.Context) {
 
 	result, err := h.service.ListOrgs(ctx, &req)
 	if err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -204,7 +203,7 @@ func (h *OrgHandler) CreateOrgMember(ctx *gin.Context) {
 
 	result, err := h.service.CreateOrgMember(ctx, &req)
 	if err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -244,7 +243,7 @@ func (h *OrgHandler) GetOrgMember(ctx *gin.Context) {
 
 	result, err := h.service.GetOrgMember(ctx, id, uin)
 	if err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
@@ -276,40 +275,10 @@ func (h *OrgHandler) UpdateOrgMember(ctx *gin.Context) {
 
 	result, err := h.service.UpdateOrgMember(ctx, req.ID, &req.UpdateOrgMemberRequest)
 	if err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
-}
-
-type DeleteOrgMemberRequest struct {
-	ID uint `json:"id" binding:"required"`
-}
-
-// @Summary 删除组织成员
-// @Description 根据ID从组织中移除成员
-// @Tags OrgMember
-// @Accept json
-// @Produce json
-// @Param body body DeleteOrgMemberRequest true "删除组织成员请求"
-// @Success 200 {object} dto.Response "成功响应"
-// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
-// @Failure 401 {object} dto.ErrorResponse "未认证"
-// @Failure 404 {object} dto.ErrorResponse "资源不存在"
-// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
-// @Router /DeleteOrgMember [post]
-func (h *OrgHandler) DeleteOrgMember(ctx *gin.Context) {
-	var req DeleteOrgMemberRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
-		return
-	}
-
-	if err := h.service.DeleteOrgMember(ctx, req.ID); err != nil {
-		handleOrgServiceError(ctx, err)
-		return
-	}
-	ctx.JSON(http.StatusOK, dto.Success(nil))
 }
 
 // @Summary 查询组织成员列表
@@ -334,38 +303,8 @@ func (h *OrgHandler) ListOrgMembers(ctx *gin.Context) {
 
 	result, err := h.service.ListOrgMembers(ctx, &req)
 	if err != nil {
-		handleOrgServiceError(ctx, err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
-}
-
-func handleOrgServiceError(ctx *gin.Context, err error) {
-	errMsg := err.Error()
-
-	if errMsg == "user not authenticated" {
-		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, errMsg))
-		return
-	}
-
-	switch errMsg {
-	case "org not found",
-		"org member not found":
-		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, errMsg))
-	case "name is required",
-		"code is required",
-		"name cannot be empty",
-		"public_id is required",
-		"public_id or code is required",
-		"id is required",
-		"id or uin is required",
-		"user_id is required",
-		"org_id is required",
-		"user not found",
-		"org code already exists",
-		"org member already exists":
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
-	default:
-		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))
-	}
 }

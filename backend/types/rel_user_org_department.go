@@ -6,9 +6,9 @@ import "gorm.io/gorm"
 type MemberDepartment struct {
 	gorm.Model
 
-	Uin          uint `gorm:"column:uin;type:bigint;not null;uniqueIndex:uni_member_dept,composite:department_id;comment:组织成员Uin"`
+	Uin          uint `gorm:"column:uin;type:bigint;not null;index;comment:组织成员Uin"`
 	OrgID        uint `gorm:"column:org_id;type:bigint;not null;comment:组织ID"`
-	DepartmentID uint `gorm:"column:department_id;type:bigint;not null;index;uniqueIndex:uni_member_dept,composite:uin;comment:部门ID"`
+	DepartmentID uint `gorm:"column:department_id;type:bigint;not null;index;comment:部门ID"`
 	IsPrimary    bool `gorm:"column:is_primary;type:boolean;not null;default:false;comment:是否为主部门"`
 }
 

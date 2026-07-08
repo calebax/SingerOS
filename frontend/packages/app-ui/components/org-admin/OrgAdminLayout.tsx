@@ -15,7 +15,7 @@ type OrgAdminLayoutProps = {
 
 const NAV_ITEMS: Array<{ id: OrgAdminSection; label: string; icon: typeof Building2 }> = [
 	{ id: "profile", label: "组织管理", icon: Building2 },
-	{ id: "departments", label: "部门管理", icon: Contact },
+	{ id: "departments", label: "通讯录", icon: Contact },
 ];
 
 export function OrgAdminLayout({
@@ -36,7 +36,7 @@ export function OrgAdminLayout({
 			>
 				{!isDialog && (
 					<p className="mb-4 px-2 text-xs font-semibold uppercase tracking-wide text-[var(--leros-text-subtle)]">
-						组织设置
+						组织管理后台
 					</p>
 				)}
 				<nav className="space-y-1">

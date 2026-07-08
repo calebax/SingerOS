@@ -12,10 +12,19 @@ func TestDepartmentServiceCRUDAndList(t *testing.T) {
 	service := NewDepartmentService(database)
 	ctx := accountServiceTestContext()
 
-	created, err := service.CreateDepartment(ctx, &contract.CreateDepartmentRequest{
-		Name:  "服务部门",
+	root, err := service.CreateDepartment(ctx, &contract.CreateDepartmentRequest{
+		Name:  "根部门",
 		OrgID: 1,
-		Sort:  1000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDepartment root failed: %v", err)
+	}
+
+	created, err := service.CreateDepartment(ctx, &contract.CreateDepartmentRequest{
+		Name:     "服务部门",
+		ParentID: root.ID,
+		OrgID:    1,
+		Sort:     1000,
 	})
 	if err != nil {
 		t.Fatalf("CreateDepartment failed: %v", err)
@@ -43,7 +52,7 @@ func TestDepartmentServiceCRUDAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListDepartments failed: %v", err)
 	}
-	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].ID != created.ID {
+	if list.Total != 2 || len(list.Items) != 2 {
 		t.Fatalf("unexpected department list: %#v", list)
 	}
 

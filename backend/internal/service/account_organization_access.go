@@ -23,10 +23,10 @@ type accountOrganizationService struct {
 func accountOrganizationCaller(ctx context.Context) (*types.Caller, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, errors.New("用户未登录")
 	}
 	if caller.OrgID == 0 {
-		return nil, errors.New("org not set")
+		return nil, errors.New("组织未设置")
 	}
 	return caller, nil
 }
@@ -42,17 +42,17 @@ func requireAccountOrgAccess(ctx context.Context, orgID uint) (*types.Caller, er
 		return nil, err
 	}
 	if orgID == 0 {
-		return nil, errors.New("org_id is required")
+		return nil, errors.New("组织ID不能为空")
 	}
 	if orgID != caller.OrgID {
-		return nil, errors.New("permission denied")
+		return nil, errors.New("无权操作")
 	}
 	return caller, nil
 }
 
 func verifyAccountOrgEntity(orgID, callerOrgID uint) error {
 	if orgID != callerOrgID {
-		return errors.New("permission denied")
+		return errors.New("无权操作")
 	}
 	return nil
 }

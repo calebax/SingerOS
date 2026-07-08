@@ -1,10 +1,10 @@
 "use client";
 
 import {
-	getFileDownloadUrl,
 	type OrgInfo,
 	orgAdminApi,
 	projectFileApi,
+	resolveLogoUrl,
 	useAuthStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
@@ -67,7 +67,7 @@ export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
 			setOrg(data);
 			setNameDraft(data.name);
 			setInitialName(data.name);
-			setPendingLogoUrl(data.logo || undefined);
+			setPendingLogoUrl(resolveLogoUrl(data.logo));
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "组织信息加载失败";
 			toast.error(message);
@@ -108,7 +108,7 @@ export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
 			if (!uploaded?.public_id) {
 				throw new Error("组织图标上传失败");
 			}
-			setPendingLogoUrl(getFileDownloadUrl(uploaded.public_id));
+			setPendingLogoUrl(uploaded.public_id);
 		} catch (err) {
 			clearLogoPreview();
 			const message = err instanceof Error ? err.message : "组织图标上传失败";
@@ -136,7 +136,8 @@ export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
 			const updated = resp.data.data;
 			setOrg(updated);
 			setInitialName(updated.name);
-			setPendingLogoUrl(updated.logo || undefined);
+			const resolvedLogo = resolveLogoUrl(updated.logo);
+			setPendingLogoUrl(resolvedLogo);
 			setAuthUser({
 				...user,
 				currentOrg: user.currentOrg
@@ -160,7 +161,7 @@ export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
 	const handleCancel = () => {
 		setNameDraft(initialName);
 		clearLogoPreview();
-		setPendingLogoUrl(org?.logo || undefined);
+		setPendingLogoUrl(resolveLogoUrl(org?.logo));
 	};
 
 	const orgLogoFallback = user?.currentOrg ? (

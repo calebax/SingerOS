@@ -69,10 +69,11 @@ type AuthUserInfo struct {
 }
 
 type AuthOrgInfo struct {
-	ID        uint   `json:"id"`
-	PublicID  string `json:"public_id"`
-	Code      string `json:"code"`
-	Name      string `json:"name"`
-	Logo      string `json:"logo,omitempty"`
-	IsDefault bool   `json:"is_default,omitempty"`
+	ID           uint   `json:"id"`
+	PublicID     string `json:"public_id"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	Logo         string `json:"logo,omitempty"`
+	IsDefault    bool   `json:"is_default,omitempty"`
+	CreatedByUin uint   `json:"created_by_uin,omitempty"`
 }
