@@ -40,8 +40,11 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	sqlDB.SetMaxOpenConns(1)
 
 	if err := db.AutoMigrate(
+		&types.User{},
+		&types.UserOrg{},
 		&types.Project{},
 		&types.ProjectMember{},
+		&types.ProjectActivity{},
 		&types.Task{},
 		&types.Session{},
 		&types.SessionMessage{},
@@ -70,6 +73,19 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		IsDefault:       true,
 	}).Error; err != nil {
 		t.Fatalf("failed to seed default llm model: %v", err)
+	}
+	if err := db.Create(&types.User{
+		PublicID: "usr_test",
+		Name:     "Test User",
+	}).Error; err != nil {
+		t.Fatalf("failed to seed test user: %v", err)
+	}
+	if err := db.Create(&types.UserOrg{
+		UserID: 1,
+		OrgID:  1,
+		Uin:    1,
+	}).Error; err != nil {
+		t.Fatalf("failed to seed test user org: %v", err)
 	}
 
 	return db
@@ -2105,6 +2121,7 @@ func seedReadyAssistant(t *testing.T, database *gorm.DB, code, name, systemPromp
 		t.Fatalf("create assistant: %v", err)
 	}
 	deployment := &types.WorkerDeployment{
+		PublicID:           "worker-deployment-" + code,
 		OrgID:              1,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           assistant.ID,
@@ -2261,6 +2278,32 @@ func TestCreateInitialMessage_TouchesProjectUpdatedAt(t *testing.T) {
 	}
 	if !refreshedProject.UpdatedAt.After(oldUpdatedAt) {
 		t.Fatalf("expected project updated_at after %v, got %v", oldUpdatedAt, refreshedProject.UpdatedAt)
+	}
+}
+
+func TestCreateInitialMessage_RecordsProjectCreatedActivity(t *testing.T) {
+	service, database := setupTestServiceWithDB(t)
+	ctx := setupTestContextWithCaller(t)
+	seedReadyAssistant(t, database, "default", "默认队友", "默认队友")
+
+	resp, err := service.CreateInitialMessage(ctx, &contract.NewMessageRequest{
+		Content: "帮我新建一个项目并开始分析",
+	})
+	if err != nil {
+		t.Fatalf("CreateInitialMessage failed: %v", err)
+	}
+
+	var activity types.ProjectActivity
+	if err := database.WithContext(context.Background()).
+		Where("project_id = ? AND action_type = ?", resp.ProjectID, string(types.ProjectActivityActionProjectCreated)).
+		First(&activity).Error; err != nil {
+		t.Fatalf("load project activity failed: %v", err)
+	}
+	if activity.OperatorID != "usr_test" {
+		t.Fatalf("operator_id = %q, want usr_test", activity.OperatorID)
+	}
+	if activity.ProjectID != resp.ProjectID {
+		t.Fatalf("project_id = %q, want %q", activity.ProjectID, resp.ProjectID)
 	}
 }
 

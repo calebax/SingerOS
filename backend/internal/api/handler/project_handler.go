@@ -28,6 +28,7 @@ func (h *ProjectHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/UpdateProject", h.UpdateProject)
 	r.POST("/DeleteProject", h.DeleteProject)
 	r.POST("/ListProjects", h.ListProjects)
+	r.POST("/ListProjectActivities", h.ListProjectActivities)
 	r.POST("/GetWorkbenchRecentContext", h.GetWorkbenchRecentContext)
 	r.POST("/SaveWorkbenchRecentContext", h.SaveWorkbenchRecentContext)
 }
@@ -223,6 +224,32 @@ func (h *ProjectHandler) ListProjects(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// @Summary 查询项目操作动态
+// @Description 按项目和操作人筛选项目操作动态
+// @Tags Project
+// @Accept json
+// @Produce json
+// @Param body body contract.ListProjectActivitiesRequest true "查询项目动态请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /ListProjectActivities [post]
+func (h *ProjectHandler) ListProjectActivities(ctx *gin.Context) {
+	var req contract.ListProjectActivitiesRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.ListProjectActivities(ctx, &req)
+	if err != nil {
+		handleProjectServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 func (h *ProjectHandler) GetWorkbenchRecentContext(ctx *gin.Context) {
 	result, err := h.service.GetWorkbenchRecentContext(ctx)
 	if err != nil {
@@ -267,6 +294,7 @@ func handleProjectServiceError(ctx *gin.Context, err error) {
 		"name cannot be empty",
 		"public_id is required",
 		"project_id is required",
+		"invalid cursor",
 		"task does not belong to project":
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 	case "task not found":

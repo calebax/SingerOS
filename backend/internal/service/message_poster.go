@@ -272,6 +272,9 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 	if err := infradb.CreateProject(o.ctx, o.poster.db, o.project); err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
+	if err := o.recordProjectCreatedActivity(); err != nil {
+		return err
+	}
 
 	if o.project.GiteaRepoFullName != "" {
 		if err := git.InitRepoStructure(o.ctx, o.poster.giteaClient, o.project.GiteaRepoFullName); err != nil {
@@ -296,6 +299,21 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 	}
 
 	return nil
+}
+
+func (o *newMessageOrchestrator) recordProjectCreatedActivity() error {
+	operatorID, err := publicIDForUser(o.ctx, o.poster.db, o.caller.Uin)
+	if err != nil {
+		return fmt.Errorf("resolve project activity operator: %w", err)
+	}
+	return infradb.CreateProjectActivity(o.ctx, o.poster.db, &types.ProjectActivity{
+		ProjectID:  o.project.PublicID,
+		OperatorID: operatorID,
+		ActionType: types.ProjectActivityActionProjectCreated,
+		Payload:    normalizeProjectActivityPayload(types.ProjectActivityPayload{}),
+		Version:    1,
+		CreatedAt:  time.Now(),
+	})
 }
 
 func (o *newMessageOrchestrator) bindProjectAssistants() error {

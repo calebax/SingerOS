@@ -17,6 +17,8 @@ type ProjectService interface {
 
 	ListProjects(ctx context.Context, req *ListProjectsRequest) (*ProjectList, error)
 
+	ListProjectActivities(ctx context.Context, req *ListProjectActivitiesRequest) (*ProjectActivityList, error)
+
 	GetWorkbenchRecentContext(ctx context.Context) (*WorkbenchRecentContext, error)
 
 	SaveWorkbenchRecentContext(ctx context.Context, req *SaveWorkbenchRecentContextRequest) (*WorkbenchRecentContext, error)

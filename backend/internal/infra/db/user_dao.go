@@ -95,6 +95,64 @@ func GetUsersByIDs(ctx context.Context, db *gorm.DB, ids []uint) ([]*types.User,
 	return entities, nil
 }
 
+// GetUserByUin 根据组织成员 Uin 查询用户。
+func GetUserByUin(ctx context.Context, db *gorm.DB, uin uint) (*types.User, error) {
+	var entity types.User
+	err := db.WithContext(ctx).
+		Table(types.TableNameUser+" AS u").
+		Select("u.*").
+		Joins("INNER JOIN "+types.TableNameUserOrg+" AS uo ON uo.user_id = u.id").
+		Where("uo.uin = ? AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", uin).
+		First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
+}
+
+// GetUsersByUins 批量根据组织成员 Uin 查询用户。
+func GetUsersByUins(ctx context.Context, db *gorm.DB, uins []uint) (map[uint]*types.User, error) {
+	if len(uins) == 0 {
+		return map[uint]*types.User{}, nil
+	}
+	type row struct {
+		Uin uint
+		types.User
+	}
+	var rows []row
+	err := db.WithContext(ctx).
+		Table(types.TableNameUser+" AS u").
+		Select("uo.uin, u.*").
+		Joins("INNER JOIN "+types.TableNameUserOrg+" AS uo ON uo.user_id = u.id").
+		Where("uo.uin IN (?) AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", uins).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[uint]*types.User, len(rows))
+	for _, row := range rows {
+		user := row.User
+		result[row.Uin] = &user
+	}
+	return result, nil
+}
+
+// GetUsersByPublicIDs 批量根据公开 ID 查询用户。
+func GetUsersByPublicIDs(ctx context.Context, db *gorm.DB, publicIDs []string) ([]*types.User, error) {
+	if len(publicIDs) == 0 {
+		return nil, nil
+	}
+	var entities []*types.User
+	err := db.WithContext(ctx).Where("public_id IN (?)", publicIDs).Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
 func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.User, int64, error) {
 	var entities []*types.User
 	var total int64
