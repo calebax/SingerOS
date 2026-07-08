@@ -158,6 +158,7 @@ export function LeftRail({
 		() => new Set(),
 	);
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
+	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
 
 	/* ── Desktop update notifier ── */
 	const [promptOpen, setPromptOpen] = useState(false);
@@ -326,6 +327,15 @@ export function LeftRail({
 		window.localStorage.setItem(LEFT_RAIL_COLLAPSED_STORAGE_KEY, String(leftRailCollapsed));
 	}, [leftRailCollapsed]);
 
+	// 中文注释：项目展开态属于当前登录会话的浏览上下文，登出后应重置，避免重新登录后仍显示空的展开列表。
+	useEffect(() => {
+		if (isAuthenticated) return;
+		setExpandedProjectIds(new Set());
+		setExpandedTaskProjectIds(new Set());
+		setTaskLoadedProjectIds(new Set());
+		setLoadingTaskProjectIds(new Set());
+	}, [isAuthenticated]);
+
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
 		const navigate = () => {
@@ -371,9 +381,14 @@ export function LeftRail({
 			});
 
 			if (shouldLoadTasks) {
+				setLoadingTaskProjectIds((current) => new Set(current).add(project.id));
 				void fetchTasks(project.id).finally(() => {
-					// 中文注释：避免无任务项目在每次展开时重复请求详情接口。
 					setTaskLoadedProjectIds((current) => new Set(current).add(project.id));
+					setLoadingTaskProjectIds((current) => {
+						const next = new Set(current);
+						next.delete(project.id);
+						return next;
+					});
 				});
 			}
 		});
@@ -599,6 +614,7 @@ export function LeftRail({
 						currentPath={navigation?.currentPath}
 						expandedProjectIds={expandedProjectIds}
 						expandedTaskProjectIds={expandedTaskProjectIds}
+						loadingTaskProjectIds={loadingTaskProjectIds}
 						onToggleProject={handleToggleProject}
 						onEnterProject={handleProjectClick}
 						onOpenTask={handleOpenTask}
@@ -1353,6 +1369,7 @@ function ProjectList({
 	currentPath,
 	expandedProjectIds,
 	expandedTaskProjectIds,
+	loadingTaskProjectIds,
 	onToggleProject,
 	onEnterProject,
 	onOpenTask,
@@ -1371,6 +1388,7 @@ function ProjectList({
 	currentPath?: string;
 	expandedProjectIds: Set<string>;
 	expandedTaskProjectIds: Set<string>;
+	loadingTaskProjectIds: Set<string>;
 	onToggleProject: (project: Project) => void;
 	onEnterProject: (projectId: string) => void;
 	onOpenTask: (projectId: string, task: ProjectTask) => void;
@@ -1390,6 +1408,7 @@ function ProjectList({
 			{recentProjects.map((project) => {
 				const projectExpanded = expandedProjectIds.has(project.id);
 				const tasksExpanded = expandedTaskProjectIds.has(project.id);
+				const isLoadingTasks = loadingTaskProjectIds.has(project.id);
 				const visibleTasks = tasksExpanded
 					? project.tasks
 					: project.tasks.slice(0, PROJECT_TASK_PREVIEW_LIMIT);
@@ -1483,7 +1502,12 @@ function ProjectList({
 						</div>
 						{!collapsed && projectExpanded ? (
 							<div className="space-y-1">
-								{visibleTasks.length > 0 ? (
+								{isLoadingTasks ? (
+									<div className="flex items-center gap-2 px-8 py-2 text-sm text-[var(--leros-text-subtle)]">
+										<Loader2 className="size-3.5 animate-spin" />
+										<span>任务加载中...</span>
+									</div>
+								) : visibleTasks.length > 0 ? (
 									visibleTasks.map((task) => {
 										const taskActive = currentPath
 											? currentPath.startsWith(`/projects/${project.id}/tasks/${task.id}`)
