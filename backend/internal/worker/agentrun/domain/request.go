@@ -154,7 +154,7 @@ func BuildUserInput(req *RunRequest) string {
 	}
 	if len(req.Input.Messages) > 0 {
 		lines := make([]string, 0, len(req.Input.Messages))
-		for _, message := range req.Input.Messages {
+		for i, message := range req.Input.Messages {
 			if strings.TrimSpace(message.Content) == "" {
 				continue
 			}
@@ -165,7 +165,11 @@ func BuildUserInput(req *RunRequest) string {
 					name = "user"
 				}
 			}
-			lines = append(lines, fmt.Sprintf("%s: %s", name, message.Content))
+			if message.Role == "assistant" {
+				lines = append(lines, fmt.Sprintf("【AI 队友回复】\n[%d] AI 队友 「%s」发送：「%s」", i+1, name, message.Content))
+			} else {
+				lines = append(lines, fmt.Sprintf("【用户问题】\n[%d] 用户 「%s」发送：「%s」", i+1, name, message.Content))
+			}
 		}
 		return strings.Join(lines, "\n")
 	}
