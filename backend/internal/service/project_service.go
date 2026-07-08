@@ -819,11 +819,15 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		}
 		if m.MemberType == types.MemberTypeUser {
 			if u, ok := userMap[m.MemberID]; ok {
+				// 中文注释：项目成员弹窗依赖 public_id 判断候选项是否已加入项目。
+				item.PublicID = u.PublicID
 				item.Name = u.Name
 				item.AvatarURL = u.AvatarURL
 			}
 		} else if m.MemberType == types.MemberTypeAssistant {
 			if a, ok := assistantMap[m.MemberID]; ok {
+				// 中文注释：AI 队友同样返回 public_id，避免前端只能用内部 ID 匹配导致漏过滤。
+				item.PublicID = a.PublicID
 				item.Name = a.Name
 				item.AvatarURL = a.Avatar
 			}
