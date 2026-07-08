@@ -1247,6 +1247,7 @@ function inheritStreamingAssistantState(target: Message, source?: Message): Mess
 
 // 中文注释：run 已落库但 SessionEvents 未收到终端事件时，用 DB 同步兜底。
 const SESSION_EVENTS_IDLE_FALLBACK_MS = 10_000;
+const TASK_ROOM_ASSISTANT_START_FALLBACK_MS = 60_000;
 const ASSISTANT_SESSION_EVENTS_WAITING_TEXT = "AI 员工已接单，正在生成回复...";
 
 export function createAssistantSessionEventsWaitingMessage(
@@ -1939,6 +1940,84 @@ export class ChatActionImpl {
 		this.#startSSE(sessionId, assistantMsg.id, true, assistantId);
 	};
 
+	#startTaskRoomAssistantFallback = async (sessionId: string, assistantMsgId: string) => {
+		try {
+			const sessionRes = await sessionApi.get({ session_id: sessionId });
+			const baselineMessageCount = sessionRes.data.data?.message_count ?? 0;
+			const pollResult = await pollRuntimeStatus(
+				sessionId,
+				TASK_ROOM_ASSISTANT_START_FALLBACK_MS,
+				baselineMessageCount,
+			);
+			const state = this.#get();
+			// 中文注释：GlobalEvents 正常到达后会替换等待占位，此时兜底不再接管，避免重复开流。
+			if (
+				state.activeSessionId !== sessionId ||
+				state.streamingMessageId !== assistantMsgId ||
+				!state.isGenerating
+			) {
+				return;
+			}
+			if (pollResult?.status === "responding") {
+				const current = state.messagesMap[assistantMsgId];
+				if (current) {
+					this.#dispatchChat({
+						type: "updateMessage",
+						id: assistantMsgId,
+						value: {
+							...current,
+							status: "streaming",
+							statusText: ASSISTANT_SESSION_EVENTS_WAITING_TEXT,
+						},
+					});
+				}
+				this.#startSSE(sessionId, assistantMsgId, true);
+				return;
+			}
+			if (pollResult?.status === "completed") {
+				await this.loadConversationMessages(sessionId, { resumeStream: false });
+				this.#finishStream();
+				return;
+			}
+			const current = this.#get().messagesMap[assistantMsgId];
+			if (current) {
+				this.#dispatchChat({
+					type: "updateMessage",
+					id: assistantMsgId,
+					value: {
+						...current,
+						status: "failed",
+						statusText: "AI 员工暂未接单，请稍后重试。",
+					},
+				});
+			}
+			this.#finishStream();
+		} catch (err) {
+			console.error("startTaskRoomAssistantFallback error:", err);
+			const state = this.#get();
+			if (
+				state.activeSessionId !== sessionId ||
+				state.streamingMessageId !== assistantMsgId ||
+				!state.isGenerating
+			) {
+				return;
+			}
+			const current = state.messagesMap[assistantMsgId];
+			if (current) {
+				this.#dispatchChat({
+					type: "updateMessage",
+					id: assistantMsgId,
+					value: {
+						...current,
+						status: "failed",
+						statusText: "AI 员工接单状态查询失败，请稍后重试。",
+					},
+				});
+			}
+			this.#finishStream();
+		}
+	};
+
 	sendTaskRoomMessage = async (
 		content: string,
 		params: {
@@ -2015,6 +2094,8 @@ export class ChatActionImpl {
 			inputAttachments: [],
 			activeSessionId: params.sessionId,
 		});
+		// 中文注释：若 worker started 全局事件缺失或延迟，轮询 runtime_status 兜底接管，避免页面永久停在生成中。
+		void this.#startTaskRoomAssistantFallback(params.sessionId, assistantMsg.id);
 
 		return { project_id: params.projectId, task_id: params.taskId, session_id: params.sessionId };
 	};
