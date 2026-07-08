@@ -55,33 +55,48 @@ type OrgList struct {
 }
 
 type OrgMember struct {
-	ID        uint      `json:"id"`
-	Uin       uint      `json:"uin"`
-	UserID    string    `json:"user_id"`
-	OrgID     string    `json:"org_id"`
-	IsDefault bool      `json:"is_default"`
-	UserName  string    `json:"user_name,omitempty"`
-	UserLogin string    `json:"user_login,omitempty"`
-	AvatarURL string    `json:"avatar_url,omitempty"`
-	OrgName   string    `json:"org_name,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          uint                  `json:"id"`
+	Uin         uint                  `json:"uin"`
+	UserID      string                `json:"user_id"`
+	OrgID       string                `json:"org_id"`
+	IsDefault   bool                  `json:"is_default"`
+	UserName    string                `json:"user_name,omitempty"`
+	UserLogin   string                `json:"user_login,omitempty"`
+	UserPhone   string                `json:"user_phone,omitempty"`
+	AvatarURL   string                `json:"avatar_url,omitempty"`
+	OrgName     string                `json:"org_name,omitempty"`
+	Departments []OrgMemberDepartment `json:"departments,omitempty"`
+	CreatedAt   time.Time             `json:"created_at"`
+	UpdatedAt   time.Time             `json:"updated_at"`
+}
+
+type OrgMemberDepartment struct {
+	ID           uint   `json:"id"`
+	DepartmentID uint   `json:"department_id"`
+	Name         string `json:"name"`
+	IsPrimary    bool   `json:"is_primary"`
 }
 
 type CreateOrgMemberRequest struct {
-	UserID    string `json:"user_id" binding:"required"`
-	OrgID     string `json:"org_id" binding:"required"`
-	IsDefault bool   `json:"is_default,omitempty"`
+	UserID        string `json:"user_id,omitempty"`
+	OrgID         string `json:"org_id,omitempty"`
+	IsDefault     bool   `json:"is_default,omitempty"`
+	Name          string `json:"name,omitempty"`
+	Phone         string `json:"phone,omitempty"`
+	DepartmentIDs []uint `json:"department_ids,omitempty"`
 }
 
 type UpdateOrgMemberRequest struct {
-	OrgID     *string `json:"org_id,omitempty"`
-	IsDefault *bool   `json:"is_default,omitempty"`
+	OrgID         *string `json:"org_id,omitempty"`
+	IsDefault     *bool   `json:"is_default,omitempty"`
+	Name          *string `json:"name,omitempty"`
+	DepartmentIDs []uint  `json:"department_ids,omitempty"`
 }
 
 type ListOrgMembersRequest struct {
-	OrgID  *string `json:"org_id,omitempty"`
-	UserID *string `json:"user_id,omitempty"`
+	OrgID        *uint   `json:"org_id,omitempty"`
+	UserID       *string `json:"user_id,omitempty"`
+	DepartmentID *uint   `json:"department_id,omitempty"`
 	types.Pagination
 }
 

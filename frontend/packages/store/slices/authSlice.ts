@@ -150,6 +150,7 @@ function toStoredAuthOrg(org: AuthOrgInfo | undefined): StoredAuthOrg | undefine
 		name: org.name,
 		logo: org.logo,
 		isDefault: org.is_default,
+		createdByUin: org.created_by_uin,
 	};
 }
 

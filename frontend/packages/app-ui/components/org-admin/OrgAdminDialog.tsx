@@ -38,8 +38,8 @@ export function OrgAdminDialog({
 				showCloseButton
 			>
 				<DialogHeader className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-4 text-left">
-					<DialogTitle>组织设置</DialogTitle>
-					<DialogDescription>管理组织基本信息与部门结构</DialogDescription>
+					<DialogTitle>组织管理后台</DialogTitle>
+					<DialogDescription>管理组织基本信息与通讯录</DialogDescription>
 				</DialogHeader>
 				<div className="flex min-h-0 flex-1 flex-col">
 					<OrgAdminLayout activeSection={section} onNavigate={setSection} variant="dialog">

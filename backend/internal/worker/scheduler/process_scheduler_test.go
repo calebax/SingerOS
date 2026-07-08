@@ -41,3 +41,21 @@ func TestProcessWorkerEndpointDefaultsToPerWorkerPort(t *testing.T) {
 		t.Fatalf("endpoint = %q, want http://127.0.0.1:18087", endpoint)
 	}
 }
+
+func TestProcessWorkerEndpointUniquePerOrgAndWorker(t *testing.T) {
+	cases := []struct {
+		orgID    uint
+		workerID uint
+		want     string
+	}{
+		{1, 1, "http://127.0.0.1:18181"},
+		{5, 1, "http://127.0.0.1:18581"},
+		{1, 2, "http://127.0.0.1:18182"},
+	}
+	for _, c := range cases {
+		endpoint := processWorkerEndpoint(&worker.WorkerSpec{OrgID: c.orgID, WorkerID: c.workerID}, nil)
+		if endpoint != c.want {
+			t.Fatalf("orgID=%d workerID=%d endpoint = %q, want %q", c.orgID, c.workerID, endpoint, c.want)
+		}
+	}
+}

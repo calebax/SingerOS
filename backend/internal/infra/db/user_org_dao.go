@@ -14,7 +14,20 @@ import (
 // GetUserOrgByUin 根据UIN获取用户组织
 func GetUserOrgByUin(ctx context.Context, db *gorm.DB, uin uint) (*types.UserOrg, error) {
 	var userOrg types.UserOrg
-	err := db.WithContext(ctx).Where("uin = ?", uin).First(&userOrg).Error
+	err := db.WithContext(ctx).Where("uin = ?", uin).Order("is_default DESC, id ASC").First(&userOrg).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &userOrg, nil
+}
+
+// GetUserOrgByUinAndOrgID 获取用户在指定组织下的关联。
+func GetUserOrgByUinAndOrgID(ctx context.Context, db *gorm.DB, uin, orgID uint) (*types.UserOrg, error) {
+	var userOrg types.UserOrg
+	err := db.WithContext(ctx).Where("uin = ? AND org_id = ?", uin, orgID).First(&userOrg).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -156,7 +169,8 @@ func ListUserOrgs(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 	var total int64
 
 	query := d.WithContext(ctx).Table(types.TableNameUserOrg).
-		Where("deleted_at IS NULL")
+		Where("deleted_at IS NULL").
+		Where("user_id NOT IN (SELECT id FROM leros_user WHERE github_login = ?)", "admin")
 
 	for _, filter := range opt.Filters {
 		switch filter.Field {
@@ -166,6 +180,16 @@ func ListUserOrgs(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 			query = query.Where("user_id IN (?)", filter.Value)
 		case "is_default":
 			query = query.Where("is_default IN (?)", filter.Value)
+		case "department_id":
+			query = query.Where(`
+				EXISTS (
+					SELECT 1 FROM leros_rel_user_org_department md
+					WHERE md.uin = leros_user_org.uin
+					  AND md.org_id = leros_user_org.org_id
+					  AND md.department_id IN (?)
+					  AND md.deleted_at IS NULL
+				)
+			`, filter.Value)
 		default:
 			logs.WarnContextf(ctx, "[user_org][ListUserOrgs] invalid filter field: %s", filter.Field)
 		}

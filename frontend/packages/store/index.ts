@@ -32,8 +32,16 @@ export {
 	getFilePreviewUrl,
 	getFilePreviewUrlByPublicId,
 	getFilePublicUrlFromStorageUri,
+	resolveLogoUrl,
 } from "./api/fileApi";
-export type { Department, ListDepartmentsResponse, OrgInfo } from "./api/orgAdminApi";
+export type {
+	Department,
+	ListDepartmentsResponse,
+	ListOrgMembersResponse,
+	OrgInfo,
+	OrgMember,
+	OrgMemberDepartment,
+} from "./api/orgAdminApi";
 export { orgAdminApi } from "./api/orgAdminApi";
 export { projectFileApi } from "./api/projectFileApi";
 export type { HumanProjectMemberOption } from "./api/projectMemberApi";

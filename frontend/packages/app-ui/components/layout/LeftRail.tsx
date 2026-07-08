@@ -685,7 +685,7 @@ export function LeftRail({
 								}}
 							>
 								<Building2 className="size-4 shrink-0" />
-								<span>组织设置</span>
+								<span>组织管理后台</span>
 							</DropdownMenuItem>
 							<DropdownMenuItem
 								onClick={() => {

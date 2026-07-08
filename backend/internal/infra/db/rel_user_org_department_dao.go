@@ -56,6 +56,13 @@ func DeleteMemberDepartmentsByUin(ctx context.Context, d *gorm.DB, uin uint) err
 		Delete(&types.MemberDepartment{}).Error
 }
 
+// DeleteMemberDepartmentsByUinAndOrgID 删除指定组织成员在指定组织下的部门关联。
+func DeleteMemberDepartmentsByUinAndOrgID(ctx context.Context, d *gorm.DB, uin, orgID uint) error {
+	return d.WithContext(ctx).
+		Where("uin = ? AND org_id = ?", uin, orgID).
+		Delete(&types.MemberDepartment{}).Error
+}
+
 // CountMemberDepartments 统计组织成员部门关联。
 func CountMemberDepartments(ctx context.Context, d *gorm.DB, opt *types.PageQuery) (int64, error) {
 	query := buildMemberDepartmentQuery(ctx, d, opt)
@@ -106,6 +113,16 @@ func ListMemberDepartmentsByUin(ctx context.Context, d *gorm.DB, uin uint) ([]*t
 	var entities []*types.MemberDepartment
 	err := d.WithContext(ctx).
 		Where("uin = ? AND deleted_at IS NULL", uin).
+		Order("is_primary DESC, id ASC").
+		Find(&entities).Error
+	return entities, err
+}
+
+// ListMemberDepartmentsByUinAndOrgID 查询指定组织成员的部门关联。
+func ListMemberDepartmentsByUinAndOrgID(ctx context.Context, d *gorm.DB, uin, orgID uint) ([]*types.MemberDepartment, error) {
+	var entities []*types.MemberDepartment
+	err := d.WithContext(ctx).
+		Where("uin = ? AND org_id = ? AND deleted_at IS NULL", uin, orgID).
 		Order("is_primary DESC, id ASC").
 		Find(&entities).Error
 	return entities, err

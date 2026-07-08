@@ -35,7 +35,7 @@ const (
 	phoneCodeExpire         = 5 * time.Minute
 	phoneCodeResendInterval = 2 * time.Minute
 	defaultPhoneCode        = "123456"
-	maxUserOrganizations    = 2
+	maxUserOrganizations    = 3
 )
 
 var (
@@ -65,7 +65,7 @@ var (
 	errAuthLoginRequired                  = errors.New("请先登录")
 	errAuthOrgNotFound                    = errors.New("用户组织信息不存在")
 	errAuthJWTSecretRequired              = errors.New("登录配置缺失")
-	errAuthOrganizationLimitExceeded      = errors.New("最多只能加入两个组织")
+	errAuthOrganizationLimitExceeded      = errors.New("最多只能加入三个组织")
 )
 
 var _ contract.AuthService = (*authService)(nil)
@@ -449,7 +449,7 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 		return nil, errAuthLoginRequired
 	}
 
-	currentUserOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+	currentUserOrg, err := s.userOrgForIdentity(ctx, s.db, caller.Uin, caller.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -494,8 +494,11 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 			Status:   "active",
 		}
 		if err := db.CreateOrg(ctx, tx, org); err != nil {
-			return err
-		}
+				return err
+			}
+			if err := db.CloneSystemLLMModelsByOrg(ctx, tx, 1, org.ID); err != nil {
+				return fmt.Errorf("clone system llm models: %w", err)
+			}
 
 		userOrg = &types.UserOrg{
 			UserID:    user.ID,
@@ -516,7 +519,7 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 		}
 
 		department := &types.Department{
-			Name:     "默认部门",
+			Name:     org.Name,
 			ParentID: 0,
 			Sort:     db.DepartmentSortGap,
 			OrgID:    org.ID,
@@ -525,19 +528,32 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 			return err
 		}
 
-		return db.CreateMemberDepartment(ctx, tx, &types.MemberDepartment{
+		existing, err := db.ListMemberDepartmentsByUinAndOrgID(ctx, tx, userOrg.Uin, org.ID)
+		if err != nil {
+			return err
+		}
+		for _, rel := range existing {
+			if rel.DepartmentID == department.ID {
+				return errors.New("组织成员部门关联已存在")
+			}
+		}
+
+		if err := db.CreateMemberDepartment(ctx, tx, &types.MemberDepartment{
 			Uin:          userOrg.Uin,
 			OrgID:        org.ID,
 			DepartmentID: department.ID,
 			IsPrimary:    true,
-		})
+		}); err != nil {
+			return err
+		}
+		if s.workerProvisioning != nil {
+			if _, err := s.workerProvisioning.ensureDefaultWorkerForOrg(ctx, tx, org.ID, userOrg.Uin); err != nil {
+				return fmt.Errorf("ensure default worker deployment: %w", err)
+			}
+		}
+		return nil
 	}); err != nil {
 		return nil, err
-	}
-	if s.workerProvisioning != nil {
-		if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, org.ID, userOrg.Uin); err != nil {
-			return nil, fmt.Errorf("ensure default worker deployment: %w", err)
-		}
 	}
 
 	return s.buildTokenResponse(ctx, user, userOrg, org)
@@ -553,7 +569,7 @@ func (s *authService) AuthSession(ctx context.Context) (*contract.AuthSessionRes
 		return nil, errAuthLoginRequired
 	}
 
-	userOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+	userOrg, err := s.userOrgForIdentity(ctx, s.db, caller.Uin, caller.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -649,6 +665,13 @@ func (s *authService) generateRefreshToken(ctx context.Context, uin uint) (strin
 	return token, nil
 }
 
+func (s *authService) userOrgForIdentity(ctx context.Context, database *gorm.DB, uin, orgID uint) (*types.UserOrg, error) {
+	if orgID > 0 {
+		return db.GetUserOrgByUinAndOrgID(ctx, database, uin, orgID)
+	}
+	return db.GetUserOrgByUin(ctx, database, uin)
+}
+
 func (s *authService) resolveLoginUserOrg(ctx context.Context, database *gorm.DB, userID, requestedOrgID uint) (*types.UserOrg, *types.Organization, error) {
 	var (
 		userOrg *types.UserOrg
@@ -721,12 +744,13 @@ func (s *authService) userOrganizationInfos(ctx context.Context, userID uint) ([
 
 func authOrgInfo(org *types.Organization, isDefault bool) contract.AuthOrgInfo {
 	return contract.AuthOrgInfo{
-		ID:        org.ID,
-		PublicID:  org.PublicID,
-		Code:      org.Code,
-		Name:      org.Name,
-		Logo:      org.Logo,
-		IsDefault: isDefault,
+		ID:           org.ID,
+		PublicID:     org.PublicID,
+		Code:         org.Code,
+		Name:         org.Name,
+		Logo:         org.Logo,
+		IsDefault:    isDefault,
+		CreatedByUin: org.CreatedByUin,
 	}
 }
 

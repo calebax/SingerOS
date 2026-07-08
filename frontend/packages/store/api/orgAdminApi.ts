@@ -32,13 +32,46 @@ export type ListDepartmentsResponse = {
 	items: Department[];
 };
 
+export type OrgMemberDepartment = {
+	id: number;
+	department_id: number;
+	name: string;
+	is_primary: boolean;
+};
+
+export type OrgMember = {
+	id: number;
+	uin: number;
+	user_id: string;
+	org_id: string;
+	is_default: boolean;
+	user_name?: string;
+	user_login?: string;
+	user_phone?: string;
+	avatar_url?: string;
+	org_name?: string;
+	departments?: OrgMemberDepartment[];
+	created_at: string;
+	updated_at: string;
+};
+
+export type ListOrgMembersResponse = {
+	total: number;
+	offset: number;
+	limit: number;
+	items: OrgMember[];
+};
+
 const ENDPOINTS = {
 	getOrg: "/GetOrg",
 	updateOrg: "/UpdateOrg",
-	listDepartments: "/ListAccountDepartments",
-	createDepartment: "/CreateAccountDepartment",
-	updateDepartment: "/UpdateAccountDepartment",
-	deleteDepartment: "/DeleteAccountDepartment",
+	listDepartments: "/ListDepartments",
+	createDepartment: "/CreateDepartment",
+	updateDepartment: "/UpdateDepartment",
+	deleteDepartment: "/DeleteDepartment",
+	listOrgMembers: "/ListOrgMembers",
+	createOrgMember: "/CreateOrgMember",
+	updateOrgMember: "/UpdateOrgMember",
 };
 
 export const orgAdminApi = {
@@ -59,7 +92,6 @@ export const orgAdminApi = {
 			org_id: params.org_id,
 			list_all: params.list_all ?? true,
 			keyword: params.keyword,
-			limit: 200,
 		}),
 
 	createDepartment: (params: { org_id: number; name: string; parent_id?: number }) =>
@@ -75,4 +107,25 @@ export const orgAdminApi = {
 
 	deleteDepartment: (params: { id: number }) =>
 		apiClient.post<BackendDataResponse<null>>(ENDPOINTS.deleteDepartment, params),
+
+	listOrgMembers: (params: { org_id: number; department_id?: number; list_all?: boolean }) =>
+		apiClient.post<BackendDataResponse<ListOrgMembersResponse>>(ENDPOINTS.listOrgMembers, {
+			org_id: params.org_id,
+			department_id: params.department_id,
+			list_all: params.list_all ?? true,
+		}),
+
+	createOrgMember: (params: { name: string; phone: string; department_ids: number[] }) =>
+		apiClient.post<BackendDataResponse<OrgMember>>(ENDPOINTS.createOrgMember, {
+			name: params.name,
+			phone: params.phone,
+			department_ids: params.department_ids,
+		}),
+
+	updateOrgMember: (params: { id: number; name?: string; department_ids?: number[] }) =>
+		apiClient.post<BackendDataResponse<OrgMember>>(ENDPOINTS.updateOrgMember, {
+			id: params.id,
+			name: params.name,
+			department_ids: params.department_ids,
+		}),
 };

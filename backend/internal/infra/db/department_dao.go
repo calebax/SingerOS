@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
@@ -70,6 +71,22 @@ func GetDepartmentsByIDs(ctx context.Context, d *gorm.DB, ids []uint) ([]*types.
 		return nil, err
 	}
 	return entities, nil
+}
+
+// GetDefaultRootDepartmentByOrgID 获取组织默认顶级部门。
+func GetDefaultRootDepartmentByOrgID(ctx context.Context, d *gorm.DB, orgID uint) (*types.Department, error) {
+	var entity types.Department
+	err := d.WithContext(ctx).
+		Where("org_id = ? AND parent_id = 0 AND deleted_at IS NULL", orgID).
+		Order("sort ASC, id ASC").
+		First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
 }
 
 // UpdateDepartment 保存组织部门。
@@ -147,6 +164,19 @@ func ListDepartmentSiblings(ctx context.Context, d *gorm.DB, parentID uint, excl
 		return nil, err
 	}
 	return entities, nil
+}
+
+// ListDepartmentAndDescendantIDs 查询指定部门及其所有子部门的 ID。
+func ListDepartmentAndDescendantIDs(ctx context.Context, d *gorm.DB, deptID, orgID uint) ([]uint, error) {
+	var ids []uint
+	// CAST 需要在外部将 uint 转成字符串数组 JSON 格式
+	condition := fmt.Sprintf(`[%d]`, deptID)
+	err := d.WithContext(ctx).Table(types.TableNameDepartment).
+		Select("id").
+		Where("org_id = ? AND deleted_at IS NULL", orgID).
+		Where("id = ? OR parent_ids @> CAST(? AS jsonb)", deptID, condition).
+		Find(&ids).Error
+	return ids, err
 }
 
 func buildDepartmentQuery(ctx context.Context, d *gorm.DB, opt *types.PageQuery) *gorm.DB {

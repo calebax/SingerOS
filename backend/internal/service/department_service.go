@@ -29,7 +29,7 @@ func (s *accountDepartmentService) CreateDepartment(ctx context.Context, req *co
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("name is required")
+		return nil, errors.New("部门名称不能为空")
 	}
 
 	existing, err := db.GetDepartmentByName(ctx, s.db, req.OrgID, name)
@@ -37,7 +37,7 @@ func (s *accountDepartmentService) CreateDepartment(ctx context.Context, req *co
 		return nil, err
 	}
 	if existing != nil {
-		return nil, errors.New("department name already exists")
+		return nil, errors.New("部门名称已存在")
 	}
 
 	var parent *types.Department
@@ -48,7 +48,7 @@ func (s *accountDepartmentService) CreateDepartment(ctx context.Context, req *co
 			return nil, err
 		}
 		if parent == nil {
-			return nil, errors.New("parent department not found")
+			return nil, errors.New("父部门不存在")
 		}
 		if err := verifyAccountOrgEntity(parent.OrgID, req.OrgID); err != nil {
 			return nil, err
@@ -79,14 +79,14 @@ func (s *accountDepartmentService) GetDepartment(ctx context.Context, id uint) (
 		return nil, err
 	}
 	if id == 0 {
-		return nil, errors.New("id is required")
+		return nil, errors.New("id不能为空")
 	}
 	department, err := db.GetDepartmentByID(ctx, s.db, id)
 	if err != nil {
 		return nil, err
 	}
 	if department == nil {
-		return nil, errors.New("department not found")
+		return nil, errors.New("部门不存在")
 	}
 	if err := verifyAccountOrgEntity(department.OrgID, caller.OrgID); err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 		return nil, err
 	}
 	if id == 0 {
-		return nil, errors.New("id is required")
+		return nil, errors.New("id不能为空")
 	}
 
 	var department *types.Department
@@ -111,7 +111,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 			return err
 		}
 		if department == nil {
-			return errors.New("department not found")
+			return errors.New("部门不存在")
 		}
 		if err := verifyAccountOrgEntity(department.OrgID, caller.OrgID); err != nil {
 			return err
@@ -119,7 +119,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 		if req.Name != nil {
 			nextName := strings.TrimSpace(*req.Name)
 			if nextName == "" {
-				return errors.New("name is required")
+				return errors.New("部门名称不能为空")
 			}
 			if nextName != department.Name {
 				existing, dbErr := db.GetDepartmentByName(ctx, tx, department.OrgID, nextName)
@@ -127,7 +127,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 					return dbErr
 				}
 				if existing != nil && existing.ID != department.ID {
-					return errors.New("department name already exists")
+					return errors.New("部门名称已存在")
 				}
 			}
 			department.Name = nextName
@@ -140,13 +140,13 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 					return dbErr
 				}
 				if parent == nil {
-					return errors.New("parent department not found")
+					return errors.New("父部门不存在")
 				}
 				if err := verifyAccountOrgEntity(parent.OrgID, department.OrgID); err != nil {
 					return err
 				}
 				if parent.ID == department.ID || departmentParentIDsContain(parent.ParentIDs, department.ID) {
-					return errors.New("department parent creates a cycle")
+					return errors.New("部门父级设置形成循环")
 				}
 				department.ParentIDs = types.BuildDepartmentParentIDs(parent)
 			} else {
@@ -159,7 +159,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 		}
 		if req.OrgID != nil {
 			if *req.OrgID == 0 {
-				return errors.New("org_id is required")
+				return errors.New("组织ID不能为空")
 			}
 			if err := verifyAccountOrgEntity(*req.OrgID, caller.OrgID); err != nil {
 				return err
@@ -185,7 +185,7 @@ func (s *accountDepartmentService) DeleteDepartment(ctx context.Context, id uint
 		return err
 	}
 	if id == 0 {
-		return errors.New("id is required")
+		return errors.New("id不能为空")
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		department, err := db.GetDepartmentByID(ctx, tx, id)
@@ -193,17 +193,20 @@ func (s *accountDepartmentService) DeleteDepartment(ctx context.Context, id uint
 			return err
 		}
 		if department == nil {
-			return errors.New("department not found")
+			return errors.New("部门不存在")
 		}
 		if err := verifyAccountOrgEntity(department.OrgID, caller.OrgID); err != nil {
 			return err
+		}
+		if department.ParentID == 0 {
+			return errors.New("禁止删除根部门")
 		}
 		children, err := db.ListDepartmentSiblings(ctx, tx, id, 0)
 		if err != nil {
 			return err
 		}
 		if len(children) > 0 {
-			return errors.New("department has child departments")
+			return errors.New("部门下存在子部门")
 		}
 		return db.DeleteDepartment(ctx, tx, id)
 	})

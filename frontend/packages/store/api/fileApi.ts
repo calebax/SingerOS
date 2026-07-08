@@ -9,6 +9,13 @@ export function getFileDownloadUrl(publicId: string): string {
 	return `${API_BASE_URL}/files/${encodeURIComponent(publicId)}/download`;
 }
 
+// resolveLogoUrl 将 logo 的 public_id 解析为可下载 URL。
+export function resolveLogoUrl(logo?: string | null): string | undefined {
+	const trimmed = logo?.trim();
+	if (!trimmed) return undefined;
+	return getFileDownloadUrl(trimmed);
+}
+
 export function getFilePublicUrlFromStorageUri(storageUri?: string): string | undefined {
 	const uri = storageUri?.trim();
 	if (!uri?.startsWith("file://")) return undefined;

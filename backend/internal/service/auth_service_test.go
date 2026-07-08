@@ -279,12 +279,12 @@ func TestAuthServiceCreateOrganizationSwitchesSession(t *testing.T) {
 		t.Fatalf("expected created user org id as uin, got response=%d user_org=%#v", created.Uin, userOrg)
 	}
 
-	department, err := db.GetDepartmentByName(ctx, database, created.Org.ID, "默认部门")
+	department, err := db.GetDepartmentByName(ctx, database, created.Org.ID, created.Org.Name)
 	if err != nil {
 		t.Fatalf("GetDepartmentByName failed: %v", err)
 	}
 	if department == nil {
-		t.Fatal("expected default department")
+		t.Fatalf("expected default department with name %q", created.Org.Name)
 	}
 	if len(department.ParentIDs) != 0 {
 		t.Fatalf("expected default department parent_ids to be empty, got %#v", department.ParentIDs)
@@ -306,7 +306,18 @@ func TestAuthServiceCreateOrganizationSwitchesSession(t *testing.T) {
 		t.Fatalf("expected token uin %d, got %d", created.Uin, claims.Uin)
 	}
 
-	_, err = service.CreateOrganization(authCtx, &contract.CreateOrganizationRequest{Name: "第三个组织"})
+	third, err := service.CreateOrganization(authCtx, &contract.CreateOrganizationRequest{Name: "第三个组织"})
+	if err != nil {
+		t.Fatalf("CreateOrganization failed for third org: %v", err)
+	}
+	if third.Org.Name != "第三个组织" {
+		t.Fatalf("unexpected third organization: %+v", third.Org)
+	}
+	if len(third.Organizations) != 3 {
+		t.Fatalf("expected three organizations after creating third, got %+v", third.Organizations)
+	}
+
+	_, err = service.CreateOrganization(authCtx, &contract.CreateOrganizationRequest{Name: "第四个组织"})
 	if !errors.Is(err, errAuthOrganizationLimitExceeded) {
 		t.Fatalf("expected organization limit error, got %v", err)
 	}
@@ -352,7 +363,7 @@ func TestAuthServiceCreateOrganizationEnsuresDefaultWorker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDigitalAssistantByPublicID failed: %v", err)
 	}
-	if assistant == nil || assistant.OwnerID != registered.Uin {
+	if assistant == nil || assistant.OwnerID != created.Uin {
 		t.Fatalf("unexpected default assistant: %#v", assistant)
 	}
 	if deployment.DigitalAssistantID != assistant.ID {

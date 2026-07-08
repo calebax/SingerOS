@@ -96,7 +96,7 @@ func parseUserCaller(ctx *gin.Context, tokenStr, jwtSecret string, database *gor
 
 	userOrg, err := db.GetUserOrgByUin(queryCtx, database, claims.Uin)
 	if err != nil {
-		logs.Warnw("get user org by uin failed, db error", "error", err, "uin", claims.Uin, "reqID", reqID)
+		logs.Warnw("get user org failed, db error", "error", err, "uin", claims.Uin, "reqID", reqID)
 		return &types.Caller{
 			Uin:   claims.Uin,
 			Kind:  types.CallerKindUser,
@@ -104,7 +104,7 @@ func parseUserCaller(ctx *gin.Context, tokenStr, jwtSecret string, database *gor
 		}, nil
 	}
 	if userOrg == nil {
-		logs.Warnw("user org not found", "uin", claims.Uin)
+		logs.Warnw("user org not found", "uin", claims.Uin, "reqID", reqID)
 		return &types.Caller{
 			Uin:   claims.Uin,
 			Kind:  types.CallerKindUser,
