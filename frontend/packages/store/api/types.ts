@@ -371,6 +371,7 @@ export type BackendTask = {
 	task_type?: string;
 	deadline?: string;
 	metadata?: Record<string, unknown>;
+	session?: BackendSession;
 	created_at: string;
 	updated_at: string;
 };
