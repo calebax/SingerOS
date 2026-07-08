@@ -53,12 +53,61 @@ type ListProjectsRequest struct {
 	types.Pagination
 }
 
+// ListProjectActivitiesRequest 查询项目操作动态请求。
+type ListProjectActivitiesRequest struct {
+	ProjectID  string `json:"project_id,omitempty"`
+	OperatorID string `json:"operator_id,omitempty"`
+	Cursor     string `json:"cursor,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
+}
+
 // ProjectList 项目列表响应
 type ProjectList struct {
 	Total  int64     `json:"total"`
 	Offset int       `json:"offset"`
 	Limit  int       `json:"limit"`
 	Items  []Project `json:"items"`
+}
+
+// ProjectActivityList 项目动态列表响应。
+type ProjectActivityList struct {
+	Items      []ProjectActivityItem `json:"items"`
+	NextCursor string                `json:"next_cursor,omitempty"`
+}
+
+// ProjectActivityItem 项目动态响应项。
+type ProjectActivityItem struct {
+	ID         uint                       `json:"id"`
+	ProjectID  string                     `json:"project_id"`
+	OperatorID string                     `json:"operator_id"`
+	Operator   *ProjectActivityActor      `json:"operator,omitempty"`
+	ActionType string                     `json:"action_type"`
+	Payload    ProjectActivityPayloadView `json:"payload"`
+	CreatedAt  time.Time                  `json:"created_at"`
+}
+
+// ProjectActivityActor 是动态中的用户或 AI 队友展示信息。
+type ProjectActivityActor struct {
+	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+}
+
+// ProjectActivitySkill 是动态中的技能展示信息。
+type ProjectActivitySkill struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	Icon string `json:"icon,omitempty"`
+}
+
+// ProjectActivityPayloadView 是补全展示信息后的动态 payload。
+type ProjectActivityPayloadView struct {
+	AddedSkills        []ProjectActivitySkill `json:"added_skills"`
+	RemovedSkills      []ProjectActivitySkill `json:"removed_skills"`
+	AddedMembers       []ProjectActivityActor `json:"added_members"`
+	RemovedMembers     []ProjectActivityActor `json:"removed_members"`
+	AddedAITeammates   []ProjectActivityActor `json:"added_ai_teammates"`
+	RemovedAITeammates []ProjectActivityActor `json:"removed_ai_teammates"`
 }
 
 // WorkbenchRecentContext 首页工作台最近明确使用的项目/任务上下文。
