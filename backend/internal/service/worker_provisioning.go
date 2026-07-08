@@ -182,6 +182,10 @@ func defaultWorkerPublicID(orgID uint) string {
 	return fmt.Sprintf("assistant_default_o%d", orgID)
 }
 
+func defaultWorkerCode(orgID uint) string {
+	return defaultWorkerPublicID(orgID)
+}
+
 func (s *WorkerProvisioningService) namespace() string {
 	if s.scheduler != nil && strings.TrimSpace(s.scheduler.Namespace) != "" {
 		return strings.TrimSpace(s.scheduler.Namespace)

@@ -43,6 +43,11 @@ func GetDigitalAssistantByPublicID(ctx context.Context, db *gorm.DB, publicID st
 	return &entity, nil
 }
 
+// GetDigitalAssistantByCode is kept for older callers that used code as the assistant public identifier.
+func GetDigitalAssistantByCode(ctx context.Context, db *gorm.DB, code string) (*types.DigitalAssistant, error) {
+	return GetDigitalAssistantByPublicID(ctx, db, code)
+}
+
 // UpdateDigitalAssistant 更新数字助手
 func UpdateDigitalAssistant(ctx context.Context, db *gorm.DB, da *types.DigitalAssistant) error {
 	return db.WithContext(ctx).Save(da).Error

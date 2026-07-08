@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"reflect"
 	"regexp"
 	"testing"
 	"time"
@@ -10,6 +11,9 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/api/auth"
+	"github.com/insmtx/Leros/backend/internal/api/contract"
+	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -50,6 +54,94 @@ func TestRemoveSkillFromProjectMetadata_MatchesCode(t *testing.T) {
 	entry, ok := skills[0].(map[string]interface{})
 	if !ok || entry["code"] != "other-skill" {
 		t.Fatalf("remaining skill = %#v, want other-skill", skills[0])
+	}
+}
+
+func TestCreateProjectRecordsInitialActivitiesInOrder(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := auth.WithContext(context.Background(), &types.Caller{
+		Uin:   1,
+		OrgID: 1,
+		State: types.AuthStateSucc,
+	}, &types.Trace{})
+
+	seedReadyAssistant(t, database, "default", "默认队友", "默认队友")
+	assistant := seedReadyAssistant(t, database, "analyst", "分析专家", "分析专家")
+	user := &types.User{
+		PublicID: "usr_member",
+		Name:     "成员",
+		Email:    "member@example.com",
+		Phone:    "13800000002",
+	}
+	if err := database.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := database.Create(&types.UserOrg{
+		Uin:    2,
+		UserID: user.ID,
+		OrgID:  1,
+	}).Error; err != nil {
+		t.Fatalf("create user org: %v", err)
+	}
+
+	service := NewProjectService(database, nil, nil, "test")
+	project, err := service.CreateProject(ctx, &contract.CreateProjectRequest{
+		Name: "手动创建项目",
+		Members: []contract.MemberInput{
+			{Type: "assistant", ID: assistant.PublicID},
+			{Type: "user", ID: user.PublicID},
+		},
+		Metadata: map[string]interface{}{
+			"extra": map[string]interface{}{
+				"skills": []interface{}{
+					map[string]interface{}{"code": "skill-alpha", "name": "Skill Alpha"},
+					map[string]interface{}{"code": "skill-beta", "name": "Skill Beta"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateProject failed: %v", err)
+	}
+
+	activities, err := infradb.ListProjectActivities(ctx, database, infradb.ProjectActivityListOptions{
+		ProjectID: project.PublicID,
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListProjectActivities failed: %v", err)
+	}
+	if len(activities) != 3 {
+		t.Fatalf("activity count = %d, want 3", len(activities))
+	}
+
+	// 列表默认倒序；按时间正序验证创建项目 -> 队友 -> 技能。
+	ordered := []*types.ProjectActivity{activities[2], activities[1], activities[0]}
+	gotActions := []types.ProjectActivityAction{
+		ordered[0].ActionType,
+		ordered[1].ActionType,
+		ordered[2].ActionType,
+	}
+	wantActions := []types.ProjectActivityAction{
+		types.ProjectActivityActionProjectCreated,
+		types.ProjectActivityActionParticipantsChanged,
+		types.ProjectActivityActionSkillsChanged,
+	}
+	if !reflect.DeepEqual(gotActions, wantActions) {
+		t.Fatalf("actions = %#v, want %#v", gotActions, wantActions)
+	}
+	if !ordered[0].CreatedAt.Before(ordered[1].CreatedAt) || !ordered[1].CreatedAt.Before(ordered[2].CreatedAt) {
+		t.Fatalf("created_at order is not project -> participants -> skills: %v, %v, %v",
+			ordered[0].CreatedAt, ordered[1].CreatedAt, ordered[2].CreatedAt)
+	}
+	if !reflect.DeepEqual(ordered[1].Payload.AddedAITeammateIDs, []string{assistant.PublicID}) {
+		t.Fatalf("added ai teammate ids = %#v, want %s", ordered[1].Payload.AddedAITeammateIDs, assistant.PublicID)
+	}
+	if !reflect.DeepEqual(ordered[1].Payload.AddedMemberIDs, []string{user.PublicID}) {
+		t.Fatalf("added member ids = %#v, want %s", ordered[1].Payload.AddedMemberIDs, user.PublicID)
+	}
+	if !reflect.DeepEqual(ordered[2].Payload.AddedSkillIDs, []string{"skill-alpha", "skill-beta"}) {
+		t.Fatalf("added skill ids = %#v", ordered[2].Payload.AddedSkillIDs)
 	}
 }
 

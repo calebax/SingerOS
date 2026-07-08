@@ -69,7 +69,7 @@ export function AiTeammateCard({
 					<h3 className="truncate text-sm font-semibold text-[var(--leros-text-strong)]">
 						{item.name}
 					</h3>
-					<p className="mt-2 line-clamp-2 min-h-[2.5rem] text-xs leading-relaxed text-[var(--leros-text-muted)]">
+					<p className="mt-1 line-clamp-2 min-h-[2.5rem] text-xs leading-relaxed text-[var(--leros-text-muted)]">
 						{item.description}
 					</p>
 				</div>
