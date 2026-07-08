@@ -1,6 +1,6 @@
 "use client";
 
-import type { DigitalAssistantItem, ProjectArtifact, ProjectTask } from "@leros/store";
+import type { DigitalAssistantItem, ProjectTask } from "@leros/store";
 import {
 	formatArtifactTime,
 	formatTokenCount,
@@ -39,7 +39,7 @@ import { SHOW_TASK_TOKEN_USAGE_CARD } from "../../constants/temporaryUiFlags";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { buildPromptSuggestions } from "../digitalAssistant/promptSuggestions";
 import { ChatInput } from "../input/ChatInput";
-import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
+import { openProjectFilePreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
@@ -107,7 +107,6 @@ export function TaskDetailPage({
 	const [renameDialogOpen, setRenameDialogOpen] = useState(false);
 	const [renameValue, setRenameValue] = useState("");
 	const [taskFiles, setTaskFiles] = useState<ProjectFileNode[]>([]);
-	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
 	const [rightSidebarWidth, setRightSidebarWidth] = useState(
 		TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH,
 	);
@@ -580,19 +579,7 @@ export function TaskDetailPage({
 								</div>
 								<TaskFileList
 									files={flatTaskFiles}
-									onPreview={(file) =>
-										setPreviewArtifact({
-											id: file.path,
-											name: file.name,
-											title: file.name,
-											type: "document",
-											artifactType: "file",
-											mimeType: file.mimeType,
-											size: formatBytes(file.size),
-											downloadUrl: "",
-											storageUri: file.storageUri,
-										})
-									}
+									onPreview={(file) => openProjectFilePreview(resolvedProjectId, file)}
 								/>
 							</section>
 						</div>
@@ -652,14 +639,6 @@ export function TaskDetailPage({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-			<ArtifactPreviewDialog
-				artifact={previewArtifact}
-				open={previewArtifact !== null}
-				onOpenChange={(open) => {
-					if (!open) setPreviewArtifact(null);
-				}}
-				projectId={resolvedProjectId}
-			/>
 		</div>
 	);
 }

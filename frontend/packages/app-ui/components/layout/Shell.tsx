@@ -5,6 +5,7 @@ import { type ReactNode, useEffect } from "react";
 import { AuthProvider } from "../auth";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { CenterCanvas } from "./CenterCanvas";
+import { FilePreviewHost } from "./FilePreviewHost";
 import { type AppNavigation, LeftRail } from "./LeftRail";
 import { ProjectPage } from "./ProjectPage";
 import { TaskDetailPage } from "./TaskDetailPage";
@@ -44,6 +45,7 @@ export function Shell({
 					</>
 				)}
 			</div>
+			<FilePreviewHost />
 		</AuthProvider>
 	);
 }

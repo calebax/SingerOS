@@ -54,18 +54,11 @@ vi.mock("../common/MarkdownRenderer", () => ({
 	),
 }));
 
-vi.mock("../layout/ArtifactPreviewDialog", () => ({
-	ArtifactPreviewDialog: () => null,
-}));
+const openPlanPreview = vi.fn();
 
-vi.mock("./MessageAttachmentPreviewDialog", () => ({
-	MessageAttachmentPreviewDialog: ({
-		attachment,
-		open,
-	}: {
-		attachment: { fileUploadId?: string } | null;
-		open: boolean;
-	}) => (open ? <div>预览文件：{attachment?.fileUploadId}</div> : null),
+vi.mock("../layout/file-preview-store", () => ({
+	openPlanPreview: (...args: unknown[]) => openPlanPreview(...args),
+	openProjectArtifactPreview: vi.fn(),
 }));
 
 vi.mock("../layout/project-file-type-icon", () => ({
@@ -97,9 +90,9 @@ describe("AIMessageBubble", () => {
 			/>,
 		);
 
-		expect(screen.queryByText("预览文件：file_plan_1")).not.toBeInTheDocument();
+		expect(openPlanPreview).not.toHaveBeenCalled();
 		await user.click(screen.getByRole("button", { name: "打开计划" }));
-		expect(screen.getByText("预览文件：file_plan_1")).toBeInTheDocument();
+		expect(openPlanPreview).toHaveBeenCalledWith("file_plan_1");
 	});
 
 	it("点击复制时才读取完整计划，且不打开预览", async () => {
@@ -120,7 +113,7 @@ describe("AIMessageBubble", () => {
 		expect(fetchFilePreviewByPublicId).not.toHaveBeenCalled();
 		await user.click(screen.getByRole("button", { name: "复制计划" }));
 		expect(fetchFilePreviewByPublicId).toHaveBeenCalledWith("file_plan_1");
-		expect(screen.queryByText("预览文件：file_plan_1")).not.toBeInTheDocument();
+		expect(openPlanPreview).not.toHaveBeenCalled();
 	});
 
 	it("执行过程默认收起，且流式状态变化不会覆盖用户手动展开", async () => {
