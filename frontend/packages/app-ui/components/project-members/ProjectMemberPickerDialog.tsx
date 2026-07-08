@@ -92,6 +92,19 @@ function isSameProjectMember(
 	return a.memberId > 0 && b.memberId > 0 && a.memberId === b.memberId;
 }
 
+function isAlreadySelectedMember(selectedMembers: ProjectMember[], candidate: ProjectMember) {
+	return selectedMembers.some((selected) => {
+		if (isSameProjectMember(selected, candidate)) return true;
+		// 中文注释：兼容旧项目详情缺少 public_id 的数据，避免已加入成员继续出现在候选列表。
+		return (
+			!selected.publicId &&
+			selected.type === candidate.type &&
+			selected.name.trim() !== "" &&
+			selected.name === candidate.name
+		);
+	});
+}
+
 function resolveMemberPublicIdentity(
 	member: ProjectMember,
 	options: ProjectMember[],
@@ -201,7 +214,7 @@ export function ProjectMemberPickerDialog({
 		return assistantOptions.filter(
 			(member) =>
 				!selectedKeys.has(memberKey(member)) &&
-				!draftMembers.some((selected) => isSameProjectMember(selected, member)) &&
+				!isAlreadySelectedMember(draftMembers, member) &&
 				memberMatchesQuery(member, query),
 		);
 	}, [assistantOptions, assistantSearch, draftMembers, selectedKeys]);
@@ -211,7 +224,7 @@ export function ProjectMemberPickerDialog({
 			(member) =>
 				member.publicId !== user?.publicId &&
 				!selectedKeys.has(memberKey(member)) &&
-				!draftMembers.some((selected) => isSameProjectMember(selected, member)) &&
+				!isAlreadySelectedMember(draftMembers, member) &&
 				memberMatchesQuery(member, query),
 		);
 	}, [draftMembers, humanOptions, humanSearch, selectedKeys, user?.publicId]);
@@ -220,7 +233,8 @@ export function ProjectMemberPickerDialog({
 		setDraftMembers((current) => {
 			if (
 				current.some(
-					(item) => memberKey(item) === memberKey(member) || isSameProjectMember(item, member),
+					(item) =>
+						memberKey(item) === memberKey(member) || isAlreadySelectedMember([item], member),
 				)
 			) {
 				return current;
