@@ -97,6 +97,9 @@ func UpsertAITeammateTemplate(ctx context.Context, db *gorm.DB, item *types.AITe
 
 	item.ID = existing.ID
 	item.CreatedAt = existing.CreatedAt
+	if existing.Avatar != "" {
+		item.Avatar = existing.Avatar
+	}
 	if item.UseCount == 0 {
 		item.UseCount = existing.UseCount
 	}

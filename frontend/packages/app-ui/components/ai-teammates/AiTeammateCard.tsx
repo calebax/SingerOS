@@ -1,6 +1,7 @@
 import { cn } from "@leros/ui/lib/utils";
 import { Eye, Heart, type LucideIcon } from "lucide-react";
 import { APP_LOGO_SRC } from "../../assets";
+import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 
 export type AiTeammateTemplateCardItem = {
 	id: number;
@@ -12,6 +13,7 @@ export type AiTeammateTemplateCardItem = {
 	icon: LucideIcon;
 	iconBg: string;
 	iconColor: string;
+	avatar?: string;
 };
 
 interface AiTeammateCardProps {
@@ -49,16 +51,20 @@ export function AiTeammateCard({
 				aria-label={`查看 ${item.name}`}
 			/>
 
-			<div className="pointer-events-none relative mb-3 flex items-start gap-3">
-				<div
-					className={cn(
-						"flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-						item.iconBg,
-						item.iconColor,
-					)}
-				>
-					<Icon className="size-5" aria-hidden="true" />
-				</div>
+			<div className="pointer-events-none relative mb-3 flex items-center gap-3">
+				{item.avatar ? (
+					<AssistantAvatar name={item.name} src={item.avatar} size="md" />
+				) : (
+					<div
+						className={cn(
+							"flex size-14 shrink-0 items-center justify-center rounded-xl",
+							item.iconBg,
+							item.iconColor,
+						)}
+					>
+						<Icon className="size-6" aria-hidden="true" />
+					</div>
+				)}
 				<div className="min-w-0 flex-1">
 					<h3 className="truncate text-sm font-semibold text-[var(--leros-text-strong)]">
 						{item.name}
