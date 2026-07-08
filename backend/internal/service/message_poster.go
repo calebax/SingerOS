@@ -602,6 +602,92 @@ func memoryIDs(memories []*types.DigitalAssistantMemory) []string {
 	return ids
 }
 
+// buildProjectContext queries project business context and member list for the worker.
+// Returns zero value when session has no project (e.g. chat sessions) or query fails.
+func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.Session) messaging.ProjectContext {
+	if session == nil || session.ProjectID == nil || p == nil || p.db == nil {
+		return messaging.ProjectContext{}
+	}
+	project, err := infradb.GetProjectByID(ctx, p.db, *session.ProjectID)
+	if err != nil || project == nil {
+		logs.WarnContextf(ctx, "buildProjectContext: project %d not found: %v", *session.ProjectID, err)
+		return messaging.ProjectContext{}
+	}
+	ctx2 := messaging.ProjectContext{
+		Name:        project.Name,
+		Description: project.Description,
+		Objective:   project.Objective,
+	}
+	members, err := infradb.ListProjectMembers(ctx, p.db, project.ID)
+	if err != nil {
+		logs.WarnContextf(ctx, "buildProjectContext: list members failed: %v", err)
+		return ctx2
+	}
+	userIDs, assistantIDs := collectMemberIDs(members)
+	userMap := make(map[uint]string)
+	if len(userIDs) > 0 {
+		if users, err := infradb.GetUsersByIDs(ctx, p.db, userIDs); err == nil {
+			for _, u := range users {
+				if u != nil {
+					userMap[u.ID] = u.Name
+				}
+			}
+		}
+	}
+	assistantMap := make(map[uint]string)
+	if len(assistantIDs) > 0 {
+		if assistants, err := infradb.GetAssistantsByIDs(ctx, p.db, assistantIDs); err == nil {
+			for _, a := range assistants {
+				if a != nil {
+					assistantMap[a.ID] = a.Name
+				}
+			}
+		}
+	}
+	briefs := make([]messaging.MemberBrief, 0, len(members))
+	for _, m := range members {
+		if m == nil {
+			continue
+		}
+		brief := messaging.MemberBrief{
+			MemberID:   m.MemberID,
+			MemberType: string(m.MemberType),
+			MemberRole: string(m.MemberRole),
+			IsDefault:  m.IsDefault,
+		}
+		switch m.MemberType {
+		case types.MemberTypeUser:
+			brief.Name = userMap[m.MemberID]
+			if m.MemberID == session.Uin {
+				brief.IsCurrentUser = true
+			}
+		case types.MemberTypeAssistant:
+			brief.Name = assistantMap[m.MemberID]
+			if m.MemberID == session.AssistantID {
+				brief.IsCurrentExec = true
+			}
+		}
+		briefs = append(briefs, brief)
+	}
+	ctx2.Members = briefs
+	return ctx2
+}
+
+func collectMemberIDs(members []*types.ProjectMember) (userIDs, assistantIDs []uint) {
+	for _, m := range members {
+		if m == nil {
+			continue
+		}
+		switch m.MemberType {
+		case types.MemberTypeUser:
+			userIDs = append(userIDs, m.MemberID)
+		case types.MemberTypeAssistant:
+			assistantIDs = append(assistantIDs, m.MemberID)
+		}
+	}
+	return
+}
+
 func truncateEvolutionPromptText(value string, limit int) string {
 	value = strings.TrimSpace(value)
 	if limit <= 0 || len(value) <= limit {
@@ -707,6 +793,7 @@ func (p *MessagePoster) publishWorkerTask(
 		SenderName: message.SenderName,
 	})
 	executionTarget := p.buildExecutionTarget(ctx, session, message)
+	projectContext := p.buildProjectContext(ctx, session)
 
 	cmd := messaging.NewRunCommand(
 		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
@@ -738,9 +825,10 @@ func (p *MessagePoster) publishWorkerTask(
 				Messages:    inputMessages,
 				Attachments: convertMessageToMessagingAttachments(message.Attachments),
 			},
-			Model:     modelOptions,
-			Execution: executionTarget,
-		},
+		Model:     modelOptions,
+		Execution: executionTarget,
+		Project:   projectContext,
+	},
 		&messaging.RunCommandMetadata{
 			SessionID:   session.PublicID,
 			MessageType: message.MessageType,

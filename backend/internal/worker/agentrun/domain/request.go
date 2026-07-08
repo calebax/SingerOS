@@ -35,6 +35,7 @@ type RunRequest struct {
 	Actor         ActorContext        `json:"actor"`
 	Conversation  ConversationContext `json:"conversation,omitempty"`
 	Workspace     WorkspaceContext    `json:"workspace,omitempty"`
+	Project       ProjectContext      `json:"project,omitempty"`
 	Input         InputContext        `json:"input"`
 	Runtime       RuntimeOptions      `json:"runtime,omitempty"`
 	Model         ModelOptions        `json:"model,omitempty"`
@@ -75,6 +76,25 @@ type WorkspaceContext struct {
 	TaskID    string `json:"task_id,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
 	RepoDir   string `json:"repo_dir,omitempty"`
+}
+
+// ProjectContext is the project snapshot used for one run.
+type ProjectContext struct {
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Objective   string         `json:"objective,omitempty"`
+	Members     []MemberBrief `json:"members,omitempty"`
+}
+
+// MemberBrief is a lightweight project member snapshot.
+type MemberBrief struct {
+	MemberID      uint   `json:"member_id"`
+	MemberType    string `json:"member_type"`
+	MemberRole    string `json:"member_role"`
+	Name          string `json:"name"`
+	IsDefault     bool   `json:"is_default,omitempty"`
+	IsCurrentExec bool   `json:"is_current_exec,omitempty"`
+	IsCurrentUser bool   `json:"is_current_user,omitempty"`
 }
 
 // InputContext is the normalized input passed to the agent.

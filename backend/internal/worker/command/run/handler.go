@@ -60,6 +60,7 @@ type runTask struct {
 	Actor         messaging.ActorContext
 	Execution     messaging.ExecutionTarget
 	Workspace     messaging.WorkspaceOptions
+	Project       messaging.ProjectContext
 	Input         messaging.TaskInput
 	Model         messaging.ModelOptions
 	Runtime       messaging.RuntimeOptions
@@ -219,6 +220,7 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 		Actor:         payload.Actor,
 		Execution:     payload.Execution,
 		Workspace:     payload.Workspace,
+		Project:       payload.Project,
 		Input:         payload.Input,
 		Model:         payload.Model,
 		Runtime:       payload.Runtime,
