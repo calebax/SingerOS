@@ -26,7 +26,6 @@ import {
 	DropdownMenuTrigger,
 } from "@leros/ui/components/ui/dropdown-menu";
 import { Input } from "@leros/ui/components/ui/input";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	ArrowLeftRight,
@@ -76,7 +75,6 @@ import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
 const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
 const LEFT_RAIL_COLLAPSED_WIDTH = 72;
-const RECENT_PROJECT_LIMIT = 5;
 // 中文注释：设计稿要求项目展开后先预览 10 条任务，点“展开显示”后再展示全部任务。
 const PROJECT_TASK_PREVIEW_LIMIT = 10;
 
@@ -561,62 +559,58 @@ export function LeftRail({
 				</div>
 			</div>
 
-			<ScrollArea hideScrollbar className="min-h-0 flex-1 overflow-hidden">
-				<nav className="leros-nav" aria-label="主导航">
-					{navGroups.map((group) => {
-						return (
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+				<nav className="leros-nav shrink-0" aria-label="主导航">
+					{navGroups
+						.filter((group) => group.id !== "projects")
+						.map((group) => (
 							<div key={group.id} className="leros-nav-section">
-								{group.id === "projects" ? (
-									<div
-										className={cn(
-											"leros-nav-section-label",
-											"normal-case leading-snug tracking-normal font-normal",
-										)}
-									>
-										<span className="text-sm">最近项目</span>
-										<span className="text-xs">（仅展示5个）</span>
-									</div>
-								) : group.label ? (
-									<div className="leros-nav-section-label">{group.label}</div>
-								) : null}
-								{group.id === "projects" ? (
-									<ProjectList
-										projects={projects}
-										activeProjectId={activeProjectId}
-										activeTaskDetailProjectId={activeTaskDetailProjectId}
-										activeTaskDetailTaskId={activeTaskDetailTaskId}
-										currentView={currentView}
-										currentPath={navigation?.currentPath}
-										expandedProjectIds={expandedProjectIds}
-										expandedTaskProjectIds={expandedTaskProjectIds}
-										onToggleProject={handleToggleProject}
-										onEnterProject={handleProjectClick}
-										onOpenTask={handleOpenTask}
-										onExpandTasks={handleExpandProjectTasks}
-										onRenameProject={handleOpenRename}
-										onDeleteProject={setDeleteTarget}
-										onRenameTask={handleOpenTaskRename}
-										onDeleteTask={setDeleteTaskTarget}
-										collapsed={leftRailCollapsed}
-									/>
-								) : (
-									<div className="space-y-1">
-										{group.items.map((item: NavItem) => (
-											<NavItemButton
-												key={item.id}
-												item={item}
-												active={isItemActive(item)}
-												collapsed={leftRailCollapsed}
-												onClick={() => handleNavClick(item)}
-											/>
-										))}
-									</div>
-								)}
+								{group.label ? <div className="leros-nav-section-label">{group.label}</div> : null}
+								<div className="space-y-1">
+									{group.items.map((item: NavItem) => (
+										<NavItemButton
+											key={item.id}
+											item={item}
+											active={isItemActive(item)}
+											collapsed={leftRailCollapsed}
+											onClick={() => handleNavClick(item)}
+										/>
+									))}
+								</div>
 							</div>
-						);
-					})}
+						))}
 				</nav>
-			</ScrollArea>
+
+				<section className="leros-nav leros-nav-section mb-0 flex min-h-0 flex-1 flex-col">
+					<div
+						className={cn(
+							"leros-nav-section-label shrink-0",
+							"normal-case leading-snug tracking-normal font-normal",
+						)}
+					>
+						<span className="text-sm">最近项目</span>
+					</div>
+					<ProjectList
+						projects={projects}
+						activeProjectId={activeProjectId}
+						activeTaskDetailProjectId={activeTaskDetailProjectId}
+						activeTaskDetailTaskId={activeTaskDetailTaskId}
+						currentView={currentView}
+						currentPath={navigation?.currentPath}
+						expandedProjectIds={expandedProjectIds}
+						expandedTaskProjectIds={expandedTaskProjectIds}
+						onToggleProject={handleToggleProject}
+						onEnterProject={handleProjectClick}
+						onOpenTask={handleOpenTask}
+						onExpandTasks={handleExpandProjectTasks}
+						onRenameProject={handleOpenRename}
+						onDeleteProject={setDeleteTarget}
+						onRenameTask={handleOpenTaskRename}
+						onDeleteTask={setDeleteTaskTarget}
+						collapsed={leftRailCollapsed}
+					/>
+				</section>
+			</div>
 
 			<div className="leros-sidebar-footer shrink-0">
 				{!isHydrated ? (
@@ -1387,16 +1381,11 @@ function ProjectList({
 	onDeleteTask: (task: ProjectTask) => void;
 	collapsed: boolean;
 }) {
-	const recentProjects = getRecentProjectsForLeftRail(
-		projects,
-		expandedProjectIds,
-		RECENT_PROJECT_LIMIT,
-	);
+	const recentProjects = getRecentProjectsForLeftRail(projects);
 
 	return (
 		<div
-			className={cn("space-y-1", !collapsed && "no-scrollbar overflow-y-auto pr-1")}
-			style={!collapsed ? { maxHeight: "max(180px, calc(100vh - 420px))" } : undefined}
+			className={cn("no-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto", !collapsed && "pr-1")}
 		>
 			{recentProjects.map((project) => {
 				const projectExpanded = expandedProjectIds.has(project.id);
