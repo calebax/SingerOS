@@ -6,7 +6,6 @@ import {
 	formatTime,
 	getAssistantMessageFooterSegments,
 	messageArtifactToProjectArtifact,
-	type ProjectArtifact,
 	sortProjectArtifactsByNewestFirst,
 	useAppStore,
 	useChatStore,
@@ -15,7 +14,6 @@ import {
 import type {
 	Message,
 	MessageArtifact,
-	MessageAttachment,
 	MessageProcessStep,
 	ToolCall,
 } from "@leros/store/types/chat";
@@ -38,10 +36,9 @@ import {
 import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
-import { ArtifactPreviewDialog } from "../layout/ArtifactPreviewDialog";
+import { openPlanPreview, openProjectArtifactPreview } from "../layout/file-preview-store";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { AssistantChatAvatar } from "./AssistantChatAvatar";
-import { MessageAttachmentPreviewDialog } from "./MessageAttachmentPreviewDialog";
 import { MessageContentWithComposerTokens } from "./MessageContentWithComposerTokens";
 import { resolveAssistantMessageDisplay } from "./resolveAssistantMessageDisplay";
 import { ToolCallBlock } from "./ToolCallBlock";
@@ -119,7 +116,6 @@ export function AIMessageBubble({
 			}),
 		[assistants, message, messagesMap, projectMembers],
 	);
-	const [previewPlanFileID, setPreviewPlanFileID] = useState<string | null>(null);
 	const content = message.content;
 	const hasContent = content.trim().length > 0;
 	const hasProcess = Boolean(message.processSteps?.length);
@@ -135,15 +131,6 @@ export function AIMessageBubble({
 		? getAssistantMessageFooterSegments(message)
 		: [];
 
-	const previewPlanAttachment: MessageAttachment | null = previewPlanFileID
-		? {
-				id: previewPlanFileID,
-				fileUploadId: previewPlanFileID,
-				name: "计划.md",
-				mimeType: "text/markdown",
-				size: 0,
-			}
-		: null;
 	const copyPlanContent = async (fileID: string) => {
 		const response = await fetchFilePreviewByPublicId(fileID);
 		const fullContent = await response.text();
@@ -151,115 +138,106 @@ export function AIMessageBubble({
 	};
 
 	return (
-		<>
-			<div data-slot="ai-message" className="group flex items-start gap-3">
-				{assistantDisplay.useDefaultBrand ? (
-					<AssistantChatAvatar />
-				) : (
-					<ChatAssistantAvatar name={assistantDisplay.name} src={assistantDisplay.avatarUrl} />
-				)}
-				<div className="min-w-0 flex-1">
-					<div className="mb-1.5 flex items-center gap-2">
-						<span className="text-[13px] font-medium text-slate-500">{assistantName}</span>
-						{replyLabel && (
-							<span className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] text-slate-500">
-								{replyLabel}
-							</span>
-						)}
-						<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
-						{isStreaming && (
-							<span className="animate-pulse text-[13px] text-blue-500">{statusLabel}</span>
-						)}
-					</div>
-
-					{replyPreviewMessage && (
-						<div className="mb-2 max-w-[78%] rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs leading-5 text-slate-500">
-							<div className="mb-0.5 font-medium text-slate-500">引用消息</div>
-							<div className="line-clamp-2 break-words">
-								<MessageContentWithComposerTokens message={replyPreviewMessage} />
-							</div>
-						</div>
+		<div data-slot="ai-message" className="group flex items-start gap-3">
+			{assistantDisplay.useDefaultBrand ? (
+				<AssistantChatAvatar />
+			) : (
+				<ChatAssistantAvatar name={assistantDisplay.name} src={assistantDisplay.avatarUrl} />
+			)}
+			<div className="min-w-0 flex-1">
+				<div className="mb-1.5 flex items-center gap-2">
+					<span className="text-[13px] font-medium text-slate-500">{assistantName}</span>
+					{replyLabel && (
+						<span className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] text-slate-500">
+							{replyLabel}
+						</span>
 					)}
-
-					{statusText && (
-						<div className="mb-3 flex max-w-[92%] items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-sm leading-6 text-slate-600">
-							<span className="size-1.5 animate-pulse rounded-full bg-blue-500" />
-							<span>{statusText}</span>
-						</div>
-					)}
-
-					{hasProcess && message.processSteps && (
-						<div className="mb-3">
-							<ProcessTimelineBlock
-								steps={message.processSteps}
-								toolCalls={message.toolCalls ?? []}
-								isStreaming={isStreaming}
-							/>
-						</div>
-					)}
-
-					{hasContent && (
-						<div className="mb-3 max-w-[92%] text-sm leading-7 text-slate-800">
-							<MarkdownRenderer
-								content={content}
-								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:p-3 prose-pre:text-slate-800 prose-pre:shadow-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[13px] [&_pre_code]:leading-6 [&_pre_code]:text-slate-800 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-medium [&_:not(pre)>code]:text-slate-800"
-								onPlanOpen={setPreviewPlanFileID}
-								onPlanCopy={copyPlanContent}
-							/>
-							{isStreaming && (
-								<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
-							)}
-						</div>
-					)}
-
-					{hasArtifacts && message.artifacts && (
-						<div className="mb-3">
-							<MessageArtifactList
-								artifacts={message.artifacts}
-								fallbackTimestamp={message.timestamp}
-								projectId={projectId}
-							/>
-						</div>
-					)}
-
-					{!statusText && !hasContent && !hasProcess && !hasArtifacts && isStreaming && (
-						<div className="flex items-center gap-1">
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
-						</div>
-					)}
-
-					{!isStreaming && (
-						<div className="mt-2 flex items-center gap-3">
-							{metricSegments.length > 0 && (
-								<div className="text-[13px] text-slate-400">{metricSegments.join(" · ")}</div>
-							)}
-							<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-								<CopyButton text={content} />
-								{SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON && (
-									<Button
-										variant="ghost"
-										size="icon-xs"
-										className={`${compactActionButtonClassName} text-slate-400 hover:text-slate-600`}
-										onClick={() => resendMessage(message.id)}
-									>
-										<RefreshCw className="size-3.5" />
-									</Button>
-								)}
-							</div>
-						</div>
+					<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
+					{isStreaming && (
+						<span className="animate-pulse text-[13px] text-blue-500">{statusLabel}</span>
 					)}
 				</div>
+
+				{replyPreviewMessage && (
+					<div className="mb-2 max-w-[78%] rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs leading-5 text-slate-500">
+						<div className="mb-0.5 font-medium text-slate-500">引用消息</div>
+						<div className="line-clamp-2 break-words">
+							<MessageContentWithComposerTokens message={replyPreviewMessage} />
+						</div>
+					</div>
+				)}
+
+				{statusText && (
+					<div className="mb-3 flex max-w-[92%] items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-sm leading-6 text-slate-600">
+						<span className="size-1.5 animate-pulse rounded-full bg-blue-500" />
+						<span>{statusText}</span>
+					</div>
+				)}
+
+				{hasProcess && message.processSteps && (
+					<div className="mb-3">
+						<ProcessTimelineBlock
+							steps={message.processSteps}
+							toolCalls={message.toolCalls ?? []}
+							isStreaming={isStreaming}
+						/>
+					</div>
+				)}
+
+				{hasContent && (
+					<div className="mb-3 max-w-[92%] text-sm leading-7 text-slate-800">
+						<MarkdownRenderer
+							content={content}
+							className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:p-3 prose-pre:text-slate-800 prose-pre:shadow-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[13px] [&_pre_code]:leading-6 [&_pre_code]:text-slate-800 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-medium [&_:not(pre)>code]:text-slate-800"
+							onPlanOpen={openPlanPreview}
+							onPlanCopy={copyPlanContent}
+						/>
+						{isStreaming && (
+							<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
+						)}
+					</div>
+				)}
+
+				{hasArtifacts && message.artifacts && (
+					<div className="mb-3">
+						<MessageArtifactList
+							artifacts={message.artifacts}
+							fallbackTimestamp={message.timestamp}
+							projectId={projectId}
+						/>
+					</div>
+				)}
+
+				{!statusText && !hasContent && !hasProcess && !hasArtifacts && isStreaming && (
+					<div className="flex items-center gap-1">
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
+					</div>
+				)}
+
+				{!isStreaming && (
+					<div className="mt-2 flex items-center gap-3">
+						{metricSegments.length > 0 && (
+							<div className="text-[13px] text-slate-400">{metricSegments.join(" · ")}</div>
+						)}
+						<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+							<CopyButton text={content} />
+							{SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON && (
+								<Button
+									variant="ghost"
+									size="icon-xs"
+									className={`${compactActionButtonClassName} text-slate-400 hover:text-slate-600`}
+									onClick={() => resendMessage(message.id)}
+								>
+									<RefreshCw className="size-3.5" />
+								</Button>
+							)}
+						</div>
+					</div>
+				)}
 			</div>
-			<MessageAttachmentPreviewDialog
-				attachment={previewPlanAttachment}
-				open={previewPlanAttachment !== null}
-				onOpenChange={(open) => {
-					if (!open) setPreviewPlanFileID(null);
-				}}
-			/>
-		</>
+		</div>
 	);
 }
 
@@ -466,66 +444,51 @@ function MessageArtifactList({
 	fallbackTimestamp: number;
 	projectId?: string;
 }) {
-	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
 	const visibleArtifacts = useMemo(() => {
 		// 中文注释：消息流里已携带 artifact 元数据，直接展示即可，不再额外请求 ListTaskArtifacts。
 		return sortProjectArtifactsByNewestFirst(
 			artifacts.map((artifact) => ({
 				...messageArtifactToProjectArtifact(artifact),
+				id: projectId ? `artifacts/${artifact.name}` : artifact.id,
 				updatedAt: artifact.updatedAt ?? fallbackTimestamp,
 			})),
 		);
-	}, [artifacts, fallbackTimestamp]);
+	}, [artifacts, fallbackTimestamp, projectId]);
 
 	if (visibleArtifacts.length === 0) return null;
 
 	return (
-		<>
-			<div className="grid max-w-[92%] gap-2 sm:grid-cols-2">
-				{visibleArtifacts.map((artifact) => (
-					<button
-						type="button"
-						key={artifact.id}
-						data-file-preview-trigger
-						onClick={() =>
-							setPreviewArtifact({
-								...artifact,
-								id: projectId ? `artifacts/${artifact.name}` : artifact.id,
-							})
-						}
-						className="group/artifact relative flex min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
-						title="预览文件"
-					>
-						<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover/artifact:opacity-100">
-							<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
-								点击预览
-							</span>
+		<div className="grid max-w-[92%] gap-2 sm:grid-cols-2">
+			{visibleArtifacts.map((artifact) => (
+				<button
+					type="button"
+					key={artifact.id}
+					data-file-preview-trigger
+					onClick={() => openProjectArtifactPreview(artifact, projectId)}
+					className="group/artifact relative flex min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+					title="预览文件"
+				>
+					<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover/artifact:opacity-100">
+						<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
+							点击预览
+						</span>
+					</div>
+					<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-slate-600">
+						<MessageArtifactIcon fileName={artifact.name} />
+					</div>
+					<div className="min-w-0">
+						<div className="truncate text-sm font-semibold leading-5 text-slate-700">
+							{artifact.name}
 						</div>
-						<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-slate-600">
-							<MessageArtifactIcon fileName={artifact.name} />
+						<div className="mt-0.5 truncate text-[13px] leading-4 text-slate-400">
+							{[artifact.size, artifact.updatedAt ? formatArtifactTime(artifact.updatedAt) : ""]
+								.filter(Boolean)
+								.join(" · ")}
 						</div>
-						<div className="min-w-0">
-							<div className="truncate text-sm font-semibold leading-5 text-slate-700">
-								{artifact.name}
-							</div>
-							<div className="mt-0.5 truncate text-[13px] leading-4 text-slate-400">
-								{[artifact.size, artifact.updatedAt ? formatArtifactTime(artifact.updatedAt) : ""]
-									.filter(Boolean)
-									.join(" · ")}
-							</div>
-						</div>
-					</button>
-				))}
-			</div>
-			<ArtifactPreviewDialog
-				artifact={previewArtifact}
-				open={previewArtifact !== null}
-				onOpenChange={(open) => {
-					if (!open) setPreviewArtifact(null);
-				}}
-				projectId={projectId}
-			/>
-		</>
+					</div>
+				</button>
+			))}
+		</div>
 	);
 }
 

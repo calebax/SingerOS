@@ -11,8 +11,8 @@ import type { Message, MessageAttachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { Check, Copy, ImageIcon, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { openMessageAttachmentPreview } from "../layout/file-preview-store";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
-import { MessageAttachmentPreviewDialog } from "./MessageAttachmentPreviewDialog";
 import { MessageContentWithComposerTokens } from "./MessageContentWithComposerTokens";
 
 function CopyButton({ text }: { text: string }) {
@@ -36,7 +36,6 @@ function CopyButton({ text }: { text: string }) {
 
 export function UserMessageBubble({ message }: { message: Message }) {
 	const authUser = useAuthStore((state) => state.authUser);
-	const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 	const visibleText = message.content.trim();
 	const attachments = message.attachments ?? [];
 	const currentUserId = authUser?.uin !== undefined ? String(authUser.uin) : undefined;
@@ -49,69 +48,58 @@ export function UserMessageBubble({ message }: { message: Message }) {
 	const authorName = isOwnMessage ? (authUser?.name ?? message.author?.name) : message.author?.name;
 
 	return (
-		<>
-			<div
-				data-slot="user-message"
-				className={`group flex items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
-			>
-				{!isOwnMessage && <UserAvatar name={authorName ?? "用户"} />}
-				<div className={`flex max-w-[78%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}>
+		<div
+			data-slot="user-message"
+			className={`group flex items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
+		>
+			{!isOwnMessage && <UserAvatar name={authorName ?? "用户"} />}
+			<div className={`flex max-w-[78%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}>
+				<div
+					className={`mb-1.5 flex items-center gap-2 text-xs text-slate-400 ${
+						isOwnMessage ? "justify-end opacity-0 transition-opacity group-hover:opacity-100" : ""
+					}`}
+				>
+					{!isOwnMessage && authorName && (
+						<span className="font-medium text-slate-500">{authorName}</span>
+					)}
+					{isOwnMessage && visibleText && <CopyButton text={message.content} />}
+					{isOwnMessage && authorName && <span>{authorName}</span>}
+					{message.status === "sending" && <span className="text-xs text-slate-400">发送中</span>}
+					<span>{formatTime(message.timestamp)}</span>
+					{!isOwnMessage && visibleText && <CopyButton text={message.content} />}
+				</div>
+				{attachments.length > 0 && (
+					<div className={`mb-2 flex flex-col gap-2 ${isOwnMessage ? "items-end" : "items-start"}`}>
+						{attachments.map((attachment) =>
+							attachment.mimeType.startsWith("image/") ? (
+								<ImageAttachmentCard
+									key={attachment.id}
+									attachment={attachment}
+									onClick={() => openMessageAttachmentPreview(attachment)}
+								/>
+							) : (
+								<FileAttachmentCard
+									key={attachment.id}
+									attachment={attachment}
+									onClick={() => openMessageAttachmentPreview(attachment)}
+								/>
+							),
+						)}
+					</div>
+				)}
+				{visibleText && (
 					<div
-						className={`mb-1.5 flex items-center gap-2 text-xs text-slate-400 ${
-							isOwnMessage ? "justify-end opacity-0 transition-opacity group-hover:opacity-100" : ""
+						className={`w-fit rounded-2xl px-4 py-2 text-sm leading-7 text-black shadow-sm ${
+							isOwnMessage
+								? "rounded-tr-md bg-[#f3f3f4] shadow-blue-600/10"
+								: "rounded-tl-md border border-slate-100 bg-white shadow-slate-200/60"
 						}`}
 					>
-						{!isOwnMessage && authorName && (
-							<span className="font-medium text-slate-500">{authorName}</span>
-						)}
-						{isOwnMessage && visibleText && <CopyButton text={message.content} />}
-						{isOwnMessage && authorName && <span>{authorName}</span>}
-						{message.status === "sending" && <span className="text-xs text-slate-400">发送中</span>}
-						<span>{formatTime(message.timestamp)}</span>
-						{!isOwnMessage && visibleText && <CopyButton text={message.content} />}
+						<MessageContentWithComposerTokens message={message} />
 					</div>
-					{attachments.length > 0 && (
-						<div
-							className={`mb-2 flex flex-col gap-2 ${isOwnMessage ? "items-end" : "items-start"}`}
-						>
-							{attachments.map((attachment) =>
-								attachment.mimeType.startsWith("image/") ? (
-									<ImageAttachmentCard
-										key={attachment.id}
-										attachment={attachment}
-										onClick={() => setPreviewAttachment(attachment)}
-									/>
-								) : (
-									<FileAttachmentCard
-										key={attachment.id}
-										attachment={attachment}
-										onClick={() => setPreviewAttachment(attachment)}
-									/>
-								),
-							)}
-						</div>
-					)}
-					{visibleText && (
-						<div
-							className={`w-fit rounded-2xl px-4 py-2 text-sm leading-7 text-black shadow-sm ${
-								isOwnMessage
-									? "rounded-tr-md bg-[#f3f3f4] shadow-blue-600/10"
-									: "rounded-tl-md border border-slate-100 bg-white shadow-slate-200/60"
-							}`}
-						>
-							<MessageContentWithComposerTokens message={message} />
-						</div>
-					)}
-				</div>
+				)}
 			</div>
-			<MessageAttachmentPreviewDialog
-				attachment={previewAttachment}
-				open={previewAttachment !== null}
-				onOpenChange={(open) => {
-					if (!open) setPreviewAttachment(null);
-				}}
-			/>
-		</>
+		</div>
 	);
 }
 
