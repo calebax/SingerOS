@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -19,7 +21,10 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
-const defaultAITeammateTemplateAvatarDir = "frontend/packages/app-ui/assets/ai-teammate-template-avatar"
+const embeddedAITeammateTemplateAvatarDir = "assets/ai-teammate-template-avatar"
+
+//go:embed assets/ai-teammate-template-avatar/*.png
+var aiTeammateTemplateAvatarFS embed.FS
 
 // SeedAITeammateTemplates initializes built-in AI teammate templates and uploads missing avatars.
 func SeedAITeammateTemplates(ctx context.Context, database *gorm.DB, avatarDir string) error {
@@ -31,10 +36,7 @@ func SeedAITeammateTemplates(ctx context.Context, database *gorm.DB, avatarDir s
 	if err != nil {
 		return err
 	}
-	resolvedAvatarDir := strings.TrimSpace(avatarDir)
-	if resolvedAvatarDir == "" {
-		resolvedAvatarDir = resolveDefaultAITeammateTemplateAvatarDir()
-	}
+	resolvedAvatarDir := resolveAITeammateTemplateAvatarDir(avatarDir)
 
 	for _, template := range defaultAITeammateTemplates() {
 		existing, err := infradb.GetAITeammateTemplateByCode(ctx, database, template.Code)
@@ -89,14 +91,13 @@ func resolveSeedOwner(ctx context.Context, database *gorm.DB) (seedOwner, error)
 }
 
 func uploadAITeammateTemplateAvatar(ctx context.Context, database *gorm.DB, avatarDir string, owner seedOwner, code string) (string, error) {
-	path := filepath.Join(avatarDir, code+".png")
-	data, err := os.ReadFile(path)
+	data, source, err := readAITeammateTemplateAvatar(avatarDir, code)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			logs.Warnf("AI teammate template avatar missing, skip upload: %s", path)
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrNotExist) {
+			logs.Warnf("AI teammate template avatar missing, skip upload: %s", source)
 			return "", nil
 		}
-		return "", fmt.Errorf("read ai teammate template avatar %s: %w", path, err)
+		return "", fmt.Errorf("read ai teammate template avatar %s: %w", source, err)
 	}
 
 	mimeType := http.DetectContentType(data[:min(len(data), 512)])
@@ -122,19 +123,27 @@ func uploadAITeammateTemplateAvatar(ctx context.Context, database *gorm.DB, avat
 	return file.PublicID, nil
 }
 
-func resolveDefaultAITeammateTemplateAvatarDir() string {
+func readAITeammateTemplateAvatar(avatarDir string, code string) ([]byte, string, error) {
+	filename := code + ".png"
+	if avatarDir != "" {
+		path := filepath.Join(avatarDir, filename)
+		data, err := os.ReadFile(path)
+		return data, path, err
+	}
+
+	path := filepath.Join(embeddedAITeammateTemplateAvatarDir, filename)
+	data, err := aiTeammateTemplateAvatarFS.ReadFile(path)
+	return data, path, err
+}
+
+func resolveAITeammateTemplateAvatarDir(avatarDir string) string {
+	if dir := strings.TrimSpace(avatarDir); dir != "" {
+		return dir
+	}
 	if dir := strings.TrimSpace(os.Getenv("LEROS_AI_TEAMMATE_TEMPLATE_AVATAR_DIR")); dir != "" {
 		return dir
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		for dir := cwd; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-			candidate := filepath.Join(dir, defaultAITeammateTemplateAvatarDir)
-			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-				return candidate
-			}
-		}
-	}
-	return defaultAITeammateTemplateAvatarDir
+	return ""
 }
 
 func defaultAITeammateTemplates() []*types.AITeammateTemplate {

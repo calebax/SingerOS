@@ -180,3 +180,15 @@ func TestSeedAITeammateTemplatesUploadsMissingAvatarAndPreservesExisting(t *test
 		t.Fatal("expected existing template fields to be updated")
 	}
 }
+
+func TestEmbeddedAITeammateTemplateAvatarsMatchDefaultTemplates(t *testing.T) {
+	for _, template := range defaultAITeammateTemplates() {
+		data, source, err := readAITeammateTemplateAvatar("", template.Code)
+		if err != nil {
+			t.Fatalf("read embedded avatar %s: %v", source, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("embedded avatar %s is empty", source)
+		}
+	}
+}
