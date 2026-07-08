@@ -62,6 +62,9 @@ function assistantToProjectMember(assistant: DigitalAssistantItem): ProjectMembe
 }
 
 function humanToProjectMember(member: HumanProjectMemberOption): ProjectMember {
+	// 中文注释：真人成员副标题只展示手机号或邮箱，避免把无业务价值的 github_login 暴露在成员选择列表里。
+	const descriptionParts = [member.phone, member.email].filter(Boolean);
+
 	return {
 		id: `user-${member.public_id}`,
 		memberId: member.id ?? 0,
@@ -69,7 +72,7 @@ function humanToProjectMember(member: HumanProjectMemberOption): ProjectMember {
 		type: "user",
 		role: "member",
 		name: member.name,
-		description: [member.email, member.github_login].filter(Boolean).join(" / "),
+		description: descriptionParts.join(" / "),
 		avatarUrl: member.avatar_url,
 	};
 }

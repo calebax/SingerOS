@@ -26,9 +26,7 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Docker dependencies failed to start.'
 }
 
-if (-not (Test-Path "$root\bundles\leros.exe")) {
-    & "$PSScriptRoot\rebuild-backend.ps1"
-}
+Ensure-LatestBackendBinary -RepoRoot $root
 
 Write-Host "[Leros] Using API server port $($runtimeState.serverPort) and worker port $($runtimeState.workerPort)." -ForegroundColor Cyan
 

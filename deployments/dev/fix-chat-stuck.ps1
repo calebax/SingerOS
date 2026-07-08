@@ -62,9 +62,7 @@ foreach ($path in $dbPaths) {
     }
 }
 
-if (-not (Test-Path "$root\bundles\leros.exe")) {
-    & "$PSScriptRoot\rebuild-backend.ps1"
-}
+Ensure-LatestBackendBinary -RepoRoot $root
 
 Write-Host '[Leros] Restarting server and worker...' -ForegroundColor Cyan
 Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-server-dev.ps1" | Out-Null
