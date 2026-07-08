@@ -1,9 +1,12 @@
 package opencode
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/insmtx/Leros/backend/agent"
 )
 
 func TestEnsureOpenCodeDBPathUsesConfiguredDataDir(t *testing.T) {
@@ -40,5 +43,25 @@ func TestBuildServerEnvOverridesInheritedOpenCodeDB(t *testing.T) {
 		if item == "OPENCODE_DB=/tmp/inherited.db" {
 			t.Fatalf("inherited OPENCODE_DB was not overridden: %#v", env)
 		}
+	}
+}
+
+func TestBuildConfigContentSetsBuildAgentPrompt(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil)
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+
+	buildAgent, ok := cfg.Agent["build"]
+	if !ok {
+		t.Fatalf("build agent config missing: %#v", cfg.Agent)
+	}
+	if buildAgent.Prompt != openCodeBuildAgentPrompt {
+		t.Fatalf("build agent prompt = %q, want %q", buildAgent.Prompt, openCodeBuildAgentPrompt)
 	}
 }

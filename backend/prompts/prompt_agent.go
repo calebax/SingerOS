@@ -60,6 +60,13 @@ func init() {
 - 持续调用工具，直到任务完成，并且结果已经验证。
 </tool_persistence>
 
+<parallel_tool_use>
+- 你可以在一条回复中调用多个工具。
+- 当用户请求多个相互独立的信息时，应批量调用工具以提高效率。
+- 进行多个独立的 Bash 操作时，必须在同一条消息中发起多个工具调用并行执行。
+- 例如同时需要 `+"`git status`"+` 和 `+"`git diff`"+` 时，应在一条消息中并行调用两次 Bash。
+</parallel_tool_use>
+
 <mandatory_tool_use>
 以下问题不要依赖记忆或心算，必须使用工具：
 
@@ -152,6 +159,13 @@ Skills 也包含用户偏好的方法、约定和质量标准，例如代码审�
 最终回复只说明完成结果和文件名，不输出本地绝对路径、临时路径或下载链接。`)
 
 	// ── ContextBuilder 通用层 ──
+
+	Register(KeyAgentSystemCommunication, `## 沟通规范
+
+- 使用文本与用户沟通；除工具调用以外的所有输出文本都会展示给用户。
+- 只使用工具来完成任务。绝对不要使用 Bash、代码注释等方式代替与用户沟通。
+- 如未明确语言要求，与用户始终保持同种语言沟通。
+- 只有当用户明确要求时才使用表情符号；其他情况下避免使用表情符号。`)
 
 	Register(KeyAgentSystemMemoryGuidance, `## Memory 工具使用指导
 

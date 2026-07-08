@@ -3,6 +3,8 @@ package agentruncontext
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -37,8 +39,8 @@ func (b *ContextBuilder) buildSkillLoadingContext(ctx context.Context) string {
 
 // BuildSystemPrompt 生成统一系统提示词，供所有运行时复用。
 func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agentrundomain.RunRequest) (string, error) {
-	sections := make([]string, 0, 10)
-	sectionNames := make([]string, 0, 10)
+	sections := make([]string, 0, 11)
+	sectionNames := make([]string, 0, 11)
 
 	identity := strings.TrimSpace(buildAssistantPersonaContext(req))
 	if identity == "" {
@@ -47,6 +49,11 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agentrundom
 	if identity != "" {
 		sections = append(sections, identity)
 		sectionNames = append(sectionNames, "identity")
+	}
+
+	if communication := strings.TrimSpace(prompts.Get(prompts.KeyAgentSystemCommunication)); communication != "" {
+		sections = append(sections, communication)
+		sectionNames = append(sectionNames, "communication")
 	}
 
 	if taskCompletion := strings.TrimSpace(prompts.Get(prompts.KeyAgentNativeTaskCompletion)); taskCompletion != "" {
@@ -114,8 +121,7 @@ func buildAssistantPersonaContext(req *agentrundomain.RunRequest) string {
 	var sb strings.Builder
 	sb.WriteString("<identity_override>\n")
 	sb.WriteString("你运行在 lework 平台中，但当前对用户展示和执行任务的第一身份是被召唤的 AI 队友。\n")
-	sb.WriteString("当用户询问“你是谁”“你是干什么的”“你能做什么”时，必须优先介绍当前 AI 队友的名称、能力范围、擅长领域和可提供的帮助。\n")
-	sb.WriteString("不要只输出 lework 的默认平台介绍；只有在没有当前 AI 队友身份时，才使用 lework 默认介绍。")
+	sb.WriteString("当用户询问“你是谁”“你是干什么的”“你能做什么”时，介绍当前 AI 队友的名称、能力范围、擅长领域和可提供的帮助。\n")
 	if name != "" {
 		sb.WriteString("\n\n队友名称：")
 		sb.WriteString(name)
@@ -125,7 +131,7 @@ func buildAssistantPersonaContext(req *agentrundomain.RunRequest) string {
 		sb.WriteString(description)
 	}
 	if systemPrompt != "" {
-		sb.WriteString("\n\n队友能力边界与提示词：\n")
+		sb.WriteString("\n\n队友能力：\n")
 		sb.WriteString(systemPrompt)
 	}
 	sb.WriteString("\n</identity_override>")
@@ -173,17 +179,29 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 	if err != nil {
 		return ""
 	}
+	gitRepoLabel := "否"
+	if isGitRepository(plan.RepoDir) {
+		gitRepoLabel = "是"
+	}
 	return fmt.Sprintf(`## 工作区信息
 
-- 项目工作目录: %s
-- 项目工作临时目录: %s
+- 项目根目录: %s
+- 是否为 Git 仓库: %s
 
 **工作区可见性规则：**
 - 仅项目工作目录下的内容对用户可见，可被用户访问和下载。
-- 不需要让用户看见的临时文件、中间产物，应在临时目录中创建。
+- 不需要让用户看见的临时文件、中间产物，应在项目临时目录: %s 中创建。
 
-**运行系统环境：*
-- Host: %s`, plan.RepoDir, plan.TurnTmpDir, runtime.GOOS)
+**运行系统环境：**
+- Host: %s`, plan.RepoDir, gitRepoLabel, plan.TurnTmpDir, runtime.GOOS)
+}
+
+func isGitRepository(repoDir string) bool {
+	if strings.TrimSpace(repoDir) == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(repoDir, ".git"))
+	return err == nil
 }
 
 func buildRunMetaContext(req *agentrundomain.RunRequest) string {
@@ -199,11 +217,10 @@ func buildRunMetaContext(req *agentrundomain.RunRequest) string {
 		parts = append(parts, fmt.Sprintf("- 会话ID: %s", req.Conversation.ID))
 	}
 	if req.Model.Model != "" {
-		modelLabel := req.Model.Model
-		if req.Model.Provider != "" {
-			modelLabel = req.Model.Provider + "/" + modelLabel
-		}
-		parts = append(parts, fmt.Sprintf("- 模型: %s", modelLabel))
+		parts = append(parts, fmt.Sprintf("- 模型: %s", req.Model.Model))
+	}
+	if req.Model.Provider != "" {
+		parts = append(parts, fmt.Sprintf("- Provider: %s", req.Model.Provider))
 	}
 	return "## 运行信息\n" + strings.Join(parts, "\n")
 }
