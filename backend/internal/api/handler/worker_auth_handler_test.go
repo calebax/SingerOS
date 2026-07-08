@@ -100,10 +100,10 @@ func TestWorkerAuthHandlerIssueTokenFromDeploymentHash(t *testing.T) {
 		t.Fatalf("migrate database: %v", err)
 	}
 	assistant := &types.DigitalAssistant{
-		Code:   "agent-a",
-		OrgID:  3,
-		Name:   "Agent A",
-		Status: "active",
+		PublicID: "agent-a",
+		OrgID:    3,
+		Name:     "Agent A",
+		Status:   "active",
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)

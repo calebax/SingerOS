@@ -1,7 +1,10 @@
 "use client";
 
 import {
+	type AuthUser,
 	type Project,
+	type ProjectMember,
+	projectMembersToInputs,
 	type SkillInstalledItem,
 	skillMarketplaceApi,
 	useLayoutStore,
@@ -48,8 +51,12 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
+import { renderHighlightedText } from "../common/searchText";
 import type { AppNavigation } from "../layout/LeftRail";
-import { notifyFeatureUnavailable } from "./feature-unavailable";
+import {
+	ProjectMemberChip,
+	ProjectMemberPickerDialog,
+} from "../project-members/ProjectMemberPickerDialog";
 
 type ProjectsHubViewProps = {
 	navigation?: AppNavigation;
@@ -119,6 +126,48 @@ function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
 			skill.trust,
 		].filter(Boolean),
 	};
+}
+
+function buildCreateProjectMetadata(skills: SkillOption[]): Record<string, unknown> {
+	return {
+		extra: {
+			skills: skills.map((skill) => ({
+				code: skill.code,
+				name: skill.label,
+				description: skill.description,
+			})),
+		},
+	};
+}
+
+function authUserToOwnerMember(user: AuthUser | null): ProjectMember[] {
+	if (!user?.publicId) return [];
+	return [
+		{
+			id: `user-${user.publicId}`,
+			memberId: user.uin ?? 0,
+			publicId: user.publicId,
+			type: "user",
+			role: "owner",
+			name: user.name || user.phone || user.email || "我",
+			description: [user.email, user.phone].filter(Boolean).join(" / "),
+			avatarUrl: user.avatarUrl,
+		},
+	];
+}
+
+function mergeOwnerMember(
+	ownerMembers: ProjectMember[],
+	members: ProjectMember[],
+): ProjectMember[] {
+	if (ownerMembers.length === 0) return members;
+	const owner = ownerMembers[0];
+	if (!owner) return members;
+	const withoutOwner = members.filter(
+		(member) => !(member.type === owner.type && member.publicId === owner.publicId),
+	);
+	// 中文注释：创建项目时当前用户固定作为 owner 成员，避免需要手动再选一次自己。
+	return [owner, ...withoutOwner];
 }
 
 function formatProjectDate(timestamp: number) {
@@ -434,12 +483,17 @@ function CreateProjectDialog({
 	onCreate: (params: {
 		name: string;
 		description?: string;
+		members?: { type: "assistant" | "user"; id: string }[];
 		metadata?: Record<string, unknown>;
 	}) => Promise<Project | null>;
 	onCreated: (project: Project) => void;
 }) {
+	const { user } = useAuth();
+	const ownerMembers = useMemo(() => authUserToOwnerMember(user), [user]);
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
+	const [selectedMembers, setSelectedMembers] = useState<ProjectMember[]>(ownerMembers);
+	const [memberOpen, setMemberOpen] = useState(false);
 	const [selectedSkills, setSelectedSkills] = useState<SkillOption[]>([]);
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
@@ -453,11 +507,15 @@ function CreateProjectDialog({
 		if (!open) {
 			setName("");
 			setDescription("");
+			setSelectedMembers(ownerMembers);
+			setMemberOpen(false);
 			setSelectedSkills([]);
 			setSkillSearch("");
 			setSubmitting(false);
+			return;
 		}
-	}, [open]);
+		setSelectedMembers((current) => mergeOwnerMember(ownerMembers, current));
+	}, [open, ownerMembers]);
 
 	useEffect(() => {
 		if (!skillOpen || skillsLoaded) return;
@@ -515,21 +573,12 @@ function CreateProjectDialog({
 		setSubmitting(true);
 		try {
 			const metadata =
-				selectedSkills.length > 0
-					? {
-							extra: {
-								skills: selectedSkills.map((skill) => ({
-									code: skill.code,
-									name: skill.label,
-									description: skill.description,
-								})),
-							},
-						}
-					: undefined;
-			// 中文注释：新建项目只调用项目接口，不创建任务；可选技能仅作为项目元数据保存。
+				selectedSkills.length > 0 ? buildCreateProjectMetadata(selectedSkills) : undefined;
+			// 中文注释：成员走 CreateProject.members 正式字段，技能仍保存在项目元数据里。
 			const project = await onCreate({
 				name: trimmedName,
 				description: description.trim(),
+				members: projectMembersToInputs(mergeOwnerMember(ownerMembers, selectedMembers)),
 				metadata,
 			});
 			if (project) {
@@ -598,19 +647,46 @@ function CreateProjectDialog({
 					</label>
 
 					<div className="space-y-3">
-						<div className="flex items-center justify-between rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5">
-							<div className="flex items-center gap-2">
-								<Bot className="size-4 text-[var(--leros-text-muted)]" />
-								<div>
-									<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
-										AI队友{" "}
-										<span className="font-normal text-[var(--leros-text-subtle)]">（可选）</span>
+						<div className="rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5">
+							<div className="flex items-center justify-between gap-3">
+								<div className="flex items-center gap-2">
+									<Bot className="size-4 text-[var(--leros-text-muted)]" />
+									<div>
+										<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+											项目成员{" "}
+											<span className="font-normal text-[var(--leros-text-subtle)]">（可选）</span>
+										</div>
 									</div>
 								</div>
+								<Button type="button" variant="ghost" size="sm" onClick={() => setMemberOpen(true)}>
+									+ 添加
+								</Button>
 							</div>
-							<Button type="button" variant="ghost" size="sm" onClick={notifyFeatureUnavailable}>
-								+ 添加
-							</Button>
+							{selectedMembers.length > 0 && (
+								<div className="mt-3 flex flex-wrap gap-2">
+									{selectedMembers.map((member) => (
+										<ProjectMemberChip
+											key={`${member.type}-${member.publicId ?? member.memberId}`}
+											member={member}
+											readonly={member.role === "owner"}
+											onRemove={() =>
+												setSelectedMembers((current) =>
+													current.filter(
+														(item) =>
+															item.type !== member.type || item.memberId !== member.memberId,
+													),
+												)
+											}
+										/>
+									))}
+								</div>
+							)}
+							<ProjectMemberPickerDialog
+								open={memberOpen}
+								onOpenChange={setMemberOpen}
+								selectedMembers={selectedMembers}
+								onConfirm={setSelectedMembers}
+							/>
 						</div>
 
 						<div className="rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5">
@@ -666,9 +742,11 @@ function CreateProjectDialog({
 																<Sparkles className="size-3.5" />
 															</div>
 															<div className="min-w-0 flex-1">
-																<div className="truncate font-medium">/{skill.label}</div>
+																<div className="truncate font-medium">
+																	/{renderHighlightedText(skill.label, skillSearch)}
+																</div>
 																<div className="truncate text-xs text-slate-400">
-																	{skill.description}
+																	{renderHighlightedText(skill.description, skillSearch)}
 																</div>
 															</div>
 															<Check className="size-4 opacity-0" />

@@ -211,8 +211,14 @@ type configContent struct {
 	Schema     string                    `json:"$schema,omitempty"`
 	Provider   map[string]providerConfig `json:"provider"`
 	Model      string                    `json:"model,omitempty"`
+	Agent      map[string]agentConfig    `json:"agent,omitempty"`
 	Permission map[string]string         `json:"permission,omitempty"`
 	MCP        map[string]any            `json:"mcp,omitempty"`
+}
+
+// agentConfig 描述 OpenCode V1 agent 配置。
+type agentConfig struct {
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // providerConfig 描述一个 AI provider 的配置。
@@ -315,7 +321,7 @@ type questionItem struct {
 	Header   string           `json:"header,omitempty"`
 	Options  []questionOption `json:"options"`
 	Multiple bool             `json:"multiple"`
-	Custom   *bool  `json:"custom"`
+	Custom   *bool            `json:"custom"`
 }
 
 // questionOption 是问题的单个选项。

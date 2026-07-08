@@ -18,6 +18,8 @@ const (
 	providerID = "leros-provider"
 	// providerNpm 使用 @ai-sdk/openai-compatible 通配大多数兼容 API。
 	providerNpm = "@ai-sdk/openai-compatible"
+	// openCodeBuildAgentPrompt 占位替换 OpenCode build agent 的内置 provider baseline prompt。
+	openCodeBuildAgentPrompt = "Follow the system instructions supplied with each task."
 	// openCodeDataDirName 是 OpenCode 在 worker 工作目录下的持久化目录。
 	openCodeDataDirName = ".opencode"
 	// openCodeDBName 是 OpenCode 会话数据库文件名。
@@ -62,6 +64,7 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 			},
 		},
 		Model:      providerID + "/" + modelID,
+		Agent:      map[string]agentConfig{"build": {Prompt: openCodeBuildAgentPrompt}},
 		Permission: map[string]string{"websearch": "allow"},
 	}
 

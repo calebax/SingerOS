@@ -23,8 +23,8 @@ export type BackendSession = {
 	session_id: string;
 	type: string;
 	user_id: number;
-	assistant_id: number;
-	assistant_code: string;
+	assistant_id?: string;
+	allocated_assistant_id?: string;
 	status: string;
 	runtime_status?: "idle" | "responding" | string;
 	title: string;
@@ -183,7 +183,8 @@ export type BackendQuestionAnswerPayload = {
 
 export type BackendDigitalAssistant = {
 	id: number;
-	code: string;
+	public_id?: string;
+	code?: string;
 	name: string;
 	description?: string;
 	avatar?: string;
@@ -376,11 +377,14 @@ export type BackendTask = {
 
 export type BackendProjectMemberItem = {
 	member_id: number;
+	public_id?: string;
 	member_type: string;
 	member_role: string;
+	is_default?: boolean;
 	joined_at: string;
 	name?: string;
 	avatar_url?: string;
+	description?: string;
 };
 
 export type BackendProjectTaskItem = BackendTask & {
@@ -432,5 +436,5 @@ export type BackendNewMessageData = {
 	task_id: string;
 	session_id: string;
 	message_id?: string;
-	assistant_id?: number;
+	assistant_id?: string;
 };

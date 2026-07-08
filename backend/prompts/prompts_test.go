@@ -174,10 +174,10 @@ func TestDefaultManagerBuiltinPrompts(t *testing.T) {
 			KeyEventOrchestratorTaskIssueComment, KeyLLMTestConnectivity,
 			KeyAgentNativeTaskCompletion, KeyAgentNativeToolEnforcement,
 			KeyAgentNativeSkillLoading, KeyAgentNativeSkillUsageHint,
-			KeyAgentSystemMemoryGuidance,
+			KeyAgentSystemCommunication, KeyAgentSystemMemoryGuidance,
 			KeyAgentSystemPlatformWechat, KeyAgentSystemPlatformFeishu,
 			KeyAgentSystemPlatformSlack, KeyAgentSystemPlatformAPI,
-			KeySessionTitle, KeyWorkTitle, KeyAgentNativeArtifactDeclaration:
+			KeyWorkShortTitle, KeyAgentNativeArtifactDeclaration:
 			matchCount++
 		}
 	}

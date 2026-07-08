@@ -1,6 +1,6 @@
 "use client";
 
-import { type ProjectSkill, useChatStore, useLayoutStore } from "@leros/store";
+import { type ProjectMember, type ProjectSkill, useChatStore, useLayoutStore } from "@leros/store";
 import type {
 	ApprovalAction,
 	ApprovalRequest,
@@ -37,6 +37,7 @@ import {
 import { ComposerActionBar } from "./ComposerActionBar";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
+	type ComposerAssistantOption,
 	type ComposerSkillOption,
 	StructuredComposer,
 	type StructuredComposerHandle,
@@ -85,7 +86,9 @@ export function ChatInput({
 		activeTaskDetailTaskId,
 		activeTaskDetailSessionId,
 		currentView,
+		projectComposerPrefill,
 		projects,
+		consumeProjectComposerPrefill,
 	} = useLayoutStore((s) => s);
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -105,10 +108,26 @@ export function ChatInput({
 		if (!isProjectVariant) return undefined;
 		return (currentProject?.skills ?? []).map(projectSkillToComposerOption);
 	}, [currentProject?.skills, isProjectVariant]);
+	const projectAssistantOptions = useMemo<ComposerAssistantOption[] | undefined>(() => {
+		if (!isProjectVariant) return undefined;
+		return (
+			(currentProject?.members ?? [])
+				// 中文注释：项目默认 AI 员工用于兜底分配，不作为输入框里可手动召唤的候选项展示。
+				.filter((member) => member.type === "assistant" && !member.isDefault)
+				.map(projectMemberToComposerAssistantOption)
+		);
+	}, [currentProject?.members, isProjectVariant]);
 	const projectSkillLabels = useMemo(
 		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
 		[projectSkillOptions],
 	);
+	const activeProjectComposerPrefill =
+		isProjectVariant &&
+		currentView === "project" &&
+		activeProjectId &&
+		projectComposerPrefill?.projectId === activeProjectId
+			? projectComposerPrefill
+			: undefined;
 
 	useEffect(() => {
 		if (!isProjectVariant) {
@@ -194,39 +213,53 @@ export function ChatInput({
 		sendTaskRoomMessage,
 	]);
 
+	const uploadProjectAttachment = useCallback(
+		async (file: File) => {
+			if (!isProjectVariant || !currentProjectId) {
+				return false;
+			}
+			try {
+				const { message } = await addUploadedAttachment(currentProjectId, file);
+				toast.success(message || "文件上传成功");
+				return true;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : "文件上传失败";
+				console.error("ChatInput upload project attachment error:", err);
+				toast.error(message);
+				return true;
+			}
+		},
+		[currentProjectId, addUploadedAttachment, isProjectVariant],
+	);
+
 	const handlePasteFiles = useCallback(
 		(e: React.ClipboardEvent<HTMLElement>) => {
 			const files = Array.from(e.clipboardData.files);
+			if (!files.length) return;
+
 			for (const file of files) {
-				if (file.type.startsWith("image/") || file.type.startsWith("text/")) {
-					addAttachment(file);
-				}
+				void uploadProjectAttachment(file).then((uploaded) => {
+					if (!uploaded) {
+						addAttachment(file);
+					}
+				});
 			}
 		},
-		[addAttachment],
+		[addAttachment, uploadProjectAttachment],
 	);
 
 	const handleFileSelect = useCallback(
 		async (e: React.ChangeEvent<HTMLInputElement>) => {
 			const files = Array.from(e.target.files ?? []);
-			const projectId = activeProjectId;
 			for (const file of files) {
-				if (isProjectVariant && projectId) {
-					try {
-						const { message } = await addUploadedAttachment(projectId, file);
-						toast.success(message || "文件上传成功");
-					} catch (err) {
-						const message = err instanceof Error ? err.message : "文件上传失败";
-						console.error("ChatInput upload project attachment error:", err);
-						toast.error(message);
-					}
-					continue;
+				const uploaded = await uploadProjectAttachment(file);
+				if (!uploaded) {
+					addAttachment(file);
 				}
-				addAttachment(file);
 			}
 			e.target.value = "";
 		},
-		[activeProjectId, addAttachment, addUploadedAttachment, isProjectVariant],
+		[addAttachment, uploadProjectAttachment],
 	);
 
 	const handleSend = useCallback(() => {
@@ -301,7 +334,11 @@ export function ChatInput({
 								: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
 						}
 						isProjectVariant={isProjectVariant}
+						assistantOptions={projectAssistantOptions}
 						projectSkillOptions={projectSkillOptions}
+						assistantSelectionMode="single"
+						prefill={activeProjectComposerPrefill}
+						onPrefillConsumed={consumeProjectComposerPrefill}
 					/>
 					<input
 						ref={fileInputRef}
@@ -323,7 +360,9 @@ export function ChatInput({
 									inputValue={inputText}
 									composerRef={composerRef}
 									onUpload={() => fileInputRef.current?.click()}
+									assistantOptions={projectAssistantOptions}
 									projectSkillOptions={projectSkillOptions}
+									assistantSelectionMode="single"
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
 									isGenerating={isGenerating}
@@ -549,6 +588,18 @@ function projectSkillToComposerOption(skill: ProjectSkill): ComposerSkillOption 
 			skill.source,
 			skill.trust,
 		].filter((item): item is string => Boolean(item)),
+	};
+}
+
+function projectMemberToComposerAssistantOption(member: ProjectMember): ComposerAssistantOption {
+	const id = member.publicId || String(member.memberId);
+	return {
+		id,
+		code: id,
+		name: member.name,
+		// 中文注释：DetailProject 当前可能只返回成员基础信息，这里用项目成员信息补齐输入框候选项。
+		description: member.description || (member.isDefault ? "默认 AI 队友" : "AI 队友"),
+		avatarUrl: member.avatarUrl,
 	};
 }
 

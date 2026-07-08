@@ -34,6 +34,7 @@ const (
 	defaultDebounceWindow = 1500 * time.Millisecond
 	inboxRetention        = 72 * time.Hour
 	semInProgressInterval = 15 * time.Second
+	inboxTerminalTimeout  = 5 * time.Second
 )
 
 // Config controls a worker run handler.
@@ -407,15 +408,7 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 	_, execErr := h.coordinator.Submit(execCtx, submission)
 
 	for _, s := range task.DeliverySeqs {
-		if execErr != nil {
-			if err := h.runInbox.MarkFailed(execCtx, topic, s, execErr.Error()); err != nil {
-				logs.ErrorContextf(execCtx, "Failed to mark inbox failed: topic=%s seq=%d: %v", topic, s, err)
-			}
-		} else {
-			if err := h.runInbox.MarkCompleted(execCtx, topic, s); err != nil {
-				logs.ErrorContextf(execCtx, "Failed to mark inbox completed: topic=%s seq=%d: %v", topic, s, err)
-			}
-		}
+		h.markTerminal(execCtx, topic, s, execErr, false)
 	}
 
 	if execErr != nil {
@@ -562,15 +555,7 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 
 	_, execErr := h.coordinator.Submit(execCtx, submission)
 
-	if execErr != nil {
-		if err := h.runInbox.MarkFailed(execCtx, topic, rec.StreamSeq, execErr.Error()); err != nil {
-			logs.ErrorContextf(execCtx, "Failed to mark inbox failed (recovery): topic=%s seq=%d: %v", topic, rec.StreamSeq, err)
-		}
-	} else {
-		if err := h.runInbox.MarkCompleted(execCtx, topic, rec.StreamSeq); err != nil {
-			logs.ErrorContextf(execCtx, "Failed to mark inbox completed (recovery): topic=%s seq=%d: %v", topic, rec.StreamSeq, err)
-		}
-	}
+	h.markTerminal(execCtx, topic, rec.StreamSeq, execErr, true)
 }
 
 // --- Control command handling ---
@@ -649,6 +634,30 @@ func (h *Handler) ack(ctx context.Context, delivery eventbus.ManualDelivery) {
 	if err := delivery.Ack(); err != nil {
 		logs.WarnContextf(ctx, "Failed to Ack run command: %v", err)
 	}
+}
+
+func (h *Handler) markTerminal(logCtx context.Context, topic string, seq uint64, execErr error, recovered bool) {
+	markCtx, cancel := context.WithTimeout(context.Background(), inboxTerminalTimeout)
+	defer cancel()
+
+	source := "live"
+	if recovered {
+		source = "recovery"
+	}
+	if execErr != nil {
+		if err := h.runInbox.MarkFailed(markCtx, topic, seq, execErr.Error()); err != nil {
+			logs.ErrorContextf(logCtx, "Failed to mark inbox failed: source=%s topic=%s seq=%d: %v", source, topic, seq, err)
+			return
+		}
+		logs.InfoContextf(logCtx, "Marked inbox failed: source=%s topic=%s seq=%d", source, topic, seq)
+		return
+	}
+
+	if err := h.runInbox.MarkCompleted(markCtx, topic, seq); err != nil {
+		logs.ErrorContextf(logCtx, "Failed to mark inbox completed: source=%s topic=%s seq=%d: %v", source, topic, seq, err)
+		return
+	}
+	logs.InfoContextf(logCtx, "Marked inbox completed: source=%s topic=%s seq=%d", source, topic, seq)
 }
 
 func replyToMessageIDs(messages []messaging.ChatMessage) []string {

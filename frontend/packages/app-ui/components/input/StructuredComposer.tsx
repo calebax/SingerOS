@@ -11,7 +11,7 @@ import {
 	CommandList,
 } from "@leros/ui/components/ui/command";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import {
 	type ClipboardEvent,
 	forwardRef,
@@ -25,6 +25,7 @@ import {
 	useState,
 } from "react";
 import { renderHighlightedText } from "../common/searchText";
+import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 
 type DirectiveKind = "assistant" | "command" | "project";
 type TokenKind = "assistant" | "skill";
@@ -39,16 +40,18 @@ type ActiveTrigger = {
 
 type InsertedToken = {
 	label: string;
+	id?: string;
 	start: number;
 	end: number;
 	kind: TokenKind;
 };
 
 export type ComposerAssistantOption = {
-	id: number;
+	id: string | number;
 	code: string;
 	name: string;
 	description: string;
+	avatarUrl?: string;
 };
 
 type AssistantOption = ComposerAssistantOption;
@@ -83,6 +86,7 @@ export type StructuredComposerHandle = {
 	insertSkill: (skillLabel: string) => void;
 	removeAssistant: (assistantName: string) => void;
 	removeSkill: (skillLabel: string) => void;
+	setContent: (value: string, tokens?: ComposerToken[]) => void;
 	getComposerTokens: () => ComposerToken[];
 };
 
@@ -99,6 +103,13 @@ type StructuredComposerProps = {
 	projectSkillOptions?: ComposerSkillOption[];
 	directivesDisabled?: boolean;
 	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
+	assistantSelectionMode?: "single" | "multiple";
+	prefill?: {
+		id: string;
+		value: string;
+		tokens: ComposerToken[];
+	};
+	onPrefillConsumed?: (prefillId: string) => void;
 };
 
 function findTrigger(value: string, cursor: number): ActiveTrigger | null {
@@ -145,6 +156,85 @@ function normalizeSearchValue(value: string): string {
 
 function dedupeValues(values: string[]): string[] {
 	return Array.from(new Set(values.filter(Boolean)));
+}
+
+function removeTokenAtRange(
+	value: string,
+	tokens: InsertedToken[],
+	target: InsertedToken,
+): EditorSnapshot {
+	let start = target.start;
+	let end = target.end;
+	if (value[end] === " ") {
+		end += 1;
+	} else if (start > 0 && value[start - 1] === " ") {
+		start -= 1;
+	}
+
+	const nextValue = `${value.slice(0, start)}${value.slice(end)}`;
+	const delta = start - end;
+	const nextTokens = sortTokens(
+		tokens
+			.flatMap((token) => {
+				if (
+					token.kind === target.kind &&
+					token.label === target.label &&
+					token.start === target.start &&
+					token.end === target.end
+				) {
+					return [];
+				}
+				if (token.end <= start) return [token];
+				if (token.start >= end) {
+					return [{ ...token, start: token.start + delta, end: token.end + delta }];
+				}
+				return [];
+			})
+			// 中文注释：删除 mention 后，只保留仍与当前文本严格对齐的 token，避免旧位置残留。
+			.filter((token) => nextValue.slice(token.start, token.end) === token.label),
+	);
+
+	return { text: nextValue, tokens: nextTokens };
+}
+
+function stripAssistantTokensFromSnapshot(value: string, tokens: InsertedToken[]): EditorSnapshot {
+	const assistantTokens = resolveDisplayTokens(value, tokens)
+		.filter((token) => token.kind === "assistant")
+		.sort((a, b) => b.start - a.start);
+	if (assistantTokens.length === 0) {
+		return { text: value, tokens };
+	}
+
+	return assistantTokens.reduce<EditorSnapshot>(
+		(snapshot, token) => removeTokenAtRange(snapshot.text, snapshot.tokens, token),
+		{ text: value, tokens },
+	);
+}
+
+function stripAssistantTokensExcept(
+	value: string,
+	tokens: InsertedToken[],
+	keepToken: InsertedToken,
+): EditorSnapshot {
+	const assistantTokens = resolveDisplayTokens(value, tokens)
+		.filter(
+			(token) =>
+				token.kind === "assistant" &&
+				!(
+					token.label === keepToken.label &&
+					token.start === keepToken.start &&
+					token.end === keepToken.end
+				),
+		)
+		.sort((a, b) => b.start - a.start);
+	if (assistantTokens.length === 0) {
+		return { text: value, tokens };
+	}
+
+	return assistantTokens.reduce<EditorSnapshot>(
+		(snapshot, token) => removeTokenAtRange(snapshot.text, snapshot.tokens, token),
+		{ text: value, tokens },
+	);
 }
 
 // 中文注释：空 contenteditable 浏览器常会插入 <br>，同步后变成仅含换行的字符串，需视为空值。
@@ -259,12 +349,57 @@ function resolveVirtualSkillTokens(value: string, tokens: InsertedToken[]): Inse
 	return result;
 }
 
-function resolveDisplayTokens(value: string, tokens: InsertedToken[]): InsertedToken[] {
+function resolveVirtualAssistantTokens(
+	value: string,
+	tokens: InsertedToken[],
+	assistantOptions: AssistantOption[] = [],
+): InsertedToken[] {
+	const result: InsertedToken[] = [];
+	const orderedOptions = [...assistantOptions]
+		.filter((assistant) => assistant.name.trim())
+		.sort((a, b) => b.name.length - a.name.length);
+
+	for (const assistant of orderedOptions) {
+		const label = `@${assistant.name}`;
+		const pattern = new RegExp(`(^|\\s)${escapeRegExp(label)}(?=\\s|$)`, "g");
+		for (const match of value.matchAll(pattern)) {
+			const matchedText = match[0] ?? "";
+			const start = (match.index ?? 0) + (matchedText.startsWith("@") ? 0 : 1);
+			const end = start + label.length;
+			const overlapsExistingToken = [...tokens, ...result].some(
+				(token) => start < token.end && end > token.start,
+			);
+			if (overlapsExistingToken) continue;
+
+			result.push({
+				label,
+				id: String(assistant.id),
+				start,
+				end,
+				kind: "assistant",
+			});
+		}
+	}
+
+	return result;
+}
+
+function resolveDisplayTokens(
+	value: string,
+	tokens: InsertedToken[],
+	assistantOptions: AssistantOption[] = [],
+): InsertedToken[] {
 	const explicitTokens = tokens.filter(
 		(token) => value.slice(token.start, token.end) === token.label,
 	);
-	// 中文注释：常规 token 仍只来自弹窗/按钮选择；skill-creator 是技能库创作入口注入的虚拟指令。
-	return sortTokens([...explicitTokens, ...resolveVirtualSkillTokens(value, explicitTokens)]);
+	// 中文注释：召唤队友跳转时可能只恢复了文本，这里按项目成员把 @队友名 补成可发送的结构化 token。
+	const assistantTokens = resolveVirtualAssistantTokens(value, explicitTokens, assistantOptions);
+	const skillTokens = resolveVirtualSkillTokens(value, [...explicitTokens, ...assistantTokens]);
+	return sortTokens([...explicitTokens, ...assistantTokens, ...skillTokens]);
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isCursorInsideToken(cursor: number, tokens: InsertedToken[]): boolean {
@@ -282,6 +417,7 @@ function areTokensEqual(left: InsertedToken[], right: InsertedToken[]): boolean 
 		return (
 			target &&
 			token.label === target.label &&
+			token.id === target.id &&
 			token.start === target.start &&
 			token.end === target.end &&
 			token.kind === target.kind
@@ -306,6 +442,7 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 			const label = node.dataset.mentionLabel ?? node.textContent ?? "";
 			tokens.push({
 				label,
+				id: node.dataset.mentionId,
 				start: cursor,
 				end: cursor + label.length,
 				kind: node.dataset.mentionKind === "skill" ? "skill" : "assistant",
@@ -341,7 +478,7 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 	};
 }
 
-// 中文注释：与弹窗列表中的 Bot 图标保持一致，供内联 AI 队友 mention 使用。
+// 中文注释：内联 mention 由 contenteditable DOM 拼装，保留轻量 Bot 图标避免频繁重建图片节点。
 function createBotIcon(): SVGElement {
 	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 	svg.setAttribute("viewBox", "0 0 24 24");
@@ -446,6 +583,9 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 		mention.dataset.mentionNode = "true";
 		mention.dataset.mentionLabel = token.label;
 		mention.dataset.mentionKind = token.kind;
+		if (token.id) {
+			mention.dataset.mentionId = token.id;
+		}
 		mention.setAttribute("contenteditable", "false");
 		if (token.kind === "skill") {
 			mention.className =
@@ -699,6 +839,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			projectSkillOptions,
 			directivesDisabled = false,
 			onProjectTrigger,
+			assistantSelectionMode = "multiple",
+			prefill,
+			onPrefillConsumed,
 		},
 		ref,
 	) {
@@ -719,12 +862,16 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const shouldAutoScrollPickerRef = useRef(false);
 		const valueRef = useRef(value);
 		const tokensRef = useRef<InsertedToken[]>([]);
+		const appliedPrefillIdsRef = useRef<Set<string>>(new Set());
 
 		const availableAssistantOptions = useMemo<AssistantOption[]>(
 			() => assistantOptions,
 			[assistantOptions],
 		);
-		const displayTokens = useMemo(() => resolveDisplayTokens(value, tokens), [tokens, value]);
+		const displayTokens = useMemo(
+			() => resolveDisplayTokens(value, tokens, availableAssistantOptions),
+			[availableAssistantOptions, tokens, value],
+		);
 		const selectedAssistantNames = useMemo(
 			() =>
 				dedupeValues(
@@ -819,11 +966,15 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				}
 
 				// 中文注释：程序化插入 mention 后立即同步 DOM，避免首个技能在 effect 前被读成普通文本。
-				buildEditorContent(editor, nextValue, resolveDisplayTokens(nextValue, nextTokens));
+				buildEditorContent(
+					editor,
+					nextValue,
+					resolveDisplayTokens(nextValue, nextTokens, availableAssistantOptions),
+				);
 				pendingCaretRef.current = null;
 				focusAt(nextCaret);
 			},
-			[focusAt, onChange],
+			[availableAssistantOptions, focusAt, onChange],
 		);
 
 		const getActiveTrigger = useCallback((text: string, caret: number) => {
@@ -895,7 +1046,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			const editor = editorRef.current;
 			if (!editor) return;
 
-			const resolvedTokens = resolveDisplayTokens(value, tokens);
+			const resolvedTokens = resolveDisplayTokens(value, tokens, availableAssistantOptions);
 			const snapshot = extractSnapshot(editor);
 
 			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, resolvedTokens)) {
@@ -907,7 +1058,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				setCaretOffset(editor, pendingCaretRef.current);
 				pendingCaretRef.current = null;
 			}
-		}, [tokens, value]);
+		}, [availableAssistantOptions, tokens, value]);
 
 		useEffect(() => {
 			if (!isEmptyEditorValue(value)) return;
@@ -1004,7 +1155,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 			if (!composingRef.current) {
 				const caret = getCaretOffset(editor);
-				const nextTokens = resolveDisplayTokens(text, snapshot.tokens);
+				const nextTokens = resolveDisplayTokens(text, snapshot.tokens, availableAssistantOptions);
 				if (isCursorInsideToken(caret, nextTokens)) {
 					setTrigger(null);
 					return;
@@ -1019,7 +1170,13 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 				setTrigger(directivesDisabled || nextTrigger?.kind === "project" ? null : nextTrigger);
 			}
-		}, [directivesDisabled, getActiveTrigger, notifyProjectTrigger, onChange]);
+		}, [
+			availableAssistantOptions,
+			directivesDisabled,
+			getActiveTrigger,
+			notifyProjectTrigger,
+			onChange,
+		]);
 
 		const handlePaste = useCallback(
 			(event: ClipboardEvent<HTMLDivElement>) => {
@@ -1110,9 +1267,17 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const insertToolbarToken = useCallback(
 			(kind: TokenKind, rawLabel: string) => {
 				const editor = editorRef.current;
-				const currentValue = valueRef.current;
-				const currentTokens = tokensRef.current;
-				const cursor = editor ? getCaretOffset(editor) : currentValue.length;
+				const currentSnapshot =
+					kind === "assistant" && assistantSelectionMode === "single"
+						? stripAssistantTokensFromSnapshot(valueRef.current, tokensRef.current)
+						: { text: valueRef.current, tokens: tokensRef.current };
+				const currentValue = currentSnapshot.text;
+				const currentTokens = currentSnapshot.tokens;
+				// 中文注释：单选模式下从工具栏重新选人时，统一替换为新的 AI 员工，并把光标落到末尾。
+				const cursor =
+					editor && !(kind === "assistant" && assistantSelectionMode === "single")
+						? getCaretOffset(editor)
+						: currentValue.length;
 				const needsLeadingSpace = cursor > 0 && !/\s/.test(currentValue[cursor - 1] ?? "");
 				const needsTrailingSpace = !/\s/.test(currentValue[cursor] ?? "");
 				const insertion = `${needsLeadingSpace ? " " : ""}${rawLabel}${needsTrailingSpace ? " " : ""}`;
@@ -1140,7 +1305,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					tokenStart + rawLabel.length + (needsTrailingSpace ? 1 : 0),
 				);
 			},
-			[commitProgrammaticEdit, dismissTrigger],
+			[assistantSelectionMode, commitProgrammaticEdit, dismissTrigger],
 		);
 
 		const removeMentionToken = useCallback(
@@ -1148,7 +1313,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const prefix = kind === "assistant" ? "@" : "/";
 				const normalizedLabel = rawLabel.startsWith(prefix) ? rawLabel : `${prefix}${rawLabel}`;
 				const currentValue = valueRef.current;
-				const currentTokens = resolveDisplayTokens(currentValue, tokensRef.current);
+				const currentTokens = resolveDisplayTokens(
+					currentValue,
+					tokensRef.current,
+					availableAssistantOptions,
+				);
 				const target = currentTokens.find(
 					(token) => token.kind === kind && token.label === normalizedLabel,
 				);
@@ -1187,7 +1356,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				dismissTrigger(false);
 				commitProgrammaticEdit(nextValue, nextTokens, start);
 			},
-			[commitProgrammaticEdit, dismissTrigger],
+			[availableAssistantOptions, commitProgrammaticEdit, dismissTrigger],
 		);
 
 		const removeAssistantToken = useCallback(
@@ -1199,6 +1368,34 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			(skillLabel: string) => removeMentionToken("skill", skillLabel),
 			[removeMentionToken],
 		);
+
+		const setContent = useCallback(
+			(nextValue: string, nextComposerTokens: ComposerToken[] = []) => {
+				const nextTokens = sortTokens(
+					nextComposerTokens
+						.map((token) => ({
+							label: token.label,
+							id: token.id,
+							start: token.start,
+							end: token.end,
+							kind: token.kind,
+						}))
+						.filter((token) => nextValue.slice(token.start, token.end) === token.label),
+				);
+				dismissedTriggerStartRef.current = null;
+				dismissTrigger(false);
+				commitProgrammaticEdit(nextValue, nextTokens, nextValue.length);
+			},
+			[commitProgrammaticEdit, dismissTrigger],
+		);
+
+		useEffect(() => {
+			if (!prefill) return;
+			if (appliedPrefillIdsRef.current.has(prefill.id)) return;
+			appliedPrefillIdsRef.current.add(prefill.id);
+			setContent(prefill.value, prefill.tokens);
+			onPrefillConsumed?.(prefill.id);
+		}, [onPrefillConsumed, prefill, setContent]);
 
 		const handleEditorMouseDown = useCallback(
 			(event: MouseEvent<HTMLDivElement>) => {
@@ -1236,9 +1433,18 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				insertSkill: (skillLabel: string) => insertToolbarToken("skill", `/${skillLabel}`),
 				removeAssistant: removeAssistantToken,
 				removeSkill: removeSkillToken,
-				getComposerTokens: () => resolveDisplayTokens(valueRef.current, tokensRef.current),
+				setContent,
+				getComposerTokens: () =>
+					resolveDisplayTokens(valueRef.current, tokensRef.current, availableAssistantOptions),
 			}),
-			[insertToolbarToken, insertTrigger, removeAssistantToken, removeSkillToken],
+			[
+				availableAssistantOptions,
+				insertToolbarToken,
+				insertTrigger,
+				removeAssistantToken,
+				removeSkillToken,
+				setContent,
+			],
 		);
 
 		const selectToken = useCallback(
@@ -1272,6 +1478,8 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				)}${label}${trailingSpace}${followingText}`;
 				const insertedToken: InsertedToken = {
 					label,
+					// 中文注释：AI 队友 token 需要保留 public_id，项目/任务发送时会转换为 assistant_ids。
+					id: isAssistant ? String((option as AssistantOption).id) : undefined,
 					start: activeTrigger.start,
 					end: activeTrigger.start + label.length,
 					kind: isAssistant ? "assistant" : "skill",
@@ -1285,16 +1493,26 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					insertedToken,
 					delta,
 				);
+				const singleAssistantResult =
+					isAssistant && assistantSelectionMode === "single"
+						? stripAssistantTokensExcept(nextValue, nextTokens, insertedToken)
+						: null;
 				dismissedTriggerStartRef.current = null;
 				dismissTrigger(false);
 				// 中文注释：内联弹窗选择后立即重建 mention DOM，避免首个技能先落成普通文本。
 				commitProgrammaticEdit(
-					nextValue,
-					nextTokens,
+					singleAssistantResult?.text ?? nextValue,
+					singleAssistantResult?.tokens ?? nextTokens,
 					activeTrigger.start + label.length + trailingSpace.length,
 				);
 			},
-			[commitProgrammaticEdit, dismissTrigger, selectedAssistantNames, selectedSkillLabels],
+			[
+				assistantSelectionMode,
+				commitProgrammaticEdit,
+				dismissTrigger,
+				selectedAssistantNames,
+				selectedSkillLabels,
+			],
 		);
 
 		const selectActiveItem = useCallback(() => {
@@ -1338,7 +1556,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				if (selection.start !== selection.end) return false;
 
 				const currentValue = valueRef.current;
-				const currentTokens = resolveDisplayTokens(currentValue, tokensRef.current);
+				const currentTokens = resolveDisplayTokens(
+					currentValue,
+					tokensRef.current,
+					availableAssistantOptions,
+				);
 				const caret = selection.start;
 				const target =
 					key === "Backspace"
@@ -1383,7 +1605,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				commitProgrammaticEdit(nextValue, nextTokens, start);
 				return true;
 			},
-			[commitProgrammaticEdit, dismissTrigger],
+			[availableAssistantOptions, commitProgrammaticEdit, dismissTrigger],
 		);
 
 		const handleKeyDown = useCallback(
@@ -1514,9 +1736,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 													index === activeIndex && "bg-slate-100",
 												)}
 											>
-												<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-													<Bot className="size-4" />
-												</div>
+												<AssistantAvatar
+													name={assistant.name}
+													src={assistant.avatarUrl}
+													size="sm"
+												/>
 												<div className="min-w-0 flex-1">
 													<div className="truncate font-medium text-slate-700">
 														{renderHighlightedText(assistant.name, assistantSearch)}
@@ -1591,6 +1815,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					aria-multiline="true"
 					tabIndex={0}
 					contentEditable
+					spellCheck={false}
 					aria-label={placeholder}
 					suppressContentEditableWarning
 					onInput={() => syncFromEditor()}

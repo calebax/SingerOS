@@ -3,13 +3,17 @@
 import {
 	fetchFilePreviewByStorageUri,
 	type Project,
+	type ProjectMember,
 	type ProjectSkill,
 	type ProjectTask,
 	projectFileApi,
+	projectMemberApi,
+	projectMembersToInputs,
 	type SkillInstalledItem,
 	skillMarketplaceApi,
 	useAppStore,
 	useChatStore,
+	useDAStore,
 	useLayoutStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
@@ -52,10 +56,14 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { notifyFeatureUnavailable } from "../ai-teammates/feature-unavailable";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
+import {
+	ProjectMemberChip,
+	ProjectMemberPickerDialog,
+} from "../project-members/ProjectMemberPickerDialog";
 import type { AppNavigation } from "./LeftRail";
 import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat, OfficePreview } from "./OfficePreview";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
@@ -77,7 +85,7 @@ import { TaskDeleteDialog } from "./TaskDeleteDialog";
 
 const projectTabs = [
 	{ id: "chat" as const, label: "新建任务" },
-	{ id: "tasks" as const, label: "任务" },
+	{ id: "tasks" as const, label: "任务列表" },
 	{ id: "files" as const, label: "项目文件" },
 ];
 
@@ -491,7 +499,13 @@ export function ProjectPage({
 							project={project}
 							compact={!isWideRightSidebar}
 							onCollapse={() => setRightSidebarCollapsed(true)}
-							onUpdateProject={updateProject}
+							onUpdateProject={async (params) => {
+								const updated = await updateProject(params);
+								if (params.members && project.id) {
+									await fetchProjectDetail(project.id);
+								}
+								return updated;
+							}}
 						/>
 						<hr
 							className={cn(
@@ -560,12 +574,15 @@ function ProjectConfigSidebar({
 		description?: string;
 		status?: string;
 		owner_id?: number;
+		members?: { type: "assistant" | "user"; id: string }[];
 		metadata?: Record<string, unknown>;
 	}) => Promise<Project | null>;
 }) {
 	const [editingDescription, setEditingDescription] = useState(false);
 	const [descriptionDraft, setDescriptionDraft] = useState(project.description);
 	const [savingDescription, setSavingDescription] = useState(false);
+	const [memberDialogOpen, setMemberDialogOpen] = useState(false);
+	const [savingMembers, setSavingMembers] = useState(false);
 	const [savingSkills, setSavingSkills] = useState(false);
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
@@ -573,12 +590,18 @@ function ProjectConfigSidebar({
 	const [skillsLoading, setSkillsLoading] = useState(false);
 	const [skillsLoaded, setSkillsLoaded] = useState(false);
 	const [skillsError, setSkillsError] = useState<string | null>(null);
+	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 
 	useEffect(() => {
 		if (!editingDescription) {
 			setDescriptionDraft(project.description);
 		}
 	}, [editingDescription, project.description]);
+
+	useEffect(() => {
+		if (assistantsLoaded) return;
+		void fetchAssistants();
+	}, [assistantsLoaded, fetchAssistants]);
 
 	useEffect(() => {
 		if (!skillOpen || skillsLoaded) return;
@@ -615,6 +638,27 @@ function ProjectConfigSidebar({
 			return [skill.name, skill.code].join(" ").toLowerCase().includes(query);
 		});
 	}, [selectedSkillCodes, skillOptions, skillSearch]);
+	const projectMembersWithLatestAssistantAvatar = useMemo(
+		() =>
+			project.members.map((member) => {
+				if (member.type !== "assistant") return member;
+				const matchedAssistant = assistants.find(
+					(assistant) =>
+						(member.publicId && assistant.publicId === member.publicId) ||
+						(member.memberId > 0 && assistant.id === member.memberId),
+				);
+				if (!matchedAssistant) return member;
+
+				return {
+					...member,
+					name: member.name || matchedAssistant.name,
+					description: member.description || matchedAssistant.description,
+					// 中文注释：项目详情里的成员头像可能是旧快照，优先用最新 AI 队友头像 public_id。
+					avatarUrl: matchedAssistant.avatar || member.avatarUrl,
+				};
+			}),
+		[assistants, project.members],
+	);
 
 	const saveDescription = async () => {
 		const nextDescription = descriptionDraft.trim();
@@ -656,6 +700,90 @@ function ProjectConfigSidebar({
 	const removeProjectSkill = (skillCode: string) => {
 		if (savingSkills) return;
 		void updateProjectSkills(project.skills.filter((skill) => skill.code !== skillCode));
+	};
+	const visibleProjectMembers = projectMembersWithLatestAssistantAvatar.filter(
+		// 中文注释：默认 AI 员工只作为系统兜底分配，不在右侧项目成员展示区占位。
+		(member) => !(member.type === "assistant" && member.isDefault),
+	);
+
+	const resolveProjectMembersForUpdate = async (nextMembers: ProjectMember[]) => {
+		let resolvedMembers = nextMembers.map((member) => ({ ...member }));
+		const needAssistantPublicIds = resolvedMembers.some(
+			(member) => member.type === "assistant" && !member.isDefault && !member.publicId,
+		);
+		if (needAssistantPublicIds && !assistantsLoaded) {
+			await fetchAssistants();
+		}
+
+		const latestAssistants = useAppStore.getState().assistants;
+		const assistantPublicIdByMemberId = new Map(
+			latestAssistants.map((assistant) => [assistant.id, assistant.publicId]),
+		);
+		resolvedMembers = resolvedMembers.map((member) => {
+			if (member.type !== "assistant" || member.publicId) return member;
+			const publicId = assistantPublicIdByMemberId.get(member.memberId);
+			return publicId ? { ...member, publicId, id: `assistant-${publicId}` } : member;
+		});
+
+		const needUserPublicIds = resolvedMembers.some(
+			(member) => member.type === "user" && member.role !== "owner" && !member.publicId,
+		);
+		if (needUserPublicIds) {
+			const unresolvedUsers = resolvedMembers.filter(
+				(member) => member.type === "user" && member.role !== "owner" && !member.publicId,
+			);
+			const userPublicIdByName = new Map<string, string>();
+			await Promise.all(
+				unresolvedUsers.map(async (member) => {
+					const users = await projectMemberApi.listHumanMembers({
+						keyword: member.name,
+						limit: 20,
+					});
+					const exactMatches = users.filter((user) => user.name === member.name);
+					// 中文注释：ListUsers 不返回内部 uin，只能在姓名唯一命中时回填 public_id，避免误保留错误成员。
+					const matchedUser = exactMatches[0];
+					if (exactMatches.length === 1 && matchedUser) {
+						userPublicIdByName.set(member.name, matchedUser.public_id);
+					}
+				}),
+			);
+			resolvedMembers = resolvedMembers.map((member) => {
+				if (member.type !== "user" || member.publicId) return member;
+				const publicId = userPublicIdByName.get(member.name);
+				return publicId ? { ...member, publicId, id: `user-${publicId}` } : member;
+			});
+		}
+
+		const unresolvedMembers = resolvedMembers.filter(
+			(member) =>
+				!member.publicId &&
+				!(member.type === "assistant" && member.isDefault) &&
+				member.role !== "owner",
+		);
+		if (unresolvedMembers.length > 0) {
+			throw new Error("成员身份解析失败，请稍后重试");
+		}
+
+		return resolvedMembers;
+	};
+
+	const updateProjectMembers = async (nextMembers: ProjectMember[]) => {
+		setSavingMembers(true);
+		try {
+			const resolvedMembers = await resolveProjectMembersForUpdate(nextMembers);
+			const updated = await onUpdateProject({
+				public_id: project.id,
+				members: projectMembersToInputs(resolvedMembers),
+			});
+			if (updated) {
+				toast.success("项目成员已更新");
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "项目成员更新失败";
+			toast.error(message);
+		} finally {
+			setSavingMembers(false);
+		}
 	};
 
 	return (
@@ -743,23 +871,47 @@ function ProjectConfigSidebar({
 			<section>
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<div className="flex items-center gap-2">
-						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">AI队友</h2>
-						<span className="text-xs text-[var(--leros-text-subtle)]">0</span>
+						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">项目成员</h2>
+						<span className="text-xs text-[var(--leros-text-subtle)]">
+							{visibleProjectMembers.length}
+						</span>
 					</div>
 					<button
 						type="button"
 						className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-						aria-label="添加 AI 队友"
-						onClick={notifyFeatureUnavailable}
+						aria-label="添加项目成员"
+						onClick={() => setMemberDialogOpen(true)}
+						disabled={savingMembers}
 					>
 						<Plus className="size-4" />
 					</button>
 				</div>
 				<div className="max-h-36 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
-					<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
-						暂无 AI 队友
-					</p>
+					{visibleProjectMembers.length === 0 ? (
+						<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
+							暂无项目成员
+						</p>
+					) : (
+						<div className="flex flex-wrap gap-2">
+							{visibleProjectMembers.map((member) => (
+								<ProjectMemberChip
+									key={`${member.type}-${member.memberId}`}
+									member={member}
+									readonly
+									className="max-w-full"
+								/>
+							))}
+						</div>
+					)}
 				</div>
+				<ProjectMemberPickerDialog
+					open={memberDialogOpen}
+					onOpenChange={setMemberDialogOpen}
+					selectedMembers={projectMembersWithLatestAssistantAvatar}
+					onConfirm={(members) => {
+						void updateProjectMembers(members);
+					}}
+				/>
 			</section>
 
 			<section>
@@ -817,9 +969,14 @@ function ProjectConfigSidebar({
 											>
 												<SkillPickerIcon />
 												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium">/{skill.name}</div>
+													<div className="truncate font-medium">
+														/{renderHighlightedText(skill.name, skillSearch)}
+													</div>
 													<div className="truncate text-xs text-slate-400">
-														{skill.description || "项目可用技能"}
+														{renderHighlightedText(
+															skill.description || "项目可用技能",
+															skillSearch,
+														)}
 													</div>
 												</div>
 												<Check className="size-4 opacity-0" />
@@ -999,7 +1156,7 @@ function ProjectTasks({
 	return (
 		// 中文注释：任务 tab 需要占用更宽的主内容区域，避免大屏下卡片挤在中间留下过多留白。
 		<div className="mx-auto w-full max-w-[1100px]">
-			<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">任务</h2>
+			<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">任务列表</h2>
 			<div className="mt-4">
 				<ProjectTaskList
 					tasks={tasks}

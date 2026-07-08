@@ -15,12 +15,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	db "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -85,13 +83,15 @@ func (m *mockEventBus) Publish(ctx context.Context, topic string, event any) err
 }
 
 type recordingEventBus struct {
-	topic string
-	event any
+	topic  string
+	event  any
+	events []publishedEvent
 }
 
 func (m *recordingEventBus) Publish(ctx context.Context, topic string, event any) error {
 	m.topic = topic
 	m.event = event
+	m.events = append(m.events, publishedEvent{topic: topic, event: event})
 	return nil
 }
 
@@ -205,6 +205,13 @@ func setupTestService(t *testing.T) contract.SessionService {
 	return NewSessionService(db, &mockEventBus{}, inferrer, nil, nil, "test")
 }
 
+func setupTestServiceWithDB(t *testing.T) (contract.SessionService, *gorm.DB) {
+	t.Helper()
+	db := setupTestDB(t)
+	inferrer := &mockInferrer{assistantID: 1}
+	return NewSessionService(db, &mockEventBus{}, inferrer, nil, nil, "test"), db
+}
+
 func setupTestServiceWithSubscriber(t *testing.T, subscriber mq.Subscriber) contract.SessionService {
 	t.Helper()
 	db := setupTestDB(t)
@@ -236,17 +243,6 @@ func setupTestContextWithCaller(t *testing.T) context.Context {
 		TraceID:   "test-trace-id",
 	}
 	return auth.WithContext(context.Background(), caller, trace)
-}
-
-func addMessage(t *testing.T, service contract.SessionService, ctx context.Context, sessionID string, content string) {
-	t.Helper()
-	_, err := service.AddMessage(ctx, sessionID, &contract.AddMessageRequest{
-		Role:    string(types.MessageRoleUser),
-		Content: content,
-	})
-	if err != nil {
-		t.Fatalf("AddMessage failed: %v", err)
-	}
 }
 
 func createTestSession(t *testing.T, database *gorm.DB, svc contract.SessionService, ctx context.Context) *types.Session {
@@ -586,38 +582,6 @@ func TestUpdateSession_MarksTitleManuallySet(t *testing.T) {
 	}
 }
 
-func TestHandleSessionTitleRequest_AfterManualRename(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	_, err = service.UpdateSession(ctx, session.SessionID, &contract.UpdateSessionRequest{Title: "Manual title"})
-	if err != nil {
-		t.Fatalf("UpdateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "Manual title" {
-		t.Errorf("expected title %q, got %q", "Manual title", retrieved.Title)
-	}
-	if !retrieved.TitleManuallySet {
-		t.Error("expected TitleManuallySet to be true")
-	}
-}
-
 func TestDeleteSession(t *testing.T) {
 	service := setupTestService(t)
 	ctx := setupTestContextWithCaller(t)
@@ -639,107 +603,6 @@ func TestDeleteSession(t *testing.T) {
 	_, err = service.GetSession(ctx, session.SessionID)
 	if err == nil {
 		t.Error("expected error for deleted session")
-	}
-}
-
-func TestActivateSession_InvalidState(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	createReq := &contract.CreateSessionRequest{
-		Type: string(types.SessionTypeUserChat),
-	}
-
-	session, err := service.CreateSession(ctx, createReq)
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	service.EndSession(ctx, session.SessionID)
-
-	err = service.ActivateSession(ctx, session.SessionID)
-	if err == nil {
-		t.Error("expected error for activating from ended state")
-	}
-
-	if err.Error() != "cannot activate from ended state" {
-		t.Errorf("expected 'cannot activate from ended state' error, got %s", err.Error())
-	}
-}
-
-func TestPauseSession(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	createReq := &contract.CreateSessionRequest{
-		Type: string(types.SessionTypeUserChat),
-	}
-
-	session, err := service.CreateSession(ctx, createReq)
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	err = service.PauseSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("PauseSession failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-
-	if retrieved.Status != string(types.SessionStatusPaused) {
-		t.Errorf("expected status to be paused, got %s", retrieved.Status)
-	}
-}
-
-func TestEndSession_AlreadyEnded(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	createReq := &contract.CreateSessionRequest{
-		Type: string(types.SessionTypeUserChat),
-	}
-
-	session, err := service.CreateSession(ctx, createReq)
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	service.EndSession(ctx, session.SessionID)
-
-	err = service.EndSession(ctx, session.SessionID)
-	if err == nil {
-		t.Error("expected error for ending already ended session")
-	}
-
-	if err.Error() != "session already ended" {
-		t.Errorf("expected 'session already ended' error, got %s", err.Error())
-	}
-}
-
-func TestResumeSession_NotPaused(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	createReq := &contract.CreateSessionRequest{
-		Type: string(types.SessionTypeUserChat),
-	}
-
-	session, err := service.CreateSession(ctx, createReq)
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	err = service.ResumeSession(ctx, session.SessionID)
-	if err == nil {
-		t.Error("expected error for resuming non-paused session")
-	}
-
-	if err.Error() != "can only resume from paused state" {
-		t.Errorf("expected 'can only resume from paused state' error, got %s", err.Error())
 	}
 }
 
@@ -895,326 +758,6 @@ func TestAddMessage_MissingContent(t *testing.T) {
 	}
 }
 
-func TestHandleSessionTitleRequest_EmptyTitle(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "hello" {
-		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
-	}
-}
-
-func TestHandleSessionTitleRequest_XinSessionTitle(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
-		Type:  string(types.SessionTypeUserChat),
-		Title: "New Session",
-	})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "hello" {
-		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
-	}
-}
-
-func TestHandleSessionTitleRequest_Truncated(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	longContent := ""
-	for i := 0; i < 150; i++ {
-		longContent += "a"
-	}
-
-	addMessage(t, service, ctx, session.SessionID, longContent)
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if len([]rune(retrieved.Title)) != 100 {
-		t.Errorf("expected title length 100, got %d", len([]rune(retrieved.Title)))
-	}
-}
-
-func TestHandleSessionTitleRequest_CustomTitleUnchanged(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
-		Type:  string(types.SessionTypeUserChat),
-		Title: "Manual title",
-	})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "Manual title" {
-		t.Errorf("expected title %q, got %q", "Manual title", retrieved.Title)
-	}
-}
-
-func TestHandleSessionTitleRequest_ManuallySetFlag(t *testing.T) {
-	service := setupTestService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	_, err = service.UpdateSession(ctx, session.SessionID, &contract.UpdateSessionRequest{Title: "鎵嬪姩鏍囬"})
-	if err != nil {
-		t.Fatalf("UpdateSession failed: %v", err)
-	}
-
-	addMessage(t, service, ctx, session.SessionID, "hello")
-	err = service.HandleSessionTitleRequest(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	retrieved, err := service.GetSession(ctx, session.SessionID)
-	if err != nil {
-		t.Fatalf("GetSession failed: %v", err)
-	}
-	if retrieved.Title != "鎵嬪姩鏍囬" {
-		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
-	}
-	if !retrieved.TitleManuallySet {
-		t.Error("expected TitleManuallySet to be true")
-	}
-}
-
-func createTaskSessionWithFirstMessage(
-	t *testing.T,
-	database *gorm.DB,
-	content string,
-	projectName string,
-	taskTitle string,
-) *types.Session {
-	t.Helper()
-	ctx := context.Background()
-	project := &types.Project{
-		PublicID: "prj_test_work_title",
-		OrgID:    1,
-		OwnerID:  1,
-		Name:     projectName,
-		Status:   string(types.ProjectStatusActive),
-	}
-	if err := db.CreateProject(ctx, database, project); err != nil {
-		t.Fatalf("CreateProject failed: %v", err)
-	}
-	task := &types.Task{
-		PublicID:  "task_test_work_title",
-		OrgID:     1,
-		OwnerID:   1,
-		ProjectID: project.ID,
-		TaskType:  types.TaskTypeGeneral,
-		Title:     taskTitle,
-		Status:    string(types.TaskStatusCreated),
-	}
-	if err := db.CreateTask(ctx, database, task); err != nil {
-		t.Fatalf("CreateTask failed: %v", err)
-	}
-	session := &types.Session{
-		PublicID:     "sess_test_work_title",
-		Type:         types.SessionTypeTask,
-		Uin:          1,
-		OrgID:        1,
-		AssistantID:  1,
-		ProjectID:    &project.ID,
-		TaskID:       &task.ID,
-		Status:       string(types.SessionStatusActive),
-		Title:        taskTitle,
-		MessageCount: 1,
-	}
-	if err := db.CreateSession(ctx, database, session); err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-	message := &types.SessionMessage{
-		SessionID: session.ID,
-		Role:      string(types.MessageRoleUser),
-		Content:   content,
-		Sequence:  1,
-		Timestamp: time.Now().UnixMilli(),
-		Status:    string(types.MessageStatusPending),
-	}
-	if err := db.CreateMessage(ctx, database, message); err != nil {
-		t.Fatalf("CreateMessage failed: %v", err)
-	}
-	return session
-}
-
-func TestHandleSessionTitleRequest_UpdatesWorkTitle(t *testing.T) {
-	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
-	ctx := setupTestContextWithCaller(t)
-	prompts.SetDefaultExecutor(workTitlePromptExecutor("生成的任务标题"))
-	t.Cleanup(func() {
-		prompts.SetDefaultExecutor(prompts.NewEinoExecutor())
-	})
-
-	content := "请帮我做一份季度经营分析报告"
-	session := createTaskSessionWithFirstMessage(
-		t,
-		database,
-		content,
-		fallbackWorkTitle(content),
-		fallbackWorkTitle(content),
-	)
-
-	if err := service.HandleSessionTitleRequest(ctx, session.PublicID); err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	project, err := db.GetProjectByID(ctx, database, *session.ProjectID)
-	if err != nil {
-		t.Fatalf("GetProjectByID failed: %v", err)
-	}
-	if project.Name != "生成的任务标题" {
-		t.Fatalf("expected project name %q, got %q", "生成的任务标题", project.Name)
-	}
-
-	var task types.Task
-	if err := database.WithContext(ctx).First(&task, *session.TaskID).Error; err != nil {
-		t.Fatalf("load task failed: %v", err)
-	}
-	if task.Title != "生成的任务标题" {
-		t.Fatalf("expected task title %q, got %q", "生成的任务标题", task.Title)
-	}
-}
-
-func TestHandleSessionTitleRequest_PublishesWorkTitleUpdatedStreamEvent(t *testing.T) {
-	database := setupTestDB(t)
-	bus := &recordingEventBus{}
-	service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
-	ctx := setupTestContextWithCaller(t)
-	prompts.SetDefaultExecutor(workTitlePromptExecutor("生成的任务标题"))
-	t.Cleanup(func() {
-		prompts.SetDefaultExecutor(prompts.NewEinoExecutor())
-	})
-
-	content := "请帮我做一份季度经营分析报告"
-	session := createTaskSessionWithFirstMessage(
-		t,
-		database,
-		content,
-		fallbackWorkTitle(content),
-		fallbackWorkTitle(content),
-	)
-
-	if err := service.HandleSessionTitleRequest(ctx, session.PublicID); err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	if bus.event == nil {
-		t.Fatal("expected work title stream event to be published")
-	}
-	runEvent, ok := bus.event.(messaging.RunEvent)
-	if !ok {
-		t.Fatalf("expected RunEvent, got %T", bus.event)
-	}
-	if runEvent.Body.Event != messaging.RunEventWorkTitleUpdated {
-		t.Fatalf("got stream event %q, want %q", runEvent.Body.Event, messaging.RunEventWorkTitleUpdated)
-	}
-	if runEvent.Body.Payload.WorkTitle == nil || runEvent.Body.Payload.WorkTitle.ProjectName != "生成的任务标题" {
-		t.Fatalf("unexpected work title payload: %#v", runEvent.Body.Payload.WorkTitle)
-	}
-	expectedTopic, err := messaging.RunEventSubject(session.OrgID, session.PublicID, messaging.RunEventLaneState)
-	if err != nil {
-		t.Fatalf("RunEventSubject failed: %v", err)
-	}
-	if bus.topic != expectedTopic {
-		t.Fatalf("got topic %q, want %q", bus.topic, expectedTopic)
-	}
-}
-
-func TestHandleSessionTitleRequest_DoesNotOverwriteCustomWorkTitle(t *testing.T) {
-	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
-	ctx := setupTestContextWithCaller(t)
-	prompts.SetDefaultExecutor(workTitlePromptExecutor("生成的任务标题"))
-	t.Cleanup(func() {
-		prompts.SetDefaultExecutor(prompts.NewEinoExecutor())
-	})
-
-	content := "请帮我做一份季度经营分析报告"
-	session := createTaskSessionWithFirstMessage(
-		t,
-		database,
-		content,
-		"自定义项目名",
-		fallbackWorkTitle(content),
-	)
-
-	if err := service.HandleSessionTitleRequest(ctx, session.PublicID); err != nil {
-		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
-	}
-
-	project, err := db.GetProjectByID(ctx, database, *session.ProjectID)
-	if err != nil {
-		t.Fatalf("GetProjectByID failed: %v", err)
-	}
-	if project.Name != "自定义项目名" {
-		t.Fatalf("expected project name unchanged, got %q", project.Name)
-	}
-}
-
-type workTitlePromptExecutor string
-
-func (e workTitlePromptExecutor) Execute(_ context.Context, _ string, _ config.LLMConfig) (string, error) {
-	return string(e), nil
-}
-
 func TestDeleteMessage_UpdatesSession(t *testing.T) {
 	service := setupTestService(t)
 	ctx := setupTestContextWithCaller(t)
@@ -1302,7 +845,7 @@ func TestListSessions_FilterByType(t *testing.T) {
 }
 
 func TestListSessions_FilterByStatus(t *testing.T) {
-	service := setupTestService(t)
+	service, database := setupTestServiceWithDB(t)
 	ctx := setupTestContextWithCaller(t)
 
 	req1 := &contract.CreateSessionRequest{
@@ -1321,7 +864,11 @@ func TestListSessions_FilterByStatus(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	service.PauseSession(ctx, session2.SessionID)
+	var sess2 types.Session
+	if err := database.Where("public_id = ?", session2.SessionID).First(&sess2).Error; err != nil {
+		t.Fatalf("load session2: %v", err)
+	}
+	db.PauseSession(ctx, database, sess2.ID)
 
 	statusFilter := string(types.SessionStatusActive)
 	listReq := &contract.ListSessionsRequest{
@@ -1487,11 +1034,11 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 		t.Fatalf("failed to seed default llm model: %v", err)
 	}
 	if err := database.Create(&types.DigitalAssistant{
-		Code:    "da-1",
-		OrgID:   1,
-		OwnerID: 1,
-		Name:    "CodeReviewer",
-		Status:  "active",
+		PublicID: "da-1",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "CodeReviewer",
+		Status:   "active",
 	}).Error; err != nil {
 		t.Fatalf("failed to seed digital assistant: %v", err)
 	}
@@ -1764,7 +1311,7 @@ func TestStreamSessionEvents_MissingCaller(t *testing.T) {
 	service := setupTestServiceWithSubscriber(t, nil)
 	ctx := setupTestContextWithoutCaller(t)
 
-	err := service.StreamSessionEvents(ctx, "test_session", false, 0, nil)
+	err := service.StreamSessionEvents(ctx, "test_session", false, "", nil)
 	if err == nil {
 		t.Error("expected error when caller is not authenticated")
 	}
@@ -1826,7 +1373,7 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 	var emitted []string
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, 0, contract.SessionEventSinkFunc(func(
+	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, "", contract.SessionEventSinkFunc(func(
 		ctx context.Context,
 		event *contract.SessionEvent,
 	) error {
@@ -1871,20 +1418,29 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	sessionService := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
 	session := createTestSession(t, database, sessionService, ctx)
 
+	assistant100 := &types.DigitalAssistant{PublicID: "assistant-100", OrgID: 1, Name: "Assistant 100"}
+	if err := database.Create(assistant100).Error; err != nil {
+		t.Fatalf("seed assistant 100: %v", err)
+	}
+	assistant200 := &types.DigitalAssistant{PublicID: "assistant-200", OrgID: 1, Name: "Assistant 200"}
+	if err := database.Create(assistant200).Error; err != nil {
+		t.Fatalf("seed assistant 200: %v", err)
+	}
+
 	// Seed WorkerDeployments with DISTINCT DigitalAssistant.ID and WorkerID
 	// to verify the filter resolves DigitalAssistant.ID → WorkerDeployment.WorkerID
 	// instead of comparing them directly.
 	//   Assistant 100 → WorkerID 1000
 	//   Assistant 200 → WorkerID 2000
 	if err := db.CreateWorkerDeployment(ctx, database, &types.WorkerDeployment{
-		OrgID: 1, DigitalAssistantID: 100, WorkerID: 1000,
-		DeploymentName: "dep-100", Status: string(types.WorkerDeploymentStatusReady),
+		OrgID: 1, DigitalAssistantID: assistant100.ID, WorkerID: 1000,
+		PublicID: "dep-100", DeploymentName: "dep-100", Status: string(types.WorkerDeploymentStatusReady),
 	}); err != nil {
 		t.Fatalf("seed worker deployment 100: %v", err)
 	}
 	if err := db.CreateWorkerDeployment(ctx, database, &types.WorkerDeployment{
-		OrgID: 1, DigitalAssistantID: 200, WorkerID: 2000,
-		DeploymentName: "dep-200", Status: string(types.WorkerDeploymentStatusReady),
+		OrgID: 1, DigitalAssistantID: assistant200.ID, WorkerID: 2000,
+		PublicID: "dep-200", DeploymentName: "dep-200", Status: string(types.WorkerDeploymentStatusReady),
 	}); err != nil {
 		t.Fatalf("seed worker deployment 200: %v", err)
 	}
@@ -1904,7 +1460,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 		},
 	}
 
-	// assistantID=100 (DigitalAssistant.ID) resolves to WorkerID=1000 → matches → event delivered.
+	// assistantID=assistant-100 (PublicID) resolves to WorkerID=1000 → matches → event delivered.
 	t.Run("matching assistant receives event", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
 		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
@@ -1912,7 +1468,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, 100, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, assistant100.PublicID, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
 			data, _ := json.Marshal(event)
 			emitted = append(emitted, string(data))
 			cancel()
@@ -1926,7 +1482,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 		}
 	})
 
-	// assistantID=200 (DigitalAssistant.ID) resolves to WorkerID=2000 ≠ 1000 → event filtered out.
+	// assistantID=assistant-200 (PublicID) resolves to WorkerID=2000 ≠ 1000 → event filtered out.
 	t.Run("non-matching assistant receives no event", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
 		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
@@ -1938,7 +1494,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 			cancel()
 		}()
-		_ = service.StreamSessionEvents(streamCtx, session.PublicID, false, 200, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+		_ = service.StreamSessionEvents(streamCtx, session.PublicID, false, assistant200.PublicID, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
 			data, _ := json.Marshal(event)
 			emitted = append(emitted, string(data))
 			return nil
@@ -1948,15 +1504,15 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 		}
 	})
 
-	// assistantID=0 (disabled) → event delivered regardless of WorkerID.
-	t.Run("zero assistant receives event unfiltered", func(t *testing.T) {
+	// empty assistantID → event delivered regardless of WorkerID.
+	t.Run("empty assistant receives event unfiltered", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
 		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
 
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, 0, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, "", contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
 			data, _ := json.Marshal(event)
 			emitted = append(emitted, string(data))
 			cancel()
@@ -1966,7 +1522,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 			t.Fatalf("StreamSessionEvents (unfiltered) failed: %v", err)
 		}
 		if len(emitted) != 1 {
-			t.Fatalf("zero assistantID: emitted = %v, want exactly one event", emitted)
+			t.Fatalf("empty assistantID: emitted = %v, want exactly one event", emitted)
 		}
 	})
 }
@@ -2009,7 +1565,7 @@ func TestGetSessionForCallerDeniesNonMemberForTaskSession(t *testing.T) {
 func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 	database := setupTestDB(t)
 	bus := &recordingEventBus{}
-	poster := NewMessagePoster(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	poster := NewMessagePoster(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
 	ctx := setupTestContextWithCaller(t)
 
 	proj := &types.Project{
@@ -2156,7 +1712,7 @@ func TestCompleteSessionMessageDoesNotPublishAssistantEvent(t *testing.T) {
 	service := NewSessionService(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test")
 	ctx := setupTestContextWithCaller(t)
 
-	assistant := &types.DigitalAssistant{OrgID: 1, Name: "Beta"}
+	assistant := &types.DigitalAssistant{PublicID: "beta-assistant", OrgID: 1, Name: "Beta"}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("seed assistant: %v", err)
 	}
@@ -2422,8 +1978,9 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 
 	// seed DigitalAssistant so AssistantName can be resolved
 	assistant := &types.DigitalAssistant{
-		OrgID: 1,
-		Name:  "Alpha",
+		PublicID: "alpha-assistant",
+		OrgID:    1,
+		Name:     "Alpha",
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("seed assistant: %v", err)
@@ -2495,7 +2052,300 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 	if data.AssistantName != "Alpha" {
 		t.Fatalf("assistant_name = %q, want %q", data.AssistantName, "Alpha")
 	}
-	if data.AssistantID == nil || *data.AssistantID != assistant.ID {
+	if data.AssistantID == nil || *data.AssistantID != assistant.PublicID {
 		t.Fatalf("assistant_id = %v, want %d", data.AssistantID, assistant.ID)
+	}
+}
+
+func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
+	t.Helper()
+	if err := database.Create(&types.DigitalAssistant{
+		PublicID:     "default-assistant",
+		OrgID:        1,
+		OwnerID:      1,
+		Name:         "Default Assistant",
+		Status:       "active",
+		SystemPrompt: "Default",
+		Source:       "custom",
+	}).Error; err != nil {
+		t.Fatalf("seed assistant: %v", err)
+	}
+	if err := database.Create(&types.ProjectMember{
+		ProjectID:  projectID,
+		MemberID:   1,
+		MemberType: types.MemberTypeAssistant,
+		MemberRole: types.MemberRoleMember,
+	}).Error; err != nil {
+		t.Fatalf("seed project assistant member: %v", err)
+	}
+	if err := database.Create(&types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: 1,
+		WorkerID:           1,
+		DeploymentName:     "dep-default",
+		Status:             string(types.WorkerDeploymentStatusReady),
+	}).Error; err != nil {
+		t.Fatalf("seed worker deployment: %v", err)
+	}
+}
+
+func seedReadyAssistant(t *testing.T, database *gorm.DB, code, name, systemPrompt string) *types.DigitalAssistant {
+	t.Helper()
+	assistant := &types.DigitalAssistant{
+		PublicID:     "assistant-" + code,
+		OrgID:        1,
+		OwnerID:      1,
+		Name:         name,
+		Description:  name,
+		Status:       "active",
+		SystemPrompt: systemPrompt,
+		Source:       "custom",
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	deployment := &types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: assistant.ID,
+		WorkerID:           assistant.ID,
+		DeploymentName:     "test-" + code,
+		Namespace:          "test",
+		Status:             string(types.WorkerDeploymentStatusReady),
+	}
+	if err := database.Create(deployment).Error; err != nil {
+		t.Fatalf("create worker deployment: %v", err)
+	}
+	return assistant
+}
+
+func TestCreateInitialMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
+	service, database := setupTestServiceWithDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	project := &types.Project{
+		PublicID: "prj_test_attachment",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Attachment Test",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	seedProjectAssistant(t, database, project.ID)
+
+	fileUpload := &types.FileUpload{
+		PublicID:     "fu_test_attachment",
+		OrgID:        1,
+		OwnerID:      1,
+		Filename:     "spec.pdf",
+		OriginalName: "spec.pdf",
+		MimeType:     "application/pdf",
+		FileSize:     1024,
+		StorageURI:   "project-files/spec.pdf",
+		Purpose:      "project_file",
+		Status:       "active",
+	}
+	if err := db.CreateFileUpload(context.Background(), database, fileUpload); err != nil {
+		t.Fatalf("CreateFileUpload failed: %v", err)
+	}
+
+	req := &contract.NewMessageRequest{
+		ProjectID: project.PublicID,
+		Content:   "请基于附件开始分析",
+		Attachments: []types.MessageAttachment{
+			{
+				FileUploadID: fileUpload.PublicID,
+				Name:         "spec.pdf",
+				MimeType:     "application/pdf",
+				Size:         1024,
+			},
+		},
+	}
+
+	resp, err := service.CreateInitialMessage(ctx, req)
+	if err != nil {
+		t.Fatalf("CreateInitialMessage failed: %v", err)
+	}
+
+	var session types.Session
+	if err := database.WithContext(context.Background()).
+		Where("public_id = ?", resp.SessionID).
+		First(&session).Error; err != nil {
+		t.Fatalf("load session failed: %v", err)
+	}
+
+	var message types.SessionMessage
+	if err := database.WithContext(context.Background()).
+		Where("session_id = ? AND sequence = ?", session.ID, 1).
+		First(&message).Error; err != nil {
+		t.Fatalf("load first message failed: %v", err)
+	}
+
+	if len(message.Attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(message.Attachments))
+	}
+
+	attachment := message.Attachments[0]
+	if attachment.FileUploadID != fileUpload.PublicID {
+		t.Fatalf("expected file upload id %q, got %q", fileUpload.PublicID, attachment.FileUploadID)
+	}
+	if attachment.Name != "spec.pdf" {
+		t.Fatalf("expected attachment name spec.pdf, got %q", attachment.Name)
+	}
+
+	refreshedUpload, err := db.GetFileUploadByPublicID(context.Background(), database, 1, fileUpload.PublicID)
+	if err != nil {
+		t.Fatalf("reload file upload failed: %v", err)
+	}
+	if refreshedUpload == nil {
+		t.Fatal("expected file upload to exist after new message")
+	}
+
+	projectFile, err := db.GetProjectFileByFilePublicID(context.Background(), database, 1, fileUpload.PublicID)
+	if err != nil {
+		t.Fatalf("reload project file failed: %v", err)
+	}
+	if projectFile == nil {
+		t.Fatal("expected project file association after new message")
+	}
+	if projectFile.ProjectID != project.ID {
+		t.Fatalf("expected project file project_id %d, got %d", project.ID, projectFile.ProjectID)
+	}
+	if projectFile.ResourceType != types.ProjectFileResourceTypeUserUpload {
+		t.Fatalf(
+			"expected project file resource_type %q, got %q",
+			types.ProjectFileResourceTypeUserUpload,
+			projectFile.ResourceType,
+		)
+	}
+}
+
+func TestCreateInitialMessage_TouchesProjectUpdatedAt(t *testing.T) {
+	service, database := setupTestServiceWithDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	project := &types.Project{
+		PublicID: "prj_test_new_message_touch",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Touch Project",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	seedProjectAssistant(t, database, project.ID)
+
+	oldUpdatedAt := time.Now().Add(-time.Hour).UTC()
+	if err := database.Model(&types.Project{}).
+		Where("id = ?", project.ID).
+		Update("updated_at", oldUpdatedAt).Error; err != nil {
+		t.Fatalf("set old project updated_at: %v", err)
+	}
+
+	_, err := service.CreateInitialMessage(ctx, &contract.NewMessageRequest{
+		ProjectID: project.PublicID,
+		Content:   "请在这个项目里新建一个任务",
+	})
+	if err != nil {
+		t.Fatalf("CreateInitialMessage failed: %v", err)
+	}
+
+	refreshedProject, err := db.GetProjectByID(context.Background(), database, project.ID)
+	if err != nil {
+		t.Fatalf("reload project failed: %v", err)
+	}
+	if refreshedProject == nil {
+		t.Fatal("expected project to exist after CreateInitialMessage")
+	}
+	if !refreshedProject.UpdatedAt.After(oldUpdatedAt) {
+		t.Fatalf("expected project updated_at after %v, got %v", oldUpdatedAt, refreshedProject.UpdatedAt)
+	}
+}
+
+func TestCreateInitialMessage_EmptySummonCreatesAssistantBoundSession(t *testing.T) {
+	service, database := setupTestServiceWithDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	assistant := seedReadyAssistant(t, database, "contract-reviewer", "合同审查专家", "只做合同风险审查")
+
+	resp, err := service.CreateInitialMessage(ctx, &contract.NewMessageRequest{
+		AssistantIDs: []string{assistant.PublicID},
+	})
+	if err != nil {
+		t.Fatalf("CreateInitialMessage empty summon failed: %v", err)
+	}
+	if resp.MessageID != "" {
+		t.Fatalf("message id = %q, want empty for empty summon", resp.MessageID)
+	}
+	if resp.AssistantID != assistant.PublicID {
+		t.Fatalf("response assistant id = %q, want %q", resp.AssistantID, assistant.PublicID)
+	}
+
+	var session types.Session
+	if err := database.Where("public_id = ?", resp.SessionID).First(&session).Error; err != nil {
+		t.Fatalf("load task session: %v", err)
+	}
+	if session.AssistantID != assistant.ID {
+		t.Fatalf("session assistant id = %d, want %d", session.AssistantID, assistant.ID)
+	}
+
+	var count int64
+	if err := database.Model(&types.SessionMessage{}).Where("session_id = ?", session.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count session messages: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("empty summon persisted %d messages, want 0", count)
+	}
+
+	var task types.Task
+	if err := database.Where("public_id = ?", resp.TaskID).First(&task).Error; err != nil {
+		t.Fatalf("load task: %v", err)
+	}
+	if task.Title != "与合同审查专家对话" {
+		t.Fatalf("task title = %q, want teammate title", task.Title)
+	}
+}
+
+func TestCreateInitialMessage_RejectsInactiveAssistantSummon(t *testing.T) {
+	service, database := setupTestServiceWithDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	assistant := seedReadyAssistant(t, database, "inactive-reviewer", "停用队友", "停用后不能召唤")
+	if err := database.Model(assistant).Update("status", string(contract.DigitalAssistantStatusInactive)).Error; err != nil {
+		t.Fatalf("update assistant status: %v", err)
+	}
+
+	_, err := service.CreateInitialMessage(ctx, &contract.NewMessageRequest{
+		AssistantIDs: []string{assistant.PublicID},
+	})
+	if err == nil {
+		t.Fatal("expected inactive assistant summon to fail")
+	}
+	if !strings.Contains(err.Error(), "digital assistant is not active") {
+		t.Fatalf("error = %q, want inactive assistant error", err.Error())
+	}
+}
+
+func TestCreateInitialMessage_RejectsAssistantBeforeDeploymentReady(t *testing.T) {
+	service, database := setupTestServiceWithDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	assistant := seedReadyAssistant(t, database, "deploying-reviewer", "部署中队友", "部署完成前不能召唤")
+	if err := database.Model(&types.WorkerDeployment{}).
+		Where("digital_assistant_id = ?", assistant.ID).
+		Update("status", string(types.WorkerDeploymentStatusProvisioning)).Error; err != nil {
+		t.Fatalf("update deployment status: %v", err)
+	}
+
+	_, err := service.CreateInitialMessage(ctx, &contract.NewMessageRequest{
+		AssistantIDs: []string{assistant.PublicID},
+	})
+	if err == nil {
+		t.Fatal("expected provisioning assistant summon to fail")
+	}
+	if !strings.Contains(err.Error(), "worker deployment is not ready") {
+		t.Fatalf("error = %q, want deployment not ready error", err.Error())
 	}
 }

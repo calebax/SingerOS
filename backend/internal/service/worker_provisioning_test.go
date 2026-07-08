@@ -41,12 +41,12 @@ func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {
 	if err := database.First(&defaultAssistant, defaultDeployment.DigitalAssistantID).Error; err != nil {
 		t.Fatalf("load default assistant: %v", err)
 	}
-	if defaultAssistant.Code != "default_o12" {
-		t.Fatalf("default assistant code = %q, want default_o12", defaultAssistant.Code)
+	if defaultAssistant.PublicID != "assistant_default_o12" {
+		t.Fatalf("default assistant public_id = %q, want assistant_default_o12", defaultAssistant.PublicID)
 	}
 
 	assistant := &types.DigitalAssistant{
-		Code:    "custom-agent",
+		PublicID: "custom-agent",
 		OrgID:   12,
 		OwnerID: 34,
 		Name:    "Custom Agent",
@@ -78,7 +78,7 @@ func TestWorkerProvisioningRebindsLegacyDefaultWorker(t *testing.T) {
 
 	ctx := context.Background()
 	legacyAssistant := &types.DigitalAssistant{
-		Code:    "org_12_default_worker",
+		PublicID: "org_12_default_worker",
 		OrgID:   12,
 		OwnerID: 34,
 		Name:    "Legacy Default Worker",
@@ -105,7 +105,7 @@ func TestWorkerProvisioningRebindsLegacyDefaultWorker(t *testing.T) {
 	}
 
 	var defaultAssistant types.DigitalAssistant
-	if err := database.Where("org_id = ? AND code = ?", 12, "default_o12").First(&defaultAssistant).Error; err != nil {
+	if err := database.Where("org_id = ? AND public_id = ?", 12, "assistant_default_o12").First(&defaultAssistant).Error; err != nil {
 		t.Fatalf("load default assistant: %v", err)
 	}
 	if defaultDeployment.DigitalAssistantID != defaultAssistant.ID {
@@ -130,7 +130,7 @@ func TestWorkerReconcilerDoesNotRestartProvisioningDeployment(t *testing.T) {
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
+		PublicID: "agent",
 		OrgID:  1,
 		Name:   "Agent",
 		Status: string(contract.DigitalAssistantStatusActive),
@@ -183,7 +183,7 @@ func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
+		PublicID: "agent",
 		OrgID:  1,
 		Name:   "Agent",
 		Status: string(contract.DigitalAssistantStatusActive),
@@ -247,7 +247,7 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
+		PublicID: "agent",
 		OrgID:  1,
 		Name:   "Agent",
 		Status: string(contract.DigitalAssistantStatusActive),
@@ -297,7 +297,7 @@ func TestWorkerReconcilerSyncsOrgSkillsAfterProvisioningDeploymentReady(t *testi
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
+		PublicID: "agent",
 		OrgID:  1,
 		Name:   "Agent",
 		Status: string(contract.DigitalAssistantStatusActive),
@@ -358,7 +358,7 @@ func TestWorkerReconcilerRestartsProvisioningDeploymentWhenRuntimeMissing(t *tes
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
+		PublicID: "agent",
 		OrgID:  1,
 		Name:   "Agent",
 		Status: string(contract.DigitalAssistantStatusActive),

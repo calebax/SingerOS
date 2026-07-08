@@ -1,12 +1,7 @@
 "use client";
 
 import type { DigitalAssistantItem } from "@leros/store";
-import {
-	getFileDownloadUrl,
-	getFilePublicUrlFromStorageUri,
-	projectFileApi,
-	useDAStore,
-} from "@leros/store";
+import { projectFileApi, useDAStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -18,6 +13,7 @@ import {
 import { ImagePlus } from "lucide-react";
 import { type ChangeEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { blobToDataURL, cacheProtectedImageDataURL } from "../avatar/ProtectedImage";
 import { AssistantAvatar } from "./AssistantAvatar";
 import { getAssistantDisplayStatus } from "./assistantStatus";
 
@@ -79,9 +75,9 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 			const response = await projectFileApi.uploadLoose({ file, purpose: "avatar" });
 			const publicID = response.data.public_id;
 			if (!publicID) throw new Error("头像上传失败");
-			setAvatar(
-				getFilePublicUrlFromStorageUri(response.data.storage_uri) ?? getFileDownloadUrl(publicID),
-			);
+			// 中文注释：AI 队友头像字段保存文件 public_id，展示时统一通过 preview 接口读取。
+			setAvatar(publicID);
+			void blobToDataURL(file).then((dataURL) => cacheProtectedImageDataURL(publicID, dataURL));
 			setPreviewAvatar(undefined);
 			toast.success("头像已上传");
 		} catch (err) {

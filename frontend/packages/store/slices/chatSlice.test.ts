@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Message } from "../types/chat";
 import {
 	applySessionEventToMessage,
+	attachAssistantReplyTargets,
 	createAssistantSessionEventsWaitingMessage,
 	insertGlobalUserMessageId,
 	mapBackendMessage,
@@ -129,6 +130,65 @@ describe("mapBackendMessage", () => {
 			throw new Error("expected restored reasoning step");
 		}
 		expect(processStep.content).toBe("用户问今天几号，这是一个需要获取当前时间的问题。");
+	});
+});
+
+describe("attachAssistantReplyTargets", () => {
+	it("links an assistant history message to the user message encoded in run_id", () => {
+		const messages: Message[] = [
+			{
+				id: "475",
+				conversationId: "session-1",
+				role: "user",
+				content: "北京的天气",
+				timestamp: 1,
+				author: {
+					id: "3",
+					name: "18435155690",
+					type: "user",
+				},
+			},
+			{
+				id: "476",
+				conversationId: "session-1",
+				role: "assistant",
+				content: "北京今天雷阵雨。",
+				timestamp: 2,
+				runId: "req_475",
+			},
+		];
+
+		const result = attachAssistantReplyTargets(messages);
+
+		expect(result[1]?.replyTo).toEqual({
+			messageId: "475",
+			authorName: "18435155690",
+			content: "北京的天气",
+		});
+	});
+
+	it("does not treat non-request run_id values as reply targets", () => {
+		const messages: Message[] = [
+			{
+				id: "475",
+				conversationId: "session-1",
+				role: "user",
+				content: "北京的天气",
+				timestamp: 1,
+			},
+			{
+				id: "476",
+				conversationId: "session-1",
+				role: "assistant",
+				content: "北京今天雷阵雨。",
+				timestamp: 2,
+				runId: "run_475",
+			},
+		];
+
+		const result = attachAssistantReplyTargets(messages);
+
+		expect(result[1]?.replyTo).toBeUndefined();
 	});
 });
 

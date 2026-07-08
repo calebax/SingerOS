@@ -20,24 +20,30 @@ type Project struct {
 	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
+// MemberInput 创建/编辑项目时传入的成员项
+type MemberInput struct {
+	Type string `json:"type" binding:"required"` // "user" | "assistant"
+	ID   string `json:"id" binding:"required"`   // user 传 public_id, assistant 传 public_id
+}
+
 // CreateProjectRequest 创建项目请求
 type CreateProjectRequest struct {
-	Name         string                 `json:"name" binding:"required"`
-	Description  string                 `json:"description,omitempty"`
-	Objective    string                 `json:"objective,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
-	AssistantIDs []uint                 `json:"assistant_ids,omitempty"`
+	Name        string                 `json:"name" binding:"required"`
+	Description string                 `json:"description,omitempty"`
+	Objective   string                 `json:"objective,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Members     []MemberInput          `json:"members,omitempty"`
 }
 
 // UpdateProjectRequest 更新项目请求
 type UpdateProjectRequest struct {
-	Name         *string                 `json:"name,omitempty"`
-	Description  *string                 `json:"description,omitempty"`
-	Objective    *string                 `json:"objective,omitempty"`
-	OwnerID      *uint                   `json:"owner_id,omitempty"`
-	Status       *string                 `json:"status,omitempty"`
-	Metadata     *map[string]interface{} `json:"metadata,omitempty"`
-	AssistantIDs []uint                  `json:"assistant_ids,omitempty"`
+	Name        *string                 `json:"name,omitempty"`
+	Description *string                 `json:"description,omitempty"`
+	Objective   *string                 `json:"objective,omitempty"`
+	OwnerID     *uint                   `json:"owner_id,omitempty"`
+	Status      *string                 `json:"status,omitempty"`
+	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
+	Members     []MemberInput           `json:"members,omitempty"`
 }
 
 // ListProjectsRequest 查询项目列表请求

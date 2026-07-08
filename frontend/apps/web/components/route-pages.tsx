@@ -64,7 +64,9 @@ export function TaskDetailRoutePage() {
 }
 
 export function AssistantsRoutePage() {
-	return <AssistantListView />;
+	const navigation = useWebNavigation();
+
+	return <AssistantListView navigation={navigation} />;
 }
 
 export function SkillsRoutePage() {
@@ -84,5 +86,9 @@ export function ProjectsHubRoutePage() {
 }
 
 export function EmptyRoutePage() {
-	return <div data-slot="empty-page" className="min-h-0 flex-1 bg-[#f7f8fd]" />;
+	return (
+		<div data-slot="empty-page" className="flex min-h-0 flex-1 flex-col bg-[#f7f8fd]">
+			<header className="z-10 flex h-20 shrink-0 items-center justify-end px-10" />
+		</div>
+	);
 }

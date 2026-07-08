@@ -13,6 +13,7 @@ function createProject(
 		objective: overrides.objective,
 		metadata: overrides.metadata,
 		skills: overrides.skills ?? [],
+		members: overrides.members ?? [],
 		taskCount: overrides.taskCount ?? 0,
 		createdAt: overrides.createdAt ?? 0,
 		updatedAt: overrides.updatedAt,

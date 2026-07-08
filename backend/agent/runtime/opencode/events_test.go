@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
@@ -603,6 +605,88 @@ func TestWaitCompletionFailedDoesNotEmitMessageComplete(t *testing.T) {
 	}
 	if result.Message != "" {
 		t.Fatalf("result message = %q, want empty", result.Message)
+	}
+}
+
+func TestRecordProgressIgnoresHeartbeat(t *testing.T) {
+	st := &runState{progressCh: make(chan struct{}, 1)}
+
+	st.recordProgress(sseEvent{Type: "server.heartbeat"})
+
+	select {
+	case <-st.progressCh:
+		t.Fatal("heartbeat should not refresh progress")
+	default:
+	}
+}
+
+func TestRecordProgressAcceptsBusinessEvent(t *testing.T) {
+	st := &runState{progressCh: make(chan struct{}, 1)}
+
+	st.recordProgress(sseEvent{Type: "message.part.updated"})
+
+	select {
+	case <-st.progressCh:
+	default:
+		t.Fatal("business event should refresh progress")
+	}
+}
+
+func TestWaitCompletionProgressIdleTimeout(t *testing.T) {
+	st := &runState{
+		evtChan:         make(chan agent.NodeEvent, 16),
+		resultChan:      make(chan cli.InvocationResult, 1),
+		msgDone:         make(chan struct{}),
+		sseDone:         make(chan struct{}),
+		sseTerminal:     make(chan struct{}),
+		progressCh:      make(chan struct{}, 1),
+		progressTimeout: 20 * time.Millisecond,
+		sessionID:       "ses_timeout",
+	}
+
+	st.waitCompletion(context.Background(), func() {}, func() {})
+
+	for range st.evtChan {
+	}
+	result := <-st.resultChan
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "opencode progress idle timeout") {
+		t.Fatalf("result error = %v, want progress idle timeout", result.Err)
+	}
+	if result.ProviderSessionID != "ses_timeout" {
+		t.Fatalf("provider session id = %q, want ses_timeout", result.ProviderSessionID)
+	}
+}
+
+func TestWaitCompletionProgressEventResetsIdleTimeout(t *testing.T) {
+	st := &runState{
+		evtChan:         make(chan agent.NodeEvent, 16),
+		resultChan:      make(chan cli.InvocationResult, 1),
+		msgDone:         make(chan struct{}),
+		sseDone:         make(chan struct{}),
+		sseTerminal:     make(chan struct{}),
+		progressCh:      make(chan struct{}, 1),
+		progressTimeout: 30 * time.Millisecond,
+		lastTextEnded:   "ok",
+	}
+	close(st.sseDone)
+
+	go st.waitCompletion(context.Background(), func() {}, func() {})
+
+	time.Sleep(15 * time.Millisecond)
+	st.progressCh <- struct{}{}
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case result := <-st.resultChan:
+		t.Fatalf("result before reset timeout = %#v", result)
+	default:
+	}
+
+	close(st.msgDone)
+	for range st.evtChan {
+	}
+	result := <-st.resultChan
+	if result.Err != nil || result.Message != "ok" {
+		t.Fatalf("result = %#v, want successful ok", result)
 	}
 }
 

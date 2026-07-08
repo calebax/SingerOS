@@ -23,7 +23,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
@@ -160,7 +159,11 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 		return nil, errors.New("session with this public_id already exists")
 	}
 
-	assistantID, workerID, err := s.resolveRuntimeWorker(ctx, caller.OrgID, req.AssistantID)
+	assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, req.AssistantID)
+	if err != nil {
+		return nil, err
+	}
+	assistantID, workerID, err := resolveRuntimeWorker(ctx, s.db, caller.OrgID, assistantID, s.inferrer)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +188,7 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 		return nil, err
 	}
 
-	return convertToContractSession(session), nil
+	return convertToContractSession(session, s.db), nil
 }
 
 func (s *sessionService) resolveRuntimeWorker(ctx context.Context, orgID, assistantID uint) (uint, uint, error) {
@@ -205,7 +208,7 @@ func (s *sessionService) GetSession(ctx context.Context, sessionID string) (*con
 		return nil, err
 	}
 
-	result := convertToContractSession(session)
+	result := convertToContractSession(session, s.db)
 	result.RuntimeStatus = s.sessionRuntimeStatus(ctx, session.ID)
 	return result, nil
 }
@@ -233,7 +236,7 @@ func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, re
 		return nil, err
 	}
 
-	return convertToContractSession(session), nil
+	return convertToContractSession(session, s.db), nil
 }
 
 func (s *sessionService) DeleteSession(ctx context.Context, sessionID string) error {
@@ -261,11 +264,14 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 	if req.Status != nil && *req.Status != "" {
 		opt.AddFilter("status", *req.Status)
 	}
-	if req.AssistantID != nil && *req.AssistantID > 0 {
-		opt.AddFilter("assistant_id", fmt.Sprintf("%d", *req.AssistantID))
-	}
-	if req.AssistantCode != nil && *req.AssistantCode != "" {
-		opt.AddFilter("assistant_code", *req.AssistantCode)
+	if req.AssistantID != nil && *req.AssistantID != "" {
+		assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, *req.AssistantID)
+		if err != nil {
+			return nil, err
+		}
+		if assistantID > 0 {
+			opt.AddFilter("assistant_id", fmt.Sprintf("%d", assistantID))
+		}
 	}
 	if req.Keyword != nil && *req.Keyword != "" {
 		opt.AddFilter("keyword", *req.Keyword)
@@ -278,7 +284,7 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 
 	items := make([]contract.Session, 0, len(sessions))
 	for _, session := range sessions {
-		items = append(items, *convertToContractSession(session))
+		items = append(items, *convertToContractSession(session, s.db))
 	}
 
 	return &contract.SessionList{
@@ -287,58 +293,6 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 		Limit:  req.Limit,
 		Items:  items,
 	}, nil
-}
-
-func (s *sessionService) ActivateSession(ctx context.Context, sessionID string) error {
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if session.Status == string(types.SessionStatusEnded) {
-		return errors.New("cannot activate from ended state")
-	}
-
-	return db.ActivateSession(ctx, s.db, session.ID)
-}
-
-func (s *sessionService) PauseSession(ctx context.Context, sessionID string) error {
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if session.Status == string(types.SessionStatusEnded) || session.Status == string(types.SessionStatusExpired) {
-		return fmt.Errorf("cannot pause from %s state", session.Status)
-	}
-
-	return db.PauseSession(ctx, s.db, session.ID)
-}
-
-func (s *sessionService) EndSession(ctx context.Context, sessionID string) error {
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if session.Status == string(types.SessionStatusEnded) {
-		return errors.New("session already ended")
-	}
-
-	return db.EndSession(ctx, s.db, session.ID)
-}
-
-func (s *sessionService) ResumeSession(ctx context.Context, sessionID string) error {
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if session.Status != string(types.SessionStatusPaused) {
-		return errors.New("can only resume from paused state")
-	}
-
-	return db.ResumeSession(ctx, s.db, session.ID)
 }
 
 func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *contract.AddMessageRequest) (*contract.SessionMessage, error) {
@@ -365,8 +319,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		}
 	}
 
-	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s)
-	message, err := mp.PostMessage(ctx, session, types.ExecutionMode(req.ExecutionMode), func(sequence int64) *types.SessionMessage {
+	message, err := s.newMessagePoster().PostMessage(ctx, session, types.ExecutionMode(req.ExecutionMode), func(sequence int64) *types.SessionMessage {
 		return s.buildMessage(req, sequence)
 	})
 	if err != nil {
@@ -381,6 +334,23 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 	}
 
 	return convertToContractSessionMessage(message, session.PublicID), nil
+}
+
+func (s *sessionService) newMessagePoster() *MessagePoster {
+	return NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
+}
+
+func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {
+	if strings.TrimSpace(req.Content) == "" && len(req.AssistantIDs) == 0 && len(req.Attachments) == 0 {
+		return nil, errors.New("content is required")
+	}
+
+	caller, _ := auth.FromContext(ctx)
+	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
+		return nil, errors.New("user not authenticated or org not set")
+	}
+
+	return s.newMessagePoster().RunNewMessage(ctx, req, caller)
 }
 
 func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence int64) *types.SessionMessage {
@@ -416,159 +386,6 @@ func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence 
 	return message
 }
 
-func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.Session) {
-	if session.TitleManuallySet {
-		return
-	}
-	if session.MessageCount >= 3 {
-		return
-	}
-
-	if err := s.renameSession(ctx, session); err != nil {
-		logs.WarnContextf(ctx, "failed to auto-update session title: %v", err)
-	}
-}
-
-func (s *sessionService) renameSession(ctx context.Context, session *types.Session) error {
-	recentMessages := s.buildRecentMessages(ctx, session.ID)
-
-	title, err := prompts.Run(ctx, prompts.KeySessionTitle, map[string]any{
-		"current_title":   session.Title,
-		"recent_messages": recentMessages,
-	})
-	title = strings.TrimSpace(title)
-	if err != nil {
-		logs.WarnContextf(ctx, "LLM title generation failed, fallback: %v", err)
-		if session.Title != "" && session.Title != "New Session" {
-			return nil
-		}
-		latestMsg, _ := db.GetLatestMessage(ctx, s.db, session.ID)
-		if latestMsg != nil {
-			runes := []rune(latestMsg.Content)
-			if len(runes) > 100 {
-				title = string(runes[:100])
-			} else {
-				title = latestMsg.Content
-			}
-		}
-		if title == "" {
-			return nil
-		}
-	} else if title == "KEEP" {
-		return nil
-	}
-	logs.InfoContextf(ctx, "auto-updating session title to: %s, old title: %s", title, session.Title)
-	session.Title = title
-	session.UpdatedAt = time.Now()
-	return db.UpdateSession(ctx, s.db, session)
-}
-
-func (s *sessionService) buildRecentMessages(ctx context.Context, sessionID uint) string {
-	const maxMessages = 10
-	messages, err := db.GetRecentSessionMessages(ctx, s.db, sessionID, maxMessages)
-	if err != nil || len(messages) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	for _, msg := range messages {
-		sb.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
-	}
-	return sb.String()
-}
-
-func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
-	if err != nil {
-		return fmt.Errorf("get session %s: %w", sessionID, err)
-	}
-	if session == nil {
-		return nil
-	}
-
-	logs.DebugContextf(ctx, "handling session title request for session %s", sessionID)
-	s.tryAutoUpdateTitle(ctx, session)
-	s.tryAutoUpdateWorkTitle(ctx, session)
-	return nil
-}
-
-func (s *sessionService) tryAutoUpdateWorkTitle(ctx context.Context, session *types.Session) {
-	if session == nil || session.Type != types.SessionTypeTask {
-		return
-	}
-	if session.ProjectID == nil || session.TaskID == nil {
-		return
-	}
-	if session.MessageCount >= 3 {
-		return
-	}
-
-	project, err := db.GetProjectByID(ctx, s.db, *session.ProjectID)
-	if err != nil || project == nil {
-		return
-	}
-	var task types.Task
-	if err := s.db.WithContext(ctx).First(&task, *session.TaskID).Error; err != nil {
-		return
-	}
-
-	firstMsg, err := s.firstUserMessage(ctx, session.ID)
-	if err != nil || firstMsg == nil {
-		return
-	}
-	fallbackTitle := fallbackWorkTitle(firstMsg.Content)
-	if project.Name != fallbackTitle && task.Title != fallbackTitle {
-		return
-	}
-
-	title, err := prompts.Run(ctx, prompts.KeyWorkTitle, map[string]any{
-		"user_message": firstMsg.Content,
-	})
-	if err != nil {
-		logs.WarnContextf(ctx, "work title: LLM generation failed for session %s: %v", session.PublicID, err)
-		return
-	}
-	title = sanitizeGeneratedWorkTitle(title)
-	if title == "" {
-		return
-	}
-
-	projectUpdated := false
-	if project.Name == fallbackTitle {
-		project.Name = title
-		project.UpdatedAt = time.Now()
-		if err := db.UpdateProject(ctx, s.db, project); err != nil {
-			logs.WarnContextf(ctx, "work title: update project %s: %v", project.PublicID, err)
-		} else {
-			projectUpdated = true
-		}
-	}
-	taskUpdated := false
-	if task.Title == fallbackTitle {
-		task.Title = title
-		task.UpdatedAt = time.Now()
-		if err := db.UpdateTask(ctx, s.db, &task); err != nil {
-			logs.WarnContextf(ctx, "work title: update task %s: %v", task.PublicID, err)
-		} else {
-			taskUpdated = true
-		}
-	}
-	if !projectUpdated && !taskUpdated {
-		return
-	}
-
-	if session.Title == fallbackTitle {
-		session.Title = title
-		session.UpdatedAt = time.Now()
-		if err := db.UpdateSession(ctx, s.db, session); err != nil {
-			logs.WarnContextf(ctx, "work title: update session %s: %v", session.PublicID, err)
-		}
-	}
-
-	if err := s.publishWorkTitleUpdated(ctx, session, project, &task); err != nil {
-		logs.WarnContextf(ctx, "work title: publish stream event for session %s: %v", session.PublicID, err)
-	}
-}
-
 func (s *sessionService) firstUserMessage(ctx context.Context, sessionID uint) (*types.SessionMessage, error) {
 	var message types.SessionMessage
 	err := s.db.WithContext(ctx).
@@ -590,62 +407,6 @@ func fallbackWorkTitle(content string) string {
 		return string(runes[:workTitleMaxRunes])
 	}
 	return string(runes)
-}
-
-func sanitizeGeneratedWorkTitle(title string) string {
-	title = strings.TrimSpace(title)
-	title = strings.Trim(title, "\"'`“”‘’「」『』")
-	title = strings.TrimSpace(title)
-	runes := []rune(title)
-	if len(runes) > workTitleMaxRunes {
-		return string(runes[:workTitleMaxRunes])
-	}
-	return title
-}
-
-func (s *sessionService) publishWorkTitleUpdated(
-	ctx context.Context,
-	session *types.Session,
-	project *types.Project,
-	task *types.Task,
-) error {
-	if s == nil || s.eventbus == nil || session == nil || project == nil || task == nil {
-		return nil
-	}
-	if session.OrgID == 0 || session.PublicID == "" {
-		return nil
-	}
-
-	workTitle := messaging.WorkTitleUpdatedPayload{
-		ProjectID:    project.PublicID,
-		ProjectName:  project.Name,
-		TaskID:       task.PublicID,
-		TaskTitle:    task.Title,
-		SessionID:    session.PublicID,
-		SessionTitle: session.Title,
-	}
-	topic, err := messaging.RunEventSubject(session.OrgID, session.PublicID, messaging.RunEventLaneState)
-	if err != nil {
-		return err
-	}
-
-	msg := messaging.RunEvent{
-		ID:        fmt.Sprintf("work-title:%s:%d", session.PublicID, time.Now().UnixMilli()),
-		Type:      messaging.MessageTypeRunEvent,
-		CreatedAt: time.Now().UTC(),
-		Route: messaging.RouteContext{
-			OrgID:     session.OrgID,
-			SessionID: session.PublicID,
-		},
-		Body: messaging.RunEventBody{
-			Seq:   time.Now().UnixMilli(),
-			Event: messaging.RunEventWorkTitleUpdated,
-			Payload: messaging.RunEventPayload{
-				WorkTitle: &workTitle,
-			},
-		},
-	}
-	return s.eventbus.Publish(ctx, topic, msg)
 }
 
 func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.SubmitApprovalRequest) error {
@@ -936,24 +697,27 @@ func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID str
 //   - run.state:  terminal, approval, question 等关键状态事件
 //
 // 两个 lane 的事件互不重复，Seq 去重仅作保底。
-func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, assistantID uint, sink contract.SessionEventSink) error {
+func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, assistantPublicID string, sink contract.SessionEventSink) error {
 	session, caller, err := s.getSessionForCaller(ctx, sessionPID)
 	if err != nil {
 		return err
 	}
 
-	// Resolve DigitalAssistant.ID → WorkerDeployment.WorkerID for event filtering.
-	// 客户端传入的 assistantID 是 DigitalAssistant.ID（message.created 暴露的值），
-	// 而 RunEvent.Route.WorkerID 是 WorkerDeployment.WorkerID（= session.AllocatedAssistantID）。
-	// 两者在不同组织下数值不同，必须解析后才能正确比较。
 	var filterWorkerID uint
-	if assistantID > 0 {
+	if assistantPublicID != "" {
+		assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, assistantPublicID)
+		if err != nil {
+			return err
+		}
+		if assistantID == 0 {
+			return fmt.Errorf("digital assistant not found: %s", assistantPublicID)
+		}
 		deployment, err := db.GetWorkerDeploymentByAssistantID(ctx, s.db, assistantID)
 		if err != nil {
 			return fmt.Errorf("resolve assistant worker deployment: %w", err)
 		}
 		if deployment == nil {
-			return fmt.Errorf("worker deployment not found for assistant %d", assistantID)
+			return fmt.Errorf("worker deployment not found for assistant %s", assistantPublicID)
 		}
 		if deployment.OrgID != caller.OrgID {
 			return errors.New("permission denied: assistant belongs to different org")
@@ -1186,14 +950,14 @@ func runEventMatchesReplyIDs(runEvent messaging.RunEvent, ids map[string]struct{
 	return false
 }
 
-func convertToContractSession(session *types.Session) *contract.Session {
+func convertToContractSession(session *types.Session, db *gorm.DB) *contract.Session {
 	result := &contract.Session{
 		SessionID:            session.PublicID,
 		Type:                 string(session.Type),
 		Uin:                  session.Uin,
 		OrgID:                session.OrgID,
-		AssistantID:          session.AssistantID,
-		AllocatedAssistantID: session.AllocatedAssistantID,
+		AssistantID:          assistantIDToPublicID(db, session.AssistantID),
+		AllocatedAssistantID: assistantIDToPublicID(db, session.AllocatedAssistantID),
 		Status:               session.Status,
 		Title:                session.Title,
 		TitleManuallySet:     session.TitleManuallySet,
@@ -1234,8 +998,8 @@ func publishAssistantReplyStartedEvent(
 		RunID:      runID,
 	}
 	if session.AssistantID > 0 {
-		assistantID := session.AssistantID
-		data.AssistantID = &assistantID
+		publicID := assistantIDToPublicID(gdb, session.AssistantID)
+		data.AssistantID = &publicID
 		if da, err := db.GetDigitalAssistantByID(ctx, gdb, session.AssistantID); err == nil && da != nil {
 			data.AssistantName = da.Name
 		} else if err != nil {
@@ -1446,6 +1210,13 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 	}
 
 	workerID := session.AllocatedAssistantID
+	if req.AssistantID != "" {
+		wid, err := db.GetWorkerIDByAssistantPublicID(ctx, s.db, req.AssistantID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve worker by assistant: %w", err)
+		}
+		workerID = wid
+	}
 	if workerID == 0 {
 		return &contract.CancelSessionRunResponse{
 			SessionID: sessionID,
@@ -1476,8 +1247,8 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 		return nil, fmt.Errorf("publish cancel control: %w", err)
 	}
 
-	logs.InfoContextf(ctx, "CancelSessionRun: session=%s worker=%d run=%s",
-		sessionID, workerID, req.RunID)
+	logs.InfoContextf(ctx, "CancelSessionRun: session=%s worker=%d run=%s assistant=%s",
+		sessionID, workerID, req.RunID, req.AssistantID)
 
 	return &contract.CancelSessionRunResponse{
 		SessionID: sessionID,
@@ -1561,6 +1332,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 	}
 
 	logs.DebugContextf(ctx, "persisted completed session message: session_id=%s seq=%d", req.SessionID, sequence)
+	s.scheduleFirstTurnWorkTitleUpdate(ctx, session, msgEntity, true)
 
 	return nil
 }
@@ -1651,8 +1423,50 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 	}
 
 	logs.DebugContextf(ctx, "persisted failed session message: session_id=%s seq=%d", req.SessionID, sequence)
+	s.scheduleFirstTurnWorkTitleUpdate(ctx, session, msgEntity, false)
 
 	return nil
+}
+
+func (s *sessionService) scheduleFirstTurnWorkTitleUpdate(
+	ctx context.Context,
+	session *types.Session,
+	message *types.SessionMessage,
+	includeAssistantMessage bool,
+) {
+	if s == nil || session == nil || message == nil || session.OrgID == 0 {
+		logs.DebugContextf(ctx, "work title: skip schedule due to missing service/session/message/org")
+		return
+	}
+	if session.Type != types.SessionTypeTask || session.ProjectID == nil || session.TaskID == nil {
+		logs.DebugContextf(ctx, "work title: skip schedule for non-task session=%s type=%s", session.PublicID, session.Type)
+		return
+	}
+
+	sessionID := session.PublicID
+	assistantMessage := ""
+	if includeAssistantMessage {
+		assistantMessage = message.Content
+	}
+
+	caller, _ := auth.FromContext(ctx)
+	if caller == nil || caller.OrgID == 0 {
+		caller = &types.Caller{Uin: session.Uin, OrgID: session.OrgID}
+	}
+
+	logs.InfoContextf(ctx, "work title: scheduled first-turn update session=%s include_assistant=%t", sessionID, includeAssistantMessage)
+	go func() {
+		titleCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		titleCtx = auth.WithContext(titleCtx, caller, nil)
+
+		updater := NewWorkTitleUpdater(s.db, s.eventbus)
+		if err := updater.UpdateAfterFirstTurn(titleCtx, sessionID, assistantMessage); err != nil {
+			logs.WarnContextf(titleCtx, "first-turn work title update failed for session %s: %v", sessionID, err)
+			return
+		}
+		logs.DebugContextf(titleCtx, "work title: first-turn update finished session=%s", sessionID)
+	}()
 }
 
 func stateStartSeq(metadata types.ObjectMetadata) (uint64, bool) {
@@ -1686,4 +1500,32 @@ func stateStartSeq(metadata types.ObjectMetadata) (uint64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func resolveAssistantByPublicID(ctx context.Context, database *gorm.DB, orgID uint, publicID string) (uint, error) {
+	if publicID == "" || publicID == "0" {
+		return 0, nil
+	}
+	da, err := db.GetDigitalAssistantByPublicID(ctx, database, publicID)
+	if err != nil {
+		return 0, err
+	}
+	if da == nil {
+		return 0, nil
+	}
+	if da.OrgID != orgID {
+		return 0, errors.New("digital assistant organization mismatch")
+	}
+	return da.ID, nil
+}
+
+func assistantIDToPublicID(database *gorm.DB, assistantID uint) string {
+	if database == nil || assistantID == 0 {
+		return ""
+	}
+	da, err := db.GetDigitalAssistantByID(context.Background(), database, assistantID)
+	if err != nil || da == nil {
+		return ""
+	}
+	return da.PublicID
 }

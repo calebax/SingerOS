@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LeftRail } from "./LeftRail";
 
 const mockAuthenticatedFetch = vi.fn();
+const mockFetchFilePreviewByPublicId = vi.fn();
 const mockFetchProjects = vi.fn();
 const mockFetchTasks = vi.fn();
 const mockDeleteProject = vi.fn();
@@ -26,7 +27,10 @@ const mockUser = {
 
 vi.mock("@leros/store", () => ({
 	authenticatedFetch: (...args: unknown[]) => mockAuthenticatedFetch(...args),
+	fetchFilePreviewByPublicId: (...args: unknown[]) => mockFetchFilePreviewByPublicId(...args),
 	getFileDownloadUrl: (publicId: string) => `http://localhost:18080/v1/files/${publicId}/download`,
+	LEFT_RAIL_MAX_WIDTH: 360,
+	LEFT_RAIL_MIN_WIDTH: 220,
 	projectFileApi: {},
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
@@ -90,8 +94,14 @@ vi.mock("sonner", () => ({
 
 describe("LeftRail avatar download", () => {
 	beforeEach(() => {
+		mockUser.avatarUrl = "http://localhost:18080/v1/files/file_TN3691n6qd/download";
 		mockAuthenticatedFetch.mockReset();
 		mockAuthenticatedFetch.mockResolvedValue({
+			ok: true,
+			blob: async () => new Blob(["avatar"], { type: "image/png" }),
+		});
+		mockFetchFilePreviewByPublicId.mockReset();
+		mockFetchFilePreviewByPublicId.mockResolvedValue({
 			ok: true,
 			blob: async () => new Blob(["avatar"], { type: "image/png" }),
 		});

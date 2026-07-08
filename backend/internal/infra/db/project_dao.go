@@ -133,6 +133,49 @@ func GetProjectSession(ctx context.Context, db *gorm.DB, projectID uint) (*types
 	return &entity, nil
 }
 
+// ListProjectIDsByUser 查询用户有权限访问的项目 ID 列表（owner 或 member 角色）。
+func ListProjectIDsByUser(ctx context.Context, db *gorm.DB, orgID, userID uint) ([]uint, error) {
+	projectIDs := make(map[uint]struct{})
+
+	var ownerIDs []uint
+	if err := db.WithContext(ctx).
+		Model(&types.Project{}).
+		Where("org_id = ? AND owner_id = ? AND deleted_at IS NULL", orgID, userID).
+		Pluck("id", &ownerIDs).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range ownerIDs {
+		projectIDs[id] = struct{}{}
+	}
+
+	memberIDs, err := ListProjectIDsByMember(ctx, db, orgID, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range memberIDs {
+		projectIDs[id] = struct{}{}
+	}
+
+	result := make([]uint, 0, len(projectIDs))
+	for id := range projectIDs {
+		result = append(result, id)
+	}
+	return result, nil
+}
+
+// ListProjectMemberByType 按成员类型查询项目成员列表。
+func ListProjectMemberByType(ctx context.Context, db *gorm.DB, projectID uint, memberType types.MemberType) ([]*types.ProjectMember, error) {
+	var entities []*types.ProjectMember
+	err := db.WithContext(ctx).
+		Where("project_id = ? AND member_type = ?", projectID, string(memberType)).
+		Where("deleted_at IS NULL").
+		Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
 // ListProjects 查询项目列表，使用 PageQuery 作为查询参数
 func ListProjects(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.Project, int64, error) {
 	var entities []*types.Project
@@ -140,7 +183,9 @@ func ListProjects(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 
 	query := d.WithContext(ctx).Table(types.TableNameProject).
 		Where("org_id = ? AND deleted_at IS NULL", opt.OrgID)
-	if opt.Uin > 0 {
+	if len(opt.ProjectIDs) > 0 {
+		query = query.Where("id IN (?)", opt.ProjectIDs)
+	} else if opt.Uin > 0 {
 		query = query.Where("owner_id = ?", opt.Uin)
 	}
 

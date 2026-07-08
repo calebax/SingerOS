@@ -30,10 +30,10 @@ func GetDigitalAssistantByID(ctx context.Context, db *gorm.DB, id uint) (*types.
 	return &entity, nil
 }
 
-// GetDigitalAssistantByCode 根据Code获取数字助手
-func GetDigitalAssistantByCode(ctx context.Context, db *gorm.DB, code string) (*types.DigitalAssistant, error) {
+// GetDigitalAssistantByPublicID 根据PublicID获取数字助手
+func GetDigitalAssistantByPublicID(ctx context.Context, db *gorm.DB, publicID string) (*types.DigitalAssistant, error) {
 	var entity types.DigitalAssistant
-	err := db.WithContext(ctx).Where("code = ?", code).First(&entity).Error
+	err := db.WithContext(ctx).Where("public_id = ?", publicID).First(&entity).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -53,10 +53,10 @@ func DeleteDigitalAssistant(ctx context.Context, db *gorm.DB, id uint) error {
 	return db.WithContext(ctx).Delete(&types.DigitalAssistant{}, id).Error
 }
 
-// DigitalAssistantCodeExists 检查code是否存在（排除指定ID）
-func DigitalAssistantCodeExists(ctx context.Context, db *gorm.DB, code string, excludeID uint) (bool, error) {
+// DigitalAssistantPublicIDExists 检查public_id是否存在（排除指定ID）
+func DigitalAssistantPublicIDExists(ctx context.Context, db *gorm.DB, publicID string, excludeID uint) (bool, error) {
 	var count int64
-	query := db.WithContext(ctx).Model(&types.DigitalAssistant{}).Where("code = ?", code)
+	query := db.WithContext(ctx).Model(&types.DigitalAssistant{}).Where("public_id = ?", publicID)
 	if excludeID > 0 {
 		query = query.Where("id != ?", excludeID)
 	}
@@ -68,13 +68,13 @@ func DigitalAssistantCodeExists(ctx context.Context, db *gorm.DB, code string, e
 }
 
 // CountDigitalAssistantsByOwner returns the active row count for one user's assistants.
-func CountDigitalAssistantsByOwner(ctx context.Context, db *gorm.DB, orgID, ownerID uint, excludedCodes ...string) (int64, error) {
+func CountDigitalAssistantsByOwner(ctx context.Context, db *gorm.DB, orgID, ownerID uint, excludedPublicIDs ...string) (int64, error) {
 	var count int64
 	query := db.WithContext(ctx).
 		Model(&types.DigitalAssistant{}).
 		Where("org_id = ? AND owner_id = ?", orgID, ownerID)
-	if len(excludedCodes) > 0 {
-		query = query.Where("code NOT IN ?", excludedCodes)
+	if len(excludedPublicIDs) > 0 {
+		query = query.Where("public_id NOT IN ?", excludedPublicIDs)
 	}
 	err := query.Count(&count).Error
 	return count, err
@@ -107,7 +107,7 @@ func ListDigitalAssistant(ctx context.Context, db *gorm.DB, opt *types.PageQuery
 		case "keyword":
 			if len(filter.Value) > 0 {
 				kw := filter.Value[0]
-				query = query.Where("name LIKE ? OR code LIKE ? OR description LIKE ? OR system_prompt LIKE ?", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%")
+				query = query.Where("name LIKE ? OR public_id LIKE ? OR description LIKE ? OR system_prompt LIKE ?", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%")
 			}
 		case "source":
 			if len(filter.Value) > 0 {

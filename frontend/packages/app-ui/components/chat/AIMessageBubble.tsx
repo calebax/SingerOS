@@ -8,7 +8,9 @@ import {
 	messageArtifactToProjectArtifact,
 	type ProjectArtifact,
 	sortProjectArtifactsByNewestFirst,
+	useAppStore,
 	useChatStore,
+	useLayoutStore,
 } from "@leros/store";
 import type {
 	Message,
@@ -33,11 +35,15 @@ import {
 	SHOW_ASSISTANT_MESSAGE_METRICS,
 	SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON,
 } from "../../constants/temporaryUiFlags";
+import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
+import { ProtectedImage } from "../avatar/ProtectedImage";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ArtifactPreviewDialog } from "../layout/ArtifactPreviewDialog";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { AssistantChatAvatar } from "./AssistantChatAvatar";
 import { MessageAttachmentPreviewDialog } from "./MessageAttachmentPreviewDialog";
+import { MessageContentWithComposerTokens } from "./MessageContentWithComposerTokens";
+import { resolveAssistantMessageDisplay } from "./resolveAssistantMessageDisplay";
 import { ToolCallBlock } from "./ToolCallBlock";
 
 // Button 的 size 只支持预设枚举，这里用受支持的尺寸并通过 className 微调成更紧凑的操作按钮。
@@ -64,6 +70,31 @@ function CopyButton({ text }: { text: string }) {
 	);
 }
 
+function resolveReplyPreviewMessage(
+	message: Message,
+	messagesMap: Record<string, Message>,
+): Pick<Message, "content" | "metadata"> | null {
+	const content = message.replyTo?.content?.trim();
+	if (!content) return null;
+
+	const target = message.replyTo?.messageId ? messagesMap[message.replyTo.messageId] : undefined;
+	// 中文注释：引用框复用被引用用户消息的 composerTokens，让 @队友 和 /技能 保持标签样式。
+	return {
+		content,
+		metadata: target?.role === "user" ? target.metadata : undefined,
+	};
+}
+
+function ChatAssistantAvatar({ name, src }: { name: string; src?: string }) {
+	const className = "size-8 shrink-0 rounded-full object-cover";
+	const fallback = (
+		<DiceBearAvatar seed={`digital-assistant:${name}`} alt={name} className={className} size={64} />
+	);
+
+	// 中文注释：聊天头像只展示图片本身，不复用卡片头像的渐变底和装饰样式。
+	return <ProtectedImage src={src} alt={name} className={className} fallback={fallback} />;
+}
+
 export function AIMessageBubble({
 	message,
 	isStreaming,
@@ -73,17 +104,31 @@ export function AIMessageBubble({
 	isStreaming: boolean;
 	projectId?: string;
 }) {
-	const { resendMessage } = useChatStore((s) => s);
+	const { resendMessage, messagesMap } = useChatStore((s) => s);
+	const assistants = useAppStore((s) => s.assistants);
+	const projectMembers = useLayoutStore((s) =>
+		projectId ? s.projects.find((project) => project.id === projectId)?.members : undefined,
+	);
+	const assistantDisplay = useMemo(
+		() =>
+			resolveAssistantMessageDisplay({
+				message,
+				messagesMap,
+				assistants,
+				projectMembers,
+			}),
+		[assistants, message, messagesMap, projectMembers],
+	);
 	const [previewPlanFileID, setPreviewPlanFileID] = useState<string | null>(null);
 	const content = message.content;
 	const hasContent = content.trim().length > 0;
 	const hasProcess = Boolean(message.processSteps?.length);
 	const hasArtifacts = message.artifacts && message.artifacts.length > 0;
-	const assistantName = message.author?.type === "assistant" ? message.author.name : "Lework";
+	const assistantName = assistantDisplay.name;
 	const replyLabel = message.replyTo?.authorName
 		? `回复了 ${message.replyTo.authorName}`
 		: undefined;
-	const replyPreview = message.replyTo?.content?.trim();
+	const replyPreviewMessage = resolveReplyPreviewMessage(message, messagesMap);
 	const statusLabel = message.status === "waiting" ? "等待中" : "生成中";
 	const statusText = message.statusText?.trim();
 	const metricSegments = SHOW_ASSISTANT_MESSAGE_METRICS
@@ -108,7 +153,11 @@ export function AIMessageBubble({
 	return (
 		<>
 			<div data-slot="ai-message" className="group flex items-start gap-3">
-				<AssistantChatAvatar />
+				{assistantDisplay.useDefaultBrand ? (
+					<AssistantChatAvatar />
+				) : (
+					<ChatAssistantAvatar name={assistantDisplay.name} src={assistantDisplay.avatarUrl} />
+				)}
 				<div className="min-w-0 flex-1">
 					<div className="mb-1.5 flex items-center gap-2">
 						<span className="text-[13px] font-medium text-slate-500">{assistantName}</span>
@@ -123,10 +172,12 @@ export function AIMessageBubble({
 						)}
 					</div>
 
-					{replyPreview && (
+					{replyPreviewMessage && (
 						<div className="mb-2 max-w-[78%] rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs leading-5 text-slate-500">
 							<div className="mb-0.5 font-medium text-slate-500">引用消息</div>
-							<div className="line-clamp-2 break-words">{replyPreview}</div>
+							<div className="line-clamp-2 break-words">
+								<MessageContentWithComposerTokens message={replyPreviewMessage} />
+							</div>
 						</div>
 					)}
 
@@ -151,7 +202,7 @@ export function AIMessageBubble({
 						<div className="mb-3 max-w-[92%] text-sm leading-7 text-slate-800">
 							<MarkdownRenderer
 								content={content}
-								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
+								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:p-3 prose-pre:text-slate-800 prose-pre:shadow-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[13px] [&_pre_code]:leading-6 [&_pre_code]:text-slate-800 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-medium [&_:not(pre)>code]:text-slate-800"
 								onPlanOpen={setPreviewPlanFileID}
 								onPlanCopy={copyPlanContent}
 							/>

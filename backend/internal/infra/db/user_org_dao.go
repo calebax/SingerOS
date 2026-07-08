@@ -59,6 +59,46 @@ func GetUserOrgByUserIDAndOrgID(ctx context.Context, db *gorm.DB, userID, orgID 
 	return &userOrg, nil
 }
 
+// GetUinByPublicID 根据 org_id + user public_id 查询 uin。
+func GetUinByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publicID string) (uint, error) {
+	var uo types.UserOrg
+	err := db.WithContext(ctx).
+		Table(types.TableNameUserOrg+" AS uo").
+		Select("uo.uin").
+		Joins("INNER JOIN "+types.TableNameUser+" AS u ON u.id = uo.user_id").
+		Where("uo.org_id = ? AND u.public_id = ? AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", orgID, publicID).
+		First(&uo).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return uo.Uin, nil
+}
+
+// GetUinsByPublicIDs 根据 org_id + user public_id 列表批量查询对应的 uin。
+func GetUinsByPublicIDs(ctx context.Context, db *gorm.DB, orgID uint, publicIDs []string) ([]uint, error) {
+	if len(publicIDs) == 0 {
+		return nil, nil
+	}
+	var uos []types.UserOrg
+	err := db.WithContext(ctx).
+		Table(types.TableNameUserOrg+" AS uo").
+		Select("uo.uin").
+		Joins("INNER JOIN "+types.TableNameUser+" AS u ON u.id = uo.user_id").
+		Where("uo.org_id = ? AND u.public_id IN (?) AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", orgID, publicIDs).
+		Find(&uos).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make([]uint, 0, len(uos))
+	for _, uo := range uos {
+		result = append(result, uo.Uin)
+	}
+	return result, nil
+}
+
 // GetUserOrgsByUserID 获取用户全部组织关联。
 func GetUserOrgsByUserID(ctx context.Context, db *gorm.DB, userID uint) ([]*types.UserOrg, error) {
 	var userOrgs []*types.UserOrg

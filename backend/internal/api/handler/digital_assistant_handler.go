@@ -66,12 +66,12 @@ func (h *DigitalAssistantHandler) CreateDigitalAssistant(ctx *gin.Context) {
 }
 
 type GetDigitalAssistantRequest struct {
-	ID   *uint   `json:"id,omitempty"`
-	Code *string `json:"code,omitempty"`
+	ID       *uint   `json:"id,omitempty"`
+	PublicID *string `json:"public_id,omitempty"`
 }
 
 // @Summary 获取数字助手详情
-// @Description 根据ID或Code获取数字助手详情
+// @Description 根据ID或PublicID获取数字助手详情
 // @Tags DigitalAssistant
 // @Accept json
 // @Produce json
@@ -90,8 +90,8 @@ func (h *DigitalAssistantHandler) GetDigitalAssistant(ctx *gin.Context) {
 		return
 	}
 
-	if req.ID == nil && req.Code == nil {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "id or code is required"))
+	if req.ID == nil && req.PublicID == nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "id or public_id is required"))
 		return
 	}
 
@@ -101,7 +101,7 @@ func (h *DigitalAssistantHandler) GetDigitalAssistant(ctx *gin.Context) {
 	if req.ID != nil {
 		result, err = h.service.GetDigitalAssistantByID(ctx, *req.ID)
 	} else {
-		result, err = h.service.GetDigitalAssistantByCode(ctx, *req.Code)
+		result, err = h.service.GetDigitalAssistantByPublicID(ctx, *req.PublicID)
 	}
 
 	if err != nil {

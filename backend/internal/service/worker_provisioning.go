@@ -31,14 +31,14 @@ func (s *WorkerProvisioningService) EnsureDefaultWorkerForOrg(ctx context.Contex
 		return nil, fmt.Errorf("org_id is required")
 	}
 
-	code := defaultWorkerCode(orgID)
-	assistant, err := db.GetDigitalAssistantByCode(ctx, s.db, code)
+	code := defaultWorkerPublicID(orgID)
+	assistant, err := db.GetDigitalAssistantByPublicID(ctx, s.db, code)
 	if err != nil {
 		return nil, err
 	}
 	if assistant == nil {
 		assistant = &types.DigitalAssistant{
-			Code:         code,
+			PublicID:     code,
 			OrgID:        orgID,
 			OwnerID:      ownerID,
 			Name:         "lework",
@@ -164,8 +164,8 @@ func generateWorkerDeploymentPublicID() string {
 	return fmt.Sprintf("wrk_%s", snowflake.GenerateIDBase58())
 }
 
-func defaultWorkerCode(orgID uint) string {
-	return fmt.Sprintf("default_o%d", orgID)
+func defaultWorkerPublicID(orgID uint) string {
+	return fmt.Sprintf("assistant_default_o%d", orgID)
 }
 
 func (s *WorkerProvisioningService) namespace() string {

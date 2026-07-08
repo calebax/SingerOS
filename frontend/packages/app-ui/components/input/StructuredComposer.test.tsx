@@ -129,6 +129,39 @@ function MentionRemoveHarness({ onValueChange }: { onValueChange?: (value: strin
 	);
 }
 
+function SingleAssistantHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
+	const [value, setValue] = useState("");
+	const composerRef = useRef<StructuredComposerHandle | null>(null);
+
+	return (
+		<div>
+			<button type="button" onClick={() => composerRef.current?.insertAssistant("浠ｇ爜鍔╂墜")}>
+				insert first assistant
+			</button>
+			<button type="button" onClick={() => composerRef.current?.insertAssistant("浜у搧鍔╂墜")}>
+				insert second assistant
+			</button>
+			<StructuredComposer
+				ref={composerRef}
+				value={value}
+				onChange={(nextValue) => {
+					// 中文注释：单选模式下再次选择 AI 员工时，应直接替换旧 token，而不是并列追加。
+					setValue(nextValue);
+					onValueChange?.(nextValue);
+				}}
+				onSubmit={vi.fn()}
+				onPasteFiles={vi.fn()}
+				onFocus={vi.fn()}
+				onBlur={vi.fn()}
+				placeholder="璇疯緭鍏?"
+				isProjectVariant
+				assistantSelectionMode="single"
+				projectSkillOptions={[]}
+			/>
+		</div>
+	);
+}
+
 function ProjectTriggerHarness({
 	onValueChange,
 	onProjectTrigger,
@@ -505,5 +538,20 @@ describe("StructuredComposer", () => {
 			expect(handleValueChange).toHaveBeenLastCalledWith("#leros continue");
 		});
 		expect(handleProjectTrigger).toHaveBeenCalledTimes(1);
+	});
+
+	it("单选模式下再次选择 AI 员工会替换旧选择", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+
+		render(<SingleAssistantHarness onValueChange={handleValueChange} />);
+
+		await user.click(screen.getByRole("button", { name: "insert first assistant" }));
+		await user.click(screen.getByRole("button", { name: "insert second assistant" }));
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("@浜у搧鍔╂墜 ");
+		});
+		expect(handleValueChange).not.toHaveBeenLastCalledWith("@浠ｇ爜鍔╂墜 @浜у搧鍔╂墜 ");
 	});
 });

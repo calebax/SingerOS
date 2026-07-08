@@ -118,6 +118,7 @@ describe("ChatInput", () => {
 					currentPath: "/projects/project-1",
 					goToRoute: vi.fn(),
 					goToProject: vi.fn(),
+					goToProjectTasks: vi.fn(),
 					goToTaskDetail: mockGoToTaskDetail,
 				}}
 			/>,

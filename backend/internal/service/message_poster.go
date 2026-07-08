@@ -32,33 +32,26 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// TitleUpdater handles session title generation.
-type TitleUpdater interface {
-	HandleSessionTitleRequest(ctx context.Context, sessionPID string) error
-}
-
 // MessagePoster 无状态的消息投递器，负责消息创建、统计更新、事件发布、Worker 任务投递。
 // 多个 goroutine 可安全并发使用。
 type MessagePoster struct {
-	db           *gorm.DB
-	eventbus     eventbus.EventBus
-	inferrer     AssistantInferrer
-	giteaClient  *gitea.Client
-	giteaCfg     *config.GiteaConfig
-	env          string
-	titleUpdater TitleUpdater
+	db          *gorm.DB
+	eventbus    eventbus.EventBus
+	inferrer    AssistantInferrer
+	giteaClient *gitea.Client
+	giteaCfg    *config.GiteaConfig
+	env         string
 }
 
 // NewMessagePoster 创建 MessagePoster 实例。
-func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, titleUpdater TitleUpdater) *MessagePoster {
+func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) *MessagePoster {
 	return &MessagePoster{
-		db:           db,
-		eventbus:     eb,
-		inferrer:     inferrer,
-		giteaClient:  giteaClient,
-		giteaCfg:     giteaCfg,
-		env:          env,
-		titleUpdater: titleUpdater,
+		db:          db,
+		eventbus:    eb,
+		inferrer:    inferrer,
+		giteaClient: giteaClient,
+		giteaCfg:    giteaCfg,
+		env:         env,
 	}
 }
 
@@ -105,27 +98,6 @@ func (p *MessagePoster) PostMessage(
 		return nil, err
 	}
 
-	// Trigger title update asynchronously via local call.
-	if session.OrgID > 0 {
-		go func() {
-			if p.titleUpdater == nil {
-				return
-			}
-			titleCtx := context.Background()
-			if caller, _ := auth.FromContext(ctx); caller != nil && caller.OrgID > 0 {
-				titleCtx = auth.WithContext(titleCtx, caller, nil)
-			} else {
-				titleCtx = auth.WithContext(titleCtx, &types.Caller{
-					Uin:   session.Uin,
-					OrgID: session.OrgID,
-				}, nil)
-			}
-			if err := p.titleUpdater.HandleSessionTitleRequest(titleCtx, session.PublicID); err != nil {
-				logs.Warnf("title update failed for session %s: %v", session.PublicID, err)
-			}
-		}()
-	}
-
 	logs.DebugContextf(ctx, "published message events for session=%s", session.PublicID)
 
 	p.writeSkillInvokeResources(ctx, session, message)
@@ -152,7 +124,13 @@ func (p *MessagePoster) RunNewMessage(
 		caller: caller,
 	}
 
-	logs.DebugContextf(ctx, "NewMessage: caller=%d org=%d assistant=%v", caller.Uin, caller.OrgID, req.AssistantIDs)
+	assistantIDs, err := resolveAssistantIDsByPublicID(ctx, p.db, caller.OrgID, req.AssistantIDs)
+	if err != nil {
+		return nil, err
+	}
+	o.assistantIDs = assistantIDs
+
+	logs.DebugContextf(ctx, "NewMessage: caller=%d org=%d assistant=%v", caller.Uin, caller.OrgID, assistantIDs)
 
 	if err := o.resolveOrCreateProject(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
@@ -179,7 +157,7 @@ func (p *MessagePoster) RunNewMessage(
 	// 中文注释：content 为空时表示"召唤队友落地空对话"——仅创建 Project/Task/Session + 分配 worker，不发首条消息。
 	// 后续用户在任务详情页发送的消息走 AddMessage 路径，persona 通过 publishWorkerTask 自动注入。
 	var messageID string
-		if strings.TrimSpace(req.Content) != "" || len(req.Attachments) > 0 {
+	if strings.TrimSpace(req.Content) != "" || len(req.Attachments) > 0 {
 		message, err := p.PostMessage(ctx, o.taskSession, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
 			msgType := req.MessageType
 			if msgType == "" {
@@ -213,15 +191,16 @@ func (p *MessagePoster) RunNewMessage(
 		logs.WarnContextf(ctx, "NewMessage touch project updated_at failed: %v", err)
 	}
 
-	logs.InfoContextf(ctx, "NewMessage completed: project=%s task=%s session=%s message=%s assistant=%d",
-		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, messageID, o.taskSession.AllocatedAssistantID)
+	assistantPublicID := assistantIDToPublicID(o.poster.db, o.taskSession.AssistantID)
+	logs.InfoContextf(ctx, "NewMessage completed: project=%s task=%s session=%s message=%s assistant=%s",
+		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, messageID, assistantPublicID)
 
 	return &contract.NewMessageResponse{
 		ProjectID:   o.project.PublicID,
 		TaskID:      o.task.PublicID,
 		SessionID:   o.taskSession.PublicID,
 		MessageID:   messageID,
-		AssistantID: o.taskSession.AssistantID,
+		AssistantID: assistantPublicID,
 	}, nil
 }
 
@@ -233,9 +212,10 @@ type newMessageOrchestrator struct {
 	req    *contract.NewMessageRequest
 	caller *types.Caller
 
-	project     *types.Project
-	task        *types.Task
-	taskSession *types.Session
+	project      *types.Project
+	task         *types.Task
+	taskSession  *types.Session
+	assistantIDs []uint
 }
 
 func (o *newMessageOrchestrator) resolveOrCreateProject() error {
@@ -311,14 +291,14 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		logs.WarnContextf(o.ctx, "create project member failed: %v", err)
 	}
 
-	if err := o.bindDefaultProjectAssistant(); err != nil {
+	if err := o.bindProjectAssistants(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (o *newMessageOrchestrator) bindDefaultProjectAssistant() error {
+func (o *newMessageOrchestrator) bindProjectAssistants() error {
 	defaultAssistantID, err := infradb.GetDefaultAssistantIDByOrg(o.ctx, o.poster.db, o.caller.OrgID)
 	if err != nil {
 		return fmt.Errorf("get default assistant: %w", err)
@@ -335,6 +315,21 @@ func (o *newMessageOrchestrator) bindDefaultProjectAssistant() error {
 	}); err != nil {
 		return fmt.Errorf("create default project member: %w", err)
 	}
+
+	for _, id := range o.assistantIDs {
+		if id == 0 || id == defaultAssistantID {
+			continue
+		}
+		if err := infradb.CreateProjectMember(o.ctx, o.poster.db, &types.ProjectMember{
+			ProjectID:  o.project.ID,
+			MemberID:   id,
+			MemberType: types.MemberTypeAssistant,
+			MemberRole: types.MemberRoleMember,
+			IsDefault:  false,
+		}); err != nil {
+			return fmt.Errorf("create project member for assistant %d: %w", id, err)
+		}
+	}
 	return nil
 }
 
@@ -347,7 +342,7 @@ func (o *newMessageOrchestrator) ensureProjectSession() error {
 		return nil
 	}
 
-	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.req.AssistantIDs, o.poster.inferrer)
+	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.assistantIDs, o.poster.inferrer)
 	if err != nil {
 		return err
 	}
@@ -415,10 +410,10 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 }
 
 func (o *newMessageOrchestrator) defaultTitle(fallback string) string {
-	if o == nil || o.poster == nil || o.poster.db == nil || o.req == nil || len(o.req.AssistantIDs) == 0 {
+	if o == nil || o.poster == nil || o.poster.db == nil || o.req == nil || len(o.assistantIDs) == 0 {
 		return fallback
 	}
-	da, err := infradb.GetDigitalAssistantByID(o.ctx, o.poster.db, o.req.AssistantIDs[0])
+	da, err := infradb.GetDigitalAssistantByID(o.ctx, o.poster.db, o.assistantIDs[0])
 	if err != nil || da == nil || strings.TrimSpace(da.Name) == "" {
 		return fallback
 	}
@@ -426,7 +421,7 @@ func (o *newMessageOrchestrator) defaultTitle(fallback string) string {
 }
 
 func (o *newMessageOrchestrator) createTaskSession() error {
-	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.req.AssistantIDs, o.poster.inferrer)
+	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.assistantIDs, o.poster.inferrer)
 	if err != nil {
 		return err
 	}

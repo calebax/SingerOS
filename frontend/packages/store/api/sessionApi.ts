@@ -4,6 +4,8 @@ import type {
 	BackendDataResponse,
 	BackendMessage,
 	BackendMessageChunk,
+	BackendMessageMetadata,
+	BackendNewMessageData,
 	BackendPaginatedResponse,
 	BackendSession,
 } from "./types";
@@ -11,8 +13,7 @@ import type {
 export type CreateSessionParams = {
 	type: string;
 	title?: string;
-	assistant_id?: number;
-	assistant_code?: string;
+	assistant_id?: string;
 	session_id?: string;
 	user_id?: number;
 	expired_at?: string;
@@ -42,8 +43,7 @@ export type ListSessionsParams = {
 	type?: string;
 	status?: string;
 	keyword?: string;
-	assistant_id?: number;
-	assistant_code?: string;
+	assistant_id?: string;
 	user_id?: number;
 };
 
@@ -57,6 +57,7 @@ export type AddMessageParams = {
 	role: string;
 	content: string;
 	execution_mode?: "default" | "plan";
+	assistant_ids?: string[];
 	message_type?: string;
 	attachments?: {
 		file_upload_id: string;
@@ -108,6 +109,23 @@ export type SubmitQuestionAnswerParams = {
 	answers: string[][];
 };
 
+export type CreateInitialMessageParams = {
+	content: string;
+	execution_mode?: "default" | "plan";
+	project_id?: string;
+	task_id?: string;
+	message_type?: string;
+	assistant_id?: number;
+	assistant_ids?: string[];
+	metadata?: BackendMessageMetadata;
+	attachments?: {
+		file_upload_id: string;
+		name: string;
+		mime_type: string;
+		size?: number;
+	}[];
+};
+
 const SESSION_ENDPOINTS = {
 	create: "/CreateSession",
 	list: "/ListSessions",
@@ -119,6 +137,7 @@ const SESSION_ENDPOINTS = {
 	deleteMessage: "/DeleteMessage",
 	clearMessages: "/ClearSessionMessages",
 	sessionEvents: "/SessionEvents",
+	createInitialMessage: "/CreateInitialMessage",
 };
 
 export const sessionApi = {
@@ -193,5 +212,11 @@ export const sessionApi = {
 				...(params.run_id ? { run_id: params.run_id } : {}),
 				reason: params.reason,
 			},
+		),
+
+	createInitialMessage: (params: CreateInitialMessageParams) =>
+		apiClient.post<BackendDataResponse<BackendNewMessageData>>(
+			SESSION_ENDPOINTS.createInitialMessage,
+			params,
 		),
 };

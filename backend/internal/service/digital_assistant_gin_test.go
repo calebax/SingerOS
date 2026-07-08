@@ -50,7 +50,6 @@ func TestCreateDigitalAssistantViaGin(t *testing.T) {
 	handler.RegisterDigitalAssistantRoutes(router.Group("/v1"), svc)
 
 	body, _ := json.Marshal(contract.CreateDigitalAssistantRequest{
-		Code:         "code-from-gin",
 		Name:         "Gin Test",
 		Description:  "test",
 		SystemPrompt: "you are a test",
@@ -99,7 +98,6 @@ func TestCreateDigitalAssistantViaGin_NoCaller(t *testing.T) {
 	handler.RegisterDigitalAssistantRoutes(router.Group("/v1"), svc)
 
 	body, _ := json.Marshal(contract.CreateDigitalAssistantRequest{
-		Code: "code-no-auth",
 		Name: "No Auth Test",
 	})
 

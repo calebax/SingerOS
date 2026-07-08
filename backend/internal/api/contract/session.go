@@ -31,12 +31,6 @@ type SessionService interface {
 	DeleteSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context, req *ListSessionsRequest) (*SessionList, error)
 
-	// Lifecycle management
-	ActivateSession(ctx context.Context, sessionID string) error
-	PauseSession(ctx context.Context, sessionID string) error
-	EndSession(ctx context.Context, sessionID string) error
-	ResumeSession(ctx context.Context, sessionID string) error
-
 	// Message management
 	AddMessage(ctx context.Context, sessionID string, req *AddMessageRequest) (*SessionMessage, error)
 	GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*MessageList, error)
@@ -44,9 +38,9 @@ type SessionService interface {
 	ClearSessionMessages(ctx context.Context, sessionID string) error
 
 	// Event streaming
-	// When assistantID > 0, only RunEvents whose Route.WorkerID matches the
-	// requested AI teammate are delivered; assistantID == 0 disables filtering.
-	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, assistantID uint, sink SessionEventSink) error
+	// When assistantID is non-empty, only RunEvents whose Route.WorkerID matches the
+	// requested AI teammate are delivered; assistantID == "" disables filtering.
+	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, assistantID string, sink SessionEventSink) error
 
 	// StreamGlobalEvents subscribes the caller to project-level global notify events
 	// (message.created, etc.) for all projects the caller is a member of.
@@ -61,9 +55,6 @@ type SessionService interface {
 	// FailedSessionMessage persists the final assistant message for a failed session run.
 	FailedSessionMessage(ctx context.Context, req *FailedSessionMessageRequest) error
 
-	// HandleSessionTitleRequest handles an asynchronous session title update request.
-	HandleSessionTitleRequest(ctx context.Context, sessionID string) error
-
 	// SubmitApproval forwards an approval decision to the worker via NATS.
 	SubmitApproval(ctx context.Context, req *SubmitApprovalRequest) error
 
@@ -76,13 +67,18 @@ type SessionService interface {
 	// SetSessionStreamStartSeq records the NATS stream sequence for the first
 	// run.stream event of a session, used by the stream projector for SSE replay.
 	SetSessionStreamStartSeq(ctx context.Context, sessionID string, streamSeq uint64) error
+
+	// CreateInitialMessage atomically creates Project + Task + Session and optionally posts
+	// the first message, then dispatches to the allocated AgentWorker.
+	CreateInitialMessage(ctx context.Context, req *NewMessageRequest) (*NewMessageResponse, error)
 }
 
 // CancelSessionRunRequest is the request body for cancelling a session agent run.
 type CancelSessionRunRequest struct {
-	SessionID string `json:"session_id" binding:"required"`
-	RunID     string `json:"run_id,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	SessionID   string `json:"session_id" binding:"required"`
+	RunID       string `json:"run_id,omitempty"`
+	AssistantID string `json:"assistant_id,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 // CancelSessionRunResponse is the response for a cancel session run request.
