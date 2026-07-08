@@ -174,15 +174,15 @@ func TestDefaultManagerBuiltinPrompts(t *testing.T) {
 			KeyEventOrchestratorTaskIssueComment, KeyLLMTestConnectivity,
 			KeyAgentNativeTaskCompletion, KeyAgentNativeToolEnforcement,
 			KeyAgentNativeSkillLoading, KeyAgentNativeSkillUsageHint,
-			KeyAgentSystemMemoryGuidance,
+			KeyAgentSystemCommunication, KeyAgentSystemMemoryGuidance,
 			KeyAgentSystemPlatformWechat, KeyAgentSystemPlatformFeishu,
 			KeyAgentSystemPlatformSlack, KeyAgentSystemPlatformAPI,
 			KeyWorkShortTitle, KeyAgentNativeArtifactDeclaration:
 			matchCount++
 		}
 	}
-	if matchCount != 18 {
-		t.Fatalf("expected 18 built-in keys, matched %d", matchCount)
+	if matchCount != 19 {
+		t.Fatalf("expected 19 built-in keys, matched %d", matchCount)
 	}
 
 	_, err := Run(context.Background(), KeyLLMTestConnectivity, nil)
