@@ -56,6 +56,11 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agentrundom
 		sectionNames = append(sectionNames, "communication")
 	}
 
+	if multiSpeaker := strings.TrimSpace(prompts.Get(prompts.KeyAgentSystemMultiSpeakerContext)); multiSpeaker != "" {
+		sections = append(sections, multiSpeaker)
+		sectionNames = append(sectionNames, "conversation_context")
+	}
+
 	if taskCompletion := strings.TrimSpace(prompts.Get(prompts.KeyAgentNativeTaskCompletion)); taskCompletion != "" {
 		sections = append(sections, taskCompletion)
 		sectionNames = append(sectionNames, "task_completion")

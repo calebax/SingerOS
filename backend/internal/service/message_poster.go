@@ -666,20 +666,30 @@ func (p *MessagePoster) publishWorkerTask(
 	}
 
 	var inputMessages []messaging.ChatMessage
-	// 群聊历史上下文注入：task/project session 取最近 N 条 user/assistant 消息作为上下文
+	// 群聊历史上下文注入：以当前 AI 队友上一条回复为起点，增量获取时间窗口内的 user/assistant 消息
 	if session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject {
-		recent, err := infradb.GetRecentSessionMessages(ctx, p.db, session.ID, defaultHistoryContextLimit)
+		windowStart := session.CreatedAt
+		if lastTime, err := infradb.GetLastAssistantMessageCreatedAt(ctx, p.db, session.ID, session.AllocatedAssistantID); err != nil {
+			logs.WarnContextf(ctx, "publishWorkerTask: get last assistant message time: %v", err)
+		} else if lastTime != nil {
+			windowStart = *lastTime
+		}
+		incremental, err := infradb.GetSessionMessagesInRange(ctx, p.db, session.ID, windowStart)
 		if err != nil {
-			logs.WarnContextf(ctx, "publishWorkerTask: get recent messages: %v", err)
+			logs.WarnContextf(ctx, "publishWorkerTask: get session messages in range: %v", err)
 		} else {
-			for _, hm := range recent {
-				// 排除当前刚持久化的消息（publishWorkerTask 在 CreateMessage 之后调用，GetRecentSessionMessages 会包含它），避免重复
+			seen := make(map[uint]bool)
+			for _, hm := range incremental {
 				if hm.ID == message.ID {
 					continue
 				}
 				if hm.Role != string(types.MessageRoleUser) && hm.Role != string(types.MessageRoleAssistant) {
 					continue
 				}
+				if seen[hm.ID] {
+					continue
+				}
+				seen[hm.ID] = true
 				inputMessages = append(inputMessages, messaging.ChatMessage{
 					ID:         fmt.Sprintf("%d", hm.ID),
 					Role:       messaging.MessageRole(hm.Role),
@@ -1057,8 +1067,6 @@ func resolveSkillEntries(tokens []string) []string {
 	}
 	return result
 }
-
-const defaultHistoryContextLimit = 20
 
 // publishMessageCreatedEvent 在用户消息持久化成功后发布 message.created 事件到
 // org.{org_id}.project.{project_id}.notify subject，通知群聊成员有新用户消息。

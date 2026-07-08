@@ -17,8 +17,9 @@ const (
 
 // ContextBuilder 通用层 — 所有引擎共享。
 const (
-	KeyAgentSystemCommunication  = "agent.system.communication"   // 沟通规范：文本沟通、语言、表情符号约束
-	KeyAgentSystemMemoryGuidance = "agent.system.memory_guidance" // Memory 工具指导：何时保存/不保存记忆
+	KeyAgentSystemCommunication        = "agent.system.communication"          // 沟通规范：文本沟通、语言、表情符号约束
+	KeyAgentSystemMemoryGuidance       = "agent.system.memory_guidance"        // Memory 工具指导：何时保存/不保存记忆
+	KeyAgentSystemMultiSpeakerContext  = "agent.system.multi_speaker_context"  // 多队友会话说明：对话摘要中用户/队友发言的角色区分
 )
 
 // 平台格式指导 — 按消息通道注入对应的格式约束。

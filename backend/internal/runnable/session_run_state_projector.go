@@ -161,6 +161,7 @@ func handleRunCompletedEvent(ctx context.Context, service contract.SessionServic
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
 		RunID:             runEvent.Trace.RunID,
+		AssistantID:       runEvent.Route.WorkerID,
 	}
 	if err := service.CompleteSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "complete session message: %v", err)
@@ -197,6 +198,7 @@ func handleRunFailedEvent(ctx context.Context, service contract.SessionService, 
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
 		RunID:             runEvent.Trace.RunID,
+		AssistantID:       runEvent.Route.WorkerID,
 	}
 	if runEvent.Body.Error != nil {
 		req.ErrorCode = runEvent.Body.Error.Code
@@ -225,6 +227,7 @@ func handleRunCancelledEvent(ctx context.Context, service contract.SessionServic
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
 		RunID:             runEvent.Trace.RunID,
+		AssistantID:       runEvent.Route.WorkerID,
 	}
 	if err := service.FailedSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "cancelled session message: %v", err)

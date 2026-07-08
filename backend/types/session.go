@@ -172,6 +172,9 @@ type SessionMessage struct {
 
 	// session_message - 关联的 agent run ID（AI 回复消息时填充），VARCHAR(255)
 	RunID string `gorm:"column:run_id;type:varchar(255);default:''"`
+
+	// session_message - 关联的 AI 队友 ID（AI 回复时填充，用户消息为 0），BIGINT，DEFAULT 0，INDEX
+	AssistantID uint `gorm:"column:assistant_id;type:bigint;default:0;index"`
 }
 
 // TableName 指定SessionMessage结构体对应的数据库表名

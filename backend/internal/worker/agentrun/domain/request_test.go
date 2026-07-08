@@ -12,7 +12,7 @@ func TestBuildUserInputPrefersSenderName(t *testing.T) {
 		{Role: "user", Content: "加上 /health 端点", SenderName: "B"},
 	}}}
 	got := BuildUserInput(req)
-	want := "A: 帮我写一个 HTTP server\nAI队友Alpha: 好的，以下是代码...\nB: 加上 /health 端点"
+	want := "【用户问题】\n[1] 用户 「A」发送：「帮我写一个 HTTP server」\n【AI 队友回复】\n[2] AI 队友 「AI队友Alpha」发送：「好的，以下是代码...」\n【用户问题】\n[3] 用户 「B」发送：「加上 /health 端点」"
 	if got != want {
 		t.Fatalf("BuildUserInput = %q, want %q", got, want)
 	}
@@ -24,7 +24,7 @@ func TestBuildUserInputFallsBackToRole(t *testing.T) {
 		{Content: "no role"},
 	}}}
 	got := BuildUserInput(req)
-	if !strings.Contains(got, "user: hello") || !strings.Contains(got, "user: no role") {
+	if !strings.Contains(got, "用户 「user」发送：「hello」") || !strings.Contains(got, "用户 「user」发送：「no role」") {
 		t.Fatalf("expected role fallback in %q", got)
 	}
 }
