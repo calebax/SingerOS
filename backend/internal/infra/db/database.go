@@ -157,6 +157,10 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	if err := backfillBuiltinSkillAuthorBranding(db); err != nil {
+		return err
+	}
+
 	if err := dropLegacyTables(db); err != nil {
 		return err
 	}
@@ -268,6 +272,27 @@ func backfillMemberDepartmentOrgID(db *gorm.DB) error {
 	`).Error
 	if err != nil {
 		logs.Warnf("[migration] backfillMemberDepartmentOrgID: %v", err)
+	}
+	return nil
+}
+
+// backfillBuiltinSkillAuthorBranding 将内置 Skill 市场条目的 author 从旧品牌名 Leros 更新为 Lework。
+func backfillBuiltinSkillAuthorBranding(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&types.BuiltinSkillMarketplaceItem{}) {
+		return nil
+	}
+
+	result := db.Exec(
+		fmt.Sprintf(`UPDATE %s SET author = ? WHERE author = ? AND deleted_at IS NULL`, types.TableNameBuiltinSkillMarketplaceItem),
+		"Lework",
+		"Leros",
+	)
+	if result.Error != nil {
+		logs.Warnf("[migration] backfillBuiltinSkillAuthorBranding: %v", result.Error)
+		return nil
+	}
+	if result.RowsAffected > 0 {
+		logs.Infof("[migration] backfillBuiltinSkillAuthorBranding: updated %d rows", result.RowsAffected)
 	}
 	return nil
 }
