@@ -15,7 +15,10 @@ function getReplyTargetMessageId(runId?: string): string | undefined {
 }
 
 function findAssistantComposerToken(message?: Message): ComposerToken | undefined {
-	return (message?.metadata?.composerTokens ?? []).find(
+	const tokens = message?.metadata?.displayComposerTokens?.length
+		? message.metadata.displayComposerTokens
+		: (message?.metadata?.composerTokens ?? []);
+	return tokens.find(
 		(token) => token.kind === "assistant" && Boolean(token.id?.trim() || token.label.trim()),
 	);
 }
@@ -77,6 +80,31 @@ function resolveAssistantProfile(
 	return { name: tokenName || DEFAULT_ASSISTANT_NAME };
 }
 
+function resolveInvokedAssistantProfile(
+	message: Message | undefined,
+	assistants: DigitalAssistantItem[],
+	projectMembers?: ProjectMember[],
+): { name: string; avatarUrl?: string } | undefined {
+	const invokedAssistant = message?.metadata?.invokedAssistant;
+	if (!invokedAssistant?.name?.trim()) return undefined;
+
+	// 中文注释：实际发送内容剥离 @队友时，用 metadata 中的召唤队友信息兜底恢复头像和名称。
+	const token: ComposerToken = {
+		kind: "assistant",
+		label: `@${invokedAssistant.name}`,
+		start: 0,
+		end: invokedAssistant.name.length + 1,
+	};
+	if (invokedAssistant.id) token.id = invokedAssistant.id;
+	const profile = resolveAssistantProfile(token, assistants, projectMembers);
+	const result: { name: string; avatarUrl?: string } = {
+		name: profile.name,
+	};
+	const avatarUrl = profile.avatarUrl ?? invokedAssistant.avatarUrl;
+	if (avatarUrl) result.avatarUrl = avatarUrl;
+	return result;
+}
+
 function resolveTriggeringUserMessage(
 	message: Message,
 	messagesMap: Record<string, Message>,
@@ -99,9 +127,19 @@ export function resolveAssistantMessageDisplay(params: {
 	const triggeringUserMessage = resolveTriggeringUserMessage(message, messagesMap);
 	const assistantToken =
 		findAssistantComposerToken(triggeringUserMessage) ?? findAssistantComposerToken(message);
+	const invokedProfile =
+		resolveInvokedAssistantProfile(triggeringUserMessage, assistants, projectMembers) ??
+		resolveInvokedAssistantProfile(message, assistants, projectMembers);
 
-	// 中文注释：只有用户显式 @ 指定 AI 队友时才切换头像/名称，否则保持默认 Lework 品牌样式。
+	// 中文注释：优先使用显式 @token；若 token 仅作为展示元信息保存，则使用 invokedAssistant 兜底。
 	if (!assistantToken) {
+		if (invokedProfile) {
+			return {
+				useDefaultBrand: false,
+				name: invokedProfile.name,
+				avatarUrl: invokedProfile.avatarUrl,
+			};
+		}
 		return { useDefaultBrand: true, name: DEFAULT_ASSISTANT_NAME };
 	}
 

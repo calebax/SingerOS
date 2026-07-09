@@ -3,6 +3,7 @@ import { projectApi } from "../api/projectApi";
 import { type CreateInitialMessageParams, sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
 import type {
+	BackendMessageMetadata,
 	BackendProject,
 	BackendProjectMemberItem,
 	BackendSession,
@@ -104,6 +105,23 @@ export type ProjectMember = {
 	joinedAt?: string;
 	isDefault?: boolean;
 };
+
+function buildBackendMessageMetadata(
+	metadata?: MessageMetadata,
+): BackendMessageMetadata | undefined {
+	if (!metadata) return undefined;
+
+	const extra: Record<string, unknown> = {};
+	if (metadata.composerTokens?.length) extra.composerTokens = metadata.composerTokens;
+	if (metadata.displayContent?.trim()) extra.displayContent = metadata.displayContent;
+	if (metadata.displayComposerTokens?.length) {
+		extra.displayComposerTokens = metadata.displayComposerTokens;
+	}
+	if (metadata.invokedAssistant) extra.invokedAssistant = metadata.invokedAssistant;
+
+	// 中文注释：metadata.extra 是当前前后端已有扩展口，避免为展示态召唤信息新增后端字段。
+	return Object.keys(extra).length > 0 ? { extra } : undefined;
+}
 
 export type Project = {
 	id: string;
@@ -639,11 +657,11 @@ export class LayoutActionImpl {
 		executionMode?: "default" | "plan",
 		attachments?: Attachment[],
 		_metadata?: MessageMetadata,
-		assistantId?: number,
+		assistantIds?: string[],
 	) => {
 		const trimmed = content.trim();
-		// 允许空 content + assistantId：召唤队友落地空对话（仅创建任务会话，不发首条消息）。
-		if (!trimmed && !assistantId) return;
+		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，仅创建任务会话不发送首条消息。
+		if (!trimmed && !assistantIds?.length) return;
 		const mode = executionMode ?? "default";
 
 		const state = this.#get();
@@ -701,6 +719,7 @@ export class LayoutActionImpl {
 						content: trimmed,
 						execution_mode: mode,
 						message_type: "text",
+						metadata: buildBackendMessageMetadata(_metadata),
 						attachments: attachments
 							?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
 								Boolean(attachment.fileUploadId?.trim()),
@@ -739,12 +758,10 @@ export class LayoutActionImpl {
 			}
 		}
 
-		const params: CreateInitialMessageParams = {
-			content: trimmed,
-			execution_mode: mode,
-		};
-		if (assistantId) {
-			params.assistant_id = assistantId;
+		const params: CreateInitialMessageParams = { content: trimmed, execution_mode: mode };
+		if (assistantIds?.length) {
+			// 中文注释：后端 NewMessageRequest 只接收 publicId 字符串数组 assistant_ids。
+			params.assistant_ids = assistantIds;
 		}
 
 		if (workbenchProjectId) {
@@ -753,9 +770,10 @@ export class LayoutActionImpl {
 		if (selectedTaskId) {
 			params.task_id = selectedTaskId;
 		}
-		if (_metadata?.composerTokens) {
-			// 中文注释：首页新建任务需要把输入框 token 元信息透传给后端，避免技能标签回显退化成纯文本。
-			params.metadata = { extra: { composerTokens: _metadata.composerTokens } };
+		const backendMetadata = buildBackendMessageMetadata(_metadata);
+		if (backendMetadata) {
+			// 中文注释：首页新建任务需要透传输入框展示元信息，避免 @队友 回显退化成默认 Lework。
+			params.metadata = backendMetadata;
 		}
 		if (attachments?.length) {
 			params.attachments = attachments

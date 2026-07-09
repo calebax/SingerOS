@@ -68,6 +68,29 @@ function buildComposerMetadata(
 	return composerTokens.length > 0 ? { composerTokens } : undefined;
 }
 
+function buildAssistantDisplayMetadata(
+	baseMetadata: MessageMetadata | undefined,
+	displayContent: string,
+	assistant: ComposerAssistantOption,
+): MessageMetadata {
+	// 中文注释：实际提交给 Agent 的正文会剥离 @队友，这里保留展示专用信息用于历史消息回显。
+	const invokedAssistant: NonNullable<MessageMetadata["invokedAssistant"]> = {
+		id: String(assistant.id),
+		name: assistant.name,
+	};
+	if (assistant.avatarUrl) invokedAssistant.avatarUrl = assistant.avatarUrl;
+
+	const metadata: MessageMetadata = {
+		...baseMetadata,
+		displayContent,
+		invokedAssistant,
+	};
+	if (baseMetadata?.composerTokens?.length) {
+		metadata.displayComposerTokens = baseMetadata.composerTokens;
+	}
+	return metadata;
+}
+
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -295,10 +318,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			const messageContent = mentionedAssistant
 				? removeAssistantMentionText(content, composerTokens, mentionedAssistant)
 				: content;
-			const messageMetadata = mentionedAssistant ? undefined : composerMetadata;
-			// 中文注释：输入框 @ 队友保留 publicId，发送 NewMessage 时需转换为后端数字 assistant_id。
-			const mentionedAssistantId = mentionedAssistant
-				? assistants.find((assistant) => assistant.publicId === mentionedAssistant.id)?.id
+			const messageMetadata = mentionedAssistant
+				? buildAssistantDisplayMetadata(composerMetadata, content, mentionedAssistant)
+				: composerMetadata;
+			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids，不能传单个数字 assistant_id。
+			const mentionedAssistantIds = mentionedAssistant
+				? [String(mentionedAssistant.id)]
 				: undefined;
 			const data = await sendWorkbenchMessage(
 				messageContent,
@@ -306,7 +331,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				executionMode,
 				attachments,
 				messageMetadata,
-				mentionedAssistantId,
+				mentionedAssistantIds,
 			);
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);

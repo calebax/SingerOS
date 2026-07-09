@@ -113,6 +113,13 @@ export type MessageMetadata = {
 	tokens?: number;
 	latency?: number;
 	composerTokens?: ComposerToken[];
+	displayContent?: string;
+	displayComposerTokens?: ComposerToken[];
+	invokedAssistant?: {
+		id?: string;
+		name: string;
+		avatarUrl?: string;
+	};
 };
 
 export type ComposerToken = {
