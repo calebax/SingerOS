@@ -12,10 +12,19 @@ import type { SliceCreator } from "../types";
 import type { Attachment, ComposerToken, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
 import { parseOptionalTimestamp } from "../utils/format";
+import {
+	clampLeftRailWidth,
+	readStoredLeftRailPreferences,
+	writeStoredLeftRailCollapsed,
+	writeStoredLeftRailWidth,
+} from "../utils/leftRailStorage";
 
-// 左侧栏可拖动宽度的上下限（px）
-export const LEFT_RAIL_MIN_WIDTH = 236;
-export const LEFT_RAIL_MAX_WIDTH = 320;
+export {
+	LEFT_RAIL_MAX_WIDTH,
+	LEFT_RAIL_MIN_WIDTH,
+} from "../utils/leftRailStorage";
+
+const storedLeftRailPreferences = readStoredLeftRailPreferences();
 
 export type WorkspaceMode = "remote" | "local";
 
@@ -248,7 +257,7 @@ function mapBackendProjectMember(member: BackendProjectMemberItem): ProjectMembe
 		publicId,
 		type,
 		role: member.member_role || "member",
-		name: member.name || (type === "assistant" ? "AI 队友" : "项目成员"),
+		name: member.name || (type === "assistant" ? "AI 队友" : "项目队友"),
 		description: member.description,
 		avatarUrl: member.avatar_url,
 		joinedAt: member.joined_at,
@@ -390,8 +399,8 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 }
 
 const _initialState: LayoutState = {
-	leftRailCollapsed: false,
-	leftRailWidth: 240,
+	leftRailCollapsed: storedLeftRailPreferences.collapsed,
+	leftRailWidth: storedLeftRailPreferences.width,
 	rightRailCollapsed: false,
 	conversationListOpen: true,
 	currentView: "workbench",
@@ -491,23 +500,24 @@ export class LayoutActionImpl {
 			startGlobalEvents?: () => Promise<void>;
 		};
 		void store.startGlobalEvents?.();
-		store.bootstrapNewTaskSession?.(sessionId, trimmed, { attachments, metadata });
+		store.bootstrapNewTaskSession?.(sessionId, trimmed, {
+			attachments,
+			metadata,
+		});
 	};
 
 	toggleLeftRail = () => {
-		this.#set((state) => ({ leftRailCollapsed: !state.leftRailCollapsed }));
+		this.setLeftRailCollapsed(!this.#get().leftRailCollapsed);
 	};
 
 	setLeftRailCollapsed = (collapsed: boolean) => {
+		writeStoredLeftRailCollapsed(collapsed);
 		this.#set({ leftRailCollapsed: collapsed });
 	};
 
 	setLeftRailWidth = (width: number) => {
-		// 左侧栏宽度仅允许在可读与不挤压主内容的范围内变化
-		const nextWidth = Math.min(
-			LEFT_RAIL_MAX_WIDTH,
-			Math.max(LEFT_RAIL_MIN_WIDTH, Math.round(width)),
-		);
+		const nextWidth = clampLeftRailWidth(width);
+		writeStoredLeftRailWidth(nextWidth);
 		this.#set({ leftRailWidth: nextWidth });
 	};
 
@@ -590,7 +600,10 @@ export class LayoutActionImpl {
 	};
 
 	selectWorkbenchProject = (projectId: string | null) => {
-		this.#set({ activeWorkbenchProjectId: projectId, activeWorkbenchTaskId: null });
+		this.#set({
+			activeWorkbenchProjectId: projectId,
+			activeWorkbenchTaskId: null,
+		});
 		if (projectId) {
 			this.fetchTasks(projectId);
 		}
@@ -643,7 +656,9 @@ export class LayoutActionImpl {
 
 			if (!selectedTask?.sessionId) {
 				try {
-					const detailRes = await projectApi.detail({ public_id: workbenchProjectId });
+					const detailRes = await projectApi.detail({
+						public_id: workbenchProjectId,
+					});
 					const detail = detailRes.data.data;
 					if (detail) {
 						const tasks = (detail.tasks ?? []).map(mapBackendTask);
@@ -724,7 +739,10 @@ export class LayoutActionImpl {
 			}
 		}
 
-		const params: CreateInitialMessageParams = { content: trimmed, execution_mode: mode };
+		const params: CreateInitialMessageParams = {
+			content: trimmed,
+			execution_mode: mode,
+		};
 		if (assistantId) {
 			params.assistant_id = assistantId;
 		}
@@ -1161,7 +1179,10 @@ export class LayoutActionImpl {
 			});
 		} catch (err) {
 			console.error("fetchProjectDetail error:", err);
-			this.#set({ projectDetailLoading: false, projectDetailError: "获取项目详情失败" });
+			this.#set({
+				projectDetailLoading: false,
+				projectDetailError: "获取项目详情失败",
+			});
 		}
 	};
 

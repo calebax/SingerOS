@@ -392,7 +392,7 @@ function resolveDisplayTokens(
 	const explicitTokens = tokens.filter(
 		(token) => value.slice(token.start, token.end) === token.label,
 	);
-	// 中文注释：召唤队友跳转时可能只恢复了文本，这里按项目成员把 @队友名 补成可发送的结构化 token。
+	// 中文注释：召唤队友跳转时可能只恢复了文本，这里按项目队友把 @队友名 补成可发送的结构化 token。
 	const assistantTokens = resolveVirtualAssistantTokens(value, explicitTokens, assistantOptions);
 	const skillTokens = resolveVirtualSkillTokens(value, [...explicitTokens, ...assistantTokens]);
 	return sortTokens([...explicitTokens, ...assistantTokens, ...skillTokens]);
@@ -1106,9 +1106,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const currentValue = valueRef.current;
 				if (currentValue[activeTrigger.start] !== "#") return;
 
-				const nextValue = `${currentValue.slice(0, activeTrigger.start)}${currentValue.slice(
-					activeTrigger.end,
-				)}`;
+				const nextValue = `${currentValue.slice(
+					0,
+					activeTrigger.start,
+				)}${currentValue.slice(activeTrigger.end)}`;
 				const nextTokens = shiftTokensForTextEdit(tokensRef.current, currentValue, nextValue);
 				// 中文注释：# 只是项目任务选择的触发器，完成选择后不作为正文或 mention 保留。
 				commitProgrammaticEdit(nextValue, nextTokens, activeTrigger.start);
@@ -1248,7 +1249,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const needsLeadingSpace = cursor > 0 && !/\s/.test(currentValue[cursor - 1] ?? "");
 				const insertion = `${needsLeadingSpace ? " " : ""}${marker}`;
 				const markerStart = cursor + (needsLeadingSpace ? 1 : 0);
-				const nextValue = `${currentValue.slice(0, cursor)}${insertion}${currentValue.slice(cursor)}`;
+				const nextValue = `${currentValue.slice(
+					0,
+					cursor,
+				)}${insertion}${currentValue.slice(cursor)}`;
 				const nextTokens = shiftTokensForTextEdit(currentTokens, currentValue, nextValue);
 
 				// 工具栏触发的插入不会经过原生 input 事件，这里手动同步 mention 位置信息。
@@ -1280,9 +1284,14 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 						: currentValue.length;
 				const needsLeadingSpace = cursor > 0 && !/\s/.test(currentValue[cursor - 1] ?? "");
 				const needsTrailingSpace = !/\s/.test(currentValue[cursor] ?? "");
-				const insertion = `${needsLeadingSpace ? " " : ""}${rawLabel}${needsTrailingSpace ? " " : ""}`;
+				const insertion = `${needsLeadingSpace ? " " : ""}${rawLabel}${
+					needsTrailingSpace ? " " : ""
+				}`;
 				const tokenStart = cursor + (needsLeadingSpace ? 1 : 0);
-				const nextValue = `${currentValue.slice(0, cursor)}${insertion}${currentValue.slice(cursor)}`;
+				const nextValue = `${currentValue.slice(
+					0,
+					cursor,
+				)}${insertion}${currentValue.slice(cursor)}`;
 				const insertedToken: InsertedToken = {
 					label: rawLabel,
 					start: tokenStart,
@@ -1345,7 +1354,13 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 							}
 							if (token.end <= start) return [token];
 							if (token.start >= end) {
-								return [{ ...token, start: token.start + delta, end: token.end + delta }];
+								return [
+									{
+										...token,
+										start: token.start + delta,
+										end: token.end + delta,
+									},
+								];
 							}
 							return [];
 						})

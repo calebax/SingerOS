@@ -685,7 +685,7 @@ function ProjectConfigSidebar({
 		void updateProjectSkills(project.skills.filter((skill) => skill.code !== skillCode));
 	};
 	const visibleProjectMembers = projectMembersWithLatestAssistantAvatar.filter(
-		// 中文注释：默认 AI 员工只作为系统兜底分配，不在右侧项目成员展示区占位。
+		// 中文注释：默认 AI 员工只作为系统兜底分配，不在右侧项目队友展示区占位。
 		(member) => !(member.type === "assistant" && member.isDefault),
 	);
 
@@ -759,10 +759,10 @@ function ProjectConfigSidebar({
 				members: projectMembersToInputs(resolvedMembers),
 			});
 			if (updated) {
-				toast.success("项目成员已更新");
+				toast.success("项目队友已更新");
 			}
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "项目成员更新失败";
+			const message = error instanceof Error ? error.message : "项目队友更新失败";
 			toast.error(message);
 		} finally {
 			setSavingMembers(false);
@@ -854,7 +854,7 @@ function ProjectConfigSidebar({
 			<section>
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<div className="flex items-center gap-2">
-						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">项目成员</h2>
+						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">项目队友</h2>
 						<span className="text-xs text-[var(--leros-text-subtle)]">
 							{visibleProjectMembers.length}
 						</span>
@@ -862,7 +862,7 @@ function ProjectConfigSidebar({
 					<button
 						type="button"
 						className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-						aria-label="添加项目成员"
+						aria-label="添加项目队友"
 						onClick={() => setMemberDialogOpen(true)}
 						disabled={savingMembers}
 					>
@@ -872,7 +872,7 @@ function ProjectConfigSidebar({
 				<div className="max-h-36 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
 					{visibleProjectMembers.length === 0 ? (
 						<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
-							暂无项目成员
+							暂无项目队友
 						</p>
 					) : (
 						<div className="flex flex-wrap gap-2">
@@ -924,7 +924,11 @@ function ProjectConfigSidebar({
 							align="end"
 							side="top"
 							sideOffset={10}
-							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+							collisionAvoidance={{
+								side: "none",
+								align: "shift",
+								fallbackAxisSide: "none",
+							}}
 							className="w-[340px] p-1.5"
 						>
 							<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
