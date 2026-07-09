@@ -1,9 +1,10 @@
 "use client";
 
-import { useChatStore, useLayoutStore } from "@leros/store";
+import { useAuthStore, useChatStore, useLayoutStore, usePermissionStore } from "@leros/store";
 import { type ReactNode, useEffect } from "react";
 import { AuthProvider } from "../auth";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
+import { PermissionDeniedListener } from "../permission/PermissionDeniedListener";
 import { CenterCanvas } from "./CenterCanvas";
 import { FilePreviewHost } from "./FilePreviewHost";
 import { type AppNavigation, LeftRail } from "./LeftRail";
@@ -22,6 +23,12 @@ export function Shell({
 }) {
 	const currentView = useLayoutStore((s) => s.currentView);
 	const { startGlobalEvents, stopGlobalEvents } = useChatStore((s) => s);
+	const orgId = useAuthStore((s) => s.authUser?.currentOrg?.id);
+	const invalidateAll = usePermissionStore((s) => s.invalidateAll);
+
+	useEffect(() => {
+		invalidateAll();
+	}, [invalidateAll, orgId]);
 
 	useEffect(() => {
 		void startGlobalEvents();
@@ -32,6 +39,7 @@ export function Shell({
 
 	return (
 		<AuthProvider logoSrc={logoSrc}>
+			<PermissionDeniedListener />
 			<div className="leros-app-shell">
 				<LeftRail logoSrc={logoSrc} navigation={navigation} />
 				{children ?? (

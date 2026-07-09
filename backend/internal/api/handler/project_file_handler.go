@@ -10,23 +10,26 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 // ProjectFileHandler 项目文件相关接口
 type ProjectFileHandler struct {
 	service contract.ProjectService
+	permSvc PermGuarder
 }
 
 // NewProjectFileHandler 创建项目文件处理器
-func NewProjectFileHandler(service contract.ProjectService) *ProjectFileHandler {
-	return &ProjectFileHandler{service: service}
+func NewProjectFileHandler(service contract.ProjectService, permSvc PermGuarder) *ProjectFileHandler {
+	return &ProjectFileHandler{service: service, permSvc: permSvc}
 }
 
 // RegisterRoutes 注册路由
 func (h *ProjectFileHandler) RegisterRoutes(r gin.IRouter) {
-	r.GET("/projects/:project_id/files", h.GetProjectFileTree)
-	r.GET("/projects/:project_id/files/download", h.DownloadProjectFile)
-	r.GET("/projects/:project_id/memory", h.GetProjectMemory)
+	viewGuard := PermGuardPath(h.permSvc, types.ResourceTypeProject, "project_id", types.ActionProjectView)
+	r.GET("/projects/:project_id/files", viewGuard, h.GetProjectFileTree)
+	r.GET("/projects/:project_id/files/download", viewGuard, h.DownloadProjectFile)
+	r.GET("/projects/:project_id/memory", viewGuard, h.GetProjectMemory)
 }
 
 // GetProjectFileTree 获取项目文件树
@@ -153,6 +156,10 @@ func handleProjectFileServiceError(ctx *gin.Context, err error) {
 		"cannot download a directory":
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 	default:
+		if isPermissionDenied(err) {
+			ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))
 	}
 }

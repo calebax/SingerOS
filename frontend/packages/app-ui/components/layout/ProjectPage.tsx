@@ -1,6 +1,8 @@
 "use client";
 
 import {
+	Action,
+	buildTaskCapabilityItems,
 	fetchFilePreviewByStorageUri,
 	type Project,
 	type ProjectMember,
@@ -14,7 +16,9 @@ import {
 	useAppStore,
 	useChatStore,
 	useDAStore,
+	useEnsureCapabilities,
 	useLayoutStore,
+	useProjectCapabilities,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -57,9 +61,13 @@ import { toast } from "sonner";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
+import { CanGate } from "../permission/CanGate";
 import {
 	ProjectMemberChip,
 	ProjectMemberPickerDialog,
+	projectMemberChipClassName,
+	projectMemberListClassName,
+	sortProjectMembers,
 } from "../project-members/ProjectMemberPickerDialog";
 import { openProjectFilePreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
@@ -561,6 +569,7 @@ function ProjectConfigSidebar({
 		metadata?: Record<string, unknown>;
 	}) => Promise<Project | null>;
 }) {
+	useProjectCapabilities(project.id);
 	const [editingDescription, setEditingDescription] = useState(false);
 	const [descriptionDraft, setDescriptionDraft] = useState(project.description);
 	const [savingDescription, setSavingDescription] = useState(false);
@@ -684,9 +693,15 @@ function ProjectConfigSidebar({
 		if (savingSkills) return;
 		void updateProjectSkills(project.skills.filter((skill) => skill.code !== skillCode));
 	};
-	const visibleProjectMembers = projectMembersWithLatestAssistantAvatar.filter(
-		// 中文注释：默认 AI 员工只作为系统兜底分配，不在右侧项目成员展示区占位。
-		(member) => !(member.type === "assistant" && member.isDefault),
+	const visibleProjectMembers = useMemo(
+		() =>
+			sortProjectMembers(
+				projectMembersWithLatestAssistantAvatar.filter(
+					// 中文注释：默认 AI 员工只作为系统兜底分配，不在右侧项目成员展示区占位。
+					(member) => !(member.type === "assistant" && member.isDefault),
+				),
+			),
+		[projectMembersWithLatestAssistantAvatar],
 	);
 
 	const resolveProjectMembersForUpdate = async (nextMembers: ProjectMember[]) => {
@@ -791,14 +806,19 @@ function ProjectConfigSidebar({
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">项目描述</h2>
 					{!editingDescription && (
-						<button
-							type="button"
-							className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-							aria-label="编辑项目描述"
-							onClick={() => setEditingDescription(true)}
+						<CanGate
+							action={Action.ProjectUpdate}
+							resource={{ type: "project", publicId: project.id }}
 						>
-							<Pencil className="size-3.5" />
-						</button>
+							<button
+								type="button"
+								className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+								aria-label="编辑项目描述"
+								onClick={() => setEditingDescription(true)}
+							>
+								<Pencil className="size-3.5" />
+							</button>
+						</CanGate>
 					)}
 				</div>
 				<div
@@ -859,29 +879,34 @@ function ProjectConfigSidebar({
 							{visibleProjectMembers.length}
 						</span>
 					</div>
-					<button
-						type="button"
-						className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-						aria-label="添加项目成员"
-						onClick={() => setMemberDialogOpen(true)}
-						disabled={savingMembers}
+					<CanGate
+						action={Action.ProjectMemberCreate}
+						resource={{ type: "project", publicId: project.id }}
 					>
-						<Plus className="size-4" />
-					</button>
+						<button
+							type="button"
+							className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							aria-label="添加项目成员"
+							onClick={() => setMemberDialogOpen(true)}
+							disabled={savingMembers}
+						>
+							<Plus className="size-4" />
+						</button>
+					</CanGate>
 				</div>
-				<div className="max-h-36 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
+				<div className="overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-3">
 					{visibleProjectMembers.length === 0 ? (
 						<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
 							暂无项目成员
 						</p>
 					) : (
-						<div className="flex flex-wrap gap-2">
+						<div className={projectMemberListClassName}>
 							{visibleProjectMembers.map((member) => (
 								<ProjectMemberChip
 									key={`${member.type}-${member.memberId}`}
 									member={member}
 									readonly
-									className="max-w-full"
+									className={projectMemberChipClassName}
 								/>
 							))}
 						</div>
@@ -903,73 +928,80 @@ function ProjectConfigSidebar({
 						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">技能</h2>
 						<span className="text-xs text-[var(--leros-text-subtle)]">{project.skills.length}</span>
 					</div>
-					<Popover
-						open={skillOpen}
-						onOpenChange={(open) => {
-							setSkillOpen(open);
-							if (!open) {
-								setSkillSearch("");
-							}
-						}}
+					<CanGate
+						action={Action.ProjectUpdate}
+						resource={{ type: "project", publicId: project.id }}
 					>
-						<PopoverTrigger
-							type="button"
-							className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-							aria-label="添加技能"
+						<Popover
+							open={skillOpen}
+							onOpenChange={(open) => {
+								setSkillOpen(open);
+								if (!open) {
+									setSkillSearch("");
+								}
+							}}
 						>
-							<Plus className="size-4" />
-						</PopoverTrigger>
-						{/* 固定在按钮上方，和输入框工具栏的技能选择弹窗保持一致。 */}
-						<PopoverContent
-							align="end"
-							side="top"
-							sideOffset={10}
-							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
-							className="w-[340px] p-1.5"
-						>
-							<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
-								<div className="px-2 py-1 text-xs font-medium text-slate-400">选择技能</div>
-								<CommandInput
-									value={skillSearch}
-									onValueChange={setSkillSearch}
-									placeholder="搜索技能"
-								/>
-								<CommandList className="max-h-64">
-									<CommandEmpty className="py-6 text-slate-400">没有可继续添加的技能</CommandEmpty>
-									<CommandGroup className="p-0">
-										{skillsLoading && (
-											<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>
-										)}
-										{!skillsLoading && skillsError && (
-											<div className="px-3 py-2 text-xs text-red-400">{skillsError}</div>
-										)}
-										{filteredSkills.map((skill) => (
-											<CommandItem
-												key={skill.code}
-												value={skill.name}
-												onSelect={() => addProjectSkill(skill)}
-												className="rounded-xl px-2.5 py-2"
-											>
-												<SkillPickerIcon />
-												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium">
-														/{renderHighlightedText(skill.name, skillSearch)}
+							<PopoverTrigger
+								type="button"
+								className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+								aria-label="添加技能"
+							>
+								<Plus className="size-4" />
+							</PopoverTrigger>
+							{/* 固定在按钮上方，和输入框工具栏的技能选择弹窗保持一致。 */}
+							<PopoverContent
+								align="end"
+								side="top"
+								sideOffset={10}
+								collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+								className="w-[340px] p-1.5"
+							>
+								<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+									<div className="px-2 py-1 text-xs font-medium text-slate-400">选择技能</div>
+									<CommandInput
+										value={skillSearch}
+										onValueChange={setSkillSearch}
+										placeholder="搜索技能"
+									/>
+									<CommandList className="max-h-64">
+										<CommandEmpty className="py-6 text-slate-400">
+											没有可继续添加的技能
+										</CommandEmpty>
+										<CommandGroup className="p-0">
+											{skillsLoading && (
+												<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>
+											)}
+											{!skillsLoading && skillsError && (
+												<div className="px-3 py-2 text-xs text-red-400">{skillsError}</div>
+											)}
+											{filteredSkills.map((skill) => (
+												<CommandItem
+													key={skill.code}
+													value={skill.name}
+													onSelect={() => addProjectSkill(skill)}
+													className="rounded-xl px-2.5 py-2"
+												>
+													<SkillPickerIcon />
+													<div className="min-w-0 flex-1">
+														<div className="truncate font-medium">
+															/{renderHighlightedText(skill.name, skillSearch)}
+														</div>
+														<div className="truncate text-xs text-slate-400">
+															{renderHighlightedText(
+																skill.description || "项目可用技能",
+																skillSearch,
+															)}
+														</div>
 													</div>
-													<div className="truncate text-xs text-slate-400">
-														{renderHighlightedText(
-															skill.description || "项目可用技能",
-															skillSearch,
-														)}
-													</div>
-												</div>
-												<Check className="size-4 opacity-0" />
-											</CommandItem>
-										))}
-									</CommandGroup>
-								</CommandList>
-							</Command>
-						</PopoverContent>
-					</Popover>
+													<Check className="size-4 opacity-0" />
+												</CommandItem>
+											))}
+										</CommandGroup>
+									</CommandList>
+								</Command>
+							</PopoverContent>
+						</Popover>
+					</CanGate>
 				</div>
 				<div className="max-h-[280px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
 					{project.skills.length === 0 ? (
@@ -1121,6 +1153,11 @@ function ProjectTasks({
 	onOpenTask?: (task: ProjectTask) => void;
 }) {
 	const { updateTask } = useLayoutStore((s) => s);
+	const taskCapabilityItems = useMemo(
+		() => tasks.flatMap((task) => buildTaskCapabilityItems(task.id)),
+		[tasks],
+	);
+	useEnsureCapabilities(taskCapabilityItems, tasks.length > 0);
 	const [renameTarget, setRenameTarget] = useState<ProjectTask | null>(null);
 	const [renameValue, setRenameValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<ProjectTask | null>(null);
@@ -1192,6 +1229,53 @@ function ProjectTasks({
 				/>
 			)}
 		</div>
+	);
+}
+
+function TaskInlineActions({
+	task,
+	onRename,
+	onDelete,
+}: {
+	task: ProjectTask;
+	onRename?: (task: ProjectTask) => void;
+	onDelete?: (task: ProjectTask) => void;
+}) {
+	const resource = { type: "task" as const, publicId: task.id };
+
+	return (
+		<>
+			{onRename ? (
+				<CanGate action={Action.TaskUpdate} resource={resource}>
+					<button
+						type="button"
+						className="rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						onClick={(event) => {
+							event.stopPropagation();
+							onRename(task);
+						}}
+						title="重命名任务"
+					>
+						<Pencil className="size-4" />
+					</button>
+				</CanGate>
+			) : null}
+			{onDelete ? (
+				<CanGate action={Action.TaskDelete} resource={resource}>
+					<button
+						type="button"
+						className="rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)]"
+						onClick={(event) => {
+							event.stopPropagation();
+							onDelete(task);
+						}}
+						title="删除任务"
+					>
+						<Trash2 className="size-4" />
+					</button>
+				</CanGate>
+			) : null}
+		</>
 	);
 }
 
@@ -1275,32 +1359,11 @@ function ProjectTaskList({
 							>
 								{content}
 							</button>
-							{!compact && (
+							{!compact && (onRename || onDelete) ? (
 								<div className="pointer-events-none absolute right-4 top-4 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-									<button
-										type="button"
-										className="rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-										onClick={(event) => {
-											event.stopPropagation();
-											onRename?.(task);
-										}}
-										title="重命名任务"
-									>
-										<Pencil className="size-4" />
-									</button>
-									<button
-										type="button"
-										className="rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)]"
-										onClick={(event) => {
-											event.stopPropagation();
-											onDelete(task);
-										}}
-										title="删除任务"
-									>
-										<Trash2 className="size-4" />
-									</button>
+									<TaskInlineActions task={task} onRename={onRename} onDelete={onDelete} />
 								</div>
-							)}
+							) : null}
 						</div>
 					);
 				})}

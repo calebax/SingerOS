@@ -10,6 +10,7 @@ import type {
 export type ProjectMemberInput = {
 	type: "assistant" | "user";
 	id: string;
+	role?: string;
 };
 
 export type CreateProjectParams = {
@@ -47,6 +48,10 @@ export type DeleteProjectParams = {
 	public_id: string;
 };
 
+export type LeaveProjectParams = {
+	public_id: string;
+};
+
 export type SaveWorkbenchRecentContextParams = {
 	project_id: string;
 	task_id?: string | null;
@@ -58,6 +63,7 @@ const PROJECT_ENDPOINTS = {
 	get: "/GetProject",
 	detail: "/DetailProject",
 	update: "/UpdateProject",
+	leave: "/LeaveProject",
 	delete: "/DeleteProject",
 	getWorkbenchRecentContext: "/GetWorkbenchRecentContext",
 	saveWorkbenchRecentContext: "/SaveWorkbenchRecentContext",
@@ -81,6 +87,9 @@ export const projectApi = {
 
 	delete: (params: DeleteProjectParams) =>
 		apiClient.post<BackendDataResponse<null>>(PROJECT_ENDPOINTS.delete, params),
+
+	leave: (params: LeaveProjectParams) =>
+		apiClient.post<BackendDataResponse<null>>(PROJECT_ENDPOINTS.leave, params),
 
 	getWorkbenchRecentContext: () =>
 		apiClient.post<BackendDataResponse<BackendWorkbenchRecentContext | null>>(

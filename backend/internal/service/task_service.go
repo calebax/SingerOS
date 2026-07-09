@@ -17,7 +17,8 @@ import (
 )
 
 type taskService struct {
-	db *gorm.DB
+	db   *gorm.DB
+	perm *PermissionService
 }
 
 type projectTaskBrief struct {
@@ -27,8 +28,13 @@ type projectTaskBrief struct {
 
 func NewTaskService(db *gorm.DB) contract.TaskService {
 	return &taskService{
-		db: db,
+		db:   db,
+		perm: NewPermissionService(db),
 	}
+}
+
+func (s *taskService) permWithDB(db *gorm.DB) *PermissionService {
+	return PermissionForDB(db, s.perm)
 }
 
 func (s *taskService) CreateTask(ctx context.Context, req *contract.CreateTaskRequest) (*contract.Task, error) {
@@ -46,9 +52,6 @@ func (s *taskService) CreateTask(ctx context.Context, req *contract.CreateTaskRe
 	}
 	if project == nil {
 		return nil, errors.New("project not found")
-	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
-		return nil, err
 	}
 
 	publicID := generateTaskPublicID()
@@ -87,7 +90,12 @@ func (s *taskService) CreateTask(ctx context.Context, req *contract.CreateTaskRe
 		}
 	}
 
-	if err := db.CreateTask(ctx, s.db, task); err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := db.CreateTask(ctx, tx, task); err != nil {
+			return err
+		}
+		return syncTaskResource(ctx, tx, caller.OrgID, project.ID, task.ID, caller.Uin)
+	}); err != nil {
 		return nil, err
 	}
 	// 中文注释：在项目内手动创建任务属于项目活跃行为，需要同步刷新项目排序时间。
@@ -112,9 +120,6 @@ func (s *taskService) GetTask(ctx context.Context, publicID string) (*contract.T
 	}
 	if task == nil {
 		return nil, errors.New("task not found")
-	}
-	if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
-		return nil, err
 	}
 
 	projectBrief, err := s.resolveProjectBrief(ctx, task.ProjectID)
@@ -142,9 +147,6 @@ func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *cont
 		}
 		if task == nil {
 			return errors.New("task not found")
-		}
-		if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
-			return err
 		}
 
 		if req.Title != nil {
@@ -176,7 +178,7 @@ func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *cont
 			if project == nil {
 				return errors.New("project not found")
 			}
-			if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+			if err := s.permWithDB(tx).RequireProject(ctx, FromTypeCaller(caller), project, types.ActionProjectView); err != nil {
 				return err
 			}
 			task.ProjectID = project.ID
@@ -230,9 +232,6 @@ func (s *taskService) DeleteTask(ctx context.Context, publicID string) error {
 		if task == nil {
 			return errors.New("task not found")
 		}
-		if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
-			return err
-		}
 		return db.DeleteTask(ctx, tx, task.ID)
 	})
 }
@@ -260,10 +259,24 @@ func (s *taskService) ListTasks(ctx context.Context, req *contract.ListTasksRequ
 		if project == nil {
 			return nil, errors.New("project not found")
 		}
-		if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		if err := s.perm.RequireProject(ctx, FromTypeCaller(caller), project, types.ActionProjectView); err != nil {
 			return nil, err
 		}
 		opt.AddExactFilter("project_id", fmt.Sprintf("%d", project.ID))
+	} else {
+		projectIDs, listErr := db.ListProjectIDsByUser(ctx, s.db, caller.OrgID, caller.Uin)
+		if listErr != nil {
+			return nil, listErr
+		}
+		if len(projectIDs) == 0 {
+			return &contract.TaskList{
+				Total:  0,
+				Offset: req.Offset,
+				Limit:  req.Limit,
+				Items:  []contract.Task{},
+			}, nil
+		}
+		opt.ProjectIDs = projectIDs
 	}
 	if req.TaskType != nil && *req.TaskType != "" {
 		opt.AddFilter("task_type", *req.TaskType)

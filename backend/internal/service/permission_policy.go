@@ -7,28 +7,33 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
-// Action 表示一个权限动作，格式为 "resource_type:action_name"。
-type Action string
+// Action 是 types.Action 的别名，表示对资源的操作类型。
+type Action = types.Action
 
 const (
 	// 项目相关动作
-	ActionProjectView         Action = "project:view"
-	ActionProjectUpdate       Action = "project:update"
-	ActionProjectDelete       Action = "project:delete"
-	ActionProjectArchive      Action = "project:archive"
-	ActionProjectMemberCreate Action = "project:member.create"
-	ActionProjectMemberUpdate Action = "project:member.update"
-	ActionProjectMemberDelete Action = "project:member.delete"
-	ActionProjectMemberList   Action = "project:member.list"
-	ActionProjectMemberLeave  Action = "project:member.leave"
+	ActionProjectView         = types.ActionProjectView
+	ActionProjectUpdate       = types.ActionProjectUpdate
+	ActionProjectDelete       = types.ActionProjectDelete
+	ActionProjectMemberCreate = types.ActionProjectMemberCreate
+	ActionProjectMemberUpdate = types.ActionProjectMemberUpdate
+	ActionProjectMemberDelete = types.ActionProjectMemberDelete
+	ActionProjectMemberList   = types.ActionProjectMemberList
+	ActionProjectMemberLeave  = types.ActionProjectMemberLeave
 
 	// 文件相关动作
-	ActionFileView     Action = "file:view"
-	ActionFileDownload Action = "file:download"
+	ActionFileView     = types.ActionFileView
+	ActionFileDownload = types.ActionFileDownload
 
 	// 产物相关动作
-	ActionArtifactView     Action = "artifact:view"
-	ActionArtifactDownload Action = "artifact:download"
+	ActionArtifactView     = types.ActionArtifactView
+	ActionArtifactDownload = types.ActionArtifactDownload
+
+	// 任务相关动作
+	ActionTaskCreate = types.ActionTaskCreate
+	ActionTaskView   = types.ActionTaskView
+	ActionTaskUpdate = types.ActionTaskUpdate
+	ActionTaskDelete = types.ActionTaskDelete
 )
 
 // ActionSet 是动作集合，用于 O(1) 查找。
@@ -60,11 +65,11 @@ var SystemPolicy = PermissionPolicy{
 			ActionProjectView,
 			ActionProjectUpdate,
 			ActionProjectDelete,
-			ActionProjectArchive,
 			ActionProjectMemberCreate,
 			ActionProjectMemberUpdate,
 			ActionProjectMemberDelete,
 			ActionProjectMemberList,
+			ActionProjectMemberLeave,
 		),
 		types.ResourceRoleAdmin: actionSet(
 			ActionProjectView,
@@ -73,6 +78,7 @@ var SystemPolicy = PermissionPolicy{
 			ActionProjectMemberUpdate,
 			ActionProjectMemberDelete,
 			ActionProjectMemberList,
+			ActionProjectMemberLeave,
 		),
 		types.ResourceRoleMember: actionSet(
 			ActionProjectView,
@@ -89,6 +95,11 @@ var SystemPolicy = PermissionPolicy{
 		types.ResourceRoleOwner:  actionSet(ActionArtifactView, ActionArtifactDownload),
 		types.ResourceRoleAdmin:  actionSet(ActionArtifactView, ActionArtifactDownload),
 		types.ResourceRoleMember: actionSet(ActionArtifactView, ActionArtifactDownload),
+	},
+	types.ResourceTypeTask: {
+		types.ResourceRoleOwner:  actionSet(ActionTaskCreate, ActionTaskView, ActionTaskUpdate, ActionTaskDelete),
+		types.ResourceRoleAdmin:  actionSet(ActionTaskCreate, ActionTaskView, ActionTaskUpdate, ActionTaskDelete),
+		types.ResourceRoleMember: actionSet(ActionTaskCreate, ActionTaskView, ActionTaskUpdate, ActionTaskDelete),
 	},
 }
 

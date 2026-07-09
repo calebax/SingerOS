@@ -36,6 +36,7 @@ import (
 // 多个 goroutine 可安全并发使用。
 type MessagePoster struct {
 	db          *gorm.DB
+	perm        *PermissionService
 	eventbus    eventbus.EventBus
 	inferrer    AssistantInferrer
 	giteaClient *gitea.Client
@@ -47,6 +48,7 @@ type MessagePoster struct {
 func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) *MessagePoster {
 	return &MessagePoster{
 		db:          db,
+		perm:        NewPermissionService(db),
 		eventbus:    eb,
 		inferrer:    inferrer,
 		giteaClient: giteaClient,
@@ -227,9 +229,6 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		if proj == nil {
 			return errors.New("project not found")
 		}
-		if err := verifyUserPermission(proj.OwnerID, o.caller.Uin); err != nil {
-			return err
-		}
 		o.project = proj
 		return nil
 	}
@@ -285,16 +284,27 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		logs.InfoContextf(o.ctx, "created project=%s org=%d user=%d (no gitea)", projectID, o.caller.OrgID, o.caller.Uin)
 	}
 
-	if err := infradb.CreateProjectMember(o.ctx, o.poster.db, &types.ProjectMember{
-		ProjectID:  o.project.ID,
-		MemberID:   o.caller.Uin,
-		MemberType: types.MemberTypeUser,
-		MemberRole: types.MemberRoleOwner,
+	// 创建者的成员身份与权限来源统一为 leros_resource_binding：先建项目资源，再建 owner 绑定。
+	resource := &types.Resource{
+		OrgID: o.caller.OrgID,
+		Uin:   o.caller.Uin,
+		Type:  types.ResourceTypeProject,
+		BizID: o.project.ID,
+	}
+	if err := infradb.CreateResource(o.ctx, o.poster.db, resource); err != nil {
+		return fmt.Errorf("sync project resource: %w", err)
+	}
+	ownerUin := o.caller.Uin
+	if err := infradb.CreateResourceBinding(o.ctx, o.poster.db, &types.ResourceBinding{
+		OrgID:      o.caller.OrgID,
+		Uin:        &ownerUin,
+		ResourceID: resource.ID,
+		Role:       types.ResourceRoleOwner,
 	}); err != nil {
-		logs.WarnContextf(o.ctx, "create project member failed: %v", err)
+		return fmt.Errorf("bind project owner: %w", err)
 	}
 
-	if err := o.bindProjectAssistants(); err != nil {
+	if err := o.bindProjectAssistants(resource.ID); err != nil {
 		return err
 	}
 
@@ -316,7 +326,7 @@ func (o *newMessageOrchestrator) recordProjectCreatedActivity() error {
 	})
 }
 
-func (o *newMessageOrchestrator) bindProjectAssistants() error {
+func (o *newMessageOrchestrator) bindProjectAssistants(resourceID uint) error {
 	defaultAssistantID, err := infradb.GetDefaultAssistantIDByOrg(o.ctx, o.poster.db, o.caller.OrgID)
 	if err != nil {
 		return fmt.Errorf("get default assistant: %w", err)
@@ -324,28 +334,28 @@ func (o *newMessageOrchestrator) bindProjectAssistants() error {
 	if defaultAssistantID == 0 {
 		return ErrNoDefaultAssistantInOrg
 	}
-	if err := infradb.CreateProjectMember(o.ctx, o.poster.db, &types.ProjectMember{
-		ProjectID:  o.project.ID,
-		MemberID:   defaultAssistantID,
-		MemberType: types.MemberTypeAssistant,
-		MemberRole: types.MemberRoleMember,
-		IsDefault:  true,
+	boundID := defaultAssistantID
+	if err := infradb.CreateResourceBinding(o.ctx, o.poster.db, &types.ResourceBinding{
+		OrgID:       o.caller.OrgID,
+		AssistantID: &boundID,
+		ResourceID:  resourceID,
+		Role:        types.ResourceRoleMember,
 	}); err != nil {
-		return fmt.Errorf("create default project member: %w", err)
+		return fmt.Errorf("bind default project assistant %d: %w", defaultAssistantID, err)
 	}
 
 	for _, id := range o.assistantIDs {
 		if id == 0 || id == defaultAssistantID {
 			continue
 		}
-		if err := infradb.CreateProjectMember(o.ctx, o.poster.db, &types.ProjectMember{
-			ProjectID:  o.project.ID,
-			MemberID:   id,
-			MemberType: types.MemberTypeAssistant,
-			MemberRole: types.MemberRoleMember,
-			IsDefault:  false,
+		extraID := id
+		if err := infradb.CreateResourceBinding(o.ctx, o.poster.db, &types.ResourceBinding{
+			OrgID:       o.caller.OrgID,
+			AssistantID: &extraID,
+			ResourceID:  resourceID,
+			Role:        types.ResourceRoleMember,
 		}); err != nil {
-			return fmt.Errorf("create project member for assistant %d: %w", id, err)
+			return fmt.Errorf("bind project assistant %d: %w", id, err)
 		}
 	}
 	return nil
@@ -393,9 +403,6 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 		if t == nil {
 			return errors.New("task not found")
 		}
-		if err := verifyUserPermission(t.OwnerID, o.caller.Uin); err != nil {
-			return err
-		}
 		o.task = t
 		return nil
 	}
@@ -421,6 +428,9 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 	}
 	if err := infradb.CreateTask(o.ctx, o.poster.db, o.task); err != nil {
 		return fmt.Errorf("create task: %w", err)
+	}
+	if err := syncTaskResource(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.task.ID, o.caller.Uin); err != nil {
+		return fmt.Errorf("sync task resource: %w", err)
 	}
 
 	logs.InfoContextf(o.ctx, "created task=%s in project=%s", taskID, o.project.PublicID)
@@ -636,12 +646,20 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 		Description: project.Description,
 		Objective:   project.Objective,
 	}
-	members, err := infradb.ListProjectMembers(ctx, p.db, project.ID)
-	if err != nil {
-		logs.WarnContextf(ctx, "buildProjectContext: list members failed: %v", err)
+	resource, err := infradb.GetResourceByBizID(ctx, p.db, project.OrgID, types.ResourceTypeProject, project.ID)
+	if err != nil || resource == nil {
+		if err != nil {
+			logs.WarnContextf(ctx, "buildProjectContext: get project resource failed: %v", err)
+		}
 		return ctx2
 	}
-	userIDs, assistantIDs := collectMemberIDs(members)
+	bindings, err := infradb.ListResourceBindingsByResourceID(ctx, p.db, resource.ID)
+	if err != nil {
+		logs.WarnContextf(ctx, "buildProjectContext: list bindings failed: %v", err)
+		return ctx2
+	}
+	defaultAssistantID, _ := infradb.GetDefaultAssistantIDByOrg(ctx, p.db, project.OrgID)
+	userIDs, assistantIDs := collectBindingMemberIDs(bindings)
 	userMap := make(map[uint]string)
 	if len(userIDs) > 0 {
 		if users, err := infradb.GetUsersByIDs(ctx, p.db, userIDs); err == nil {
@@ -662,28 +680,38 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 			}
 		}
 	}
-	briefs := make([]messaging.MemberBrief, 0, len(members))
-	for _, m := range members {
-		if m == nil {
+	briefs := make([]messaging.MemberBrief, 0, len(bindings))
+	for _, b := range bindings {
+		if b == nil {
 			continue
 		}
-		brief := messaging.MemberBrief{
-			MemberID:   m.MemberID,
-			MemberType: string(m.MemberType),
-			MemberRole: string(m.MemberRole),
-			IsDefault:  m.IsDefault,
-		}
-		switch m.MemberType {
-		case types.MemberTypeUser:
-			brief.Name = userMap[m.MemberID]
-			if m.MemberID == session.Uin {
-				brief.IsCurrentUser = true
+		if b.AssistantID != nil && *b.AssistantID != 0 {
+			assistantID := *b.AssistantID
+			brief := messaging.MemberBrief{
+				MemberID:   assistantID,
+				MemberType: string(types.MemberTypeAssistant),
+				MemberRole: string(b.Role),
+				IsDefault:  defaultAssistantID > 0 && assistantID == defaultAssistantID,
+				Name:       assistantMap[assistantID],
 			}
-		case types.MemberTypeAssistant:
-			brief.Name = assistantMap[m.MemberID]
-			if m.MemberID == session.AssistantID {
+			if assistantID == session.AssistantID {
 				brief.IsCurrentExec = true
 			}
+			briefs = append(briefs, brief)
+			continue
+		}
+		if b.Uin == nil || *b.Uin == 0 {
+			continue
+		}
+		uin := *b.Uin
+		brief := messaging.MemberBrief{
+			MemberID:   uin,
+			MemberType: string(types.MemberTypeUser),
+			MemberRole: string(b.Role),
+			Name:       userMap[uin],
+		}
+		if uin == session.Uin {
+			brief.IsCurrentUser = true
 		}
 		briefs = append(briefs, brief)
 	}
@@ -691,16 +719,17 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 	return ctx2
 }
 
-func collectMemberIDs(members []*types.ProjectMember) (userIDs, assistantIDs []uint) {
-	for _, m := range members {
-		if m == nil {
+func collectBindingMemberIDs(bindings []*types.ResourceBinding) (userIDs, assistantIDs []uint) {
+	for _, b := range bindings {
+		if b == nil {
 			continue
 		}
-		switch m.MemberType {
-		case types.MemberTypeUser:
-			userIDs = append(userIDs, m.MemberID)
-		case types.MemberTypeAssistant:
-			assistantIDs = append(assistantIDs, m.MemberID)
+		if b.Uin != nil && *b.Uin != 0 {
+			userIDs = append(userIDs, *b.Uin)
+			continue
+		}
+		if b.AssistantID != nil && *b.AssistantID != 0 {
+			assistantIDs = append(assistantIDs, *b.AssistantID)
 		}
 	}
 	return
@@ -979,6 +1008,23 @@ func attachFilesToProject(
 			}
 			if err := infradb.CreateProjectFile(ctx, db, pf); err != nil {
 				logs.WarnContextf(ctx, "create project_file record for attachment %s: %v", attachments[i].FileUploadID, err)
+			} else {
+				projResource, rerr := infradb.GetResourceByBizID(ctx, db, orgID, types.ResourceTypeProject, project.ID)
+				if rerr != nil {
+					logs.WarnContextf(ctx, "get project resource for file attachment: %v", rerr)
+				} else if projResource != nil {
+					fr := &types.Resource{
+						OrgID:                 orgID,
+						Uin:                   uin,
+						Type:                  types.ResourceTypeFile,
+						BizID:                 pf.ID,
+						ParentResourceID:      &projResource.ID,
+						ParentResourcePathIDs: types.ResourcePathIDs{projResource.ID},
+					}
+					if ferr := infradb.CreateResource(ctx, db, fr); ferr != nil {
+						logs.WarnContextf(ctx, "sync file resource for attachment: %v", ferr)
+					}
+				}
 			}
 		}
 	}

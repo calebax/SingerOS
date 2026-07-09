@@ -154,6 +154,22 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	if err := backfillProjectResourceBindings(db); err != nil {
+		return err
+	}
+
+	if err := verifyProjectResourceBindings(db); err != nil {
+		return err
+	}
+
+	if err := backfillTaskResources(db); err != nil {
+		return err
+	}
+
+	if err := backfillFileArtifactResources(db); err != nil {
+		return err
+	}
+
 	// 清理已从模型定义中移除的唯一索引
 	if err := db.Exec("DROP INDEX IF EXISTS uni_member_dept").Error; err != nil {
 		return err
@@ -362,6 +378,229 @@ func backfillSystemLLMModelsForOrgs(d *gorm.DB) error {
 	if err != nil {
 		logs.Warnf("[migration] backfillSystemLLMModelsForOrgs: %v", err)
 	}
+	return nil
+}
+
+// backfillProjectResourceBindings 将存量 project + project_member 回填为统一资源权限模型。
+// 步骤：
+//  1. 为缺失的 project 创建 leros_resource(type=project)。
+//  2. 将用户成员回填为 leros_resource_binding（写 uin 列）。
+//  3. 将助手成员回填为 leros_resource_binding（写 assistant_id 列）。
+//  4. owner 兜底绑定，防止旧项目 owner 无 project_member 行。
+//
+// 所有 SQL 均幂等（NOT EXISTS 去重），失败仅告警不阻断启动。
+func backfillProjectResourceBindings(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameProject) ||
+		!d.Migrator().HasTable(types.TableNameResource) ||
+		!d.Migrator().HasTable(types.TableNameResourceBinding) {
+		return nil
+	}
+
+	// 1. 回填 project 资源
+	if err := d.Exec(`
+		INSERT INTO leros_resource (org_id, uin, type, biz_id, parent_resource_path_ids, created_at, updated_at)
+		SELECT p.org_id, p.owner_id, 'project', p.id, '{}', NOW(), NOW()
+		FROM leros_project p
+		WHERE p.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource r
+			WHERE r.org_id = p.org_id AND r.type = 'project' AND r.biz_id = p.id AND r.deleted_at IS NULL
+		  )
+	`).Error; err != nil {
+		logs.Warnf("[migration] backfillProjectResourceBindings resources: %v", err)
+		return nil
+	}
+
+	if !d.Migrator().HasTable(types.TableNameProjectMember) {
+		return nil
+	}
+
+	// 2. 回填用户绑定
+	if err := d.Exec(`
+		INSERT INTO leros_resource_binding (org_id, uin, resource_id, resource_role, created_at, updated_at)
+		SELECT r.org_id, pm.member_id, r.id,
+			CASE pm.member_role WHEN 'owner' THEN 'owner' WHEN 'admin' THEN 'admin' ELSE 'member' END,
+			NOW(), NOW()
+		FROM leros_project_member pm
+		JOIN leros_project p ON p.id = pm.project_id AND p.deleted_at IS NULL
+		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
+		WHERE pm.deleted_at IS NULL AND pm.member_type = 'user'
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource_binding b
+			WHERE b.resource_id = r.id AND b.uin = pm.member_id AND b.deleted_at IS NULL
+		  )
+	`).Error; err != nil {
+		logs.Warnf("[migration] backfillProjectResourceBindings user bindings: %v", err)
+	}
+
+	// 3. 回填助手绑定
+	if err := d.Exec(`
+		INSERT INTO leros_resource_binding (org_id, assistant_id, resource_id, resource_role, created_at, updated_at)
+		SELECT r.org_id, pm.member_id, r.id,
+			CASE pm.member_role WHEN 'owner' THEN 'owner' WHEN 'admin' THEN 'admin' ELSE 'member' END,
+			NOW(), NOW()
+		FROM leros_project_member pm
+		JOIN leros_project p ON p.id = pm.project_id AND p.deleted_at IS NULL
+		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
+		WHERE pm.deleted_at IS NULL AND pm.member_type = 'assistant'
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource_binding b
+			WHERE b.resource_id = r.id AND b.assistant_id = pm.member_id AND b.deleted_at IS NULL
+		  )
+	`).Error; err != nil {
+		logs.Warnf("[migration] backfillProjectResourceBindings assistant bindings: %v", err)
+	}
+
+	// 4. owner 兜底绑定
+	if err := d.Exec(`
+		INSERT INTO leros_resource_binding (org_id, uin, resource_id, resource_role, created_at, updated_at)
+		SELECT r.org_id, p.owner_id, r.id, 'owner', NOW(), NOW()
+		FROM leros_project p
+		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
+		WHERE p.deleted_at IS NULL AND p.owner_id > 0
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource_binding b
+			WHERE b.resource_id = r.id AND b.uin = p.owner_id AND b.deleted_at IS NULL
+		  )
+	`).Error; err != nil {
+		logs.Warnf("[migration] backfillProjectResourceBindings owner fallback: %v", err)
+	}
+
+	return nil
+}
+
+// verifyProjectResourceBindings 在 backfill 后校验项目资源与 owner 绑定是否完整。
+// 异常仅告警不阻断启动，便于运维排查存量迁移缺口。
+func verifyProjectResourceBindings(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameProject) ||
+		!d.Migrator().HasTable(types.TableNameResource) ||
+		!d.Migrator().HasTable(types.TableNameResourceBinding) {
+		return nil
+	}
+
+	type projectGap struct {
+		ProjectID uint
+	}
+	var missingResource []projectGap
+	if err := d.Raw(`
+		SELECT p.id AS project_id
+		FROM leros_project p
+		WHERE p.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource r
+			WHERE r.org_id = p.org_id AND r.type = 'project' AND r.biz_id = p.id AND r.deleted_at IS NULL
+		  )
+		ORDER BY p.id
+		LIMIT 20
+	`).Scan(&missingResource).Error; err != nil {
+		logs.Warnf("[migration] verifyProjectResourceBindings missing resource query: %v", err)
+		return nil
+	}
+	if len(missingResource) > 0 {
+		sample := make([]uint, 0, len(missingResource))
+		for _, g := range missingResource {
+			sample = append(sample, g.ProjectID)
+		}
+		logs.Warnf("[migration] verifyProjectResourceBindings: %d+ projects missing leros_resource, sample project_ids=%v", len(missingResource), sample)
+	}
+
+	type ownerGap struct {
+		ProjectID uint
+	}
+	var missingOwner []ownerGap
+	if err := d.Raw(`
+		SELECT p.id AS project_id
+		FROM leros_project p
+		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
+		WHERE p.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource_binding b
+			WHERE b.resource_id = r.id
+			  AND b.resource_role = 'owner'
+			  AND b.uin IS NOT NULL AND b.uin > 0
+			  AND b.deleted_at IS NULL
+		  )
+		ORDER BY p.id
+		LIMIT 20
+	`).Scan(&missingOwner).Error; err != nil {
+		logs.Warnf("[migration] verifyProjectResourceBindings missing owner query: %v", err)
+		return nil
+	}
+	if len(missingOwner) > 0 {
+		sample := make([]uint, 0, len(missingOwner))
+		for _, g := range missingOwner {
+			sample = append(sample, g.ProjectID)
+		}
+		logs.Warnf("[migration] verifyProjectResourceBindings: %d+ projects missing owner binding, sample project_ids=%v", len(missingOwner), sample)
+	}
+
+	return nil
+}
+
+// backfillTaskResources 为存量任务补写 leros_resource(type=task)，挂到父项目资源下。
+func backfillTaskResources(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameTask) ||
+		!d.Migrator().HasTable(types.TableNameResource) {
+		return nil
+	}
+
+	if err := d.Exec(`
+		INSERT INTO leros_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
+		SELECT t.org_id, t.owner_id, 'task', t.id, r.id, ARRAY[r.id]::bigint[], NOW(), NOW()
+		FROM leros_task t
+		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = t.project_id AND r.org_id = t.org_id AND r.deleted_at IS NULL
+		WHERE t.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource tr
+			WHERE tr.org_id = t.org_id AND tr.type = 'task' AND tr.biz_id = t.id AND tr.deleted_at IS NULL
+		  )
+	`).Error; err != nil {
+		logs.Warnf("[migration] backfillTaskResources: %v", err)
+	}
+
+	return nil
+}
+
+// backfillFileArtifactResources 为存量 project_file 补写 leros_resource(type=file|artifact)，挂到父项目资源下。
+func backfillFileArtifactResources(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameProjectFile) ||
+		!d.Migrator().HasTable(types.TableNameResource) ||
+		!d.Migrator().HasTable(types.TableNameProject) {
+		return nil
+	}
+
+	if err := d.Exec(`
+		INSERT INTO leros_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
+		SELECT pf.org_id, COALESCE(NULLIF(pf.uin, 0), p.owner_id), 'file', pf.id, r.id, ARRAY[r.id]::bigint[], NOW(), NOW()
+		FROM leros_project_file pf
+		JOIN leros_project p ON p.id = pf.project_id AND p.deleted_at IS NULL
+		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = pf.project_id AND r.org_id = pf.org_id AND r.deleted_at IS NULL
+		WHERE pf.deleted_at IS NULL
+		  AND pf.resource_type IN ('user_upload', 'plan')
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource fr
+			WHERE fr.org_id = pf.org_id AND fr.type = 'file' AND fr.biz_id = pf.id AND fr.deleted_at IS NULL
+		  )
+	`).Error; err != nil {
+		logs.Warnf("[migration] backfillFileArtifactResources files: %v", err)
+	}
+
+	if err := d.Exec(`
+		INSERT INTO leros_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
+		SELECT pf.org_id, COALESCE(NULLIF(pf.uin, 0), p.owner_id), 'artifact', pf.id, r.id, ARRAY[r.id]::bigint[], NOW(), NOW()
+		FROM leros_project_file pf
+		JOIN leros_project p ON p.id = pf.project_id AND p.deleted_at IS NULL
+		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = pf.project_id AND r.org_id = pf.org_id AND r.deleted_at IS NULL
+		WHERE pf.deleted_at IS NULL
+		  AND pf.resource_type = 'artifact'
+		  AND NOT EXISTS (
+			SELECT 1 FROM leros_resource ar
+			WHERE ar.org_id = pf.org_id AND ar.type = 'artifact' AND ar.biz_id = pf.id AND ar.deleted_at IS NULL
+		  )
+	`).Error; err != nil {
+		logs.Warnf("[migration] backfillFileArtifactResources artifacts: %v", err)
+	}
+
 	return nil
 }
 

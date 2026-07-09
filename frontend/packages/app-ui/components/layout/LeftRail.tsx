@@ -2,6 +2,7 @@
 
 import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import {
+	Action,
 	LEFT_RAIL_MAX_WIDTH,
 	LEFT_RAIL_MIN_WIDTH,
 	projectFileApi,
@@ -9,6 +10,7 @@ import {
 	useChatStore,
 	useLayoutStore,
 	userApi,
+	useTaskCapabilities,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -71,6 +73,8 @@ import {
 import { FeedbackDialog } from "../feedback/FeedbackDialog";
 import { OrgAdminDialog } from "../org-admin/OrgAdminDialog";
 import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
+import { CanGate } from "../permission/CanGate";
+import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
 import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 
@@ -133,6 +137,7 @@ export function LeftRail({
 		fetchTasks,
 		deleteProject,
 		deleteTask,
+		leaveProject,
 		setLeftRailCollapsed,
 		setLeftRailWidth,
 		switchView,
@@ -150,6 +155,7 @@ export function LeftRail({
 	const [renameValue, setRenameValue] = useState("");
 	const [renameTaskValue, setRenameTaskValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+	const [leaveTarget, setLeaveTarget] = useState<Project | null>(null);
 	const [deleteTaskTarget, setDeleteTaskTarget] = useState<ProjectTask | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
 	const [orgAdminDialogOpen, setOrgAdminDialogOpen] = useState(false);
@@ -443,6 +449,28 @@ export function LeftRail({
 		}
 	};
 
+	const handleConfirmLeave = async () => {
+		if (!leaveTarget) return;
+
+		const leavingActiveProject =
+			activeProjectId === leaveTarget.id ||
+			navigation?.currentPath === `/projects/${leaveTarget.id}` ||
+			navigation?.currentPath.startsWith(`/projects/${leaveTarget.id}/`);
+
+		const left = await leaveProject(leaveTarget.id);
+		if (!left) return;
+
+		setLeaveTarget(null);
+
+		if (leavingActiveProject) {
+			if (navigation) {
+				navigation.goToRoute("workbench");
+				return;
+			}
+			switchView("workbench");
+		}
+	};
+
 	const handleConfirmDelete = async () => {
 		if (!deleteTarget) return;
 
@@ -624,6 +652,7 @@ export function LeftRail({
 						onExpandTasks={handleExpandProjectTasks}
 						onRenameProject={handleOpenRename}
 						onDeleteProject={setDeleteTarget}
+						onLeaveProject={setLeaveTarget}
 						onRenameTask={handleOpenTaskRename}
 						onDeleteTask={setDeleteTaskTarget}
 						collapsed={leftRailCollapsed}
@@ -892,6 +921,25 @@ export function LeftRail({
 						</Button>
 						<Button variant="destructive" onClick={handleConfirmDelete}>
 							删除
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={leaveTarget !== null} onOpenChange={(open) => !open && setLeaveTarget(null)}>
+				<DialogContent className="sm:max-w-md" showCloseButton={false}>
+					<DialogHeader>
+						<DialogTitle>离开项目</DialogTitle>
+						<DialogDescription>
+							确定要离开 <strong>{leaveTarget?.name}</strong> 吗？离开后你将无法继续访问该项目。
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter className="mt-4">
+						<Button variant="outline" onClick={() => setLeaveTarget(null)}>
+							取消
+						</Button>
+						<Button variant="destructive" onClick={handleConfirmLeave}>
+							离开
 						</Button>
 					</DialogFooter>
 				</DialogContent>
@@ -1389,6 +1437,7 @@ function ProjectList({
 	onExpandTasks,
 	onRenameProject,
 	onDeleteProject,
+	onLeaveProject,
 	onRenameTask,
 	onDeleteTask,
 	collapsed,
@@ -1408,6 +1457,7 @@ function ProjectList({
 	onExpandTasks: (projectId: string) => void;
 	onRenameProject: (project: Project) => void;
 	onDeleteProject: (project: Project) => void;
+	onLeaveProject: (project: Project) => void;
 	onRenameTask: (task: ProjectTask) => void;
 	onDeleteTask: (task: ProjectTask) => void;
 	collapsed: boolean;
@@ -1472,33 +1522,13 @@ function ProjectList({
 							)}
 							{!collapsed && (
 								<>
-									<DropdownMenu>
-										<DropdownMenuTrigger
-											render={
-												<button
-													type="button"
-													aria-label={`管理项目 ${project.name}`}
-													className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
-													onClick={(event) => event.stopPropagation()}
-												>
-													<MoreHorizontal className="size-4" />
-												</button>
-											}
-										/>
-										<DropdownMenuContent align="end" sideOffset={4}>
-											<DropdownMenuItem onClick={() => onRenameProject(project)}>
-												<Pencil className="size-3.5" />
-												<span>重命名</span>
-											</DropdownMenuItem>
-											<DropdownMenuItem
-												variant="destructive"
-												onClick={() => onDeleteProject(project)}
-											>
-												<Trash2 className="size-3.5" />
-												<span>删除</span>
-											</DropdownMenuItem>
-										</DropdownMenuContent>
-									</DropdownMenu>
+									<ProjectActionsDropdown
+										project={project}
+										onRename={onRenameProject}
+										onDelete={onDeleteProject}
+										onLeave={onLeaveProject}
+										variant="rail"
+									/>
 									<button
 										type="button"
 										aria-label={`进入项目 ${project.name}`}
@@ -1569,6 +1599,9 @@ function TaskListItem({
 	onRenameTask: (task: ProjectTask) => void;
 	onDeleteTask: (task: ProjectTask) => void;
 }) {
+	useTaskCapabilities(task.id);
+	const resource = { type: "task" as const, publicId: task.id };
+
 	return (
 		<div
 			data-active={active}
@@ -1600,14 +1633,18 @@ function TaskListItem({
 					}
 				/>
 				<DropdownMenuContent align="end" sideOffset={4}>
-					<DropdownMenuItem onClick={() => onRenameTask(task)}>
-						<Pencil className="size-3.5" />
-						<span>重命名</span>
-					</DropdownMenuItem>
-					<DropdownMenuItem variant="destructive" onClick={() => onDeleteTask(task)}>
-						<Trash2 className="size-3.5" />
-						<span>删除</span>
-					</DropdownMenuItem>
+					<CanGate action={Action.TaskUpdate} resource={resource}>
+						<DropdownMenuItem onClick={() => onRenameTask(task)}>
+							<Pencil className="size-3.5" />
+							<span>重命名</span>
+						</DropdownMenuItem>
+					</CanGate>
+					<CanGate action={Action.TaskDelete} resource={resource}>
+						<DropdownMenuItem variant="destructive" onClick={() => onDeleteTask(task)}>
+							<Trash2 className="size-3.5" />
+							<span>删除</span>
+						</DropdownMenuItem>
+					</CanGate>
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>

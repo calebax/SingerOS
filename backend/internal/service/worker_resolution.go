@@ -97,7 +97,7 @@ func resolveProjectAssistantWorker(ctx context.Context, database *gorm.DB, orgID
 		return resolveRuntimeWorker(ctx, database, orgID, requestedID, inferrer)
 	}
 	if requestedID > 0 {
-		ok, err := db.IsProjectMember(ctx, database, projectID, requestedID, types.MemberTypeAssistant)
+		ok, err := db.IsProjectAssistantBound(ctx, database, orgID, projectID, requestedID)
 		if err != nil {
 			return 0, 0, fmt.Errorf("verify project assistant: %w", err)
 		}
@@ -106,14 +106,14 @@ func resolveProjectAssistantWorker(ctx context.Context, database *gorm.DB, orgID
 		}
 		return resolveRuntimeWorker(ctx, database, orgID, requestedID, inferrer)
 	}
-	member, err := db.GetLatestProjectAssistant(ctx, database, projectID)
+	assistantID, err := db.ResolveBoundProjectAssistantID(ctx, database, orgID, projectID)
 	if err != nil {
 		return 0, 0, err
 	}
-	if member == nil {
+	if assistantID == 0 {
 		return 0, 0, ErrNoDefaultAssistant
 	}
-	return resolveRuntimeWorker(ctx, database, orgID, member.MemberID, inferrer)
+	return resolveRuntimeWorker(ctx, database, orgID, assistantID, inferrer)
 }
 
 func firstOrDefault(ids []uint) uint {

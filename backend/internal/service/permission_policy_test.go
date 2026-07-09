@@ -54,13 +54,6 @@ func TestPermissionPolicyAllows(t *testing.T) {
 			want:         false,
 		},
 		{
-			name:         "member 可以退出项目",
-			resourceType: types.ResourceTypeProject,
-			role:         types.ResourceRoleMember,
-			action:       ActionProjectMemberLeave,
-			want:         true,
-		},
-		{
 			name:         "member 不能创建成员",
 			resourceType: types.ResourceTypeProject,
 			role:         types.ResourceRoleMember,
@@ -72,6 +65,13 @@ func TestPermissionPolicyAllows(t *testing.T) {
 			resourceType: types.ResourceTypeFile,
 			role:         types.ResourceRoleOwner,
 			action:       ActionFileDownload,
+			want:         true,
+		},
+		{
+			name:         "member 可以更新任务",
+			resourceType: types.ResourceTypeTask,
+			role:         types.ResourceRoleMember,
+			action:       ActionTaskUpdate,
 			want:         true,
 		},
 		{
@@ -115,7 +115,7 @@ func TestPermissionPolicyListAllowedActions(t *testing.T) {
 		ownerSet[a] = struct{}{}
 	}
 	for _, must := range []Action{
-		ActionProjectView, ActionProjectDelete, ActionProjectArchive,
+		ActionProjectView, ActionProjectDelete,
 		ActionProjectMemberCreate, ActionProjectMemberDelete,
 	} {
 		if _, ok := ownerSet[must]; !ok {
@@ -123,18 +123,21 @@ func TestPermissionPolicyListAllowedActions(t *testing.T) {
 		}
 	}
 
-	// member 不应包含 delete/archive/member.create
+	// member 不应包含 delete/member.create
 	memberActions := SystemPolicy.ListAllowedActions(types.ResourceTypeProject, types.ResourceRoleMember)
 	memberSet := make(map[Action]struct{}, len(memberActions))
 	for _, a := range memberActions {
 		memberSet[a] = struct{}{}
 	}
 	for _, forbidden := range []Action{
-		ActionProjectDelete, ActionProjectArchive, ActionProjectMemberCreate,
+		ActionProjectDelete, ActionProjectMemberCreate, ActionProjectMemberDelete,
 	} {
 		if _, ok := memberSet[forbidden]; ok {
 			t.Errorf("member 动作列表不应包含 %q", forbidden)
 		}
+	}
+	if _, ok := memberSet[ActionProjectMemberLeave]; !ok {
+		t.Errorf("member 动作列表应包含 %q", ActionProjectMemberLeave)
 	}
 
 	// 未知资源类型应返回 nil

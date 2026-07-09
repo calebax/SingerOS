@@ -73,8 +73,8 @@ func ListTasks(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 	query := d.WithContext(ctx).Table(types.TableNameTask).
 		Where("org_id = ? AND deleted_at IS NULL", opt.OrgID).
 		Where("project_id IN (?)", activeProjectSubQuery)
-	if opt.Uin > 0 {
-		query = query.Where("owner_id = ?", opt.Uin)
+	if len(opt.ProjectIDs) > 0 {
+		query = query.Where("project_id IN (?)", opt.ProjectIDs)
 	}
 
 	for _, filter := range opt.Filters {

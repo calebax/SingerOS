@@ -4,6 +4,8 @@ package dto
 const (
 	CodeSuccess               = 0
 	CodeInvalidParams         = 40001
+	CodeUnauthorized          = 40101
+	CodeForbidden             = 40301
 	CodeNotFound              = 40401
 	CodeInternalError         = 50001
 	CodeValidationError       = 40002

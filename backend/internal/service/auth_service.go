@@ -494,11 +494,11 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 			Status:   "active",
 		}
 		if err := db.CreateOrg(ctx, tx, org); err != nil {
-				return err
-			}
-			if err := db.CloneSystemLLMModelsByOrg(ctx, tx, 1, org.ID); err != nil {
-				return fmt.Errorf("clone system llm models: %w", err)
-			}
+			return err
+		}
+		if err := db.CloneSystemLLMModelsByOrg(ctx, tx, 1, org.ID); err != nil {
+			return fmt.Errorf("clone system llm models: %w", err)
+		}
 
 		userOrg = &types.UserOrg{
 			UserID:    user.ID,

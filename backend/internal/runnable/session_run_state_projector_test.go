@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
@@ -22,7 +23,7 @@ func TestPersistPublishedPlanCreatesFileUploadAndProjectFileIdempotently(t *test
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
-	if err := database.AutoMigrate(&types.Session{}, &types.FileUpload{}, &types.ProjectFile{}); err != nil {
+	if err := database.AutoMigrate(&types.Session{}, &types.FileUpload{}, &types.ProjectFile{}, &types.Resource{}); err != nil {
 		t.Fatalf("migrate database: %v", err)
 	}
 	if err := filestore.Init(&config.StorageConfig{
@@ -35,6 +36,15 @@ func TestPersistPublishedPlanCreatesFileUploadAndProjectFileIdempotently(t *test
 
 	projectID := uint(10)
 	taskID := uint(20)
+	projResource := &types.Resource{
+		OrgID: 1,
+		Uin:   30,
+		Type:  types.ResourceTypeProject,
+		BizID: projectID,
+	}
+	if err := db.CreateResource(context.Background(), database, projResource); err != nil {
+		t.Fatalf("create project resource: %v", err)
+	}
 	session := &types.Session{
 		PublicID:  "session-1",
 		Type:      types.SessionTypeTask,
@@ -97,5 +107,18 @@ func TestPersistPublishedPlanCreatesFileUploadAndProjectFileIdempotently(t *test
 		projectFiles[0].ResourceID != uploads[0].ID ||
 		projectFiles[0].ResourceType != types.ProjectFileResourceTypePlan {
 		t.Fatalf("project file = %#v", projectFiles[0])
+	}
+
+	var resources []types.Resource
+	if err := database.Where("type = ?", types.ResourceTypeFile).Find(&resources).Error; err != nil {
+		t.Fatalf("list file resources: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("file resource count = %d, want 1", len(resources))
+	}
+	if resources[0].BizID != projectFiles[0].ID ||
+		resources[0].ParentResourceID == nil ||
+		*resources[0].ParentResourceID != projResource.ID {
+		t.Fatalf("file resource = %#v", resources[0])
 	}
 }

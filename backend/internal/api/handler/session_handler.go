@@ -15,6 +15,7 @@ import (
 
 type SessionHandler struct {
 	service contract.SessionService
+	permSvc PermGuarder
 }
 
 type channelSessionEventSink struct {
@@ -36,30 +37,34 @@ func (s *channelSessionEventSink) EmitSessionEvent(
 	}
 }
 
-func NewSessionHandler(service contract.SessionService) *SessionHandler {
+func NewSessionHandler(service contract.SessionService, permSvc PermGuarder) *SessionHandler {
 	return &SessionHandler{
 		service: service,
+		permSvc: permSvc,
 	}
 }
 
 func (h *SessionHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/CreateSession", h.CreateSession)
-	r.POST("/sessions/:session_id/approvals", h.SubmitApproval)
-	r.POST("/GetSession", h.GetSession)
-	r.POST("/UpdateSession", h.UpdateSession)
-	r.POST("/DeleteSession", h.DeleteSession)
+	r.POST("/sessions/:session_id/approvals",
+		PermGuardViaSessionPath(h.permSvc, "session_id"),
+		h.SubmitApproval,
+	)
+	r.POST("/GetSession", PermGuardViaSession(h.permSvc), h.GetSession)
+	r.POST("/UpdateSession", PermGuardViaSession(h.permSvc), h.UpdateSession)
+	r.POST("/DeleteSession", PermGuardViaSession(h.permSvc), h.DeleteSession)
 	r.POST("/ListSessions", h.ListSessions)
-	r.POST("/SessionEvents", h.SessionEvents)
-	r.POST("/AddMessage", h.AddMessage)
-	r.POST("/GetSessionMessages", h.GetSessionMessages)
-	r.POST("/DeleteMessage", h.DeleteMessage)
-	r.POST("/ClearSessionMessages", h.ClearSessionMessages)
-	r.POST("/CancelSessionRun", h.CancelSessionRun)
-	r.POST("/CreateInitialMessage", h.CreateInitialMessage)
+	r.POST("/SessionEvents", PermGuardViaSession(h.permSvc), h.SessionEvents)
+	r.POST("/AddMessage", PermGuardViaSession(h.permSvc), h.AddMessage)
+	r.POST("/GetSessionMessages", PermGuardViaSession(h.permSvc), h.GetSessionMessages)
+	r.POST("/DeleteMessage", PermGuardViaMessage(h.permSvc), h.DeleteMessage)
+	r.POST("/ClearSessionMessages", PermGuardViaSession(h.permSvc), h.ClearSessionMessages)
+	r.POST("/CancelSessionRun", PermGuardViaSession(h.permSvc), h.CancelSessionRun)
+	r.POST("/CreateInitialMessage", PermGuardNewMessage(h.permSvc), h.CreateInitialMessage)
 }
 
-func RegisterSessionRoutes(r gin.IRouter, service contract.SessionService) {
-	h := NewSessionHandler(service)
+func RegisterSessionRoutes(r gin.IRouter, service contract.SessionService, permSvc PermGuarder) {
+	h := NewSessionHandler(service, permSvc)
 	h.RegisterRoutes(r)
 }
 
@@ -512,19 +517,20 @@ func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
 }
 
 func handleSessionServiceError(ctx *gin.Context, err error) {
-	if err.Error() == "user not authenticated or org not set" {
-		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
+	errMsg := err.Error()
+	if errMsg == "user not authenticated or org not set" {
+		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeUnauthorized, errMsg))
 		return
 	}
-	if err.Error() == "permission denied" {
-		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, err.Error()))
+	if isPermissionDenied(err) {
+		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, errMsg))
 		return
 	}
-	if err.Error() == "session not found" || err.Error() == "message not found" || err.Error() == "project not found" || err.Error() == "task not found" {
-		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, err.Error()))
+	if errMsg == "session not found" || errMsg == "message not found" || errMsg == "project not found" || errMsg == "task not found" {
+		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, errMsg))
 		return
 	}
-	ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+	ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))
 }
 
 // CancelSessionRun cancels an active agent run for the given session.

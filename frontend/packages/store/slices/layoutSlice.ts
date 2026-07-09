@@ -8,6 +8,7 @@ import type {
 	BackendSession,
 	BackendTask,
 } from "../api/types";
+import { handlePermissionDenied } from "../permission/errors";
 import type { SliceCreator } from "../types";
 import type { Attachment, ComposerToken, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
@@ -339,6 +340,8 @@ export function projectMembersToInputs(members: ProjectMember[]): ProjectMemberI
 			type: member.type,
 			// 中文注释：成员更新接口要求 AI 员工和真实成员都传 public_id，默认 AI 由后端保留不参与 diff。
 			id: member.publicId as string,
+			// 中文注释：仅真人成员携带项目角色，AI 队友无角色概念，交由后端忽略。
+			...(member.type === "user" ? { role: member.role || "member" } : {}),
 		}));
 }
 function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[] {
@@ -907,8 +910,13 @@ export class LayoutActionImpl {
 						: p,
 				),
 			}));
+			const store = this.#get() as LayoutStore & {
+				invalidate?: (resource?: { type: "project"; publicId: string }) => void;
+			};
+			store.invalidate?.({ type: "project", publicId: params.public_id });
 			return item;
 		} catch (err) {
+			if (handlePermissionDenied(err)) return null;
 			console.error("updateProject error:", err);
 			return null;
 		}
@@ -927,7 +935,37 @@ export class LayoutActionImpl {
 			}));
 			return true;
 		} catch (err) {
+			if (handlePermissionDenied(err)) return false;
 			console.error("deleteProject error:", err);
+			return false;
+		}
+	};
+
+	leaveProject = async (publicId: string) => {
+		try {
+			await projectApi.leave({ public_id: publicId });
+			this.#set((state) => ({
+				projects: state.projects.filter((p) => p.id !== publicId),
+				activeProjectId: state.activeProjectId === publicId ? null : state.activeProjectId,
+				activeWorkbenchProjectId:
+					state.activeWorkbenchProjectId === publicId ? null : state.activeWorkbenchProjectId,
+				activeWorkbenchTaskId:
+					state.activeWorkbenchProjectId === publicId ? null : state.activeWorkbenchTaskId,
+				activeTaskDetailProjectId:
+					state.activeTaskDetailProjectId === publicId ? null : state.activeTaskDetailProjectId,
+				activeTaskDetailTaskId:
+					state.activeTaskDetailProjectId === publicId ? null : state.activeTaskDetailTaskId,
+				activeTaskDetailSessionId:
+					state.activeTaskDetailProjectId === publicId ? null : state.activeTaskDetailSessionId,
+			}));
+			const store = this.#get() as LayoutStore & {
+				invalidate?: (resource?: { type: "project"; publicId: string }) => void;
+			};
+			store.invalidate?.({ type: "project", publicId });
+			return true;
+		} catch (err) {
+			if (handlePermissionDenied(err)) return false;
+			console.error("leaveProject error:", err);
 			return false;
 		}
 	};
@@ -989,6 +1027,7 @@ export class LayoutActionImpl {
 			}));
 			return item;
 		} catch (err) {
+			if (handlePermissionDenied(err)) return null;
 			console.error("createTask error:", err);
 			return null;
 		}
@@ -1017,6 +1056,7 @@ export class LayoutActionImpl {
 			}));
 			return item;
 		} catch (err) {
+			if (handlePermissionDenied(err)) return null;
 			console.error("updateTask error:", err);
 			return null;
 		}
@@ -1034,6 +1074,7 @@ export class LayoutActionImpl {
 					this.#get().activeWorkbenchTaskId === publicId ? null : this.#get().activeWorkbenchTaskId,
 			}));
 		} catch (err) {
+			if (handlePermissionDenied(err)) return;
 			console.error("deleteTask error:", err);
 		}
 	};

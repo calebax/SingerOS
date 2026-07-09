@@ -117,10 +117,10 @@ func TestCreateDigitalAssistant_LimitsPerUserToFive(t *testing.T) {
 	service := NewDigitalAssistantService(db, nil)
 	if err := db.Create(&types.DigitalAssistant{
 		PublicID: defaultWorkerPublicID(1),
-		OrgID:   1,
-		OwnerID: 1,
-		Name:    "lework",
-		Status:  string(contract.DigitalAssistantStatusActive),
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "lework",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}).Error; err != nil {
 		t.Fatalf("create default assistant: %v", err)
 	}

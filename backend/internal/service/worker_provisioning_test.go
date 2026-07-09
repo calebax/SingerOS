@@ -68,10 +68,10 @@ func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {
 
 	assistant := &types.DigitalAssistant{
 		PublicID: "custom-agent",
-		OrgID:   12,
-		OwnerID: 34,
-		Name:    "Custom Agent",
-		Status:  string(contract.DigitalAssistantStatusDraft),
+		OrgID:    12,
+		OwnerID:  34,
+		Name:     "Custom Agent",
+		Status:   string(contract.DigitalAssistantStatusDraft),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -100,10 +100,10 @@ func TestWorkerProvisioningRebindsLegacyDefaultWorker(t *testing.T) {
 	ctx := context.Background()
 	legacyAssistant := &types.DigitalAssistant{
 		PublicID: "org_12_default_worker",
-		OrgID:   12,
-		OwnerID: 34,
-		Name:    "Legacy Default Worker",
-		Status:  string(contract.DigitalAssistantStatusActive),
+		OrgID:    12,
+		OwnerID:  34,
+		Name:     "Legacy Default Worker",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(legacyAssistant).Error; err != nil {
 		t.Fatalf("create legacy assistant: %v", err)
@@ -152,9 +152,9 @@ func TestWorkerReconcilerDoesNotRestartProvisioningDeployment(t *testing.T) {
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
 		PublicID: "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -205,9 +205,9 @@ func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
 		PublicID: "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -269,9 +269,9 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
 		PublicID: "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -319,9 +319,9 @@ func TestWorkerReconcilerSyncsOrgSkillsAfterProvisioningDeploymentReady(t *testi
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
 		PublicID: "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -380,9 +380,9 @@ func TestWorkerReconcilerRestartsProvisioningDeploymentWhenRuntimeMissing(t *tes
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
 		PublicID: "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)

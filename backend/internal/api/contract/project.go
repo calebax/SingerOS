@@ -15,6 +15,8 @@ type ProjectService interface {
 
 	DeleteProject(ctx context.Context, publicID string) error
 
+	LeaveProject(ctx context.Context, publicID string) error
+
 	ListProjects(ctx context.Context, req *ListProjectsRequest) (*ProjectList, error)
 
 	ListProjectActivities(ctx context.Context, req *ListProjectActivitiesRequest) (*ProjectActivityList, error)

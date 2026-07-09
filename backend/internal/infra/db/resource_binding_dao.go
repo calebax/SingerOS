@@ -11,6 +11,9 @@ import (
 
 // CreateResourceBinding 创建资源角色绑定记录。
 func CreateResourceBinding(ctx context.Context, d *gorm.DB, binding *types.ResourceBinding) error {
+	if err := binding.Validate(); err != nil {
+		return err
+	}
 	return d.WithContext(ctx).Create(binding).Error
 }
 

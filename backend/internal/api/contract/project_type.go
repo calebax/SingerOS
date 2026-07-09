@@ -24,6 +24,7 @@ type Project struct {
 type MemberInput struct {
 	Type string `json:"type" binding:"required"` // "user" | "assistant"
 	ID   string `json:"id" binding:"required"`   // user 传 public_id, assistant 传 public_id
+	Role string `json:"role,omitempty"`          // 仅 type=user 生效，可选 owner|admin|member，空值默认 member
 }
 
 // CreateProjectRequest 创建项目请求

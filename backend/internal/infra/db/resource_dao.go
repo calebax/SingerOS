@@ -73,6 +73,20 @@ func ListResourcesByIDs(ctx context.Context, d *gorm.DB, ids []uint) ([]*types.R
 	return entities, nil
 }
 
+// ListResourcesByBizIDs 按组织、资源类型和业务 ID 列表批量查询资源。
+func ListResourcesByBizIDs(ctx context.Context, d *gorm.DB, orgID uint, resourceType types.ResourceType, bizIDs []uint) ([]*types.Resource, error) {
+	if len(bizIDs) == 0 {
+		return nil, nil
+	}
+	var entities []*types.Resource
+	if err := d.WithContext(ctx).
+		Where("org_id = ? AND type = ? AND biz_id IN ? AND deleted_at IS NULL", orgID, resourceType, bizIDs).
+		Find(&entities).Error; err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
 // DeleteResource 软删除资源记录。
 func DeleteResource(ctx context.Context, d *gorm.DB, id uint) error {
 	return d.WithContext(ctx).Delete(&types.Resource{}, id).Error
