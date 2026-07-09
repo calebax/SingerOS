@@ -72,9 +72,7 @@ import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
 import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 
-const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
-const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
-const LEFT_RAIL_COLLAPSED_WIDTH = 72;
+const LEFT_RAIL_COLLAPSED_WIDTH = 50;
 // 中文注释：设计稿要求项目展开后先预览 10 条任务，点“展开显示”后再展示全部任务。
 const PROJECT_TASK_PREVIEW_LIMIT = 10;
 
@@ -142,7 +140,6 @@ export function LeftRail({
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
 	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
-	const hasLoadedPreferenceRef = useRef(false);
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
 	const [renameTask, setRenameTask] = useState<ProjectTask | null>(null);
 	const [renameValue, setRenameValue] = useState("");
@@ -298,35 +295,6 @@ export function LeftRail({
 		fetchProjects();
 	}, [fetchProjects]);
 
-	useEffect(() => {
-		if (typeof window === "undefined" || hasLoadedPreferenceRef.current) return;
-		hasLoadedPreferenceRef.current = true;
-
-		const savedWidth = window.localStorage.getItem(LEFT_RAIL_WIDTH_STORAGE_KEY);
-		const savedCollapsed = window.localStorage.getItem(LEFT_RAIL_COLLAPSED_STORAGE_KEY);
-
-		if (savedWidth) {
-			const parsedWidth = Number(savedWidth);
-			if (Number.isFinite(parsedWidth)) {
-				setLeftRailWidth(parsedWidth);
-			}
-		}
-
-		if (savedCollapsed) {
-			setLeftRailCollapsed(savedCollapsed === "true");
-		}
-	}, [setLeftRailCollapsed, setLeftRailWidth]);
-
-	useEffect(() => {
-		if (typeof window === "undefined" || !hasLoadedPreferenceRef.current) return;
-		window.localStorage.setItem(LEFT_RAIL_WIDTH_STORAGE_KEY, String(leftRailWidth));
-	}, [leftRailWidth]);
-
-	useEffect(() => {
-		if (typeof window === "undefined" || !hasLoadedPreferenceRef.current) return;
-		window.localStorage.setItem(LEFT_RAIL_COLLAPSED_STORAGE_KEY, String(leftRailCollapsed));
-	}, [leftRailCollapsed]);
-
 	// 中文注释：项目展开态属于当前登录会话的浏览上下文，登出后应重置，避免重新登录后仍显示空的展开列表。
 	useEffect(() => {
 		if (isAuthenticated) return;
@@ -422,7 +390,10 @@ export function LeftRail({
 		const name = renameValue.trim();
 		if (!renameProject || !name) return;
 
-		const updatedProject = await updateProject({ public_id: renameProject.id, name });
+		const updatedProject = await updateProject({
+			public_id: renameProject.id,
+			name,
+		});
 		if (updatedProject) {
 			setRenameProject(null);
 			setRenameValue("");
@@ -520,7 +491,7 @@ export function LeftRail({
 	};
 
 	const sidebarWidth = leftRailCollapsed ? LEFT_RAIL_COLLAPSED_WIDTH : leftRailWidth;
-	const profileTriggerWidth = Math.max(0, sidebarWidth - 16);
+	const profileTriggerWidth = Math.max(0, sidebarWidth - 1);
 
 	return (
 		<aside
@@ -726,7 +697,7 @@ export function LeftRail({
 								登录 / 注册
 							</p>
 							<p className="text-[10px] font-semibold uppercase tracking-tight text-[var(--leros-primary)]">
-								LEROS
+								Lework
 							</p>
 						</div>
 						<UserRound className="leros-sidebar-expandable size-4 shrink-0 text-[var(--leros-text-subtle)]" />
@@ -983,7 +954,10 @@ function AccountManagementDialog({
 
 		setSavingName(true);
 		try {
-			const response = await userApi.update({ public_id: publicId, name: nextName });
+			const response = await userApi.update({
+				public_id: publicId,
+				name: nextName,
+			});
 			const updatedUser = response.data.data;
 			if (updatedUser?.name) {
 				updateLocalUser({
@@ -1019,7 +993,10 @@ function AccountManagementDialog({
 		const previewURL = URL.createObjectURL(file);
 		setPreviewAvatarUrl(previewURL);
 		try {
-			const uploadResponse = await projectFileApi.uploadLoose({ file, purpose: "avatar" });
+			const uploadResponse = await projectFileApi.uploadLoose({
+				file,
+				purpose: "avatar",
+			});
 			const uploaded = uploadResponse.data;
 			if (!uploaded?.public_id) {
 				throw new Error("头像上传失败");
@@ -1030,7 +1007,10 @@ function AccountManagementDialog({
 
 			// 中文注释：avatar_url 保存上传文件 public_id，展示时再通过 preview 接口读取头像。
 			const avatarUrl = uploaded.public_id;
-			const response = await userApi.update({ public_id: publicId, avatar_url: avatarUrl });
+			const response = await userApi.update({
+				public_id: publicId,
+				avatar_url: avatarUrl,
+			});
 			const updatedUser = response.data.data;
 			cacheProtectedImageDataURL(avatarUrl, await blobToDataURL(file));
 			updateLocalUser({
@@ -1327,7 +1307,9 @@ function DesktopUpdateMenuSection() {
 					<div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
 						<div
 							className="h-full rounded-full bg-[#34c59a] transition-all"
-							style={{ width: `${Math.max(0, Math.min(updateState.progressPercent, 100))}%` }}
+							style={{
+								width: `${Math.max(0, Math.min(updateState.progressPercent, 100))}%`,
+							}}
 						/>
 					</div>
 				</div>

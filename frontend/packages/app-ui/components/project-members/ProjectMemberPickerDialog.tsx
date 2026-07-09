@@ -62,7 +62,7 @@ function assistantToProjectMember(assistant: DigitalAssistantItem): ProjectMembe
 }
 
 function humanToProjectMember(member: HumanProjectMemberOption): ProjectMember {
-	// 中文注释：真人成员副标题只展示手机号或邮箱，避免把无业务价值的 github_login 暴露在成员选择列表里。
+	// 中文注释：真人队友副标题只展示手机号或邮箱，避免把无业务价值的 github_login 暴露在成员选择列表里。
 	const descriptionParts = [member.phone, member.email].filter(Boolean);
 
 	return {
@@ -123,7 +123,7 @@ function resolveMemberPublicIdentity(
 		...member,
 		id: matched.id,
 		memberId: matched.memberId || member.memberId,
-		// 中文注释：项目成员详情可能只带内部 memberId，提交更新前要回填候选列表里的 public_id。
+		// 中文注释：项目队友详情可能只带内部 memberId，提交更新前要回填候选列表里的 public_id。
 		publicId: matched.publicId,
 		description: member.description || matched.description,
 		avatarUrl: member.avatarUrl || matched.avatarUrl,
@@ -259,7 +259,7 @@ export function ProjectMemberPickerDialog({
 			>
 				<DialogHeader className="shrink-0">
 					<div className="flex items-center justify-between gap-4">
-						<DialogTitle>添加项目成员</DialogTitle>
+						<DialogTitle>添加项目队友</DialogTitle>
 						<Button
 							type="button"
 							variant="ghost"
@@ -270,7 +270,7 @@ export function ProjectMemberPickerDialog({
 							<X className="size-4" />
 						</Button>
 					</div>
-					<DialogDescription>选择 AI 队友或真人成员加入项目。</DialogDescription>
+					<DialogDescription>选择 AI 队友或真人队友加入项目。</DialogDescription>
 				</DialogHeader>
 
 				<div className="mt-4 grid h-[420px] max-h-[calc(100vh-220px)] min-h-0 gap-4 overflow-hidden sm:grid-cols-[minmax(0,1fr)_220px]">
@@ -283,7 +283,7 @@ export function ProjectMemberPickerDialog({
 								AI 队友
 							</MemberTabButton>
 							<MemberTabButton active={activeTab === "human"} onClick={() => setActiveTab("human")}>
-								真人成员
+								真人队友
 							</MemberTabButton>
 						</div>
 						<div className="mt-3 min-h-0 flex-1">
@@ -301,8 +301,8 @@ export function ProjectMemberPickerDialog({
 								<MemberCommandList
 									search={humanSearch}
 									onSearchChange={setHumanSearch}
-									placeholder="搜索真人成员"
-									emptyText="没有可添加的真人成员"
+									placeholder="搜索真人队友"
+									emptyText="没有可添加的真人队友"
 									members={filteredHumans}
 									onSelect={addMember}
 									loading={humansLoading}
@@ -474,7 +474,7 @@ export function ProjectMemberChip({
 							? "默认 AI 队友"
 							: member.type === "assistant"
 								? "AI 队友"
-								: "真人成员"}
+								: "真人队友"}
 				</div>
 			</div>
 			{!readonly && onRemove && (
