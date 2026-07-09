@@ -142,6 +142,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterSkillRoutes(v1, skillService)
 		logs.Info("Skill management routes registered successfully")
 
+		feedbackService := service.NewFeedbackService(db, fileService, cfg.Feishu)
+		handler.RegisterFeedbackRoutes(v1, feedbackService)
+		logs.Info("Feedback routes registered successfully")
+
 		// Start background consumers
 		if !cfg.Server.DisableEventConsumers {
 			// 统一的 run state projector，消费 org.*.session.*.run.state

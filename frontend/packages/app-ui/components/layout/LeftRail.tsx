@@ -45,6 +45,7 @@ import {
 	Hash,
 	Loader2,
 	LogOut,
+	MessageSquare,
 	MoreHorizontal,
 	Network,
 	Pencil,
@@ -67,6 +68,7 @@ import {
 	cacheProtectedImageDataURL,
 	ProtectedImage,
 } from "../avatar/ProtectedImage";
+import { FeedbackDialog } from "../feedback/FeedbackDialog";
 import { OrgAdminDialog } from "../org-admin/OrgAdminDialog";
 import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
@@ -152,6 +154,7 @@ export function LeftRail({
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
 	const [orgAdminDialogOpen, setOrgAdminDialogOpen] = useState(false);
 	const [orgSwitchDialogOpen, setOrgSwitchDialogOpen] = useState(false);
+	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
 	const [globalTaskSearchOpen, setGlobalTaskSearchOpen] = useState(false);
 	const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
 	const [expandedTaskProjectIds, setExpandedTaskProjectIds] = useState<Set<string>>(
@@ -707,6 +710,15 @@ export function LeftRail({
 								<span>切换组织</span>
 							</DropdownMenuItem>
 							<DesktopUpdateMenuSection />
+							<DropdownMenuItem
+								onClick={() => {
+									if (!requireAuth()) return;
+									setFeedbackDialogOpen(true);
+								}}
+							>
+								<MessageSquare className="size-4 shrink-0" />
+								<span>意见反馈</span>
+							</DropdownMenuItem>
 							<DropdownMenuItem variant="destructive" onClick={handleLogout}>
 								<LogOut className="size-4 shrink-0" />
 								<span>退出登录</span>
@@ -755,6 +767,7 @@ export function LeftRail({
 				onUserChange={setAuthUser}
 			/>
 			<OrgAdminDialog open={orgAdminDialogOpen} onOpenChange={setOrgAdminDialogOpen} />
+			<FeedbackDialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen} />
 			<Dialog open={orgSwitchDialogOpen} onOpenChange={setOrgSwitchDialogOpen}>
 				<DialogContent className="w-[min(420px,95vw)] max-w-none p-6" showCloseButton>
 					<OrganizationSwitchPanel
