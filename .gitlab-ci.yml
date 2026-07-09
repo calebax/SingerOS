@@ -456,21 +456,21 @@ deploy:
 desktop-build-mac-arm64:
   extends: .desktop-build-template
   tags:
-    - maocs.macos-1
+    - macos-1
   variables:
     DESKTOP_TARGET: mac-arm64
 
 desktop-build-mac-x64:
   extends: .desktop-build-template
   tags:
-    - maocs.macos-2
+    - macos-2
   variables:
     DESKTOP_TARGET: mac-x64
 
 desktop-build-win-x64:
   extends: .desktop-build-template
   tags:
-    - maocs.macos-1
+    - macos-1
   variables:
     DESKTOP_TARGET: win-x64
 
