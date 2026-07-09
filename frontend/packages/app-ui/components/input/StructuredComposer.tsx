@@ -1,6 +1,6 @@
 "use client";
 
-import { type SkillInstalledItem, skillMarketplaceApi } from "@leros/store";
+import { type SkillInstalledItem, useSkillStore } from "@leros/store";
 import type { ComposerToken } from "@leros/store/types/chat";
 import {
 	Command,
@@ -266,54 +266,6 @@ function matchesCommandQuery(
 	if (!query) return true;
 	// 中文注释：技能弹窗搜索只按技能名称匹配，避免描述里的英文命中导致结果看起来不相关。
 	return [option.label, option.code].join(" ").toLowerCase().includes(query);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function stringFromValue(value: unknown): string {
-	return typeof value === "string" ? value : "";
-}
-
-function skillItemFromValue(value: unknown): SkillInstalledItem | null {
-	if (!isRecord(value)) return null;
-
-	const name = stringFromValue(value.name || value.skill_id || value.id);
-	if (!name) return null;
-
-	return {
-		name,
-		display_name: stringFromValue(value.display_name),
-		description: stringFromValue(value.description),
-		category: stringFromValue(value.category),
-		source: stringFromValue(value.source || value.source_type),
-		trust: stringFromValue(value.trust),
-	};
-}
-
-function skillItemsFromValue(value: unknown): SkillInstalledItem[] {
-	if (!Array.isArray(value)) return [];
-	return value.map(skillItemFromValue).filter((item): item is SkillInstalledItem => item !== null);
-}
-
-function normalizeInstalledSkillsPayload(value: unknown): SkillInstalledItem[] {
-	if (Array.isArray(value)) return skillItemsFromValue(value);
-	if (!isRecord(value)) return [];
-
-	const nestedData = value.data;
-	if (isRecord(nestedData)) {
-		if (Array.isArray(nestedData.skills)) {
-			return skillItemsFromValue(nestedData.skills);
-		}
-		if (Array.isArray(nestedData.items)) {
-			return skillItemsFromValue(nestedData.items);
-		}
-	}
-
-	if (Array.isArray(value.skills)) return skillItemsFromValue(value.skills);
-	if (Array.isArray(value.items)) return skillItemsFromValue(value.items);
-	return [];
 }
 
 function assistantPickerValue(option: AssistantOption): string {
@@ -845,6 +797,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		},
 		ref,
 	) {
+		const { installedSkills, installedSkillsLoaded } = useSkillStore((s) => s);
 		const editorRef = useRef<HTMLDivElement>(null);
 		const pickerRef = useRef<HTMLDivElement>(null);
 		const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
@@ -852,10 +805,6 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const [commandSearch, setCommandSearch] = useState("");
 		const [assistantSearch, setAssistantSearch] = useState("");
 		const [tokens, setTokens] = useState<InsertedToken[]>([]);
-		const [skillOptions, setSkillOptions] = useState<ComposerSkillOption[]>([]);
-		const [skillsLoading, setSkillsLoading] = useState(false);
-		const [skillsLoaded, setSkillsLoaded] = useState(false);
-		const [skillsError, setSkillsError] = useState<string | null>(null);
 		const composingRef = useRef(false);
 		const pendingCaretRef = useRef<number | null>(null);
 		const dismissedTriggerStartRef = useRef<number | null>(null);
@@ -864,6 +813,12 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const tokensRef = useRef<InsertedToken[]>([]);
 		const appliedPrefillIdsRef = useRef<Set<string>>(new Set());
 
+		const skillOptions = useMemo<ComposerSkillOption[]>(() => {
+			if (projectSkillOptions) return projectSkillOptions;
+			return installedSkills.map(installedSkillToOption);
+		}, [installedSkills, projectSkillOptions]);
+		const skillsLoading =
+			trigger?.kind === "command" && !projectSkillOptions && !installedSkillsLoaded;
 		const availableAssistantOptions = useMemo<AssistantOption[]>(
 			() => assistantOptions,
 			[assistantOptions],
@@ -1071,35 +1026,6 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			if (!directivesDisabled) return;
 			dismissTrigger(false);
 		}, [directivesDisabled, dismissTrigger]);
-
-		useEffect(() => {
-			if (projectSkillOptions) {
-				setSkillOptions(projectSkillOptions);
-				setSkillsLoaded(true);
-				setSkillsError(null);
-				setSkillsLoading(false);
-				return;
-			}
-			if (trigger?.kind !== "command" || skillsLoaded) return;
-
-			setSkillsLoading(true);
-			setSkillsError(null);
-			skillMarketplaceApi
-				.installed()
-				.then((resp) => {
-					const raw = normalizeInstalledSkillsPayload(resp.data);
-					setSkillOptions(raw.map(installedSkillToOption));
-					setSkillsLoaded(true);
-				})
-				.catch((err: unknown) => {
-					const message = err instanceof Error ? err.message : "技能加载失败";
-					setSkillsError(message);
-					setSkillOptions([]);
-				})
-				.finally(() => {
-					setSkillsLoading(false);
-				});
-		}, [projectSkillOptions, skillsLoaded, trigger?.kind]);
 
 		const clearProjectTrigger = useCallback(
 			(activeTrigger: ActiveTrigger) => {
@@ -1771,9 +1697,6 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 									<CommandGroup heading="Skills" className="p-0">
 										{skillsLoading && (
 											<div className="px-2.5 py-2 text-xs text-slate-400">加载 Skills...</div>
-										)}
-										{!skillsLoading && skillsError && (
-											<div className="px-2.5 py-2 text-xs text-red-400">{skillsError}</div>
 										)}
 										{filteredSkills.map((skill, index) => (
 											<CommandItem

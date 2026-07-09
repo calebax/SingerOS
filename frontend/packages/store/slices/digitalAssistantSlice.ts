@@ -2,6 +2,7 @@ import { digitalAssistantApi } from "../api/digitalAssistantApi";
 import type { BackendDigitalAssistant } from "../api/types";
 import type { SliceCreator } from "../types";
 import { flattenActions } from "../utils";
+import { readStoredAuthUser } from "../utils/authStorage";
 
 export type DigitalAssistantItem = {
 	id: number;
@@ -75,22 +76,47 @@ export const createDASlice = (set: SetState) => new DASliceImpl(set);
 
 export class DASliceImpl {
 	readonly #set: SetState;
+	#fetchAssistantsPromise: Promise<void> | null = null;
+	#assistantsFetchEpoch = 0;
 
 	constructor(set: SetState) {
 		this.#set = set;
 	}
 
 	fetchAssistants = async () => {
-		try {
-			const res = await digitalAssistantApi.list({ list_all: true, limit: 100 });
-			const items = res.data.data?.items ?? [];
-			this.#set({
-				assistants: items.map(mapBackendDA),
-				assistantsLoaded: true,
-			});
-		} catch (err) {
-			console.error("fetchAssistants error:", err);
-		}
+		if (!readStoredAuthUser()?.jwtToken) return;
+		if (this.#fetchAssistantsPromise) return this.#fetchAssistantsPromise;
+
+		const fetchEpoch = this.#assistantsFetchEpoch;
+		this.#fetchAssistantsPromise = (async () => {
+			try {
+				const res = await digitalAssistantApi.list({ list_all: true, limit: 100 });
+				if (fetchEpoch !== this.#assistantsFetchEpoch) return;
+				const items = res.data.data?.items ?? [];
+				this.#set({
+					assistants: items.map(mapBackendDA),
+					assistantsLoaded: true,
+				});
+			} catch (err) {
+				console.error("fetchAssistants error:", err);
+			} finally {
+				if (fetchEpoch === this.#assistantsFetchEpoch) {
+					this.#fetchAssistantsPromise = null;
+				}
+			}
+		})();
+
+		return this.#fetchAssistantsPromise;
+	};
+
+	resetAuthScopedData = () => {
+		this.#assistantsFetchEpoch += 1;
+		this.#fetchAssistantsPromise = null;
+		this.#set({
+			assistants: [],
+			assistantsLoaded: false,
+			activeAssistantId: null,
+		});
 	};
 
 	createAssistant = async (params: {

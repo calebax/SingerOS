@@ -64,6 +64,7 @@ export {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
+	useSkillStore,
 	useTopicStore,
 } from "./appStore";
 export type { AuthAction, AuthState, AuthStore, AuthUser } from "./slices/authSlice";
@@ -90,6 +91,7 @@ export type {
 	ProjectTask,
 	ProjectTaskStatus,
 	ViewMode,
+	WorkbenchComposerPrefill,
 	Workspace,
 	WorkspaceMode,
 } from "./slices/layoutSlice";
@@ -98,6 +100,8 @@ export {
 	LEFT_RAIL_MIN_WIDTH,
 	projectMembersToInputs,
 } from "./slices/layoutSlice";
+export type { SkillAction, SkillState, SkillStore } from "./slices/skillSlice";
+export { normalizeInstalledSkillsPayload } from "./slices/skillSlice";
 export type { Topic, TopicAction, TopicState, TopicStore } from "./slices/topicSlice";
 export type { PublicActions, SliceCreator } from "./types";
 export type {

@@ -1,6 +1,13 @@
 "use client";
 
-import { type AuthUser, useAuthStore, useChatStore, useLayoutStore } from "@leros/store";
+import {
+	type AuthUser,
+	useAuthStore,
+	useChatStore,
+	useDAStore,
+	useLayoutStore,
+	useSkillStore,
+} from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
 import { cn } from "@leros/ui/lib/utils";
@@ -24,6 +31,10 @@ export function OrganizationSwitchPanel({ navigation, onDone }: OrganizationSwit
 	const createOrganization = useAuthStore((s) => s.createOrganization);
 	const fetchProjects = useLayoutStore((s) => s.fetchProjects);
 	const resetAuthScopedData = useLayoutStore((s) => s.resetAuthScopedData);
+	const resetDAAuthScopedData = useDAStore((s) => s.resetAuthScopedData);
+	const resetSkillAuthScopedData = useSkillStore((s) => s.resetAuthScopedData);
+	const fetchAssistants = useDAStore((s) => s.fetchAssistants);
+	const fetchInstalledSkills = useSkillStore((s) => s.fetchInstalledSkills);
 	const switchView = useLayoutStore((s) => s.switchView);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
@@ -34,9 +45,11 @@ export function OrganizationSwitchPanel({ navigation, onDone }: OrganizationSwit
 
 	const resetOrgScopedData = async () => {
 		resetAuthScopedData();
+		resetDAAuthScopedData();
+		resetSkillAuthScopedData();
 		resetLocalMessages();
 		clearComposerInput();
-		await fetchProjects();
+		await Promise.all([fetchProjects(), fetchAssistants(), fetchInstalledSkills()]);
 		if (navigation) {
 			navigation.goToRoute("workbench");
 		} else {

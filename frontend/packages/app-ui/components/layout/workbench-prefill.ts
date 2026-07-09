@@ -1,0 +1,46 @@
+import type { ComposerToken } from "@leros/store/types/chat";
+import { buildDefaultSummonPrompt } from "../digitalAssistant/promptSuggestions";
+
+export function buildSkillWorkbenchPrefill(label: string): {
+	value: string;
+	tokens: ComposerToken[];
+} {
+	const token = `/${label}`;
+	return {
+		value: `${token} `,
+		tokens: [
+			{
+				kind: "skill",
+				label: token,
+				start: 0,
+				end: token.length,
+			},
+		],
+	};
+}
+
+export function buildAssistantWorkbenchPrefill(
+	assistantIdentity: string,
+	assistant: { name: string; expertise: string[] },
+	prompt?: string,
+): {
+	value: string;
+	tokens: ComposerToken[];
+} {
+	const mention = `@${assistant.name}`;
+	const content = prompt?.trim() || buildDefaultSummonPrompt(assistant);
+	const value = `${mention} ${content}`;
+
+	return {
+		value,
+		tokens: [
+			{
+				kind: "assistant",
+				id: assistantIdentity,
+				label: mention,
+				start: 0,
+				end: mention.length,
+			},
+		],
+	};
+}

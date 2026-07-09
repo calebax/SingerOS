@@ -8,6 +8,7 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
+	useSkillStore,
 } from "@leros/store";
 import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
@@ -236,8 +237,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		fetchTasks,
 		saveWorkbenchRecentContext,
 		clearTaskDetailRoute,
+		workbenchComposerPrefill,
+		consumeWorkbenchComposerPrefill,
 	} = useLayoutStore((s) => s);
-	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
+	const { assistants, fetchAssistants } = useDAStore((s) => s);
+	const { fetchInstalledSkills } = useSkillStore((s) => s);
 	const { addUploadedAttachment, startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -258,6 +262,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const [submenuTop, setSubmenuTop] = useState(0);
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
+	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
 
 	const revokeAttachmentURLs = (items: Attachment[]) => {
 		for (const attachment of items) {
@@ -277,13 +282,19 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [attachments]);
 
 	useEffect(() => {
+		if (!isAuthenticated) return;
 		void fetchProjects();
-	}, [fetchProjects]);
+	}, [fetchProjects, isAuthenticated]);
 
 	useEffect(() => {
-		if (assistantsLoaded) return;
+		if (!isAuthenticated) return;
 		void fetchAssistants();
-	}, [assistantsLoaded, fetchAssistants]);
+	}, [fetchAssistants, isAuthenticated]);
+
+	useEffect(() => {
+		if (!isAuthenticated) return;
+		void fetchInstalledSkills();
+	}, [fetchInstalledSkills, isAuthenticated]);
 
 	useEffect(() => {
 		if (!isAuthenticated) return;
@@ -294,6 +305,38 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		clearTaskDetailRoute();
 		selectWorkbenchProject(null);
 	}, [clearTaskDetailRoute, selectWorkbenchProject]);
+
+	useLayoutEffect(() => {
+		if (!workbenchComposerPrefill) return;
+		applyingWorkbenchPrefillIdRef.current = workbenchComposerPrefill.id;
+		setInput(workbenchComposerPrefill.value);
+	}, [workbenchComposerPrefill]);
+
+	useEffect(() => {
+		if (!workbenchComposerPrefill) return;
+		if (applyingWorkbenchPrefillIdRef.current !== workbenchComposerPrefill.id) return;
+
+		let cancelled = false;
+		const applyPrefill = () => {
+			if (cancelled) return;
+			if (!composerRef.current) {
+				requestAnimationFrame(applyPrefill);
+				return;
+			}
+
+			composerRef.current.setContent(
+				workbenchComposerPrefill.value,
+				workbenchComposerPrefill.tokens,
+			);
+			consumeWorkbenchComposerPrefill(workbenchComposerPrefill.id);
+			applyingWorkbenchPrefillIdRef.current = null;
+		};
+
+		applyPrefill();
+		return () => {
+			cancelled = true;
+		};
+	}, [consumeWorkbenchComposerPrefill, workbenchComposerPrefill]);
 
 	useEffect(() => {
 		if (!activeWorkbenchProjectId) return;
@@ -448,7 +491,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		() => getFilteredProjects(projects, projectSearch),
 		[projectSearch, projects],
 	);
-	const recentProjects = useMemo(() => projects.slice(0, 3), [projects]);
+	const recentProjects = useMemo(() => {
+		if (!isAuthenticated) return [];
+		return projects.slice(0, 3);
+	}, [isAuthenticated, projects]);
 
 	// 中文注释：项目列表接口不含任务，hover 展示任务子菜单时按需拉取。
 	const loadProjectTasksIfNeeded = useCallback(

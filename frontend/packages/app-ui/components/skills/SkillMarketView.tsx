@@ -1,7 +1,7 @@
 "use client";
 
 import type { SkillMarketplaceItem } from "@leros/store";
-import { skillMarketplaceApi, useChatStore, useLayoutStore } from "@leros/store";
+import { skillMarketplaceApi, useLayoutStore, useSkillStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	DropdownMenu,
@@ -14,6 +14,8 @@ import { ChevronDown, Import, Plus } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import type { AppNavigation } from "../layout";
+import { navigateToWorkbench } from "../layout/workbench-navigation";
+import { buildSkillWorkbenchPrefill } from "../layout/workbench-prefill";
 import { MarketplacePanel } from "./MarketplacePanel";
 import { MySkillsPanel } from "./MySkillsPanel";
 import { RecentSkillsPanel } from "./RecentSkillsPanel";
@@ -31,27 +33,31 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	const [selectedVersion, setSelectedVersion] = useState<string | undefined>(undefined);
 	const [importDialogOpen, setImportDialogOpen] = useState(false);
 	const [mySkillsRefreshSeq, setMySkillsRefreshSeq] = useState(0);
-	const replaceSkillDirective = useChatStore((s) => s.replaceSkillDirective);
-	const { activeProjectId, projects, setProjectRoute } = useLayoutStore((s) => ({
-		activeProjectId: s.activeProjectId,
-		projects: s.projects,
-		setProjectRoute: s.setProjectRoute,
-	}));
+	const { installedSkills } = useSkillStore((s) => s);
+	const { setWorkbenchComposerPrefill, selectWorkbenchProject, selectWorkbenchTask, switchView } =
+		useLayoutStore((s) => s);
 
 	const goUseSkill = useCallback(
-		(skillId: string): boolean => {
-			const targetProjectId = activeProjectId ?? projects[0]?.id;
-			if (!targetProjectId) {
-				toast.error("请先创建或选择项目");
-				return false;
-			}
+		(skillId: string, displayLabel?: string): boolean => {
+			const installed = installedSkills.find((skill) => skill.name === skillId);
+			const label = displayLabel || installed?.display_name || skillId;
+			const prefill = buildSkillWorkbenchPrefill(label);
 
-			replaceSkillDirective(skillId);
-			setProjectRoute(targetProjectId, "chat");
-			navigation?.goToProject(targetProjectId);
+			selectWorkbenchProject(null);
+			selectWorkbenchTask(null);
+			setWorkbenchComposerPrefill(prefill);
+			navigateToWorkbench(navigation, switchView);
+			toast.success(`已添加 ${label} 技能`);
 			return true;
 		},
-		[activeProjectId, navigation, projects, replaceSkillDirective, setProjectRoute],
+		[
+			installedSkills,
+			navigation,
+			selectWorkbenchProject,
+			selectWorkbenchTask,
+			setWorkbenchComposerPrefill,
+			switchView,
+		],
 	);
 
 	const handleCardClick = useCallback(
@@ -74,10 +80,8 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	}, []);
 
 	const handleUse = useCallback(
-		(skillId: string) => {
-			if (!goUseSkill(skillId)) return;
-			setSelectedSkillId(null);
-			setActiveTab("mine");
+		(skillId: string, displayLabel?: string) => {
+			goUseSkill(skillId, displayLabel);
 		},
 		[goUseSkill],
 	);

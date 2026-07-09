@@ -140,6 +140,7 @@ export function LeftRail({
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
 	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
+	const visibleProjects = isAuthenticated ? projects : [];
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
 	const [renameTask, setRenameTask] = useState<ProjectTask | null>(null);
 	const [renameValue, setRenameValue] = useState("");
@@ -292,8 +293,9 @@ export function LeftRail({
 	/* ── end Desktop update notifier ── */
 
 	useEffect(() => {
-		fetchProjects();
-	}, [fetchProjects]);
+		if (!isAuthenticated) return;
+		void fetchProjects();
+	}, [fetchProjects, isAuthenticated]);
 
 	// 中文注释：项目展开态属于当前登录会话的浏览上下文，登出后应重置，避免重新登录后仍显示空的展开列表。
 	useEffect(() => {
@@ -577,7 +579,7 @@ export function LeftRail({
 						<span className="text-sm">最近项目</span>
 					</div>
 					<ProjectList
-						projects={projects}
+						projects={visibleProjects}
 						activeProjectId={activeProjectId}
 						activeTaskDetailProjectId={activeTaskDetailProjectId}
 						activeTaskDetailTaskId={activeTaskDetailTaskId}

@@ -9,6 +9,8 @@ import { ArrowLeft, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { AppNavigation } from "../layout";
+import { navigateToWorkbench } from "../layout/workbench-navigation";
+import { buildAssistantWorkbenchPrefill } from "../layout/workbench-prefill";
 import { AssistantCard } from "./AssistantCard";
 import { AssistantCreateDialog } from "./AssistantCreateDialog";
 import { AssistantDeleteDialog } from "./AssistantDeleteDialog";
@@ -31,13 +33,13 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 		setAssistantSearchQuery,
 		setAssistantStatusFilter,
 	} = useDAStore((s) => s);
-	const { createProject, setProjectComposerPrefill } = useLayoutStore((s) => s);
+	const { setWorkbenchComposerPrefill, selectWorkbenchProject, selectWorkbenchTask, switchView } =
+		useLayoutStore((s) => s);
 
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
 	const [detailTarget, setDetailTarget] = useState<DigitalAssistantItem | null>(null);
 	const [editTarget, setEditTarget] = useState<DigitalAssistantItem | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<DigitalAssistantItem | null>(null);
-	const [summoningId, setSummoningId] = useState<number | null>(null);
 	const liveDetailTarget = detailTarget
 		? (assistants.find((assistant) => assistant.id === detailTarget.id) ?? detailTarget)
 		: null;
@@ -71,51 +73,17 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 		setDetailTarget(assistant);
 	};
 
-	const handleSummonAssistant = async (assistant: DigitalAssistantItem, prompt?: string) => {
-		if (summoningId) return;
-		setSummoningId(assistant.id);
-		try {
-			const assistantIdentity = assistant.publicId || String(assistant.id);
-			const project = await createProject({
-				name: buildSummonProjectName(assistant),
-				description: `与 ${assistant.name} 协作`,
-				members: [{ type: "assistant", id: assistantIdentity }],
-				metadata: {
-					extra: {
-						source: "assistant_summon",
-						summoned_assistant_id: assistantIdentity,
-						summoned_assistant_name: assistant.name,
-					},
-				},
-			});
-			if (!project) {
-				throw new Error("No project returned");
-			}
+	const handleSummonAssistant = (assistant: DigitalAssistantItem, prompt?: string) => {
+		const assistantIdentity = assistant.publicId || String(assistant.id);
 
-			const mention = `@${assistant.name}`;
-			const content = buildSummonPrompt(assistant, prompt);
-			setProjectComposerPrefill({
-				projectId: project.id,
-				value: `${mention} ${content}`,
-				tokens: [
-					{
-						kind: "assistant",
-						id: assistantIdentity,
-						label: mention,
-						start: 0,
-						end: mention.length,
-					},
-				],
-			});
-			navigateToProject(project.id, navigation);
-			toast.success(`已召唤 ${assistant.name}`);
-			setDetailTarget(null);
-		} catch (err) {
-			console.error("summon my teammate error:", err);
-			toast.error("召唤队友失败");
-		} finally {
-			setSummoningId(null);
-		}
+		selectWorkbenchProject(null);
+		selectWorkbenchTask(null);
+		setWorkbenchComposerPrefill(
+			buildAssistantWorkbenchPrefill(assistantIdentity, assistant, prompt),
+		);
+		navigateToWorkbench(navigation, switchView);
+		toast.success(`已成功召唤 ${assistant.name}`);
+		setDetailTarget(null);
 	};
 
 	const navigateToAITeammates = () => {
@@ -204,7 +172,7 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 			<AssistantDetailDialog
 				assistant={liveDetailTarget}
 				open={!!liveDetailTarget}
-				summoning={liveDetailTarget ? summoningId === liveDetailTarget.id : false}
+				summoning={false}
 				onOpenChange={(open) => {
 					if (!open) setDetailTarget(null);
 				}}
@@ -230,28 +198,4 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 			)}
 		</div>
 	);
-}
-
-function navigateToProject(projectId: string, navigation?: AppNavigation) {
-	if (navigation) {
-		navigation.goToProject(projectId);
-		return;
-	}
-	const path = `/projects/${projectId}`;
-	if (window.location.hash) {
-		window.location.hash = path;
-		return;
-	}
-	window.location.href = path;
-}
-
-function buildSummonProjectName(assistant: DigitalAssistantItem): string {
-	return `与 ${assistant.name} 协作`;
-}
-
-function buildSummonPrompt(assistant: DigitalAssistantItem, prompt?: string): string {
-	const trimmedPrompt = prompt?.trim();
-	if (trimmedPrompt) return trimmedPrompt;
-
-	return `请以“${assistant.name}”的身份加入这个项目，先帮我看看可以从哪里开始。`;
 }

@@ -12,6 +12,7 @@ import type {
 import type { SliceCreator } from "../types";
 import type { Attachment, ComposerToken, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
+import { readStoredAuthUser } from "../utils/authStorage";
 import { parseOptionalTimestamp } from "../utils/format";
 import {
 	clampLeftRailWidth,
@@ -146,6 +147,12 @@ export type ProjectComposerPrefill = {
 	tokens: ComposerToken[];
 };
 
+export type WorkbenchComposerPrefill = {
+	id: string;
+	value: string;
+	tokens: ComposerToken[];
+};
+
 export type NavGroup = {
 	id: string;
 	label: string;
@@ -202,6 +209,7 @@ export type LayoutState = {
 	projectSessionId: string | null;
 	projectSessionProjectId: string | null;
 	projectComposerPrefill: ProjectComposerPrefill | null;
+	workbenchComposerPrefill: WorkbenchComposerPrefill | null;
 };
 
 export type LayoutAction = Pick<LayoutActionImpl, keyof LayoutActionImpl>;
@@ -466,6 +474,7 @@ const _initialState: LayoutState = {
 	projectSessionId: null,
 	projectSessionProjectId: null,
 	projectComposerPrefill: null,
+	workbenchComposerPrefill: null,
 };
 
 type SetState = (
@@ -483,6 +492,7 @@ export class LayoutActionImpl {
 	readonly #set: SetState;
 	readonly #get: () => LayoutStore;
 	#fetchProjectsPromise: Promise<void> | null = null;
+	#projectsFetchEpoch = 0;
 
 	constructor(set: SetState, get: () => LayoutStore) {
 		this.#set = set;
@@ -648,6 +658,22 @@ export class LayoutActionImpl {
 		this.#set((state) => ({
 			projectComposerPrefill:
 				state.projectComposerPrefill?.id === prefillId ? null : state.projectComposerPrefill,
+		}));
+	};
+
+	setWorkbenchComposerPrefill = (prefill: Omit<WorkbenchComposerPrefill, "id">) => {
+		this.#set({
+			workbenchComposerPrefill: {
+				...prefill,
+				id: `workbench_prefill_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+			},
+		});
+	};
+
+	consumeWorkbenchComposerPrefill = (prefillId: string) => {
+		this.#set((state) => ({
+			workbenchComposerPrefill:
+				state.workbenchComposerPrefill?.id === prefillId ? null : state.workbenchComposerPrefill,
 		}));
 	};
 
@@ -858,8 +884,10 @@ export class LayoutActionImpl {
 	};
 
 	fetchProjects = async () => {
+		if (!readStoredAuthUser()?.jwtToken) return;
 		if (this.#fetchProjectsPromise) return this.#fetchProjectsPromise;
 
+		const fetchEpoch = this.#projectsFetchEpoch;
 		this.#fetchProjectsPromise = (async () => {
 			try {
 				const pageSize = 100;
@@ -878,6 +906,8 @@ export class LayoutActionImpl {
 					offset += pageItems.length;
 				}
 
+				if (fetchEpoch !== this.#projectsFetchEpoch) return;
+
 				const apiProjects = items.map(mapBackendProject);
 				this.#set((state) => ({
 					projects: apiProjects.length
@@ -887,7 +917,9 @@ export class LayoutActionImpl {
 			} catch (err) {
 				console.error("fetchProjects error:", err);
 			} finally {
-				this.#fetchProjectsPromise = null;
+				if (fetchEpoch === this.#projectsFetchEpoch) {
+					this.#fetchProjectsPromise = null;
+				}
 			}
 		})();
 
@@ -1330,6 +1362,8 @@ export class LayoutActionImpl {
 	};
 
 	resetAuthScopedData = () => {
+		this.#projectsFetchEpoch += 1;
+		this.#fetchProjectsPromise = null;
 		this.#set({
 			currentView: "workbench",
 			activeConversationId: null,
@@ -1348,6 +1382,8 @@ export class LayoutActionImpl {
 			activeProjectSessionId: null,
 			projectSessionId: null,
 			projectSessionProjectId: null,
+			projectComposerPrefill: null,
+			workbenchComposerPrefill: null,
 		});
 	};
 }
