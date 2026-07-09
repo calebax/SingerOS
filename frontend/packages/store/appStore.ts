@@ -4,15 +4,17 @@ import { type AuthAction, type AuthStore, authSlice } from "./slices/authSlice";
 import { type ChatAction, type ChatStore, chatSlice } from "./slices/chatSlice";
 import { type DAStore, type DigitalAssistantAction, daSlice } from "./slices/digitalAssistantSlice";
 import { type LayoutAction, type LayoutStore, layoutSlice } from "./slices/layoutSlice";
+import { type SkillAction, type SkillStore, skillSlice } from "./slices/skillSlice";
 import { type TopicAction, type TopicStore, topicSlice } from "./slices/topicSlice";
 import type { SliceCreator } from "./types";
 
-export type AppStore = AuthStore & LayoutStore & TopicStore & ChatStore & DAStore;
+export type AppStore = AuthStore & LayoutStore & TopicStore & ChatStore & DAStore & SkillStore;
 export type AppAction = AuthAction &
 	LayoutAction &
 	TopicAction &
 	ChatAction &
-	DigitalAssistantAction;
+	DigitalAssistantAction &
+	SkillAction;
 
 const createStore: SliceCreator<AppStore> = (...params) => ({
 	...authSlice(...params),
@@ -20,6 +22,7 @@ const createStore: SliceCreator<AppStore> = (...params) => ({
 	...topicSlice(...params),
 	...chatSlice(...params),
 	...daSlice(...params),
+	...skillSlice(...params),
 });
 
 export const useAppStore = createWithEqualityFn<AppStore>()(
@@ -40,4 +43,7 @@ export const useChatStore = <T>(selector: (state: ChatStore & ChatAction) => T):
 	useAppStore(selector);
 
 export const useDAStore = <T>(selector: (state: DAStore & DigitalAssistantAction) => T): T =>
+	useAppStore(selector);
+
+export const useSkillStore = <T>(selector: (state: SkillStore & SkillAction) => T): T =>
 	useAppStore(selector);

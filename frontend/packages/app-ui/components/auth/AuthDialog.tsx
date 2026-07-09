@@ -7,7 +7,9 @@ import {
 	authApi,
 	useAuthStore,
 	useChatStore,
+	useDAStore,
 	useLayoutStore,
+	useSkillStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Checkbox } from "@leros/ui/components/ui/checkbox";
@@ -69,6 +71,10 @@ export function AuthProvider({
 	const logoutAuth = useAuthStore((s) => s.logout);
 	const fetchProjects = useLayoutStore((s) => s.fetchProjects);
 	const resetAuthScopedData = useLayoutStore((s) => s.resetAuthScopedData);
+	const resetDAAuthScopedData = useDAStore((s) => s.resetAuthScopedData);
+	const resetSkillAuthScopedData = useSkillStore((s) => s.resetAuthScopedData);
+	const fetchAssistants = useDAStore((s) => s.fetchAssistants);
+	const fetchInstalledSkills = useSkillStore((s) => s.fetchInstalledSkills);
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
 	const hasRestoredSessionRef = useRef(false);
 	const [hydrated, setHydrated] = useState(false);
@@ -83,13 +89,21 @@ export function AuthProvider({
 		const handleExpiredSession = () => {
 			logoutAuth();
 			resetAuthScopedData();
+			resetDAAuthScopedData();
+			resetSkillAuthScopedData();
 			resetLocalMessages();
 			setPendingAction(null);
 			setDialogOpen(true);
 		};
 		window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
 		return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
-	}, [logoutAuth, resetAuthScopedData, resetLocalMessages]);
+	}, [
+		logoutAuth,
+		resetAuthScopedData,
+		resetDAAuthScopedData,
+		resetLocalMessages,
+		resetSkillAuthScopedData,
+	]);
 
 	useEffect(() => {
 		if (!hydrated || hasRestoredSessionRef.current || !authUser?.jwtToken) return;
@@ -98,11 +112,22 @@ export function AuthProvider({
 			if (ok) return;
 			logoutAuth();
 			resetAuthScopedData();
+			resetDAAuthScopedData();
+			resetSkillAuthScopedData();
 			resetLocalMessages();
 			setPendingAction(null);
 			setDialogOpen(true);
 		});
-	}, [authUser, hydrated, logoutAuth, refreshAuthSession, resetAuthScopedData, resetLocalMessages]);
+	}, [
+		authUser,
+		hydrated,
+		logoutAuth,
+		refreshAuthSession,
+		resetAuthScopedData,
+		resetDAAuthScopedData,
+		resetLocalMessages,
+		resetSkillAuthScopedData,
+	]);
 
 	const openAuthDialog = useCallback((_nextMode: AuthMode = "login") => {
 		setDialogOpen(true);
@@ -112,12 +137,12 @@ export function AuthProvider({
 		(token: AuthTokenResponse) => {
 			setAuthToken(token);
 			setDialogOpen(false);
-			void fetchProjects();
+			void Promise.all([fetchProjects(), fetchAssistants(), fetchInstalledSkills()]);
 			const action = pendingAction;
 			setPendingAction(null);
 			action?.();
 		},
-		[fetchProjects, pendingAction, setAuthToken],
+		[fetchAssistants, fetchInstalledSkills, fetchProjects, pendingAction, setAuthToken],
 	);
 
 	const requireAuth = useCallback(
@@ -136,9 +161,17 @@ export function AuthProvider({
 	const logout = useCallback(() => {
 		logoutAuth();
 		resetAuthScopedData();
+		resetDAAuthScopedData();
+		resetSkillAuthScopedData();
 		resetLocalMessages();
 		setPendingAction(null);
-	}, [logoutAuth, resetAuthScopedData, resetLocalMessages]);
+	}, [
+		logoutAuth,
+		resetAuthScopedData,
+		resetDAAuthScopedData,
+		resetLocalMessages,
+		resetSkillAuthScopedData,
+	]);
 
 	const value = useMemo<AuthContextValue>(
 		() => ({
