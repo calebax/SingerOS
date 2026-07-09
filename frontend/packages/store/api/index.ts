@@ -22,6 +22,15 @@ export { digitalAssistantApi } from "./digitalAssistantApi";
 export type { Department, ListDepartmentsResponse, OrgInfo } from "./orgAdminApi";
 export { orgAdminApi } from "./orgAdminApi";
 export type {
+	ListProjectActivitiesParams,
+	ProjectActivityActor,
+	ProjectActivityItem,
+	ProjectActivityListData,
+	ProjectActivityPayload,
+	ProjectActivitySkill,
+} from "./projectActivityApi";
+export { projectActivityApi } from "./projectActivityApi";
+export type {
 	CreateProjectParams,
 	DeleteProjectParams,
 	GetProjectParams,

@@ -56,10 +56,11 @@ type ListProjectsRequest struct {
 
 // ListProjectActivitiesRequest 查询项目操作动态请求。
 type ListProjectActivitiesRequest struct {
-	ProjectID  string `json:"project_id,omitempty"`
-	OperatorID string `json:"operator_id,omitempty"`
-	Cursor     string `json:"cursor,omitempty"`
-	Limit      int    `json:"limit,omitempty"`
+	ProjectID   string   `json:"project_id,omitempty"`
+	OperatorID  string   `json:"operator_id,omitempty"`
+	OperatorIDs []string `json:"operator_ids,omitempty"`
+	Cursor      string   `json:"cursor,omitempty"`
+	Limit       int      `json:"limit,omitempty"`
 }
 
 // ProjectList 项目列表响应

@@ -469,10 +469,10 @@ func (s *projectService) ListProjectActivities(ctx context.Context, req *contrac
 	}
 
 	opt := db.ProjectActivityListOptions{
-		OperatorID: req.OperatorID,
-		BeforeTime: beforeTime,
-		BeforeID:   beforeID,
-		Limit:      limit,
+		OperatorIDs: mergeProjectActivityOperatorIDs(req.OperatorID, req.OperatorIDs),
+		BeforeTime:  beforeTime,
+		BeforeID:    beforeID,
+		Limit:       limit,
 	}
 
 	if strings.TrimSpace(req.ProjectID) != "" {
@@ -1312,6 +1312,27 @@ func skillRefsFromMap(skills map[string]contract.ProjectActivitySkill, ids []str
 		refs = append(refs, contract.ProjectActivitySkill{ID: id})
 	}
 	return refs
+}
+
+func mergeProjectActivityOperatorIDs(operatorID string, operatorIDs []string) []string {
+	seen := make(map[string]struct{}, len(operatorIDs)+1)
+	result := make([]string, 0, len(operatorIDs)+1)
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	add(operatorID)
+	for _, id := range operatorIDs {
+		add(id)
+	}
+	return result
 }
 
 func encodeProjectActivityCursor(cursor projectActivityCursor) string {

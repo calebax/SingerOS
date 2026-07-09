@@ -43,6 +43,8 @@ export function AppRoutes() {
 
 				<Route path="/projects/:projectId/files" element={<ProjectRoutePage tab="files" />} />
 
+				<Route path="/projects/:projectId/activity" element={<ProjectRoutePage tab="activity" />} />
+
 				<Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailRoutePage />} />
 
 				<Route path="/assistants" element={<AssistantListView navigation={navigation} />} />
@@ -121,7 +123,14 @@ function WorkbenchRoutePage() {
 	return <WorkbenchPanel navigation={navigation} />;
 }
 
-function ProjectRoutePage({ tab = "chat" }: { tab?: "chat" | "tasks" | "files" }) {
+function projectTabPath(projectId: string, tab: "chat" | "tasks" | "files" | "activity"): string {
+	if (tab === "chat") return `/projects/${projectId}`;
+	if (tab === "tasks") return `/projects/${projectId}/tasks`;
+	if (tab === "files") return `/projects/${projectId}/files`;
+	return `/projects/${projectId}/activity`;
+}
+
+function ProjectRoutePage({ tab = "chat" }: { tab?: "chat" | "tasks" | "files" | "activity" }) {
 	const navigation = useDesktopNavigation();
 
 	const navigate = useNavigate();
@@ -134,13 +143,7 @@ function ProjectRoutePage({ tab = "chat" }: { tab?: "chat" | "tasks" | "files" }
 			tab={tab}
 			navigation={navigation}
 			onTabChange={(nextTab) => {
-				if (nextTab === "chat") {
-					navigation.goToProject(projectId);
-
-					return;
-				}
-
-				navigate(`/projects/${projectId}/${nextTab === "tasks" ? "tasks" : "files"}`);
+				navigate(projectTabPath(projectId, nextTab));
 			}}
 		/>
 	);
