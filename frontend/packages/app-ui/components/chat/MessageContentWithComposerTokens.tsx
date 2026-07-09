@@ -12,14 +12,16 @@ export function MessageContentWithComposerTokens({
 	message: Pick<Message, "content" | "metadata">;
 	className?: string;
 }) {
-	const tokens = (message.metadata?.composerTokens ?? [])
-		.filter((token) => message.content.slice(token.start, token.end) === token.label)
+	// 中文注释：部分入口会把 @队友 从实际发送内容中剥离，这里优先使用展示专用文本恢复标签样式。
+	const displayContent = message.metadata?.displayContent ?? message.content;
+	const tokens = (message.metadata?.displayComposerTokens ?? message.metadata?.composerTokens ?? [])
+		.filter((token) => displayContent.slice(token.start, token.end) === token.label)
 		.sort((a, b) => a.start - b.start);
 
 	if (tokens.length === 0) {
 		// 中文注释：没有明确 token metadata 时，普通内容里的 @ 和 / 必须原样展示，不能靠文本猜样式。
 		return (
-			<span className={cn("whitespace-pre-wrap break-words", className)}>{message.content}</span>
+			<span className={cn("whitespace-pre-wrap break-words", className)}>{displayContent}</span>
 		);
 	}
 
@@ -29,7 +31,7 @@ export function MessageContentWithComposerTokens({
 		if (token.start > cursor) {
 			parts.push(
 				<span key={`text-${index}`} className="whitespace-pre-wrap break-words">
-					{message.content.slice(cursor, token.start)}
+					{displayContent.slice(cursor, token.start)}
 				</span>,
 			);
 		}
@@ -52,10 +54,10 @@ export function MessageContentWithComposerTokens({
 		cursor = token.end;
 	});
 
-	if (cursor < message.content.length) {
+	if (cursor < displayContent.length) {
 		parts.push(
 			<span key="text-tail" className="whitespace-pre-wrap break-words">
-				{message.content.slice(cursor)}
+				{displayContent.slice(cursor)}
 			</span>,
 		);
 	}

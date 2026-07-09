@@ -40,7 +40,7 @@ interface SkillDetailViewProps {
 	/** Called when a related skill card is clicked */
 	onSkillClick?: (skillId: string, sourceType?: string) => void;
 	/** Called when user clicks "去使用" for an installed skill */
-	onUse?: (skillId: string) => void;
+	onUse?: (skillId: string, displayLabel?: string) => void;
 	/** Called when user clicks "卸载" from the dropdown menu */
 	onUninstall?: (name: string) => void;
 }
@@ -239,7 +239,7 @@ export function SkillDetailView({
 						<div className="flex shrink-0 items-center gap-1.5">
 							<Button
 								size="sm"
-								onClick={() => onUse?.(skill.skill_id)}
+								onClick={() => onUse?.(skill.skill_id, skill.display_name || skill.name)}
 								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md transition-all"
 							>
 								去使用

@@ -8,6 +8,7 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
+	useSkillStore,
 } from "@leros/store";
 import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
@@ -66,6 +67,29 @@ function buildComposerMetadata(
 		}))
 		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
 	return composerTokens.length > 0 ? { composerTokens } : undefined;
+}
+
+function buildAssistantDisplayMetadata(
+	baseMetadata: MessageMetadata | undefined,
+	displayContent: string,
+	assistant: ComposerAssistantOption,
+): MessageMetadata {
+	// 中文注释：实际提交给 Agent 的正文会剥离 @队友，这里保留展示专用信息用于历史消息回显。
+	const invokedAssistant: NonNullable<MessageMetadata["invokedAssistant"]> = {
+		id: String(assistant.id),
+		name: assistant.name,
+	};
+	if (assistant.avatarUrl) invokedAssistant.avatarUrl = assistant.avatarUrl;
+
+	const metadata: MessageMetadata = {
+		...baseMetadata,
+		displayContent,
+		invokedAssistant,
+	};
+	if (baseMetadata?.composerTokens?.length) {
+		metadata.displayComposerTokens = baseMetadata.composerTokens;
+	}
+	return metadata;
 }
 
 function escapeRegExp(value: string): string {
@@ -213,9 +237,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		fetchTasks,
 		saveWorkbenchRecentContext,
 		clearTaskDetailRoute,
+		workbenchComposerPrefill,
+		consumeWorkbenchComposerPrefill,
 	} = useLayoutStore((s) => s);
-	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
-	const { addUploadedAttachment, isGenerating, startGlobalEvents } = useChatStore((s) => s);
+	const { assistants, fetchAssistants } = useDAStore((s) => s);
+	const { fetchInstalledSkills } = useSkillStore((s) => s);
+	const { addUploadedAttachment, startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -228,12 +255,14 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const [input, setInput] = useState("");
 	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	const [isSending, setIsSending] = useState(false);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
 	const [hoveredSubmenu, setHoveredSubmenu] = useState<"new-project" | string | null>(null);
 	const [submenuTop, setSubmenuTop] = useState(0);
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
+	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
 
 	const revokeAttachmentURLs = (items: Attachment[]) => {
 		for (const attachment of items) {
@@ -253,13 +282,19 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [attachments]);
 
 	useEffect(() => {
+		if (!isAuthenticated) return;
 		void fetchProjects();
-	}, [fetchProjects]);
+	}, [fetchProjects, isAuthenticated]);
 
 	useEffect(() => {
-		if (assistantsLoaded) return;
+		if (!isAuthenticated) return;
 		void fetchAssistants();
-	}, [assistantsLoaded, fetchAssistants]);
+	}, [fetchAssistants, isAuthenticated]);
+
+	useEffect(() => {
+		if (!isAuthenticated) return;
+		void fetchInstalledSkills();
+	}, [fetchInstalledSkills, isAuthenticated]);
 
 	useEffect(() => {
 		if (!isAuthenticated) return;
@@ -271,6 +306,38 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		selectWorkbenchProject(null);
 	}, [clearTaskDetailRoute, selectWorkbenchProject]);
 
+	useLayoutEffect(() => {
+		if (!workbenchComposerPrefill) return;
+		applyingWorkbenchPrefillIdRef.current = workbenchComposerPrefill.id;
+		setInput(workbenchComposerPrefill.value);
+	}, [workbenchComposerPrefill]);
+
+	useEffect(() => {
+		if (!workbenchComposerPrefill) return;
+		if (applyingWorkbenchPrefillIdRef.current !== workbenchComposerPrefill.id) return;
+
+		let cancelled = false;
+		const applyPrefill = () => {
+			if (cancelled) return;
+			if (!composerRef.current) {
+				requestAnimationFrame(applyPrefill);
+				return;
+			}
+
+			composerRef.current.setContent(
+				workbenchComposerPrefill.value,
+				workbenchComposerPrefill.tokens,
+			);
+			consumeWorkbenchComposerPrefill(workbenchComposerPrefill.id);
+			applyingWorkbenchPrefillIdRef.current = null;
+		};
+
+		applyPrefill();
+		return () => {
+			cancelled = true;
+		};
+	}, [consumeWorkbenchComposerPrefill, workbenchComposerPrefill]);
+
 	useEffect(() => {
 		if (!activeWorkbenchProjectId) return;
 		setInput((current) => {
@@ -280,8 +347,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [activeWorkbenchProjectId]);
 
 	const performSend = async (content: string) => {
-		if (isGenerating || sendingRef.current) return;
+		// 中文注释：首页新建任务不应被其他任务的全局生成态锁住，只拦截本输入框的重复提交。
+		if (sendingRef.current) return;
 		sendingRef.current = true;
+		setIsSending(true);
 		try {
 			await startGlobalEvents();
 			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
@@ -292,10 +361,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			const messageContent = mentionedAssistant
 				? removeAssistantMentionText(content, composerTokens, mentionedAssistant)
 				: content;
-			const messageMetadata = mentionedAssistant ? undefined : composerMetadata;
-			// 中文注释：输入框 @ 队友保留 publicId，发送 NewMessage 时需转换为后端数字 assistant_id。
-			const mentionedAssistantId = mentionedAssistant
-				? assistants.find((assistant) => assistant.publicId === mentionedAssistant.id)?.id
+			const messageMetadata = mentionedAssistant
+				? buildAssistantDisplayMetadata(composerMetadata, content, mentionedAssistant)
+				: composerMetadata;
+			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids，不能传单个数字 assistant_id。
+			const mentionedAssistantIds = mentionedAssistant
+				? [String(mentionedAssistant.id)]
 				: undefined;
 			const data = await sendWorkbenchMessage(
 				messageContent,
@@ -303,7 +374,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				executionMode,
 				attachments,
 				messageMetadata,
-				mentionedAssistantId,
+				mentionedAssistantIds,
 			);
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
@@ -312,12 +383,13 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			clearAttachments();
 		} finally {
 			sendingRef.current = false;
+			setIsSending(false);
 		}
 	};
 
 	const handleSend = async () => {
 		const content = input.trim();
-		if (!content || isGenerating || sendingRef.current) return;
+		if (!content || sendingRef.current) return;
 		if (!isAuthenticated) {
 			requireAuth(() => {
 				void performSend(content);
@@ -419,7 +491,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		() => getFilteredProjects(projects, projectSearch),
 		[projectSearch, projects],
 	);
-	const recentProjects = useMemo(() => projects.slice(0, 3), [projects]);
+	const recentProjects = useMemo(() => {
+		if (!isAuthenticated) return [];
+		return projects.slice(0, 3);
+	}, [isAuthenticated, projects]);
 
 	// 中文注释：项目列表接口不含任务，hover 展示任务子菜单时按需拉取。
 	const loadProjectTasksIfNeeded = useCallback(
@@ -749,21 +824,21 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									disableAssistantAndSkill={Boolean(activeProject)}
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
-									isGenerating={isGenerating}
+									isGenerating={isSending}
 								/>
 							</div>
 							<div className="flex items-center gap-2">
 								<Button
 									size="icon"
 									onClick={handleSend}
-									disabled={isGenerating || !input.trim()}
+									disabled={isSending || !input.trim()}
 									// 中文注释：工作台发送按钮与项目/任务页保持同一视觉规格。
 									className="size-9 min-w-0 rounded-xl bg-black !text-white shadow-sm hover:bg-blue-700 disabled:bg-[#f3f3f4] disabled:!text-slate-400"
 								>
 									<SendHorizonal
 										className={cn(
 											"size-3.5",
-											input.trim() && !isGenerating
+											input.trim() && !isSending
 												? "fill-white stroke-white text-white"
 												: "fill-none stroke-current text-current",
 										)}

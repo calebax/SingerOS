@@ -1,6 +1,6 @@
 "use client";
 
-import { type SkillInstalledItem, skillMarketplaceApi } from "@leros/store";
+import { type SkillInstalledItem, useSkillStore } from "@leros/store";
 import {
 	Command,
 	CommandEmpty,
@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui
 import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
 import { Bot, ClipboardPenLine, Plus, Sparkles, WandSparkles } from "lucide-react";
-import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
+import { type ReactNode, type RefObject, useMemo, useState } from "react";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 import type {
@@ -61,48 +61,6 @@ function parseSelectedSlashLabels(value: string): string[] {
 	);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function stringFromValue(value: unknown): string {
-	return typeof value === "string" ? value : "";
-}
-
-function skillItemFromValue(value: unknown): SkillInstalledItem | null {
-	if (!isRecord(value)) return null;
-
-	const name = stringFromValue(value.name || value.skill_id || value.id);
-	if (!name) return null;
-
-	return {
-		name,
-		display_name: stringFromValue(value.display_name),
-		description: stringFromValue(value.description),
-		category: stringFromValue(value.category),
-		source: stringFromValue(value.source || value.source_type),
-		trust: stringFromValue(value.trust),
-	};
-}
-
-function normalizeInstalledSkillsPayload(value: unknown): SkillInstalledItem[] {
-	const toItems = (items: unknown[]) =>
-		items.map(skillItemFromValue).filter((item): item is SkillInstalledItem => item !== null);
-
-	if (Array.isArray(value)) return toItems(value);
-	if (!isRecord(value)) return [];
-
-	const nestedData = value.data;
-	if (isRecord(nestedData)) {
-		if (Array.isArray(nestedData.skills)) return toItems(nestedData.skills);
-		if (Array.isArray(nestedData.items)) return toItems(nestedData.items);
-	}
-
-	if (Array.isArray(value.skills)) return toItems(value.skills);
-	if (Array.isArray(value.items)) return toItems(value.items);
-	return [];
-}
-
 function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
 	const label = skill.display_name || skill.name;
 	return {
@@ -135,14 +93,17 @@ export function ComposerActionBar({
 	setExecutionMode,
 	isGenerating,
 }: ComposerActionBarProps) {
+	const { installedSkills, installedSkillsLoaded } = useSkillStore((s) => s);
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [assistantSearch, setAssistantSearch] = useState("");
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
-	const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
-	const [skillsLoading, setSkillsLoading] = useState(false);
-	const [skillsLoaded, setSkillsLoaded] = useState(false);
-	const [skillsError, setSkillsError] = useState<string | null>(null);
+
+	const skillOptions = useMemo<SkillOption[]>(() => {
+		if (projectSkillOptions) return projectSkillOptions;
+		return installedSkills.map(installedSkillToOption);
+	}, [installedSkills, projectSkillOptions]);
+	const skillsLoading = skillOpen && !projectSkillOptions && !installedSkillsLoaded;
 
 	const selectedAssistantNames = useMemo(
 		() => parseSelectedAssistantNames(inputValue),
@@ -181,35 +142,6 @@ export function ComposerActionBar({
 			return [skill.label, skill.code].join(" ").toLowerCase().includes(query);
 		});
 	}, [selectedSkillLabels, skillOptions, skillSearch]);
-
-	useEffect(() => {
-		if (projectSkillOptions) {
-			setSkillOptions(projectSkillOptions);
-			setSkillsLoaded(true);
-			setSkillsError(null);
-			setSkillsLoading(false);
-			return;
-		}
-		if (!skillOpen || skillsLoaded) return;
-
-		setSkillsLoading(true);
-		setSkillsError(null);
-		skillMarketplaceApi
-			.installed()
-			.then((response) => {
-				const raw = normalizeInstalledSkillsPayload(response.data);
-				setSkillOptions(raw.map(installedSkillToOption));
-				setSkillsLoaded(true);
-			})
-			.catch((error: unknown) => {
-				const message = error instanceof Error ? error.message : "技能加载失败";
-				setSkillsError(message);
-				setSkillOptions([]);
-			})
-			.finally(() => {
-				setSkillsLoading(false);
-			});
-	}, [projectSkillOptions, skillOpen, skillsLoaded]);
 
 	const allowAction = () => (onBeforeAction ? onBeforeAction() : true);
 	const assistantSkillButtonClassName = cn(
@@ -371,9 +303,6 @@ export function ComposerActionBar({
 							<CommandGroup className="p-0">
 								{skillsLoading && (
 									<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>
-								)}
-								{!skillsLoading && skillsError && (
-									<div className="px-3 py-2 text-xs text-red-400">{skillsError}</div>
 								)}
 								{filteredSkills.map((skill) => (
 									<CommandItem

@@ -146,4 +146,33 @@ describe("resolveAssistantMessageDisplay", () => {
 			avatarUrl: "file_avatar_alpha",
 		});
 	});
+
+	it("uses invoked assistant metadata when the visible mention was stripped from content", () => {
+		const assistant = assistants[0];
+		if (!assistant) throw new Error("missing test assistant");
+
+		const messagesMap = {
+			"101": userMessage("101", {
+				displayContent: `@${assistant.name} 浣犲ソ`,
+				invokedAssistant: {
+					id: assistant.publicId,
+					name: assistant.name,
+					avatarUrl: assistant.avatar,
+				},
+			}),
+		};
+
+		const display = resolveAssistantMessageDisplay({
+			message: assistantMessage(),
+			messagesMap,
+			assistants,
+			projectMembers,
+		});
+
+		expect(display).toEqual({
+			useDefaultBrand: false,
+			name: assistant.name,
+			avatarUrl: assistant.avatar,
+		});
+	});
 });

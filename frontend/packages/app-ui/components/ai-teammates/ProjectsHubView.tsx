@@ -242,7 +242,10 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 		const name = renameValue.trim();
 		if (!name) return;
 
-		const updatedProject = await updateProject({ public_id: renameProject.id, name });
+		const updatedProject = await updateProject({
+			public_id: renameProject.id,
+			name,
+		});
 		if (updatedProject) {
 			setRenameProject(null);
 			toast.success("项目已重命名");
@@ -681,7 +684,7 @@ function CreateProjectDialog({
 									<Bot className="size-4 text-[var(--leros-text-muted)]" />
 									<div>
 										<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
-											项目成员{" "}
+											项目队友{" "}
 											<span className="font-normal text-[var(--leros-text-subtle)]">（可选）</span>
 										</div>
 									</div>
@@ -739,7 +742,11 @@ function CreateProjectDialog({
 										align="end"
 										side="top"
 										sideOffset={10}
-										collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+										collisionAvoidance={{
+											side: "none",
+											align: "shift",
+											fallbackAxisSide: "none",
+										}}
 										className="w-[340px] p-1.5"
 									>
 										<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">

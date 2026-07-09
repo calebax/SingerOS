@@ -85,6 +85,7 @@ export {
 	useDAStore,
 	useLayoutStore,
 	usePermissionStore,
+	useSkillStore,
 	useTopicStore,
 } from "./appStore";
 export {
@@ -134,6 +135,7 @@ export type {
 	ProjectTask,
 	ProjectTaskStatus,
 	ViewMode,
+	WorkbenchComposerPrefill,
 	Workspace,
 	WorkspaceMode,
 } from "./slices/layoutSlice";
@@ -150,6 +152,8 @@ export {
 	type PermissionStore,
 	PROJECT_PAGE_ACTIONS,
 } from "./slices/permissionSlice";
+export type { SkillAction, SkillState, SkillStore } from "./slices/skillSlice";
+export { normalizeInstalledSkillsPayload } from "./slices/skillSlice";
 export type { Topic, TopicAction, TopicState, TopicStore } from "./slices/topicSlice";
 export type { PublicActions, SliceCreator } from "./types";
 export type {

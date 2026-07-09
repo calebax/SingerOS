@@ -3,6 +3,7 @@ import { projectApi } from "../api/projectApi";
 import { type CreateInitialMessageParams, sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
 import type {
+	BackendMessageMetadata,
 	BackendProject,
 	BackendProjectMemberItem,
 	BackendSession,
@@ -12,11 +13,21 @@ import { handlePermissionDenied } from "../permission/errors";
 import type { SliceCreator } from "../types";
 import type { Attachment, ComposerToken, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
+import { readStoredAuthUser } from "../utils/authStorage";
 import { parseOptionalTimestamp } from "../utils/format";
+import {
+	clampLeftRailWidth,
+	readStoredLeftRailPreferences,
+	writeStoredLeftRailCollapsed,
+	writeStoredLeftRailWidth,
+} from "../utils/leftRailStorage";
 
-// 左侧栏可拖动宽度的上下限（px）
-export const LEFT_RAIL_MIN_WIDTH = 236;
-export const LEFT_RAIL_MAX_WIDTH = 320;
+export {
+	LEFT_RAIL_MAX_WIDTH,
+	LEFT_RAIL_MIN_WIDTH,
+} from "../utils/leftRailStorage";
+
+const storedLeftRailPreferences = readStoredLeftRailPreferences();
 
 export type WorkspaceMode = "remote" | "local";
 
@@ -99,6 +110,23 @@ export type ProjectMember = {
 	isDefault?: boolean;
 };
 
+function buildBackendMessageMetadata(
+	metadata?: MessageMetadata,
+): BackendMessageMetadata | undefined {
+	if (!metadata) return undefined;
+
+	const extra: Record<string, unknown> = {};
+	if (metadata.composerTokens?.length) extra.composerTokens = metadata.composerTokens;
+	if (metadata.displayContent?.trim()) extra.displayContent = metadata.displayContent;
+	if (metadata.displayComposerTokens?.length) {
+		extra.displayComposerTokens = metadata.displayComposerTokens;
+	}
+	if (metadata.invokedAssistant) extra.invokedAssistant = metadata.invokedAssistant;
+
+	// 中文注释：metadata.extra 是当前前后端已有扩展口，避免为展示态召唤信息新增后端字段。
+	return Object.keys(extra).length > 0 ? { extra } : undefined;
+}
+
 export type Project = {
 	id: string;
 	name: string;
@@ -118,6 +146,12 @@ export type Project = {
 export type ProjectComposerPrefill = {
 	id: string;
 	projectId: string;
+	value: string;
+	tokens: ComposerToken[];
+};
+
+export type WorkbenchComposerPrefill = {
+	id: string;
 	value: string;
 	tokens: ComposerToken[];
 };
@@ -178,6 +212,7 @@ export type LayoutState = {
 	projectSessionId: string | null;
 	projectSessionProjectId: string | null;
 	projectComposerPrefill: ProjectComposerPrefill | null;
+	workbenchComposerPrefill: WorkbenchComposerPrefill | null;
 };
 
 export type LayoutAction = Pick<LayoutActionImpl, keyof LayoutActionImpl>;
@@ -251,7 +286,7 @@ function mapBackendProjectMember(member: BackendProjectMemberItem): ProjectMembe
 		publicId,
 		type,
 		role: member.member_role || "member",
-		name: member.name || (type === "assistant" ? "AI 队友" : "项目成员"),
+		name: member.name || (type === "assistant" ? "AI 队友" : "项目队友"),
 		description: member.description,
 		avatarUrl: member.avatar_url,
 		joinedAt: member.joined_at,
@@ -395,8 +430,8 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 }
 
 const _initialState: LayoutState = {
-	leftRailCollapsed: false,
-	leftRailWidth: 240,
+	leftRailCollapsed: storedLeftRailPreferences.collapsed,
+	leftRailWidth: storedLeftRailPreferences.width,
 	rightRailCollapsed: false,
 	conversationListOpen: true,
 	currentView: "workbench",
@@ -444,6 +479,7 @@ const _initialState: LayoutState = {
 	projectSessionId: null,
 	projectSessionProjectId: null,
 	projectComposerPrefill: null,
+	workbenchComposerPrefill: null,
 };
 
 type SetState = (
@@ -463,6 +499,7 @@ export class LayoutActionImpl {
 	#fetchProjectsPromise: Promise<void> | null = null;
 	#fetchProjectDetailPromises = new Map<string, Promise<void>>();
 	#projectDetailLoadedIds = new Set<string>();
+	#projectsFetchEpoch = 0;
 
 	constructor(set: SetState, get: () => LayoutStore) {
 		this.#set = set;
@@ -498,23 +535,24 @@ export class LayoutActionImpl {
 			startGlobalEvents?: () => Promise<void>;
 		};
 		void store.startGlobalEvents?.();
-		store.bootstrapNewTaskSession?.(sessionId, trimmed, { attachments, metadata });
+		store.bootstrapNewTaskSession?.(sessionId, trimmed, {
+			attachments,
+			metadata,
+		});
 	};
 
 	toggleLeftRail = () => {
-		this.#set((state) => ({ leftRailCollapsed: !state.leftRailCollapsed }));
+		this.setLeftRailCollapsed(!this.#get().leftRailCollapsed);
 	};
 
 	setLeftRailCollapsed = (collapsed: boolean) => {
+		writeStoredLeftRailCollapsed(collapsed);
 		this.#set({ leftRailCollapsed: collapsed });
 	};
 
 	setLeftRailWidth = (width: number) => {
-		// 左侧栏宽度仅允许在可读与不挤压主内容的范围内变化
-		const nextWidth = Math.min(
-			LEFT_RAIL_MAX_WIDTH,
-			Math.max(LEFT_RAIL_MIN_WIDTH, Math.round(width)),
-		);
+		const nextWidth = clampLeftRailWidth(width);
+		writeStoredLeftRailWidth(nextWidth);
 		this.#set({ leftRailWidth: nextWidth });
 	};
 
@@ -597,7 +635,10 @@ export class LayoutActionImpl {
 	};
 
 	selectWorkbenchProject = (projectId: string | null) => {
-		this.#set({ activeWorkbenchProjectId: projectId, activeWorkbenchTaskId: null });
+		this.#set({
+			activeWorkbenchProjectId: projectId,
+			activeWorkbenchTaskId: null,
+		});
 		if (projectId) {
 			this.fetchTasks(projectId);
 		}
@@ -627,17 +668,33 @@ export class LayoutActionImpl {
 		}));
 	};
 
+	setWorkbenchComposerPrefill = (prefill: Omit<WorkbenchComposerPrefill, "id">) => {
+		this.#set({
+			workbenchComposerPrefill: {
+				...prefill,
+				id: `workbench_prefill_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+			},
+		});
+	};
+
+	consumeWorkbenchComposerPrefill = (prefillId: string) => {
+		this.#set((state) => ({
+			workbenchComposerPrefill:
+				state.workbenchComposerPrefill?.id === prefillId ? null : state.workbenchComposerPrefill,
+		}));
+	};
+
 	sendWorkbenchMessage = async (
 		content: string,
 		projectId?: string | null,
 		executionMode?: "default" | "plan",
 		attachments?: Attachment[],
 		_metadata?: MessageMetadata,
-		assistantId?: number,
+		assistantIds?: string[],
 	) => {
 		const trimmed = content.trim();
-		// 允许空 content + assistantId：召唤队友落地空对话（仅创建任务会话，不发首条消息）。
-		if (!trimmed && !assistantId) return;
+		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，仅创建任务会话不发送首条消息。
+		if (!trimmed && !assistantIds?.length) return;
 		const mode = executionMode ?? "default";
 
 		const state = this.#get();
@@ -650,7 +707,9 @@ export class LayoutActionImpl {
 
 			if (!selectedTask?.sessionId) {
 				try {
-					const detailRes = await projectApi.detail({ public_id: workbenchProjectId });
+					const detailRes = await projectApi.detail({
+						public_id: workbenchProjectId,
+					});
 					const detail = detailRes.data.data;
 					if (detail) {
 						const tasks = (detail.tasks ?? []).map(mapBackendTask);
@@ -693,6 +752,7 @@ export class LayoutActionImpl {
 						content: trimmed,
 						execution_mode: mode,
 						message_type: "text",
+						metadata: buildBackendMessageMetadata(_metadata),
 						attachments: attachments
 							?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
 								Boolean(attachment.fileUploadId?.trim()),
@@ -732,8 +792,9 @@ export class LayoutActionImpl {
 		}
 
 		const params: CreateInitialMessageParams = { content: trimmed, execution_mode: mode };
-		if (assistantId) {
-			params.assistant_id = assistantId;
+		if (assistantIds?.length) {
+			// 中文注释：后端 NewMessageRequest 只接收 publicId 字符串数组 assistant_ids。
+			params.assistant_ids = assistantIds;
 		}
 
 		if (workbenchProjectId) {
@@ -742,9 +803,10 @@ export class LayoutActionImpl {
 		if (selectedTaskId) {
 			params.task_id = selectedTaskId;
 		}
-		if (_metadata?.composerTokens) {
-			// 中文注释：首页新建任务需要把输入框 token 元信息透传给后端，避免技能标签回显退化成纯文本。
-			params.metadata = { extra: { composerTokens: _metadata.composerTokens } };
+		const backendMetadata = buildBackendMessageMetadata(_metadata);
+		if (backendMetadata) {
+			// 中文注释：首页新建任务需要透传输入框展示元信息，避免 @队友 回显退化成默认 Lework。
+			params.metadata = backendMetadata;
 		}
 		if (attachments?.length) {
 			params.attachments = attachments
@@ -829,8 +891,10 @@ export class LayoutActionImpl {
 	};
 
 	fetchProjects = async () => {
+		if (!readStoredAuthUser()?.jwtToken) return;
 		if (this.#fetchProjectsPromise) return this.#fetchProjectsPromise;
 
+		const fetchEpoch = this.#projectsFetchEpoch;
 		this.#fetchProjectsPromise = (async () => {
 			try {
 				const pageSize = 100;
@@ -849,6 +913,8 @@ export class LayoutActionImpl {
 					offset += pageItems.length;
 				}
 
+				if (fetchEpoch !== this.#projectsFetchEpoch) return;
+
 				const apiProjects = items.map(mapBackendProject);
 				this.#set((state) => ({
 					projects: apiProjects.length
@@ -858,7 +924,9 @@ export class LayoutActionImpl {
 			} catch (err) {
 				console.error("fetchProjects error:", err);
 			} finally {
-				this.#fetchProjectsPromise = null;
+				if (fetchEpoch === this.#projectsFetchEpoch) {
+					this.#fetchProjectsPromise = null;
+				}
 			}
 		})();
 
@@ -1356,6 +1424,8 @@ export class LayoutActionImpl {
 	};
 
 	resetAuthScopedData = () => {
+		this.#projectsFetchEpoch += 1;
+		this.#fetchProjectsPromise = null;
 		this.#set({
 			currentView: "workbench",
 			activeConversationId: null,
@@ -1374,6 +1444,8 @@ export class LayoutActionImpl {
 			activeProjectSessionId: null,
 			projectSessionId: null,
 			projectSessionProjectId: null,
+			projectComposerPrefill: null,
+			workbenchComposerPrefill: null,
 		});
 	};
 }

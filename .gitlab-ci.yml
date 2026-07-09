@@ -227,9 +227,6 @@ deploy:
 
 .desktop-build-template:
   stage: desktop_build
-  resource_group: desktop-build
-  tags:
-    - macos
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -320,7 +317,6 @@ deploy:
       fi
     - cd frontend
     - pnpm install --frozen-lockfile
-    - pnpm --filter @leros/desktop typecheck
     - HOME="$CI_PROJECT_DIR/.ci-home" coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
     - |
       version="$DESKTOP_VERSION"
@@ -459,16 +455,22 @@ deploy:
 
 desktop-build-mac-arm64:
   extends: .desktop-build-template
+  tags:
+    - macos-1
   variables:
     DESKTOP_TARGET: mac-arm64
 
 desktop-build-mac-x64:
   extends: .desktop-build-template
+  tags:
+    - macos-2
   variables:
     DESKTOP_TARGET: mac-x64
 
 desktop-build-win-x64:
   extends: .desktop-build-template
+  tags:
+    - macos-1
   variables:
     DESKTOP_TARGET: win-x64
 

@@ -326,6 +326,23 @@ function extractAssistantIdsFromMetadata(metadata?: MessageMetadata): string[] |
 	return assistantIds.length > 0 ? assistantIds : undefined;
 }
 
+function buildBackendMessageMetadata(
+	metadata?: MessageMetadata,
+): BackendMessageMetadata | undefined {
+	if (!metadata) return undefined;
+
+	const extra: Record<string, unknown> = {};
+	if (metadata.composerTokens?.length) extra.composerTokens = metadata.composerTokens;
+	if (metadata.displayContent?.trim()) extra.displayContent = metadata.displayContent;
+	if (metadata.displayComposerTokens?.length) {
+		extra.displayComposerTokens = metadata.displayComposerTokens;
+	}
+	if (metadata.invokedAssistant) extra.invokedAssistant = metadata.invokedAssistant;
+
+	// 中文注释：复用 message metadata.extra 透传输入框展示态，避免新增后端字段。
+	return Object.keys(extra).length > 0 ? { extra } : undefined;
+}
+
 function mapGlobalMessageAttachments(
 	attachments: BackendMessageAttachment[] | undefined,
 	messageCreatedAt?: number,
@@ -1841,7 +1858,8 @@ export class ChatActionImpl {
 					mergeMessageAttachments(incoming.attachments, current?.attachments) ??
 					incoming.attachments ??
 					current?.attachments,
-				metadata: current?.metadata,
+				// 中文注释：实时回推可能带有落库后的展示 metadata，本地没有时不能把它覆盖丢。
+				metadata: current?.metadata ?? incoming.metadata,
 			};
 			return {
 				messagesMap: nextMap,
@@ -2208,6 +2226,7 @@ export class ChatActionImpl {
 				execution_mode: this.#get().executionMode,
 				project_id: projectId,
 				assistant_ids: extractAssistantIdsFromMetadata(metadata),
+				metadata: buildBackendMessageMetadata(metadata),
 				attachments: mapOutgoingAttachments(attachments),
 			});
 			const data = res.data.data;

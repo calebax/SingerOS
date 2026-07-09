@@ -17,6 +17,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/utils"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 // RunSubmission is a submitted run request with event context and delivery sequences.
@@ -125,6 +126,12 @@ func (c *Coordinator) Submit(ctx context.Context, submission RunSubmission) (Run
 	defer c.submissions.Done()
 
 	key := sessionKey(submission)
+	msgCount := 0
+	if submission.Request != nil {
+		msgCount = len(submission.Request.Input.Messages)
+	}
+	logs.InfoContextf(ctx, "coordinator submit: session_key=%s run_id=%s worker_id=%d messages=%d",
+		key, submission.EventContext.RunID, submission.EventContext.WorkerID, msgCount)
 	if key == "" {
 		result, err := c.execute(ctx, submission)
 		return RunOutcome{Result: result, DeliverySeqs: submission.DeliverySeqs}, err
@@ -180,6 +187,11 @@ func (c *Coordinator) enqueueSubmission(ctx context.Context, submission RunSubmi
 }
 
 func (c *Coordinator) execute(ctx context.Context, submission RunSubmission) (*agentrundomain.RunResult, error) {
+	start := time.Now()
+	sKey := sessionKey(submission)
+	logs.InfoContextf(ctx, "coordinator slot acquiring: active=%d cap=%d run_id=%s session_key=%s",
+		len(c.slots), cap(c.slots), submission.EventContext.RunID, sKey)
+
 	select {
 	case c.slots <- struct{}{}:
 		defer func() { <-c.slots }()
@@ -187,14 +199,19 @@ func (c *Coordinator) execute(ctx context.Context, submission RunSubmission) (*a
 		return nil, ctx.Err()
 	}
 
+	logs.InfoContextf(ctx, "coordinator slot acquired: active=%d cap=%d waited_ms=%d run_id=%s session_key=%s",
+		len(c.slots), cap(c.slots), time.Since(start).Milliseconds(),
+		submission.EventContext.RunID, sKey)
+
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	sKey := sessionKey(submission)
 	if sKey != "" && submission.EventContext.RunID != "" {
 		activeKey := activeRunKey(submission.EventContext.OrgID, submission.EventContext.WorkerID, submission.EventContext.SessionID, submission.EventContext.RunID)
 		c.RegisterRun(activeKey, submission.EventContext.RunID, requestTaskID(submission), cancel)
 		defer c.UnregisterRun(activeKey)
 	}
+	logs.InfoContextf(runCtx, "coordinator executing: run_id=%s session_key=%s",
+		submission.EventContext.RunID, sKey)
 	return c.executeFunc(runCtx, submission)
 }
 

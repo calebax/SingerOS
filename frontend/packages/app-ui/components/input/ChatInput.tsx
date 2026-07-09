@@ -597,7 +597,7 @@ function projectMemberToComposerAssistantOption(member: ProjectMember): Composer
 		id,
 		code: id,
 		name: member.name,
-		// 中文注释：DetailProject 当前可能只返回成员基础信息，这里用项目成员信息补齐输入框候选项。
+		// 中文注释：DetailProject 当前可能只返回成员基础信息，这里用项目队友信息补齐输入框候选项。
 		description: member.description || (member.isDefault ? "默认 AI 队友" : "AI 队友"),
 		avatarUrl: member.avatarUrl,
 	};
