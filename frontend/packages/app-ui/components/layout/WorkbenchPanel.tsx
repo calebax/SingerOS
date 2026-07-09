@@ -215,7 +215,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
 	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
-	const { addUploadedAttachment, isGenerating, startGlobalEvents } = useChatStore((s) => s);
+	const { addUploadedAttachment, startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -228,6 +228,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const [input, setInput] = useState("");
 	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	const [isSending, setIsSending] = useState(false);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
 	const [hoveredSubmenu, setHoveredSubmenu] = useState<"new-project" | string | null>(null);
@@ -280,8 +281,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [activeWorkbenchProjectId]);
 
 	const performSend = async (content: string) => {
-		if (isGenerating || sendingRef.current) return;
+		// 中文注释：首页新建任务不应被其他任务的全局生成态锁住，只拦截本输入框的重复提交。
+		if (sendingRef.current) return;
 		sendingRef.current = true;
+		setIsSending(true);
 		try {
 			await startGlobalEvents();
 			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
@@ -312,12 +315,13 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			clearAttachments();
 		} finally {
 			sendingRef.current = false;
+			setIsSending(false);
 		}
 	};
 
 	const handleSend = async () => {
 		const content = input.trim();
-		if (!content || isGenerating || sendingRef.current) return;
+		if (!content || sendingRef.current) return;
 		if (!isAuthenticated) {
 			requireAuth(() => {
 				void performSend(content);
@@ -749,21 +753,21 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									disableAssistantAndSkill={Boolean(activeProject)}
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
-									isGenerating={isGenerating}
+									isGenerating={isSending}
 								/>
 							</div>
 							<div className="flex items-center gap-2">
 								<Button
 									size="icon"
 									onClick={handleSend}
-									disabled={isGenerating || !input.trim()}
+									disabled={isSending || !input.trim()}
 									// 中文注释：工作台发送按钮与项目/任务页保持同一视觉规格。
 									className="size-9 min-w-0 rounded-xl bg-black !text-white shadow-sm hover:bg-blue-700 disabled:bg-[#f3f3f4] disabled:!text-slate-400"
 								>
 									<SendHorizonal
 										className={cn(
 											"size-3.5",
-											input.trim() && !isGenerating
+											input.trim() && !isSending
 												? "fill-white stroke-white text-white"
 												: "fill-none stroke-current text-current",
 										)}
