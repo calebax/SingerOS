@@ -1,6 +1,6 @@
 {
   "name": "@leros/desktop",
-  "version": "0.1.28",
+  "version": "0.2.1",
   "description": "Leros desktop application",
   "author": "insmtx",
   "private": true,
