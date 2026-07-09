@@ -82,6 +82,8 @@ export type ProjectSkill = {
 	trust?: string;
 };
 
+export type ProjectTab = "chat" | "tasks" | "files" | "activity";
+
 export type ProjectMemberType = "assistant" | "user";
 
 export type ProjectMember = {
@@ -157,7 +159,7 @@ export type LayoutState = {
 	activeProjectId: string | null;
 	activeWorkbenchProjectId: string | null;
 	activeWorkbenchTaskId: string | null;
-	activeProjectTab: "chat" | "tasks" | "files";
+	activeProjectTab: ProjectTab;
 	workspaces: Workspace[];
 	projects: Project[];
 	conversations: Conversation[];
@@ -459,6 +461,8 @@ export class LayoutActionImpl {
 	readonly #set: SetState;
 	readonly #get: () => LayoutStore;
 	#fetchProjectsPromise: Promise<void> | null = null;
+	#fetchProjectDetailPromises = new Map<string, Promise<void>>();
+	#projectDetailLoadedIds = new Set<string>();
 
 	constructor(set: SetState, get: () => LayoutStore) {
 		this.#set = set;
@@ -564,7 +568,7 @@ export class LayoutActionImpl {
 		});
 	};
 
-	setProjectRoute = (projectId: string, tab: "chat" | "tasks" | "files" = "chat") => {
+	setProjectRoute = (projectId: string, tab: ProjectTab = "chat") => {
 		const state = this.#get();
 		const keepsPendingPrefill = state.projectComposerPrefill?.projectId === projectId;
 		if (
@@ -603,7 +607,7 @@ export class LayoutActionImpl {
 		this.#set({ activeWorkbenchTaskId: taskId });
 	};
 
-	setActiveProjectTab = (tab: "chat" | "tasks" | "files") => {
+	setActiveProjectTab = (tab: ProjectTab) => {
 		this.#set({ activeProjectTab: tab });
 	};
 
@@ -1161,7 +1165,24 @@ export class LayoutActionImpl {
 	};
 
 	fetchProjectDetail = async (projectId: string) => {
-		this.#set({ projectDetailLoading: true, projectDetailError: null });
+		const inflight = this.#fetchProjectDetailPromises.get(projectId);
+		if (inflight) return inflight;
+
+		const promise = this.#loadProjectDetail(projectId);
+		this.#fetchProjectDetailPromises.set(projectId, promise);
+		try {
+			await promise;
+		} finally {
+			this.#fetchProjectDetailPromises.delete(projectId);
+		}
+	};
+
+	#loadProjectDetail = async (projectId: string) => {
+		const isInitialLoad = !this.#projectDetailLoadedIds.has(projectId);
+		if (isInitialLoad) {
+			this.#set({ projectDetailLoading: true, projectDetailError: null });
+		}
+
 		try {
 			const res = await projectApi.detail({ public_id: projectId });
 			const detail = res.data.data;
@@ -1169,6 +1190,7 @@ export class LayoutActionImpl {
 
 			const tasks = (detail.tasks ?? []).map(mapBackendTask);
 			const mapped = mapBackendProject(detail);
+			this.#projectDetailLoadedIds.add(projectId);
 			this.#set((s) => {
 				const exists = s.projects.some((project) => project.id === projectId);
 				return {
@@ -1202,7 +1224,9 @@ export class LayoutActionImpl {
 			});
 		} catch (err) {
 			console.error("fetchProjectDetail error:", err);
-			this.#set({ projectDetailLoading: false, projectDetailError: "获取项目详情失败" });
+			if (isInitialLoad) {
+				this.#set({ projectDetailLoading: false, projectDetailError: "获取项目详情失败" });
+			}
 		}
 	};
 

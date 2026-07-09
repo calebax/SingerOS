@@ -71,6 +71,7 @@ import {
 } from "../project-members/ProjectMemberPickerDialog";
 import { openProjectFilePreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
+import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import {
 	ProjectFileTypeIcon,
@@ -91,6 +92,7 @@ const projectTabs = [
 	{ id: "chat" as const, label: "新建任务" },
 	{ id: "tasks" as const, label: "任务列表" },
 	{ id: "files" as const, label: "项目文件" },
+	{ id: "activity" as const, label: "动态" },
 ];
 
 const PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-project-config-right-sidebar-width";
@@ -147,6 +149,8 @@ export function ProjectPage({
 	} = useChatStore((s) => s);
 
 	const [projectFiles, setProjectFiles] = useState<ProjectFileNode[]>([]);
+	const [activityRefreshKey, setActivityRefreshKey] = useState(0);
+	const [projectDetailInitialized, setProjectDetailInitialized] = useState(false);
 	const [rightSidebarWidth, setRightSidebarWidth] = useState(PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH);
 	const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
 	const hasLoadedRightSidebarPreferenceRef = useRef(false);
@@ -208,7 +212,17 @@ export function ProjectPage({
 		if (resolvedProjectId) {
 			fetchProjectDetail(resolvedProjectId);
 		}
-	}, [resolvedProjectId, fetchProjectDetail, projects.length]);
+	}, [resolvedProjectId, fetchProjectDetail]);
+
+	useEffect(() => {
+		setProjectDetailInitialized(false);
+	}, [resolvedProjectId]);
+
+	useEffect(() => {
+		if (!projectDetailLoading && project) {
+			setProjectDetailInitialized(true);
+		}
+	}, [projectDetailLoading, project]);
 
 	const refreshProjectFiles = async () => {
 		if (!resolvedProjectId) return;
@@ -355,8 +369,8 @@ export function ProjectPage({
 		target.addEventListener("pointercancel", handlePointerUp);
 	};
 
-	// 中文注释：项目右侧栏只在会话 tab 使用，任务 tab 不展示展开/拖拽能力。
-	const showProjectSidebar = resolvedTab === "chat";
+	// 中文注释：项目四个 tab 均展示右侧项目配置栏，便于随时维护成员和技能。
+	const showProjectSidebar = true;
 	const projectChatLayoutMode: ProjectChatLayoutMode =
 		showProjectSidebar && !rightSidebarCollapsed ? "sidebar-expanded" : "sidebar-collapsed";
 	const isWideRightSidebar = rightSidebarWidth >= PROJECT_RIGHT_SIDEBAR_WIDE_BREAKPOINT;
@@ -372,7 +386,7 @@ export function ProjectPage({
 		);
 	}
 
-	if (projectDetailLoading) {
+	if (resolvedProjectId && !projectDetailInitialized) {
 		return (
 			<div className="flex h-full flex-1 items-center justify-center bg-[var(--leros-surface)]">
 				<div className="flex flex-col items-center gap-3">
@@ -445,7 +459,7 @@ export function ProjectPage({
 						"min-w-0 flex-1",
 						resolvedTab === "chat"
 							? "flex min-h-0 flex-col bg-[var(--leros-surface)]"
-							: resolvedTab === "files"
+							: resolvedTab === "files" || resolvedTab === "activity"
 								? "min-h-0 bg-[var(--leros-surface)]"
 								: "overflow-y-auto px-10 py-8",
 					)}
@@ -465,6 +479,13 @@ export function ProjectPage({
 							projectId={resolvedProjectId}
 							files={projectFiles}
 							onRefresh={refreshProjectFiles}
+						/>
+					)}
+					{resolvedTab === "activity" && resolvedProjectId && (
+						<ProjectActivityPanel
+							projectId={resolvedProjectId}
+							humanMembers={project.members.filter((member) => member.type === "user")}
+							refreshKey={activityRefreshKey}
 						/>
 					)}
 				</main>
@@ -494,6 +515,9 @@ export function ProjectPage({
 								const updated = await updateProject(params);
 								if (params.members && project.id) {
 									await fetchProjectDetail(project.id);
+								}
+								if (params.members || params.metadata) {
+									setActivityRefreshKey((key) => key + 1);
 								}
 								return updated;
 							}}

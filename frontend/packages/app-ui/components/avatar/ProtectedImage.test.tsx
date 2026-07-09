@@ -12,7 +12,7 @@ vi.mock("@leros/store", () => ({
 	fetchFilePreviewByPublicId: storeMocks.fetchFilePreviewByPublicId,
 }));
 
-import { ProtectedImage } from "./ProtectedImage";
+import { ProtectedImage, resetProtectedImageCacheForTests } from "./ProtectedImage";
 
 function createImageResponse() {
 	return {
@@ -23,6 +23,7 @@ function createImageResponse() {
 
 describe("ProtectedImage", () => {
 	beforeEach(() => {
+		resetProtectedImageCacheForTests();
 		storeMocks.authenticatedFetch.mockReset();
 		storeMocks.fetchFilePreviewByPublicId.mockReset();
 		storeMocks.authenticatedFetch.mockResolvedValue(createImageResponse());
@@ -62,5 +63,29 @@ describe("ProtectedImage", () => {
 			expect(storeMocks.authenticatedFetch).toHaveBeenCalledWith(legacyURL);
 		});
 		expect(storeMocks.fetchFilePreviewByPublicId).not.toHaveBeenCalled();
+	});
+
+	it("deduplicates concurrent loads for the same file public_id", async () => {
+		render(
+			<>
+				<ProtectedImage
+					src="file_TwxpykjQhu"
+					alt="avatar-1"
+					className="size-7"
+					fallback={<span>fallback-1</span>}
+				/>
+				<ProtectedImage
+					src="file_TwxpykjQhu"
+					alt="avatar-2"
+					className="size-7"
+					fallback={<span>fallback-2</span>}
+				/>
+			</>,
+		);
+
+		await waitFor(() => {
+			expect(storeMocks.fetchFilePreviewByPublicId).toHaveBeenCalledTimes(1);
+		});
+		expect(storeMocks.fetchFilePreviewByPublicId).toHaveBeenCalledWith("file_TwxpykjQhu");
 	});
 });

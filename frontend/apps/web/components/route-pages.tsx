@@ -13,7 +13,14 @@ import {
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useWebNavigation } from "./LerosShell";
 
-type ProjectTab = "chat" | "tasks" | "files";
+type ProjectTab = "chat" | "tasks" | "files" | "activity";
+
+function projectTabPath(projectId: string, tab: ProjectTab): string {
+	if (tab === "chat") return `/projects/${projectId}`;
+	if (tab === "tasks") return `/projects/${projectId}/tasks`;
+	if (tab === "files") return `/projects/${projectId}/files`;
+	return `/projects/${projectId}/activity`;
+}
 
 export function WorkbenchRoutePage() {
 	const navigation = useWebNavigation();
@@ -37,12 +44,7 @@ export function ProjectRoutePage({ tab = "chat" }: { tab?: ProjectTab }) {
 			tab={tab}
 			navigation={navigation}
 			onTabChange={(nextTab) => {
-				if (nextTab === "chat") {
-					navigation.goToProject(projectId);
-					return;
-				}
-				const suffix = nextTab === "tasks" ? "tasks" : "files";
-				router.push(`/projects/${projectId}/${suffix}`);
+				router.push(projectTabPath(projectId, nextTab));
 			}}
 		/>
 	);

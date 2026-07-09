@@ -5,6 +5,9 @@ import { type ReactNode, useEffect, useState } from "react";
 
 const PROTECTED_IMAGE_CACHE_PREFIX = "leros-avatar-cache:";
 
+const memoryCache = new Map<string, string>();
+const inflightLoads = new Map<string, Promise<string>>();
+
 export function isProtectedFileURL(src: string): boolean {
 	return src.includes("/files/") && src.includes("/download");
 }
@@ -21,6 +24,58 @@ function getProtectedImageCacheKey(src: string): string {
 	return `${PROTECTED_IMAGE_CACHE_PREFIX}${src}`;
 }
 
+function getProtectedImageLoadKey(src: string): string {
+	return src.trim();
+}
+
+function readProtectedImageDataURLSync(src?: string | null): string | null {
+	if (!src || !isProtectedImageSource(src)) return null;
+	const key = getProtectedImageLoadKey(src);
+	const fromMemory = memoryCache.get(key);
+	if (fromMemory) return fromMemory;
+	return getCachedProtectedImageDataURL(src);
+}
+
+function loadProtectedImageDataURL(src: string): Promise<string> {
+	const key = getProtectedImageLoadKey(src);
+
+	const fromMemory = memoryCache.get(key);
+	if (fromMemory) return Promise.resolve(fromMemory);
+
+	const fromStorage = getCachedProtectedImageDataURL(src);
+	if (fromStorage) {
+		memoryCache.set(key, fromStorage);
+		return Promise.resolve(fromStorage);
+	}
+
+	const inflight = inflightLoads.get(key);
+	if (inflight) return inflight;
+
+	const promise = fetchProtectedImageSource(src)
+		.then(async (response) => {
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			const blob = await response.blob();
+			return blobToDataURL(blob);
+		})
+		.then((dataURL) => {
+			memoryCache.set(key, dataURL);
+			cacheProtectedImageDataURL(src, dataURL);
+			return dataURL;
+		})
+		.finally(() => {
+			inflightLoads.delete(key);
+		});
+
+	inflightLoads.set(key, promise);
+	return promise;
+}
+
+/** @internal test helper */
+export function resetProtectedImageCacheForTests() {
+	memoryCache.clear();
+	inflightLoads.clear();
+}
+
 export function getCachedProtectedImageDataURL(src?: string | null): string | null {
 	if (!src || typeof window === "undefined" || !isProtectedImageSource(src)) return null;
 	try {
@@ -32,6 +87,7 @@ export function getCachedProtectedImageDataURL(src?: string | null): string | nu
 
 export function cacheProtectedImageDataURL(src: string, dataURL: string) {
 	if (typeof window === "undefined" || !isProtectedImageSource(src)) return;
+	memoryCache.set(getProtectedImageLoadKey(src), dataURL);
 	try {
 		window.localStorage.setItem(getProtectedImageCacheKey(src), dataURL);
 	} catch {
@@ -83,9 +139,7 @@ export function ProtectedImage({
 	onProtectedSrcLoaded,
 }: ProtectedImageProps) {
 	const [failed, setFailed] = useState(false);
-	const [imageURL, setImageURL] = useState<string | null>(() =>
-		getCachedProtectedImageDataURL(src),
-	);
+	const [imageURL, setImageURL] = useState<string | null>(() => readProtectedImageDataURLSync(src));
 
 	useEffect(() => {
 		setFailed(false);
@@ -94,7 +148,7 @@ export function ProtectedImage({
 			return;
 		}
 
-		const cachedImageURL = getCachedProtectedImageDataURL(src);
+		const cachedImageURL = readProtectedImageDataURLSync(src);
 		if (cachedImageURL) {
 			setImageURL(cachedImageURL);
 			onProtectedSrcLoaded?.();
@@ -102,16 +156,9 @@ export function ProtectedImage({
 		}
 
 		let cancelled = false;
-		fetchProtectedImageSource(src)
-			.then(async (response) => {
-				if (!response.ok) throw new Error(`HTTP ${response.status}`);
-				return response.blob();
-			})
-			.then(async (blob) => {
+		loadProtectedImageDataURL(src)
+			.then((dataURL) => {
 				if (cancelled) return;
-				const dataURL = await blobToDataURL(blob);
-				if (cancelled) return;
-				cacheProtectedImageDataURL(src, dataURL);
 				setImageURL(dataURL);
 				onProtectedSrcLoaded?.();
 			})
@@ -122,7 +169,7 @@ export function ProtectedImage({
 				if (isNotFoundError) {
 					onProtectedSrcNotFound?.();
 				}
-				if (!cachedImageURL) setFailed(true);
+				setFailed(true);
 			});
 
 		return () => {

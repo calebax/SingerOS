@@ -12,12 +12,12 @@ import (
 
 // ProjectActivityListOptions 定义项目动态列表查询条件。
 type ProjectActivityListOptions struct {
-	ProjectID  string
-	ProjectIDs []string
-	OperatorID string
-	BeforeTime *time.Time
-	BeforeID   uint
-	Limit      int
+	ProjectID   string
+	ProjectIDs  []string
+	OperatorIDs []string
+	BeforeTime  *time.Time
+	BeforeID    uint
+	Limit       int
 }
 
 // CreateProjectActivity 写入一条项目操作动态。
@@ -44,8 +44,10 @@ func ListProjectActivities(ctx context.Context, db *gorm.DB, opt ProjectActivity
 		}
 		query = query.Where("project_id IN (?)", opt.ProjectIDs)
 	}
-	if opt.OperatorID != "" {
-		query = query.Where("operator_id = ?", opt.OperatorID)
+	if len(opt.OperatorIDs) == 1 {
+		query = query.Where("operator_id = ?", opt.OperatorIDs[0])
+	} else if len(opt.OperatorIDs) > 1 {
+		query = query.Where("operator_id IN (?)", opt.OperatorIDs)
 	}
 	if opt.BeforeTime != nil && opt.BeforeID > 0 {
 		query = query.Where("(created_at < ? OR (created_at = ? AND id < ?))", *opt.BeforeTime, *opt.BeforeTime, opt.BeforeID)

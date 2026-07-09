@@ -48,6 +48,15 @@ async function parseErrorMessage(response: Response): Promise<string> {
 	return message;
 }
 
+const listProjectFilesInflight = new Map<
+	string,
+	ReturnType<typeof apiClient.get<BackendDataResponse<BackendProjectFileNode[]>>>
+>();
+
+function getListProjectFilesKey(params: GetProjectFilesParams): string {
+	return [params.projectId, params.resourceType ?? "", params.taskId ?? ""].join(":");
+}
+
 function assertBackendSuccess<T>(
 	response: BackendDataResponse<T>,
 	fallbackMessage: string,
@@ -90,16 +99,27 @@ async function uploadLooseFile({
 }
 
 export const projectFileApi = {
-	list: ({ projectId, resourceType, taskId }: GetProjectFilesParams) => {
-		const params: Record<string, string> = {};
-		if (resourceType) params.resource_type = resourceType;
-		if (taskId) params.task_id = taskId;
-		return apiClient.get<BackendDataResponse<BackendProjectFileNode[]>>(
-			`/projects/${encodeURIComponent(projectId)}/files`,
-			{
-				params: Object.keys(params).length > 0 ? params : undefined,
-			},
-		);
+	list: (params: GetProjectFilesParams) => {
+		const key = getListProjectFilesKey(params);
+		const inflight = listProjectFilesInflight.get(key);
+		if (inflight) return inflight;
+
+		const queryParams: Record<string, string> = {};
+		if (params.resourceType) queryParams.resource_type = params.resourceType;
+		if (params.taskId) queryParams.task_id = params.taskId;
+
+		const promise = apiClient
+			.get<BackendDataResponse<BackendProjectFileNode[]>>(
+				`/projects/${encodeURIComponent(params.projectId)}/files`,
+				{
+					params: Object.keys(queryParams).length > 0 ? queryParams : undefined,
+				},
+			)
+			.finally(() => {
+				listProjectFilesInflight.delete(key);
+			});
+		listProjectFilesInflight.set(key, promise);
+		return promise;
 	},
 
 	download: (projectId: string, filePath: string): string =>
