@@ -55,3 +55,10 @@ storage:
 #   本地项目路径
 #   working_dir: /Users/xxx/lework
 #   server_addr: 127.0.0.1:8080
+
+feishu:
+  enabled: true
+  app_id: "<your_feishu_app_id>"
+  app_secret: "<your_feishu_app_secret>"
+  app_token: "<your_feishu_app_token>"
+  table_id: "<your_feishu_table_id>"

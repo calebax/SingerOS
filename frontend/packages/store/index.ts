@@ -19,9 +19,11 @@ export type {
 	ClientUpgradeRequiredEvent,
 	ClientVersionReportParams,
 } from "./api/clientUpdatePolicy";
-export { CLIENT_UPGRADE_REQUIRED_EVENT } from "./api/clientUpdatePolicy";
+export { CLIENT_UPGRADE_REQUIRED_EVENT, getClientVersionReport } from "./api/clientUpdatePolicy";
 export { API_BASE_URL } from "./api/config";
 export { digitalAssistantApi } from "./api/digitalAssistantApi";
+export type { FeedbackType, SubmitFeedbackParams, SubmitFeedbackResponse } from "./api/feedbackApi";
+export { feedbackApi } from "./api/feedbackApi";
 export {
 	fetchFileDownload,
 	fetchFilePreview,

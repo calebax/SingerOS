@@ -45,6 +45,16 @@ type Config struct {
 	WorkerAuth    *WorkerAuthConfig   `yaml:"worker_auth,omitempty" json:"worker_auth,omitempty"`
 	Aliyun        *AliyunConfig       `yaml:"aliyun,omitempty" json:"aliyun,omitempty"`
 	ClientUpdate  *ClientUpdateConfig `yaml:"client_update,omitempty" json:"client_update,omitempty"`
+	Feishu        *FeishuConfig       `yaml:"feishu,omitempty" json:"feishu,omitempty"`
+}
+
+// FeishuConfig configures Feishu Open Platform integration for feedback Bitable sync.
+type FeishuConfig struct {
+	Enabled   bool   `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	AppID     string `yaml:"app_id,omitempty" json:"app_id,omitempty"`
+	AppSecret string `yaml:"app_secret,omitempty" json:"app_secret,omitempty"`
+	AppToken  string `yaml:"app_token,omitempty" json:"app_token,omitempty"`
+	TableID   string `yaml:"table_id,omitempty" json:"table_id,omitempty"`
 }
 
 // JWTConfig JWT 认证配置

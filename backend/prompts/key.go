@@ -40,3 +40,4 @@ const (
 const KeyLLMTestConnectivity = "llm.test.connectivity"
 
 const KeyWorkShortTitle = "work.short_title.generate"
+const KeyFeedbackSummarize = "feedback.summarize"
