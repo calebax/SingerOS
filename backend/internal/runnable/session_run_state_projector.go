@@ -66,6 +66,9 @@ func handleRunStateMessage(ctx context.Context, service contract.SessionService,
 		return
 	}
 
+	logs.InfoContextf(ctx, "received run state event: type=%s session_id=%s run_id=%s seq=%d",
+		runEvent.Body.Event, runEvent.Route.SessionID, runEvent.Trace.RunID, runEvent.Body.Seq)
+
 	switch runEvent.Body.Event {
 	case messaging.RunEventRunStarted:
 		handleRunStartedEvent(ctx, service, msg, runEvent)
@@ -106,6 +109,8 @@ func handleRunStartedEvent(ctx context.Context, service contract.SessionService,
 	}); err != nil {
 		logs.WarnContextf(ctx, "handle session run started failed: session_id=%s error=%v", runEvent.Route.SessionID, err)
 	}
+	logs.InfoContextf(ctx, "handled run started: session_id=%s run_id=%s state_start_seq=%d reply_ids=%v",
+		runEvent.Route.SessionID, runEvent.Trace.RunID, meta.Sequence.Stream, runEvent.Body.ReplyToMessageIDs)
 }
 
 func handleArtifactDeclaredEvent(ctx context.Context, persister *declaredArtifactPersister, runEvent messaging.RunEvent) {

@@ -104,6 +104,9 @@ func (p *MessagePoster) PostMessage(
 
 	publishMessageCreatedEvent(ctx, p.db, p.eventbus, session, message)
 
+	logs.InfoContextf(ctx, "published message.created (human): session_id=%s message_id=%d project_id=%v worker_id=%d assistant_id=%d",
+		session.PublicID, message.ID, session.ProjectID, session.AllocatedAssistantID, session.AssistantID)
+
 	if err := p.publishWorkerTask(ctx, session, message, executionMode); err != nil {
 		return nil, err
 	}
@@ -840,7 +843,8 @@ func (p *MessagePoster) publishWorkerTask(
 		logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", session.AllocatedAssistantID, err)
 		return fmt.Errorf("failed to publish message to assistant: %w", err)
 	}
-	logs.DebugContextf(ctx, "Published message to topic %s: session_id=%s sequence=%d", topic, session.PublicID, message.Sequence)
+	logs.InfoContextf(ctx, "published run command: topic=%s org_id=%d worker_id=%d assistant_id=%d session_id=%s run_id=%s message_id=%d sequence=%d",
+		topic, orgID, session.AllocatedAssistantID, session.AssistantID, session.PublicID, requestID, message.ID, message.Sequence)
 	return nil
 }
 

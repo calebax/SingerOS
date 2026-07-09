@@ -548,6 +548,9 @@ func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contr
 
 	publishAssistantReplyStartedEvent(ctx, s.db, s.eventbus, session, req.RunID)
 
+	logs.InfoContextf(ctx, "handled session run started: session_id=%s run_id=%s state_start_seq=%d reply_ids=%v",
+		req.SessionID, req.RunID, req.StateStartSeq, req.ReplyToMessageIDs)
+
 	return nil
 }
 
@@ -990,6 +993,7 @@ func publishAssistantReplyStartedEvent(
 		return
 	}
 	if session.ProjectID == nil || *session.ProjectID == 0 || session.OrgID == 0 {
+		logs.WarnContextf(ctx, "skip assistant reply event: session_id=%s project_id=%v org_id=%d", session.PublicID, session.ProjectID, session.OrgID)
 		return
 	}
 
@@ -1030,6 +1034,8 @@ func publishAssistantReplyStartedEvent(
 	if err := eb.Publish(ctx, subject, payload); err != nil {
 		logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: publish to %s: %v", subject, err)
 	}
+	logs.InfoContextf(ctx, "published message.created (assistant): session_id=%s project_id=%d run_id=%s assistant_id=%d subject=%s",
+		session.PublicID, *session.ProjectID, runID, session.AssistantID, subject)
 }
 
 func normalizeMessageUsage(usage *types.MessageUsage) types.MessageUsage {

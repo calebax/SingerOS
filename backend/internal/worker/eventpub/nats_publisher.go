@@ -8,6 +8,7 @@ import (
 
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 const terminalPublishTimeout = 5 * time.Second
@@ -48,6 +49,13 @@ func (p *NATSEventPublisher) PublishRunEvent(
 
 	if err := p.bus.Publish(publishCtx, topic, event); err != nil {
 		return fmt.Errorf("publish run event to %s: %w", topic, err)
+	}
+	if lane == messaging.RunEventLaneState {
+		logs.InfoContextf(publishCtx, "published run event (state): type=%s topic=%s session_id=%s run_id=%s",
+			event.Body.Event, topic, event.Route.SessionID, event.Trace.RunID)
+	} else {
+		logs.DebugContextf(publishCtx, "published run event (stream): type=%s topic=%s session_id=%s run_id=%s",
+			event.Body.Event, topic, event.Route.SessionID, event.Trace.RunID)
 	}
 	return nil
 }
