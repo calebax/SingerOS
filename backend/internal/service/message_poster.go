@@ -620,6 +620,92 @@ func memoryIDs(memories []*types.DigitalAssistantMemory) []string {
 	return ids
 }
 
+// buildProjectContext queries project business context and member list for the worker.
+// Returns zero value when session has no project (e.g. chat sessions) or query fails.
+func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.Session) messaging.ProjectContext {
+	if session == nil || session.ProjectID == nil || p == nil || p.db == nil {
+		return messaging.ProjectContext{}
+	}
+	project, err := infradb.GetProjectByID(ctx, p.db, *session.ProjectID)
+	if err != nil || project == nil {
+		logs.WarnContextf(ctx, "buildProjectContext: project %d not found: %v", *session.ProjectID, err)
+		return messaging.ProjectContext{}
+	}
+	ctx2 := messaging.ProjectContext{
+		Name:        project.Name,
+		Description: project.Description,
+		Objective:   project.Objective,
+	}
+	members, err := infradb.ListProjectMembers(ctx, p.db, project.ID)
+	if err != nil {
+		logs.WarnContextf(ctx, "buildProjectContext: list members failed: %v", err)
+		return ctx2
+	}
+	userIDs, assistantIDs := collectMemberIDs(members)
+	userMap := make(map[uint]string)
+	if len(userIDs) > 0 {
+		if users, err := infradb.GetUsersByIDs(ctx, p.db, userIDs); err == nil {
+			for _, u := range users {
+				if u != nil {
+					userMap[u.ID] = u.Name
+				}
+			}
+		}
+	}
+	assistantMap := make(map[uint]string)
+	if len(assistantIDs) > 0 {
+		if assistants, err := infradb.GetAssistantsByIDs(ctx, p.db, assistantIDs); err == nil {
+			for _, a := range assistants {
+				if a != nil {
+					assistantMap[a.ID] = a.Name
+				}
+			}
+		}
+	}
+	briefs := make([]messaging.MemberBrief, 0, len(members))
+	for _, m := range members {
+		if m == nil {
+			continue
+		}
+		brief := messaging.MemberBrief{
+			MemberID:   m.MemberID,
+			MemberType: string(m.MemberType),
+			MemberRole: string(m.MemberRole),
+			IsDefault:  m.IsDefault,
+		}
+		switch m.MemberType {
+		case types.MemberTypeUser:
+			brief.Name = userMap[m.MemberID]
+			if m.MemberID == session.Uin {
+				brief.IsCurrentUser = true
+			}
+		case types.MemberTypeAssistant:
+			brief.Name = assistantMap[m.MemberID]
+			if m.MemberID == session.AssistantID {
+				brief.IsCurrentExec = true
+			}
+		}
+		briefs = append(briefs, brief)
+	}
+	ctx2.Members = briefs
+	return ctx2
+}
+
+func collectMemberIDs(members []*types.ProjectMember) (userIDs, assistantIDs []uint) {
+	for _, m := range members {
+		if m == nil {
+			continue
+		}
+		switch m.MemberType {
+		case types.MemberTypeUser:
+			userIDs = append(userIDs, m.MemberID)
+		case types.MemberTypeAssistant:
+			assistantIDs = append(assistantIDs, m.MemberID)
+		}
+	}
+	return
+}
+
 func truncateEvolutionPromptText(value string, limit int) string {
 	value = strings.TrimSpace(value)
 	if limit <= 0 || len(value) <= limit {
@@ -684,20 +770,30 @@ func (p *MessagePoster) publishWorkerTask(
 	}
 
 	var inputMessages []messaging.ChatMessage
-	// 群聊历史上下文注入：task/project session 取最近 N 条 user/assistant 消息作为上下文
+	// 群聊历史上下文注入：以当前 AI 队友上一条回复为起点，增量获取时间窗口内的 user/assistant 消息
 	if session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject {
-		recent, err := infradb.GetRecentSessionMessages(ctx, p.db, session.ID, defaultHistoryContextLimit)
+		windowStart := session.CreatedAt
+		if lastTime, err := infradb.GetLastAssistantMessageCreatedAt(ctx, p.db, session.ID, session.AllocatedAssistantID); err != nil {
+			logs.WarnContextf(ctx, "publishWorkerTask: get last assistant message time: %v", err)
+		} else if lastTime != nil {
+			windowStart = *lastTime
+		}
+		incremental, err := infradb.GetSessionMessagesInRange(ctx, p.db, session.ID, windowStart)
 		if err != nil {
-			logs.WarnContextf(ctx, "publishWorkerTask: get recent messages: %v", err)
+			logs.WarnContextf(ctx, "publishWorkerTask: get session messages in range: %v", err)
 		} else {
-			for _, hm := range recent {
-				// 排除当前刚持久化的消息（publishWorkerTask 在 CreateMessage 之后调用，GetRecentSessionMessages 会包含它），避免重复
+			seen := make(map[uint]bool)
+			for _, hm := range incremental {
 				if hm.ID == message.ID {
 					continue
 				}
 				if hm.Role != string(types.MessageRoleUser) && hm.Role != string(types.MessageRoleAssistant) {
 					continue
 				}
+				if seen[hm.ID] {
+					continue
+				}
+				seen[hm.ID] = true
 				inputMessages = append(inputMessages, messaging.ChatMessage{
 					ID:         fmt.Sprintf("%d", hm.ID),
 					Role:       messaging.MessageRole(hm.Role),
@@ -715,6 +811,7 @@ func (p *MessagePoster) publishWorkerTask(
 		SenderName: message.SenderName,
 	})
 	executionTarget := p.buildExecutionTarget(ctx, session, message)
+	projectContext := p.buildProjectContext(ctx, session)
 
 	cmd := messaging.NewRunCommand(
 		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
@@ -746,9 +843,10 @@ func (p *MessagePoster) publishWorkerTask(
 				Messages:    inputMessages,
 				Attachments: convertMessageToMessagingAttachments(message.Attachments),
 			},
-			Model:     modelOptions,
-			Execution: executionTarget,
-		},
+		Model:     modelOptions,
+		Execution: executionTarget,
+		Project:   projectContext,
+	},
 		&messaging.RunCommandMetadata{
 			SessionID:   session.PublicID,
 			MessageType: message.MessageType,
@@ -1075,8 +1173,6 @@ func resolveSkillEntries(tokens []string) []string {
 	}
 	return result
 }
-
-const defaultHistoryContextLimit = 20
 
 // publishMessageCreatedEvent 在用户消息持久化成功后发布 message.created 事件到
 // org.{org_id}.project.{project_id}.notify subject，通知群聊成员有新用户消息。

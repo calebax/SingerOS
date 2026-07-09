@@ -62,6 +62,9 @@ function assistantToProjectMember(assistant: DigitalAssistantItem): ProjectMembe
 }
 
 function humanToProjectMember(member: HumanProjectMemberOption): ProjectMember {
+	// 中文注释：真人成员副标题只展示手机号或邮箱，避免把无业务价值的 github_login 暴露在成员选择列表里。
+	const descriptionParts = [member.phone, member.email].filter(Boolean);
+
 	return {
 		id: `user-${member.public_id}`,
 		memberId: member.id ?? 0,
@@ -69,7 +72,7 @@ function humanToProjectMember(member: HumanProjectMemberOption): ProjectMember {
 		type: "user",
 		role: "member",
 		name: member.name,
-		description: [member.email, member.github_login].filter(Boolean).join(" / "),
+		description: descriptionParts.join(" / "),
 		avatarUrl: member.avatar_url,
 	};
 }
@@ -90,6 +93,19 @@ function isSameProjectMember(
 	if (a.type !== b.type) return false;
 	if (a.publicId && b.publicId) return a.publicId === b.publicId;
 	return a.memberId > 0 && b.memberId > 0 && a.memberId === b.memberId;
+}
+
+function isAlreadySelectedMember(selectedMembers: ProjectMember[], candidate: ProjectMember) {
+	return selectedMembers.some((selected) => {
+		if (isSameProjectMember(selected, candidate)) return true;
+		// 中文注释：兼容旧项目详情缺少 public_id 的数据，避免已加入成员继续出现在候选列表。
+		return (
+			!selected.publicId &&
+			selected.type === candidate.type &&
+			selected.name.trim() !== "" &&
+			selected.name === candidate.name
+		);
+	});
 }
 
 function resolveMemberPublicIdentity(
@@ -201,7 +217,7 @@ export function ProjectMemberPickerDialog({
 		return assistantOptions.filter(
 			(member) =>
 				!selectedKeys.has(memberKey(member)) &&
-				!draftMembers.some((selected) => isSameProjectMember(selected, member)) &&
+				!isAlreadySelectedMember(draftMembers, member) &&
 				memberMatchesQuery(member, query),
 		);
 	}, [assistantOptions, assistantSearch, draftMembers, selectedKeys]);
@@ -211,7 +227,7 @@ export function ProjectMemberPickerDialog({
 			(member) =>
 				member.publicId !== user?.publicId &&
 				!selectedKeys.has(memberKey(member)) &&
-				!draftMembers.some((selected) => isSameProjectMember(selected, member)) &&
+				!isAlreadySelectedMember(draftMembers, member) &&
 				memberMatchesQuery(member, query),
 		);
 	}, [draftMembers, humanOptions, humanSearch, selectedKeys, user?.publicId]);
@@ -220,7 +236,8 @@ export function ProjectMemberPickerDialog({
 		setDraftMembers((current) => {
 			if (
 				current.some(
-					(item) => memberKey(item) === memberKey(member) || isSameProjectMember(item, member),
+					(item) =>
+						memberKey(item) === memberKey(member) || isAlreadySelectedMember([item], member),
 				)
 			) {
 				return current;

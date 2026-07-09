@@ -124,7 +124,7 @@ func SeedBuiltinSkillMarketplace(db *gorm.DB) error {
 			version = "1.0.0"
 		}
 
-		author := "Leros"
+		author := "Lework"
 		if len(fm.Authors) > 0 {
 			author = fm.Authors[0]
 		}

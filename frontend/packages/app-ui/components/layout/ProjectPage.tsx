@@ -41,11 +41,9 @@ import {
 	ChevronDown,
 	ChevronRight,
 	ChevronsLeft,
-	ChevronsLeftRightEllipsis,
 	ChevronsRight,
 	Download,
 	Eye,
-	FileText,
 	LoaderCircle,
 	Pencil,
 	Plus,
@@ -57,15 +55,14 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { MessageTimeline } from "../chat/MessageTimeline";
-import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
 import {
 	ProjectMemberChip,
 	ProjectMemberPickerDialog,
 } from "../project-members/ProjectMemberPickerDialog";
+import { openProjectFilePreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
-import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat, OfficePreview } from "./OfficePreview";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import {
 	ProjectFileTypeIcon,
@@ -80,7 +77,6 @@ import {
 	type ProjectFileNode,
 	sortProjectFilesByUploadedTimeDesc,
 } from "./project-files";
-import { SpreadsheetPreview } from "./SpreadsheetPreview";
 import { TaskDeleteDialog } from "./TaskDeleteDialog";
 
 const projectTabs = [
@@ -89,9 +85,6 @@ const projectTabs = [
 	{ id: "files" as const, label: "项目文件" },
 ];
 
-const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
-const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
-const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
 const PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-project-config-right-sidebar-width";
 const PROJECT_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY = "leros-project-right-sidebar-collapsed";
 const PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
@@ -100,16 +93,6 @@ const PROJECT_RIGHT_SIDEBAR_MAX_WIDTH = 440;
 const PROJECT_RIGHT_SIDEBAR_WIDE_BREAKPOINT = 360;
 
 type ProjectTab = (typeof projectTabs)[number]["id"];
-
-type FilePreviewState =
-	| { status: "idle" }
-	| { status: "loading" }
-	| { status: "error"; message: string }
-	| { status: "office"; format: OfficeOpenXmlFormat; buffer: ArrayBuffer }
-	| { status: "markdown"; content: string }
-	| { status: "text"; content: string }
-	| { status: "spreadsheet"; buffer: ArrayBuffer }
-	| { status: "blob"; url: string; mimeType: string };
 
 export function ProjectPage({
 	projectId,
@@ -1334,21 +1317,10 @@ function ProjectFiles({
 	files: ProjectFileNode[];
 	onRefresh: () => Promise<void>;
 }) {
-	const [previewFile, setPreviewFile] = useState<ProjectFileNode | null>(null);
-	const [previewState, setPreviewState] = useState<FilePreviewState>({
-		status: "idle",
-	});
 	const [uploading] = useState(false);
 	const [uploadError] = useState<string | null>(null);
 	const [searchKeyword, setSearchKeyword] = useState("");
 	const [fileSourceFilter, setFileSourceFilter] = useState<"all" | FileSource>("all");
-	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
-	const drawerRef = useRef<HTMLDivElement>(null);
-
-	const closePreview = () => {
-		setPreviewFile(null);
-		setPreviewState({ status: "idle" });
-	};
 
 	const allFlatFiles = useMemo(() => {
 		const allFiles = collectSelectableFiles(files);
@@ -1362,99 +1334,6 @@ function ProjectFiles({
 		}
 		return sortProjectFilesByUploadedTimeDesc(filtered);
 	}, [files, searchKeyword, fileSourceFilter]);
-
-	useEffect(() => {
-		if (!previewFile) {
-			setPreviewState({ status: "idle" });
-			return;
-		}
-		const currentFile = previewFile;
-
-		let cancelled = false;
-		let objectUrl: string | null = null;
-		const controller = new AbortController();
-
-		async function loadPreview() {
-			setPreviewState({ status: "loading" });
-			try {
-				const response = currentFile.storageUri
-					? await fetchFilePreviewByStorageUri(currentFile.storageUri, {
-							signal: controller.signal,
-						})
-					: await projectFileApi.fetchDownload(projectId, currentFile.path, {
-							signal: controller.signal,
-						});
-				const mimeType =
-					response.headers.get("content-type") ??
-					currentFile.mimeType ??
-					"application/octet-stream";
-
-				const officeFormat = getOfficeOpenXmlFormat(currentFile.path, mimeType);
-				if (officeFormat) {
-					const buffer = await response.arrayBuffer();
-					if (!cancelled) {
-						setPreviewState({ status: "office", format: officeFormat, buffer });
-					}
-					return;
-				}
-
-				if (isSpreadsheetPreviewable(currentFile.path, mimeType)) {
-					const buffer = await response.arrayBuffer();
-					if (!cancelled) {
-						setPreviewState({ status: "spreadsheet", buffer });
-					}
-					return;
-				}
-
-				if (isTextPreviewable(currentFile.path, mimeType)) {
-					const content = await response.text();
-					if (!cancelled) {
-						setPreviewState({
-							status: isMarkdownPreviewable(currentFile.path, mimeType) ? "markdown" : "text",
-							content,
-						});
-					}
-					return;
-				}
-
-				const blob = await response.blob();
-				objectUrl = URL.createObjectURL(blob);
-				if (!cancelled) {
-					setPreviewState({ status: "blob", url: objectUrl, mimeType });
-				}
-			} catch (err) {
-				if (cancelled || controller.signal.aborted) return;
-				setPreviewState({
-					status: "error",
-					message: err instanceof Error ? err.message : "文件预览加载失败",
-				});
-			}
-		}
-
-		loadPreview();
-		return () => {
-			cancelled = true;
-			controller.abort();
-			if (objectUrl) {
-				URL.revokeObjectURL(objectUrl);
-			}
-		};
-	}, [previewFile, projectId]);
-
-	useEffect(() => {
-		if (!previewFile) return;
-
-		const handlePointerDown = (event: PointerEvent) => {
-			const target = event.target;
-			if (!(target instanceof Element)) return;
-			if (drawerRef.current?.contains(target)) return;
-			if (target.closest("[data-file-preview-trigger]")) return;
-			closePreview();
-		};
-
-		document.addEventListener("pointerdown", handlePointerDown);
-		return () => document.removeEventListener("pointerdown", handlePointerDown);
-	}, [previewFile]);
 
 	// 中文注释：当前 files 页签的上传入口仍处于注释停用状态，先保留实现并显式标记未启用，避免误恢复旧交互。
 	// const _handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -1492,30 +1371,6 @@ function ProjectFiles({
 		} catch (err) {
 			console.error("ProjectFiles download error:", err);
 		}
-	};
-
-	const handleDrawerResizeStart = (event: React.PointerEvent<HTMLElement>) => {
-		event.preventDefault();
-		const startX = event.clientX;
-		const startWidth = drawerWidth;
-
-		const handlePointerMove = (moveEvent: PointerEvent) => {
-			const candidateWidth = startWidth - (moveEvent.clientX - startX);
-			const maxWidth = Math.min(FILE_PREVIEW_DRAWER_MAX_WIDTH, window.innerWidth - 160);
-			const nextWidth = Math.min(
-				Math.max(candidateWidth, FILE_PREVIEW_DRAWER_MIN_WIDTH),
-				Math.max(FILE_PREVIEW_DRAWER_MIN_WIDTH, maxWidth),
-			);
-			setDrawerWidth(nextWidth);
-		};
-
-		const handlePointerUp = () => {
-			window.removeEventListener("pointermove", handlePointerMove);
-			window.removeEventListener("pointerup", handlePointerUp);
-		};
-
-		window.addEventListener("pointermove", handlePointerMove);
-		window.addEventListener("pointerup", handlePointerUp);
 	};
 
 	return (
@@ -1601,7 +1456,7 @@ function ProjectFiles({
 									<button
 										type="button"
 										data-file-preview-trigger
-										onClick={() => setPreviewFile(file)}
+										onClick={() => openProjectFilePreview(projectId, file)}
 										className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-[var(--leros-primary-softer)]/50"
 										title="查看"
 									>
@@ -1628,7 +1483,8 @@ function ProjectFiles({
 									<div className="flex items-center justify-end gap-1.5">
 										<button
 											type="button"
-											onClick={() => setPreviewFile(file)}
+											data-file-preview-trigger
+											onClick={() => openProjectFilePreview(projectId, file)}
 											className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 											title="查看"
 										>
@@ -1651,210 +1507,7 @@ function ProjectFiles({
 					</div>
 				)}
 			</div>
-
-			{previewFile && (
-				<div
-					ref={drawerRef}
-					className="fixed inset-y-4 right-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl"
-					style={{ width: `${drawerWidth}px`, maxWidth: `${drawerWidth}px` }}
-				>
-					<button
-						type="button"
-						aria-label="拖动调整预览宽度"
-						title="拖动调整预览宽度"
-						onPointerDown={handleDrawerResizeStart}
-						className="absolute left-0 top-0 z-10 flex h-full w-4 -translate-x-1/2 cursor-col-resize items-center justify-center"
-					>
-						<div className="flex h-16 w-2 items-center justify-center rounded-full bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] shadow-sm ring-1 ring-[var(--leros-control-border)]">
-							<ChevronsLeftRightEllipsis className="size-3" />
-						</div>
-					</button>
-					<div className="flex items-center justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
-						<div className="min-w-0">
-							<div className="truncate text-lg font-medium text-[var(--leros-text-strong)]">
-								{previewFile.name}
-							</div>
-						</div>
-						<div className="flex items-center gap-2">
-							<button
-								type="button"
-								onClick={() => handleDownload(previewFile)}
-								className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
-								title="下载"
-							>
-								<Download className="size-4" />
-							</button>
-							<button
-								type="button"
-								onClick={closePreview}
-								className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
-								title="关闭"
-							>
-								<X className="size-4" />
-							</button>
-						</div>
-					</div>
-					<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--leros-surface-soft)] p-6">
-						<ProjectFilePreviewBody file={previewFile} previewState={previewState} />
-					</div>
-				</div>
-			)}
 		</div>
-	);
-}
-
-function ProjectFilePreviewBody({
-	file,
-	previewState,
-}: {
-	file: ProjectFileNode;
-	previewState: FilePreviewState;
-}) {
-	if (previewState.status === "idle" || previewState.status === "loading") {
-		return (
-			<div className="flex flex-1 items-center justify-center text-sm text-[var(--leros-text-muted)]">
-				<LoaderCircle className="mr-2 size-4 animate-spin" />
-				加载预览中
-			</div>
-		);
-	}
-
-	if (previewState.status === "error") {
-		return (
-			<div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
-				<div>
-					<p>无法加载文件预览</p>
-					<p className="mt-1 text-xs">{previewState.message}</p>
-				</div>
-			</div>
-		);
-	}
-
-	if (previewState.status === "text") {
-		return (
-			<pre className="min-h-0 flex-1 overflow-auto rounded-xl bg-white p-4 text-sm leading-6 text-[var(--leros-text)] shadow-sm">
-				{previewState.content}
-			</pre>
-		);
-	}
-
-	if (previewState.status === "markdown") {
-		return (
-			<div className="min-h-0 flex-1 overflow-auto rounded-xl bg-white px-8 py-7 shadow-sm">
-				<MarkdownRenderer
-					content={previewState.content}
-					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7 prose-pre:rounded-lg prose-pre:bg-slate-950"
-				/>
-			</div>
-		);
-	}
-
-	if (previewState.status === "office") {
-		return (
-			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
-				<OfficePreview
-					fileName={file.name}
-					buffer={previewState.buffer}
-					format={previewState.format}
-				/>
-			</div>
-		);
-	}
-
-	if (previewState.status === "spreadsheet") {
-		return (
-			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
-				<SpreadsheetPreview buffer={previewState.buffer} fileName={file.name} />
-			</div>
-		);
-	}
-
-	if (previewState.mimeType.startsWith("image/")) {
-		return (
-			<div className="flex flex-1 items-center justify-center overflow-auto rounded-xl bg-white p-4 shadow-sm">
-				<img
-					src={previewState.url}
-					alt={file.name}
-					className="max-h-full max-w-full object-contain"
-				/>
-			</div>
-		);
-	}
-
-	if (previewState.mimeType.includes("pdf")) {
-		return (
-			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
-				<iframe
-					title={file.name}
-					src={previewState.url}
-					className="h-full w-full border-0 bg-white"
-				/>
-			</div>
-		);
-	}
-
-	return (
-		<div className="flex flex-1 items-center justify-center rounded-xl bg-white px-8 text-center text-sm text-[var(--leros-text-muted)] shadow-sm">
-			<div>
-				<FileText className="mx-auto mb-3 size-8 text-[var(--leros-text-subtle)]" />
-				<p>此文件类型暂不支持内嵌预览</p>
-				<p className="mt-1 text-xs">请使用下载按钮在本地查看</p>
-			</div>
-		</div>
-	);
-}
-
-function isTextPreviewable(path: string, mimeType: string): boolean {
-	const normalizedPath = path.toLowerCase();
-	const normalizedMimeType = mimeType.toLowerCase();
-
-	if (normalizedMimeType.startsWith("text/")) return true;
-	if (normalizedMimeType.includes("json")) return true;
-	if (normalizedMimeType.includes("javascript")) return true;
-	if (normalizedMimeType.includes("typescript")) return true;
-
-	return [
-		".md",
-		".markdown",
-		".txt",
-		".json",
-		".js",
-		".jsx",
-		".ts",
-		".tsx",
-		".css",
-		".html",
-		".xml",
-		".yml",
-		".yaml",
-		".go",
-		".py",
-		".java",
-		".sh",
-		".sql",
-	].some((suffix) => normalizedPath.endsWith(suffix));
-}
-
-function isMarkdownPreviewable(path: string, mimeType: string): boolean {
-	const normalizedPath = path.toLowerCase();
-	const normalizedMimeType = mimeType.toLowerCase();
-
-	return (
-		normalizedMimeType.includes("markdown") ||
-		normalizedPath.endsWith(".md") ||
-		normalizedPath.endsWith(".markdown")
-	);
-}
-
-function isSpreadsheetPreviewable(path: string, mimeType: string): boolean {
-	const normalizedPath = path.toLowerCase();
-	const normalizedMimeType = mimeType.toLowerCase();
-
-	return (
-		normalizedMimeType.includes("spreadsheet") ||
-		normalizedMimeType.includes("excel") ||
-		normalizedMimeType === "text/csv" ||
-		[".xls", ".csv"].some((suffix) => normalizedPath.endsWith(suffix))
 	);
 }
 

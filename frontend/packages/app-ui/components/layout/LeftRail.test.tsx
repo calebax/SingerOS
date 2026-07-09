@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LeftRail } from "./LeftRail";
@@ -17,6 +17,14 @@ const mockOpenTaskDetail = vi.fn();
 const mockUpdateProject = vi.fn();
 const mockClearComposerInput = vi.fn();
 const mockSetAuthUser = vi.fn();
+const mockLogout = vi.fn();
+
+let mockIsAuthenticated = true;
+let mockProjects: Array<{
+	id: string;
+	name: string;
+	tasks: Array<{ id: string; title: string }>;
+}> = [];
 
 const mockUser = {
 	publicId: "user-1",
@@ -35,7 +43,7 @@ vi.mock("@leros/store", () => ({
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			navGroups: [],
-			projects: [],
+			projects: mockProjects,
 			currentView: "taskDetail",
 			activeProjectId: null,
 			activeTaskDetailProjectId: "project-1",
@@ -66,14 +74,17 @@ vi.mock("@leros/store", () => ({
 vi.mock("../auth", () => ({
 	useAuth: () => ({
 		isHydrated: true,
-		isAuthenticated: true,
+		isAuthenticated: mockIsAuthenticated,
 		openAuthDialog: vi.fn(),
 		requireAuth: (afterAuth?: () => void) => {
-			afterAuth?.();
-			return true;
+			if (mockIsAuthenticated) {
+				afterAuth?.();
+				return true;
+			}
+			return false;
 		},
-		logout: vi.fn(),
-		user: mockUser,
+		logout: mockLogout,
+		user: mockIsAuthenticated ? mockUser : null,
 	}),
 }));
 
@@ -94,6 +105,8 @@ vi.mock("sonner", () => ({
 
 describe("LeftRail avatar download", () => {
 	beforeEach(() => {
+		mockIsAuthenticated = true;
+		mockProjects = [];
 		mockUser.avatarUrl = "http://localhost:18080/v1/files/file_TN3691n6qd/download";
 		mockAuthenticatedFetch.mockReset();
 		mockAuthenticatedFetch.mockResolvedValue({
@@ -131,5 +144,53 @@ describe("LeftRail avatar download", () => {
 		await waitFor(() => {
 			expect(mockAuthenticatedFetch).toHaveBeenCalledTimes(1);
 		});
+	});
+});
+
+describe("LeftRail project expansion", () => {
+	beforeEach(() => {
+		mockIsAuthenticated = true;
+		mockProjects = [{ id: "project-1", name: "测试项目", tasks: [] }];
+		mockFetchProjects.mockReset();
+		mockFetchTasks.mockReset();
+		window.localStorage.clear();
+	});
+
+	it("登出后会重置项目展开状态", async () => {
+		mockFetchTasks.mockResolvedValue(undefined);
+
+		const { rerender } = render(<LeftRail />);
+
+		fireEvent.click(screen.getByText("测试项目"));
+		await waitFor(() => {
+			expect(screen.getByText("暂无任务")).toBeInTheDocument();
+		});
+
+		mockIsAuthenticated = false;
+		mockProjects = [];
+		rerender(<LeftRail />);
+
+		expect(screen.queryByText("暂无任务")).not.toBeInTheDocument();
+	});
+
+	it("展开项目时先显示加载状态", async () => {
+		let resolveFetch: (() => void) | undefined;
+		mockFetchTasks.mockReturnValue(
+			new Promise<void>((resolve) => {
+				resolveFetch = resolve;
+			}),
+		);
+
+		render(<LeftRail />);
+		fireEvent.click(screen.getByText("测试项目"));
+
+		expect(screen.getByText("任务加载中...")).toBeInTheDocument();
+		expect(screen.queryByText("暂无任务")).not.toBeInTheDocument();
+
+		resolveFetch?.();
+		await waitFor(() => {
+			expect(screen.queryByText("任务加载中...")).not.toBeInTheDocument();
+		});
+		expect(screen.getByText("暂无任务")).toBeInTheDocument();
 	});
 });

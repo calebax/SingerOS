@@ -1,77 +1,44 @@
 "use client";
 
-import {
-	fetchFilePreviewByPublicId,
-	fetchFilePreviewByStorageUri,
-	projectFileApi,
-} from "@leros/store";
 import { ChevronsLeftRightEllipsis, Download, FileText, LoaderCircle, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
-import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat, OfficePreview } from "./OfficePreview";
+import {
+	detectFilePreviewKind,
+	downloadFilePreviewContent,
+	FILE_PREVIEW_DRAWER_DEFAULT_WIDTH,
+	FILE_PREVIEW_DRAWER_MAX_WIDTH,
+	FILE_PREVIEW_DRAWER_MIN_WIDTH,
+	type FilePreviewItem,
+	type FilePreviewKind,
+	type FilePreviewState,
+	fetchFilePreviewContent,
+} from "./file-preview-utils";
+import { OfficePreview } from "./OfficePreview";
 import { SpreadsheetPreview } from "./SpreadsheetPreview";
 
-const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
-const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
-const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
+export type { FilePreviewItem } from "./file-preview-utils";
 
-type PreviewKind =
-	| OfficeOpenXmlFormat
-	| "spreadsheet"
-	| "markdown"
-	| "text"
-	| "image"
-	| "pdf"
-	| "unsupported";
-
-export type ArtifactPreviewItem = {
-	id: string;
-	name: string;
-	title: string;
-	description?: string;
-	type: "document" | "spreadsheet" | "image";
-	artifactType: string;
-	mimeType?: string;
-	size: string;
-	updatedAt?: number;
-	downloadUrl: string;
-	storageUri?: string;
-	sha256?: string;
-};
-
-type PreviewState =
-	| { status: "idle" }
-	| { status: "loading" }
-	| { status: "ready"; text?: string; objectUrl?: string; buffer?: ArrayBuffer; mimeType?: string }
-	| { status: "error"; message: string };
-
-export function ArtifactPreviewDialog({
-	artifact,
+export function FilePreviewDrawer({
+	file,
 	open,
 	onOpenChange,
-	projectId,
 }: {
-	artifact: ArtifactPreviewItem | null;
+	file: FilePreviewItem | null;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	projectId?: string;
 }) {
-	const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
+	const [preview, setPreview] = useState<FilePreviewState>({ status: "idle" });
 	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
 	const drawerRef = useRef<HTMLDivElement>(null);
-	const previewKind = useMemo(() => detectPreviewKind(artifact), [artifact]);
-
-	const artifactPath = useMemo(() => {
-		if (!artifact || !projectId) return undefined;
-		return artifact.id;
-	}, [artifact, projectId]);
+	const previewKind = useMemo(() => detectFilePreviewKind(file), [file]);
 
 	const closePreview = () => {
 		onOpenChange(false);
 	};
 
 	useEffect(() => {
-		if (!open || !artifact) {
+		if (!open || !file) {
 			setPreview({ status: "idle" });
 			return;
 		}
@@ -81,9 +48,7 @@ export function ArtifactPreviewDialog({
 			return;
 		}
 
-		const currentArtifact = artifact;
-		const currentPath = artifactPath;
-		const currentProjectId = projectId;
+		const currentFile = file;
 		let cancelled = false;
 		let objectUrl: string | undefined;
 		const controller = new AbortController();
@@ -91,24 +56,12 @@ export function ArtifactPreviewDialog({
 		async function loadPreview() {
 			setPreview({ status: "loading" });
 			try {
-				let response: Response;
-				if (currentArtifact.storageUri) {
-					response = await fetchFilePreviewByStorageUri(currentArtifact.storageUri, {
-						signal: controller.signal,
-					});
-				} else if (currentProjectId && currentPath) {
-					response = await projectFileApi.fetchDownload(currentProjectId, currentPath, {
-						signal: controller.signal,
-					});
-				} else {
-					response = await fetchFilePreviewByPublicId(currentArtifact.id, {
-						signal: controller.signal,
-					});
-				}
-
+				const response = await fetchFilePreviewContent(currentFile, {
+					signal: controller.signal,
+				});
 				const mimeType =
 					response.headers.get("content-type") ??
-					currentArtifact.mimeType ??
+					currentFile.mimeType ??
 					"application/octet-stream";
 
 				if (previewKind === "markdown" || previewKind === "text") {
@@ -145,7 +98,7 @@ export function ArtifactPreviewDialog({
 			controller.abort();
 			if (objectUrl) URL.revokeObjectURL(objectUrl);
 		};
-	}, [open, artifact, artifactPath, previewKind, projectId]);
+	}, [open, file, previewKind]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -163,27 +116,20 @@ export function ArtifactPreviewDialog({
 	}, [open, onOpenChange]);
 
 	const handleDownload = async () => {
-		if (!artifact) return;
+		if (!file) return;
 		try {
-			let response: Response;
-			if (artifact.storageUri) {
-				response = await fetchFilePreviewByStorageUri(artifact.storageUri);
-			} else if (projectId && artifactPath) {
-				response = await projectFileApi.fetchDownload(projectId, artifactPath);
-			} else {
-				response = await fetchFilePreviewByPublicId(artifact.id);
-			}
+			const response = await downloadFilePreviewContent(file);
 			const blob = await response.blob();
 			const objectUrl = URL.createObjectURL(blob);
 			const link = document.createElement("a");
 			link.href = objectUrl;
-			link.download = artifact.name;
+			link.download = file.name;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
 			window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 		} catch (err) {
-			console.error("Failed to download artifact", err);
+			console.error("Failed to download file preview", err);
 		}
 	};
 
@@ -211,9 +157,11 @@ export function ArtifactPreviewDialog({
 		window.addEventListener("pointerup", handlePointerUp);
 	};
 
-	if (!open || !artifact) {
+	if (!open || !file) {
 		return null;
 	}
+
+	const displayTitle = file.title || file.name;
 
 	return (
 		<div
@@ -235,7 +183,7 @@ export function ArtifactPreviewDialog({
 			<div className="flex items-center justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
 				<div className="min-w-0">
 					<div className="truncate text-lg font-medium text-[var(--leros-text-strong)]">
-						{artifact.title || artifact.name}
+						{displayTitle}
 					</div>
 				</div>
 				<div className="flex items-center gap-2">
@@ -258,20 +206,27 @@ export function ArtifactPreviewDialog({
 				</div>
 			</div>
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--leros-surface-soft)] p-6">
-				<ArtifactPreviewBody artifact={artifact} previewKind={previewKind} preview={preview} />
+				<FilePreviewContent
+					fileName={file.name}
+					displayTitle={displayTitle}
+					previewKind={previewKind}
+					preview={preview}
+				/>
 			</div>
 		</div>
 	);
 }
 
-function ArtifactPreviewBody({
-	artifact,
+function FilePreviewContent({
+	fileName,
+	displayTitle,
 	previewKind,
 	preview,
 }: {
-	artifact: ArtifactPreviewItem;
-	previewKind: PreviewKind;
-	preview: PreviewState;
+	fileName: string;
+	displayTitle: string;
+	previewKind: FilePreviewKind;
+	preview: FilePreviewState;
 }) {
 	if (preview.status === "loading" || preview.status === "idle") {
 		return (
@@ -303,7 +258,7 @@ function ArtifactPreviewBody({
 	) {
 		return (
 			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
-				<OfficePreview buffer={preview.buffer} fileName={artifact.name} format={previewKind} />
+				<OfficePreview buffer={preview.buffer} fileName={fileName} format={previewKind} />
 			</div>
 		);
 	}
@@ -311,7 +266,7 @@ function ArtifactPreviewBody({
 	if (previewKind === "spreadsheet" && preview.buffer) {
 		return (
 			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
-				<SpreadsheetPreview buffer={preview.buffer} fileName={artifact.name} />
+				<SpreadsheetPreview buffer={preview.buffer} fileName={fileName} />
 			</div>
 		);
 	}
@@ -340,7 +295,7 @@ function ArtifactPreviewBody({
 			<div className="flex flex-1 items-center justify-center overflow-auto rounded-xl bg-white p-4 shadow-sm">
 				<img
 					src={preview.objectUrl}
-					alt={artifact.title || artifact.name}
+					alt={displayTitle}
 					className="max-h-full max-w-full object-contain"
 				/>
 			</div>
@@ -351,7 +306,7 @@ function ArtifactPreviewBody({
 		return (
 			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
 				<iframe
-					title={artifact.title || artifact.name}
+					title={displayTitle}
 					src={preview.objectUrl}
 					className="h-full w-full border-0 bg-white"
 				/>
@@ -368,44 +323,4 @@ function ArtifactPreviewBody({
 			</div>
 		</div>
 	);
-}
-
-function detectPreviewKind(artifact: ArtifactPreviewItem | null): PreviewKind {
-	if (!artifact) return "unsupported";
-
-	const mimeType = artifact.mimeType?.toLowerCase() ?? "";
-	const name = artifact.name.toLowerCase();
-	const officeFormat = getOfficeOpenXmlFormat(name, mimeType);
-
-	if (officeFormat) return officeFormat;
-	if (
-		mimeType.includes("spreadsheet") ||
-		mimeType.includes("excel") ||
-		mimeType === "text/csv" ||
-		name.endsWith(".xls") ||
-		name.endsWith(".csv")
-	) {
-		return "spreadsheet";
-	}
-	if (mimeType.includes("markdown") || name.endsWith(".md") || name.endsWith(".markdown")) {
-		return "markdown";
-	}
-	if (mimeType.startsWith("image/")) {
-		return "image";
-	}
-	if (mimeType === "application/pdf" || name.endsWith(".pdf")) {
-		return "pdf";
-	}
-	if (
-		mimeType.startsWith("text/") ||
-		name.endsWith(".txt") ||
-		name.endsWith(".json") ||
-		name.endsWith(".yaml") ||
-		name.endsWith(".yml") ||
-		name.endsWith(".log")
-	) {
-		return "text";
-	}
-
-	return "unsupported";
 }

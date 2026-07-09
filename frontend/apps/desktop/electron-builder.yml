@@ -13,6 +13,12 @@ files:
   - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
 asar: true
 compression: maximum
+# 中文注释：协议 PDF 需要复制到安装目录的 resources 根目录，匹配主进程中的 process.resourcesPath 访问逻辑。
+extraResources:
+  - from: resources/terms-of-service.pdf
+    to: terms-of-service.pdf
+  - from: resources/privacy-policy.pdf
+    to: privacy-policy.pdf
 asarUnpack:
   - resources/**
 mac:

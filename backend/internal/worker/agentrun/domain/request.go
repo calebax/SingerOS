@@ -35,6 +35,7 @@ type RunRequest struct {
 	Actor         ActorContext        `json:"actor"`
 	Conversation  ConversationContext `json:"conversation,omitempty"`
 	Workspace     WorkspaceContext    `json:"workspace,omitempty"`
+	Project       ProjectContext      `json:"project,omitempty"`
 	Input         InputContext        `json:"input"`
 	Runtime       RuntimeOptions      `json:"runtime,omitempty"`
 	Model         ModelOptions        `json:"model,omitempty"`
@@ -75,6 +76,25 @@ type WorkspaceContext struct {
 	TaskID    string `json:"task_id,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
 	RepoDir   string `json:"repo_dir,omitempty"`
+}
+
+// ProjectContext is the project snapshot used for one run.
+type ProjectContext struct {
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Objective   string         `json:"objective,omitempty"`
+	Members     []MemberBrief `json:"members,omitempty"`
+}
+
+// MemberBrief is a lightweight project member snapshot.
+type MemberBrief struct {
+	MemberID      uint   `json:"member_id"`
+	MemberType    string `json:"member_type"`
+	MemberRole    string `json:"member_role"`
+	Name          string `json:"name"`
+	IsDefault     bool   `json:"is_default,omitempty"`
+	IsCurrentExec bool   `json:"is_current_exec,omitempty"`
+	IsCurrentUser bool   `json:"is_current_user,omitempty"`
 }
 
 // InputContext is the normalized input passed to the agent.
@@ -154,7 +174,7 @@ func BuildUserInput(req *RunRequest) string {
 	}
 	if len(req.Input.Messages) > 0 {
 		lines := make([]string, 0, len(req.Input.Messages))
-		for _, message := range req.Input.Messages {
+		for i, message := range req.Input.Messages {
 			if strings.TrimSpace(message.Content) == "" {
 				continue
 			}
@@ -165,7 +185,11 @@ func BuildUserInput(req *RunRequest) string {
 					name = "user"
 				}
 			}
-			lines = append(lines, fmt.Sprintf("%s: %s", name, message.Content))
+			if message.Role == "assistant" {
+				lines = append(lines, fmt.Sprintf("【AI 队友回复】\n[%d] AI 队友 「%s」发送：「%s」", i+1, name, message.Content))
+			} else {
+				lines = append(lines, fmt.Sprintf("【用户问题】\n[%d] 用户 「%s」发送：「%s」", i+1, name, message.Content))
+			}
 		}
 		return strings.Join(lines, "\n")
 	}

@@ -40,6 +40,83 @@ function Get-GoExe {
     ))
 }
 
+function Get-BackendBinaryPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    return Join-Path $RepoRoot 'bundles\leros.exe'
+}
+
+function Get-LatestBackendSourceWriteTimeUtc {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    $candidatePaths = @(
+        (Join-Path $RepoRoot 'backend'),
+        (Join-Path $RepoRoot 'go.mod'),
+        (Join-Path $RepoRoot 'go.sum')
+    )
+
+    $latestWriteTime = [datetime]::MinValue
+    foreach ($path in $candidatePaths) {
+        if (-not (Test-Path $path)) {
+            continue
+        }
+
+        $item = Get-Item $path
+        if ($item.PSIsContainer) {
+            $latestChild = Get-ChildItem -Path $path -Recurse -File -Include *.go |
+                Sort-Object LastWriteTimeUtc -Descending |
+                Select-Object -First 1
+            if ($latestChild -and $latestChild.LastWriteTimeUtc -gt $latestWriteTime) {
+                $latestWriteTime = $latestChild.LastWriteTimeUtc
+            }
+            continue
+        }
+
+        if ($item.LastWriteTimeUtc -gt $latestWriteTime) {
+            $latestWriteTime = $item.LastWriteTimeUtc
+        }
+    }
+
+    return $latestWriteTime
+}
+
+function Test-BackendBinaryNeedsRebuild {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    $binaryPath = Get-BackendBinaryPath -RepoRoot $RepoRoot
+    if (-not (Test-Path $binaryPath)) {
+        return $true
+    }
+
+    $binaryWriteTime = (Get-Item $binaryPath).LastWriteTimeUtc
+    $sourceWriteTime = Get-LatestBackendSourceWriteTimeUtc -RepoRoot $RepoRoot
+    return $sourceWriteTime -gt $binaryWriteTime
+}
+
+function Ensure-LatestBackendBinary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    if (-not (Test-BackendBinaryNeedsRebuild -RepoRoot $RepoRoot)) {
+        return
+    }
+
+    # 中文注释：开发脚本默认启动最新后端，避免静默复用旧 bundles 导致接口与源码不一致。
+    Write-Host '[Leros] Backend source changed, rebuilding latest binary...' -ForegroundColor Cyan
+    & (Join-Path $PSScriptRoot 'rebuild-backend.ps1')
+}
+
 function Get-PnpmExe {
     return (Resolve-ToolPath -CommandName 'pnpm.cmd' -FallbackPaths @(
         'D:\nvm\nodejs\pnpm.cmd'
