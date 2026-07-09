@@ -267,7 +267,12 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 //  5. Ack，告知 NATS 消息已安全持久化
 func (h *Handler) admit(ctx context.Context, topic string, seq uint64, cmd messaging.WorkerCommand, task runTask, delivery eventbus.ManualDelivery) error {
 	// 1. Acquire semaphore with InProgress heartbeats.
-	if err := h.acquireSem(ctx, delivery); err != nil {
+	semCtx := logs.WithContextFields(ctx,
+		"run_id", task.Trace.RunID,
+		"session_id", task.Route.SessionID,
+		"worker_id", task.Route.WorkerID,
+	)
+	if err := h.acquireSem(semCtx, delivery); err != nil {
 		if nakErr := delivery.NakWithDelay(5 * time.Second); nakErr != nil {
 			logs.WarnContextf(ctx, "Failed to Nak run command after admission error: %v", nakErr)
 		}
@@ -354,11 +359,16 @@ func (h *Handler) admit(ctx context.Context, topic string, seq uint64, cmd messa
 // 防止 NATS 因等待确认超时而重新投递消息。
 // 同时监听 admissionStopped 通道以响应优雅关闭。
 func (h *Handler) acquireSem(ctx context.Context, delivery eventbus.ManualDelivery) error {
+	start := time.Now()
+	logs.InfoContextf(ctx, "admission acquiring: in_flight=%d cap=%d",
+		len(h.sem), cap(h.sem))
 	for {
 		select {
 		case <-h.admissionStopped:
 			return fmt.Errorf("admission closed")
 		case h.sem <- struct{}{}:
+			logs.InfoContextf(ctx, "admission acquired: in_flight=%d cap=%d waited_ms=%d",
+				len(h.sem), cap(h.sem), time.Since(start).Milliseconds())
 			return nil
 		default:
 		}
@@ -369,6 +379,8 @@ func (h *Handler) acquireSem(ctx context.Context, delivery eventbus.ManualDelive
 		case <-h.admissionStopped:
 			return fmt.Errorf("admission closed")
 		case h.sem <- struct{}{}:
+			logs.InfoContextf(ctx, "admission acquired: in_flight=%d cap=%d waited_ms=%d",
+				len(h.sem), cap(h.sem), time.Since(start).Milliseconds())
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -407,6 +419,8 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 		DeliverySeqs: task.DeliverySeqs,
 	}
 
+	logs.InfoContextf(execCtx, "dispatching run: run_id=%s session_id=%s worker_id=%d org_id=%d",
+		task.Trace.RunID, task.Route.SessionID, task.Route.WorkerID, task.Route.OrgID)
 	_, execErr := h.coordinator.Submit(execCtx, submission)
 
 	for _, s := range task.DeliverySeqs {
@@ -414,8 +428,8 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 	}
 
 	if execErr != nil {
-		logs.WarnContextf(execCtx, "Run command execution error: msg_id=%s task_id=%s: %v",
-			task.ID, task.Trace.TaskID, execErr)
+		logs.WarnContextf(execCtx, "Run command execution error: msg_id=%s task_id=%s run_id=%s session_id=%s: %v",
+			task.ID, task.Trace.TaskID, task.Trace.RunID, task.Route.SessionID, execErr)
 	}
 }
 

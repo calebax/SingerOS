@@ -10,6 +10,7 @@ import (
 	"github.com/insmtx/Leros/backend/agent"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 // Service is the single business entry point for an Agent Run.
@@ -77,6 +78,11 @@ func (s *Service) Run(
 		return nil, fmt.Errorf("agent run service dependencies are incomplete")
 	}
 
+	logs.InfoContextf(ctx, "agent run started: run_id=%s trace_id=%s session_id=%s worker_id=%d org_id=%d input_type=%s messages=%d",
+		eventContext.RunID, eventContext.TraceID, eventContext.SessionID,
+		eventContext.WorkerID, eventContext.OrgID,
+		req.Input.Type, len(req.Input.Messages))
+
 	// 1. Clone and normalize.
 	cloned := agentrundomain.CloneRequest(req)
 	if cloned.RunID == "" {
@@ -98,6 +104,9 @@ func (s *Service) Run(
 	}); err != nil {
 		return nil, fmt.Errorf("record run.started: %w", err)
 	}
+
+	logs.InfoContextf(ctx, "emitted run.started: run_id=%s session_id=%s worker_id=%d",
+		eventContext.RunID, eventContext.SessionID, eventContext.WorkerID)
 
 	resolvedRuntime, err := s.executor.ResolveRuntimeKind(cloned.Runtime.Kind)
 	if err != nil {
