@@ -109,7 +109,7 @@ func (h *DigitalAssistantHandler) GetDigitalAssistant(ctx *gin.Context) {
 			ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
 			return
 		}
-		if err.Error() == "permission denied" {
+		if isPermissionDenied(err) {
 			ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, err.Error()))
 			return
 		}
@@ -290,7 +290,7 @@ func handleServiceError(ctx *gin.Context, err error) {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
-	if err.Error() == "permission denied" {
+	if isPermissionDenied(err) {
 		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}

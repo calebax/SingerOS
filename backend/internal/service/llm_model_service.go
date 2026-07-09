@@ -10,7 +10,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
@@ -388,14 +387,6 @@ func (s *llmModelService) TestLLMModel(ctx context.Context, req *contract.TestLL
 		LatencyMS:    latencyMS,
 		BaseURLHasV1: baseURLHasV1,
 	}, nil
-}
-
-func requireCallerOrg(ctx context.Context) (*types.Caller, error) {
-	caller, _ := auth.FromContext(ctx)
-	if caller == nil || caller.OrgID == 0 {
-		return nil, errors.New("user not authenticated or org not set")
-	}
-	return caller, nil
 }
 
 func clearOrgDefaultLLMModels(ctx context.Context, database *gorm.DB, orgID uint, excludeID uint) error {

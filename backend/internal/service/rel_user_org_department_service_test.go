@@ -68,7 +68,7 @@ func TestMemberDepartmentServiceCRUDAndList(t *testing.T) {
 	if err := service.DeleteMemberDepartment(ctx, created.ID); err != nil {
 		t.Fatalf("DeleteMemberDepartment failed: %v", err)
 	}
-	if _, err := service.GetMemberDepartment(ctx, created.ID); err == nil || err.Error() != "member department relation not found" {
+	if _, err := service.GetMemberDepartment(ctx, created.ID); err == nil || err.Error() != "成员部门关联不存在" {
 		t.Fatalf("expected not found after delete, got %v", err)
 	}
 }

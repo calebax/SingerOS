@@ -256,13 +256,15 @@ func (h *LLMModelHandler) TestLLMModel(ctx *gin.Context) {
 func handleLLMModelServiceError(ctx *gin.Context, err error) {
 	errMsg := err.Error()
 
+	if isPermissionDenied(err) {
+		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
+		return
+	}
+
 	// 通用错误处理
 	switch errMsg {
 	case "user not authenticated or org not set":
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, errMsg))
-		return
-	case "permission denied":
-		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
 		return
 	}
 

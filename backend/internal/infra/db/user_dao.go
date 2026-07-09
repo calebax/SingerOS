@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"unicode"
 
 	"gorm.io/gorm"
 
@@ -163,8 +164,26 @@ func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 	for _, filter := range opt.Filters {
 		switch filter.Field {
 		case "keyword":
-			query = query.Where("name LIKE ? OR github_login LIKE ? OR email LIKE ?",
-				"%"+filter.Value[0]+"%", "%"+filter.Value[0]+"%", "%"+filter.Value[0]+"%")
+			kw := strings.TrimSpace(filter.Value[0])
+			if kw == "" {
+				break
+			}
+			like := "%" + kw + "%"
+			conds := []string{
+				"name LIKE ?",
+				"github_login LIKE ?",
+				"email LIKE ?",
+				"phone LIKE ?",
+			}
+			args := []interface{}{like, like, like, like}
+			if digits := phoneSearchDigits(kw); len(digits) >= 3 {
+				digitLike := "%" + digits + "%"
+				if digitLike != like {
+					conds = append(conds, "phone LIKE ?")
+					args = append(args, digitLike)
+				}
+			}
+			query = query.Where(strings.Join(conds, " OR "), args...)
 		case "name":
 			query = query.Where("name LIKE ?", "%"+filter.Value[0]+"%")
 		case "github_login":
@@ -204,4 +223,19 @@ func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 		return nil, 0, err
 	}
 	return entities, total, nil
+}
+
+// phoneSearchDigits extracts digits from a search keyword for phone fuzzy matching.
+func phoneSearchDigits(raw string) string {
+	var b strings.Builder
+	for _, r := range raw {
+		if unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	digits := b.String()
+	if strings.HasPrefix(digits, "86") && len(digits) > 11 {
+		digits = digits[2:]
+	}
+	return digits
 }

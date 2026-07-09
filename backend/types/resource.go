@@ -19,6 +19,8 @@ const (
 	ResourceTypeFile ResourceType = "file"
 	// ResourceTypeArtifact 表示项目下的产物资源。
 	ResourceTypeArtifact ResourceType = "artifact"
+	// ResourceTypeTask 表示项目下的任务资源。
+	ResourceTypeTask ResourceType = "task"
 )
 
 // ResourcePathIDs 按资源树顺序存储祖先资源 ID。

@@ -26,12 +26,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import {
@@ -40,12 +34,9 @@ import {
 	Check,
 	FolderKanban,
 	MessageSquare,
-	MoreHorizontal,
-	Pencil,
 	Plus,
 	Search,
 	Sparkles,
-	Trash2,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -53,9 +44,12 @@ import { toast } from "sonner";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
 import type { AppNavigation } from "../layout/LeftRail";
+import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
 import {
 	ProjectMemberChip,
 	ProjectMemberPickerDialog,
+	projectMemberChipClassName,
+	projectMemberListClassName,
 } from "../project-members/ProjectMemberPickerDialog";
 
 type ProjectsHubViewProps = {
@@ -184,14 +178,24 @@ function formatProjectDate(timestamp: number) {
 }
 
 export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
-	const { projects, fetchProjects, createProject, updateProject, deleteProject, setProjectRoute } =
-		useLayoutStore((s) => s);
+	const {
+		projects,
+		fetchProjects,
+		createProject,
+		updateProject,
+		deleteProject,
+		leaveProject,
+		setProjectRoute,
+		activeProjectId,
+		switchView,
+	} = useLayoutStore((s) => s);
 	const { isAuthenticated, requireAuth } = useAuth();
 	const [keyword, setKeyword] = useState("");
 	const [createOpen, setCreateOpen] = useState(false);
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
 	const [renameValue, setRenameValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+	const [leaveTarget, setLeaveTarget] = useState<Project | null>(null);
 
 	useEffect(() => {
 		fetchProjects();
@@ -254,6 +258,29 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 		}
 	};
 
+	const confirmLeave = async () => {
+		if (!leaveTarget) return;
+
+		const leavingActiveProject =
+			activeProjectId === leaveTarget.id ||
+			navigation?.currentPath === `/projects/${leaveTarget.id}` ||
+			navigation?.currentPath?.startsWith(`/projects/${leaveTarget.id}/`);
+
+		const left = await leaveProject(leaveTarget.id);
+		if (!left) return;
+
+		setLeaveTarget(null);
+		toast.success("已离开项目");
+
+		if (leavingActiveProject) {
+			if (navigation) {
+				navigation.goToRoute("workbench");
+				return;
+			}
+			switchView("workbench");
+		}
+	};
+
 	return (
 		<div
 			data-slot="projects-hub-view"
@@ -312,6 +339,7 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 									onOpen={openProject}
 									onRename={openRename}
 									onDelete={setDeleteTarget}
+									onLeave={setLeaveTarget}
 								/>
 							))}
 						</div>
@@ -383,6 +411,25 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
+			<Dialog open={leaveTarget !== null} onOpenChange={(open) => !open && setLeaveTarget(null)}>
+				<DialogContent className="sm:max-w-md" showCloseButton={false}>
+					<DialogHeader>
+						<DialogTitle>离开项目</DialogTitle>
+						<DialogDescription>
+							确定要离开 <strong>{leaveTarget?.name}</strong> 吗？离开后你将无法继续访问该项目。
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter className="mt-4">
+						<Button variant="outline" onClick={() => setLeaveTarget(null)}>
+							取消
+						</Button>
+						<Button variant="destructive" onClick={confirmLeave}>
+							离开
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
@@ -392,20 +439,30 @@ function ProjectCard({
 	onOpen,
 	onRename,
 	onDelete,
+	onLeave,
 }: {
 	project: Project;
 	onOpen: (projectId: string) => void;
 	onRename: (project: Project) => void;
 	onDelete: (project: Project) => void;
+	onLeave: (project: Project) => void;
 }) {
 	return (
-		<button
-			type="button"
+		// biome-ignore lint/a11y/useSemanticElements: The card contains a nested menu button, so the card itself cannot be a button.
+		<div
+			role="button"
+			tabIndex={0}
 			className={cn(
 				"group relative flex min-h-[132px] w-full cursor-pointer flex-col rounded-lg border border-slate-200 bg-white p-4 text-left transition-colors",
 				"hover:border-blue-200 hover:bg-blue-50/30",
 			)}
 			onClick={() => onOpen(project.id)}
+			onKeyDown={(event) => {
+				if (event.key === "Enter" || event.key === " ") {
+					event.preventDefault();
+					onOpen(project.id);
+				}
+			}}
 		>
 			<div className="mb-3 flex items-start gap-3 pr-7">
 				<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] transition-colors group-hover:bg-[var(--leros-primary-soft)] group-hover:text-[var(--leros-primary)]">
@@ -432,43 +489,14 @@ function ProjectCard({
 				</div>
 			</div>
 
-			<DropdownMenu>
-				<DropdownMenuTrigger
-					render={
-						<Button
-							variant="ghost"
-							size="icon-xs"
-							className="absolute right-3 top-3 opacity-0 transition-opacity group-hover:opacity-100"
-							onClick={(event: React.MouseEvent) => event.stopPropagation()}
-							aria-label={`管理项目 ${project.name}`}
-						>
-							<MoreHorizontal className="size-3.5" />
-						</Button>
-					}
-				/>
-				<DropdownMenuContent align="end" sideOffset={4}>
-					<DropdownMenuItem
-						onClick={(event: React.MouseEvent) => {
-							event.stopPropagation();
-							onRename(project);
-						}}
-					>
-						<Pencil className="mr-2 size-3.5" />
-						重命名
-					</DropdownMenuItem>
-					<DropdownMenuItem
-						variant="destructive"
-						onClick={(event: React.MouseEvent) => {
-							event.stopPropagation();
-							onDelete(project);
-						}}
-					>
-						<Trash2 className="mr-2 size-3.5" />
-						删除
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
-		</button>
+			<ProjectActionsDropdown
+				project={project}
+				onRename={onRename}
+				onDelete={onDelete}
+				onLeave={onLeave}
+				variant="card"
+			/>
+		</div>
 	);
 }
 
@@ -663,12 +691,13 @@ function CreateProjectDialog({
 								</Button>
 							</div>
 							{selectedMembers.length > 0 && (
-								<div className="mt-3 flex flex-wrap gap-2">
+								<div className={cn("mt-3", projectMemberListClassName)}>
 									{selectedMembers.map((member) => (
 										<ProjectMemberChip
 											key={`${member.type}-${member.publicId ?? member.memberId}`}
 											member={member}
 											readonly={member.role === "owner"}
+											className={projectMemberChipClassName}
 											onRemove={() =>
 												setSelectedMembers((current) =>
 													current.filter(

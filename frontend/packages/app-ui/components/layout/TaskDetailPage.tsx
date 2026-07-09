@@ -2,6 +2,7 @@
 
 import type { DigitalAssistantItem, ProjectTask } from "@leros/store";
 import {
+	Action,
 	formatArtifactTime,
 	formatTokenCount,
 	projectFileApi,
@@ -10,6 +11,7 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
+	useTaskCapabilities,
 } from "@leros/store";
 import { taskApi } from "@leros/store/api/taskApi";
 import { Button } from "@leros/ui/components/ui/button";
@@ -39,6 +41,7 @@ import { SHOW_TASK_TOKEN_USAGE_CARD } from "../../constants/temporaryUiFlags";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { buildPromptSuggestions } from "../digitalAssistant/promptSuggestions";
 import { ChatInput } from "../input/ChatInput";
+import { CanGate } from "../permission/CanGate";
 import { openProjectFilePreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
@@ -115,6 +118,7 @@ export function TaskDetailPage({
 
 	const resolvedProjectId = projectId ?? activeTaskDetailProjectId;
 	const resolvedTaskId = taskId ?? activeTaskDetailTaskId;
+	useTaskCapabilities(resolvedTaskId);
 	const resolvedSessionId = sessionId ?? activeTaskDetailSessionId;
 	const project = projects.find((p) => p.id === resolvedProjectId);
 	const storeTask = useMemo(
@@ -550,14 +554,19 @@ export function TaskDetailPage({
 										<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">
 											任务名称
 										</h3>
-										<button
-											type="button"
-											onClick={handleOpenRenameDialog}
-											className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
-											title="重命名任务"
+										<CanGate
+											action={Action.TaskUpdate}
+											resource={resolvedTaskId ? { type: "task", publicId: resolvedTaskId } : null}
 										>
-											<Pencil className="size-3.5" />
-										</button>
+											<button
+												type="button"
+												onClick={handleOpenRenameDialog}
+												className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
+												title="重命名任务"
+											>
+												<Pencil className="size-3.5" />
+											</button>
+										</CanGate>
 									</div>
 									<p className="text-sm leading-relaxed text-[var(--leros-text)]">{task.title}</p>
 								</section>

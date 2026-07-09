@@ -1,20 +1,24 @@
 package handler
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 type ProjectHandler struct {
 	service contract.ProjectService
+	permSvc PermGuarder
 }
 
-func NewProjectHandler(service contract.ProjectService) *ProjectHandler {
-	return &ProjectHandler{service: service}
+func NewProjectHandler(service contract.ProjectService, permSvc PermGuarder) *ProjectHandler {
+	return &ProjectHandler{service: service, permSvc: permSvc}
 }
 
 // ================================================================
@@ -23,18 +27,102 @@ func NewProjectHandler(service contract.ProjectService) *ProjectHandler {
 
 func (h *ProjectHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/CreateProject", h.CreateProject)
-	r.POST("/GetProject", h.GetProject)
-	r.POST("/DetailProject", h.DetailProject)
-	r.POST("/UpdateProject", h.UpdateProject)
-	r.POST("/DeleteProject", h.DeleteProject)
+	r.POST("/GetProject",
+		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectView, extractProjectPublicID),
+		h.GetProject,
+	)
+	r.POST("/DetailProject",
+		PermGuardActions(h.permSvc, types.ResourceTypeProject, extractProjectPublicID,
+			types.ActionProjectView, types.ActionProjectMemberList),
+		h.DetailProject,
+	)
+	r.POST("/UpdateProject",
+		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectUpdate, extractUpdateProjectPublicID),
+		h.UpdateProject,
+	)
+	r.POST("/DeleteProject",
+		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectDelete, extractDeleteProjectPublicID),
+		h.DeleteProject,
+	)
+	r.POST("/LeaveProject",
+		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectMemberLeave, extractLeaveProjectPublicID),
+		h.LeaveProject,
+	)
 	r.POST("/ListProjects", h.ListProjects)
-	r.POST("/ListProjectActivities", h.ListProjectActivities)
+	r.POST("/ListProjectActivities",
+		PermGuardOptionalProject(h.permSvc, extractOptionalProjectID),
+		h.ListProjectActivities,
+	)
 	r.POST("/GetWorkbenchRecentContext", h.GetWorkbenchRecentContext)
-	r.POST("/SaveWorkbenchRecentContext", h.SaveWorkbenchRecentContext)
+	r.POST("/SaveWorkbenchRecentContext",
+		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectView, extractWorkbenchProjectID),
+		h.SaveWorkbenchRecentContext,
+	)
 }
 
-func RegisterProjectRoutes(r gin.IRouter, service contract.ProjectService) {
-	h := NewProjectHandler(service)
+// extractProjectPublicID 从请求 body 提取项目 public_id，供 PermGuard 使用。
+func extractProjectPublicID(body []byte) (string, error) {
+	var req struct {
+		PublicID *string `json:"public_id"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", err
+	}
+	if req.PublicID == nil || *req.PublicID == "" {
+		return "", errors.New("public_id is required")
+	}
+	return *req.PublicID, nil
+}
+
+func extractUpdateProjectPublicID(body []byte) (string, error) {
+	var req struct {
+		PublicID string `json:"public_id"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", err
+	}
+	if req.PublicID == "" {
+		return "", errors.New("public_id is required")
+	}
+	return req.PublicID, nil
+}
+
+func extractDeleteProjectPublicID(body []byte) (string, error) {
+	return extractUpdateProjectPublicID(body)
+}
+
+func extractLeaveProjectPublicID(body []byte) (string, error) {
+	return extractUpdateProjectPublicID(body)
+}
+
+func extractWorkbenchProjectID(body []byte) (string, error) {
+	var req struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", err
+	}
+	if req.ProjectID == "" {
+		return "", errors.New("project_id is required")
+	}
+	return req.ProjectID, nil
+}
+
+func extractOptionalProjectID(body []byte) (string, error) {
+	var req struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", err
+	}
+	if req.ProjectID == "" {
+		return "", errors.New("project_id is optional")
+	}
+	return req.ProjectID, nil
+}
+
+func RegisterProjectRoutes(r gin.IRouter, service contract.ProjectService, permSvc PermGuarder) {
+	h := NewProjectHandler(service, permSvc)
 	h.RegisterRoutes(r)
 }
 
@@ -95,6 +183,7 @@ func (h *ProjectHandler) GetProject(ctx *gin.Context) {
 		return
 	}
 
+	// 权限已由路由链上的 PermGuard 在 handler 执行前完成检查，此处直接调用服务
 	result, err := h.service.GetProject(ctx, *req.PublicID)
 	if err != nil {
 		handleProjectServiceError(ctx, err)
@@ -196,6 +285,25 @@ func (h *ProjectHandler) DeleteProject(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(nil))
 }
 
+type LeaveProjectRequest struct {
+	PublicID string `json:"public_id" binding:"required"`
+}
+
+// LeaveProject 当前用户退出项目。
+func (h *ProjectHandler) LeaveProject(ctx *gin.Context) {
+	var req LeaveProjectRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	if err := h.service.LeaveProject(ctx, req.PublicID); err != nil {
+		handleProjectServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(nil))
+}
+
 // @Summary 查询项目列表
 // @Description 分页查询项目列表
 // @Tags Project
@@ -283,7 +391,7 @@ func handleProjectServiceError(ctx *gin.Context, err error) {
 
 	switch errMsg {
 	case "user not authenticated or org not set":
-		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, errMsg))
+		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeUnauthorized, errMsg))
 		return
 	}
 
@@ -299,9 +407,11 @@ func handleProjectServiceError(ctx *gin.Context, err error) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 	case "task not found":
 		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, errMsg))
-	case "permission denied":
-		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
 	default:
+		if isPermissionDenied(err) {
+			ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, errMsg))
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))
 	}
 }

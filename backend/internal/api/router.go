@@ -53,12 +53,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 	}
 
 	v1 := r.Group("/v1")
+
+	var workerScheduler worker.WorkerScheduler
+	var workerProvisioningService *service.WorkerProvisioningService
 	{
-		websocket.RegisterWebSocketRoutes(v1, eventbus)
-		logs.Info("WebSocket connector registered successfully")
-	}
-	{
-		var workerScheduler worker.WorkerScheduler
 		if cfg.Scheduler != nil {
 			var err error
 			workerScheduler, err = scheduler.New(cfg.Scheduler)
@@ -71,10 +69,15 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		workerManager.RegisterRoutes(r)
 		logs.Info("Worker server routes registered successfully")
 
-		var workerProvisioningService *service.WorkerProvisioningService
 		if db != nil {
 			workerProvisioningService = service.NewWorkerProvisioningService(db, cfg.Scheduler)
 		}
+	}
+
+	// ── 公开路由（无需 org 认证）──────────────────────────────────────────────────
+	{
+		websocket.RegisterWebSocketRoutes(v1, eventbus)
+		logs.Info("WebSocket connector registered successfully")
 
 		authService := service.NewAuthServiceWithProvisioning(db, cfg.Server.JWT.Secret, cfg.Aliyun, workerProvisioningService)
 		handler.RegisterAuthRoutes(v1, authService)
@@ -85,61 +88,68 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 
 		handler.RegisterClientUpdateRoutes(v1, cfg.ClientUpdate)
 		logs.Info("Client update routes registered successfully")
+	}
 
+	// ── 鉴权路由（RequireCallerOrg 统一拦截未认证/未绑定 org 的请求）─────────────
+	permSvc := service.NewPermissionService(db)
+	authed := v1.Group("/", middleware.RequireCallerOrg())
+	{
 		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioning(db, workerScheduler, workerProvisioningService)
-		handler.RegisterDigitalAssistantRoutes(v1, digitalAssistantService)
+		handler.RegisterDigitalAssistantRoutes(authed, digitalAssistantService)
 		logs.Info("Digital assistant routes registered successfully")
 
 		aiTeammateTemplateService := service.NewAITeammateTemplateService(db)
-		handler.RegisterAITeammateTemplateRoutes(v1, aiTeammateTemplateService)
+		handler.RegisterAITeammateTemplateRoutes(authed, aiTeammateTemplateService)
 		logs.Info("AI teammate template routes registered successfully")
 
 		llmModelService := service.NewLLMModelService(db)
-		handler.RegisterLLMModelRoutes(v1, llmModelService)
+		handler.RegisterLLMModelRoutes(authed, llmModelService)
 		logs.Info("LLM model routes registered successfully")
 
 		inferrer := service.NewDefaultAssistantInferrer(1)
 		sessionService := service.NewSessionService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env)
-		handler.RegisterSessionRoutes(v1, sessionService)
-		handler.RegisterGlobalEventRoutes(v1, sessionService)
+		handler.RegisterSessionRoutes(authed, sessionService, permSvc)
+		handler.RegisterGlobalEventRoutes(authed, sessionService)
 		logs.Info("Session routes registered successfully")
 
-		// projectService := service.NewProjectService(db, giteaClient, cfg.Gitea, cfg.Env)
 		projectService := service.NewProjectServiceWithInferrer(db, inferrer, giteaClient, cfg.Gitea, cfg.Env)
-		handler.RegisterProjectRoutes(v1, projectService)
+		handler.RegisterProjectRoutes(authed, projectService, permSvc)
 		logs.Info("Project routes registered successfully")
 
-		projectFileHandler := handler.NewProjectFileHandler(projectService)
-		projectFileHandler.RegisterRoutes(v1)
+		handler.RegisterPermissionRoutes(authed, NewPermissionBatchChecker(permSvc))
+		logs.Info("Permission routes registered successfully")
+
+		projectFileHandler := handler.NewProjectFileHandler(projectService, permSvc)
+		projectFileHandler.RegisterRoutes(authed)
 		logs.Info("Project file routes registered successfully")
 
 		taskService := service.NewTaskService(db)
-		handler.RegisterTaskRoutes(v1, taskService)
+		handler.RegisterTaskRoutes(authed, taskService, permSvc)
 		logs.Info("Task routes registered successfully")
 
 		fileService := service.NewFileService(db)
 		fileHandler := handler.NewFileHandler(fileService)
-		fileHandler.RegisterRoutes(v1)
+		fileHandler.RegisterRoutes(authed)
 		logs.Info("File routes registered successfully")
 
 		orgService := service.NewOrgServiceWithProvisioning(db, workerProvisioningService)
-		handler.RegisterOrgRoutes(v1, orgService)
+		handler.RegisterOrgRoutes(authed, orgService)
 		logs.Info("Organization routes registered successfully")
 
 		departmentService := service.NewDepartmentService(db)
-		handler.RegisterDepartmentRoutes(v1, departmentService)
+		handler.RegisterDepartmentRoutes(authed, departmentService)
 		logs.Info("Department routes registered successfully")
 
 		userService := service.NewUserService(db)
-		handler.RegisterUserRoutes(v1, userService)
+		handler.RegisterUserRoutes(authed, userService)
 		logs.Info("User routes registered successfully")
 
 		skillMarketplaceService := service.NewSkillMarketplaceServiceWithTranslator(db, eventbus, inferrer, service.NewDefaultSkillDescriptionTranslator(db), filestore.GetStorage(), filestore.DefaultBucket())
-		handler.RegisterSkillMarketplaceRoutes(v1, skillMarketplaceService)
+		handler.RegisterSkillMarketplaceRoutes(authed, skillMarketplaceService)
 		logs.Info("Skill marketplace routes registered successfully")
 
 		skillService := service.NewSkillService(db, eventbus, inferrer)
-		handler.RegisterSkillRoutes(v1, skillService)
+		handler.RegisterSkillRoutes(authed, skillService)
 		logs.Info("Skill management routes registered successfully")
 
 		// Start background consumers

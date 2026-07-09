@@ -49,9 +49,9 @@ func TestOrgServiceCreateOrgEnsuresDefaultWorker(t *testing.T) {
 		t.Fatal("expected organization")
 	}
 
-	assistant, err := db.GetDigitalAssistantByCode(ctx, database, defaultWorkerCode(org.ID))
+	assistant, err := db.GetDigitalAssistantByPublicID(ctx, database, defaultWorkerPublicID(org.ID))
 	if err != nil {
-		t.Fatalf("GetDigitalAssistantByCode failed: %v", err)
+		t.Fatalf("GetDigitalAssistantByPublicID failed: %v", err)
 	}
 	if assistant == nil {
 		t.Fatal("expected default assistant")

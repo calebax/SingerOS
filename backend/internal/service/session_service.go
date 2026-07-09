@@ -46,6 +46,7 @@ var ErrNoReplyMessageIDs = errors.New("no reply message ids in stream event")
 
 type sessionService struct {
 	db          *gorm.DB
+	perm        *PermissionService
 	eventbus    eventbus.EventBus
 	inferrer    AssistantInferrer
 	giteaClient *gitea.Client
@@ -56,6 +57,7 @@ type sessionService struct {
 func NewSessionService(db *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.SessionService {
 	return &sessionService{
 		db:          db,
+		perm:        NewPermissionService(db),
 		eventbus:    eventbus,
 		inferrer:    inferrer,
 		giteaClient: giteaClient,
@@ -79,16 +81,8 @@ func (s *sessionService) getSessionForCaller(ctx context.Context, sessionID stri
 	if session.OrgID != caller.OrgID {
 		return nil, nil, errors.New("permission denied")
 	}
-	// 群聊准入：task/project session 且有项目归属 → 校验项目 user 成员
 	if (session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject) &&
 		session.ProjectID != nil && *session.ProjectID > 0 {
-		ok, err := db.IsProjectMember(ctx, s.db, *session.ProjectID, caller.Uin, types.MemberTypeUser)
-		if err != nil {
-			return nil, nil, fmt.Errorf("verify project member: %w", err)
-		}
-		if !ok {
-			return nil, nil, errors.New("permission denied: not a project member")
-		}
 		return session, caller, nil
 	}
 	if err := verifyUserPermission(session.Uin, caller.Uin); err != nil {
@@ -118,16 +112,9 @@ func (s *sessionService) getSessionMessagesForCaller(ctx context.Context, sessio
 		}
 		return session, nil
 	}
-	// 群聊准入：task/project session 且有项目归属 → 校验项目 user 成员
+	// 群聊准入：task/project session 入口权限由 Handler PermGuardViaSession 保证。
 	if (session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject) &&
 		session.ProjectID != nil && *session.ProjectID > 0 {
-		ok, err := db.IsProjectMember(ctx, s.db, *session.ProjectID, caller.Uin, types.MemberTypeUser)
-		if err != nil {
-			return nil, fmt.Errorf("verify project member: %w", err)
-		}
-		if !ok {
-			return nil, errors.New("permission denied: not a project member")
-		}
 		return session, nil
 	}
 	if err := verifyUserPermission(session.Uin, caller.Uin); err != nil {
@@ -662,9 +649,6 @@ func (s *sessionService) DeleteMessage(ctx context.Context, messageID uint) erro
 	}
 	if session.OrgID != caller.OrgID {
 		return errors.New("permission denied")
-	}
-	if err := verifyUserPermission(session.Uin, caller.Uin); err != nil {
-		return err
 	}
 
 	if err := db.DeleteMessage(ctx, s.db, messageID); err != nil {

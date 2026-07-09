@@ -112,6 +112,33 @@ func GetUinsByPublicIDs(ctx context.Context, db *gorm.DB, orgID uint, publicIDs 
 	return result, nil
 }
 
+// GetPublicIDUinMapByPublicIDs 根据 org_id + user public_id 列表返回 public_id -> uin 映射。
+// 用于需要保留 public_id 与 uin 对应关系的场景（如按成员角色批量绑定）。
+func GetPublicIDUinMapByPublicIDs(ctx context.Context, db *gorm.DB, orgID uint, publicIDs []string) (map[string]uint, error) {
+	if len(publicIDs) == 0 {
+		return map[string]uint{}, nil
+	}
+	type publicIDUinRow struct {
+		PublicID string
+		Uin      uint
+	}
+	var rows []publicIDUinRow
+	err := db.WithContext(ctx).
+		Table(types.TableNameUserOrg+" AS uo").
+		Select("u.public_id AS public_id, uo.uin AS uin").
+		Joins("INNER JOIN "+types.TableNameUser+" AS u ON u.id = uo.user_id").
+		Where("uo.org_id = ? AND u.public_id IN (?) AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", orgID, publicIDs).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]uint, len(rows))
+	for _, r := range rows {
+		result[r.PublicID] = r.Uin
+	}
+	return result, nil
+}
+
 // GetUserOrgsByUserID 获取用户全部组织关联。
 func GetUserOrgsByUserID(ctx context.Context, db *gorm.DB, userID uint) ([]*types.UserOrg, error) {
 	var userOrgs []*types.UserOrg

@@ -43,6 +43,7 @@ export type {
 	OrgMemberDepartment,
 } from "./api/orgAdminApi";
 export { orgAdminApi } from "./api/orgAdminApi";
+export { permissionApi } from "./api/permissionApi";
 export { projectFileApi } from "./api/projectFileApi";
 export type { HumanProjectMemberOption } from "./api/projectMemberApi";
 export { projectMemberApi } from "./api/projectMemberApi";
@@ -72,8 +73,31 @@ export {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
+	usePermissionStore,
 	useTopicStore,
 } from "./appStore";
+export {
+	useCan,
+	useEnsureCapabilities,
+	useProjectCapabilities,
+	useProjectMenuCapabilities,
+	useTaskCapabilities,
+} from "./hooks/useCan";
+export {
+	handlePermissionDenied,
+	isPermissionDeniedError,
+	PermissionDeniedError,
+} from "./permission/errors";
+export type {
+	Action as PermissionActionType,
+	BatchCheckItem,
+	BatchCheckResult,
+	PermissionCheckValue,
+	PermissionDecision,
+	ResourceRef,
+	ResourceType,
+} from "./permission/types";
+export { Action, CODE_FORBIDDEN, PERMISSION_DENIED_EVENT } from "./permission/types";
 export type { AuthAction, AuthState, AuthStore, AuthUser } from "./slices/authSlice";
 export type { ChatAction, ChatState, ChatStore } from "./slices/chatSlice";
 export type {
@@ -106,6 +130,14 @@ export {
 	LEFT_RAIL_MIN_WIDTH,
 	projectMembersToInputs,
 } from "./slices/layoutSlice";
+export {
+	buildProjectCapabilityItems,
+	buildTaskCapabilityItems,
+	type PermissionAction,
+	type PermissionState,
+	type PermissionStore,
+	PROJECT_PAGE_ACTIONS,
+} from "./slices/permissionSlice";
 export type { Topic, TopicAction, TopicState, TopicStore } from "./slices/topicSlice";
 export type { PublicActions, SliceCreator } from "./types";
 export type {

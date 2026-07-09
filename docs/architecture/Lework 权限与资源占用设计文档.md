@@ -40,15 +40,17 @@ workflow
 ```text
 Project(id=1)
   ├── File(id=2, parent=1)
-  └── Artifact(id=3, parent=1)
+  ├── Artifact(id=3, parent=1)
+  └── Task(id=4, parent=1)
 ```
 
 一期资源父子关系：
 
 ```text
-project  -> file, artifact
+project  -> file, artifact, task
 file     -> none
 artifact -> none
+task     -> none
 ```
 
 ### 2.2 Principal
@@ -106,8 +108,8 @@ resource_type -> identity -> allowed actions
 
 ```text
 project:
-  owner -> project:view, project:update, project:delete, project:archive, project:member.create, project:member.update, project:member.delete, project:member.list
-  admin -> project:view, project:update, project:member.create, project:member.update, project:member.delete, project:member.list
+  owner -> project:view, project:update, project:delete, project:member.create, project:member.update, project:member.delete, project:member.list, project:member.leave
+  admin -> project:view, project:update, project:member.create, project:member.update, project:member.delete, project:member.list, project:member.leave
   member -> project:view, project:member.list, project:member.leave
 file:
   owner -> file:view, file:download
@@ -117,6 +119,10 @@ artifact:
   owner -> artifact:view, artifact:download
   admin -> artifact:view, artifact:download
   member -> artifact:view, artifact:download
+task:
+  owner -> task:view, task:update, task:delete
+  admin -> task:view, task:update, task:delete
+  member -> task:view, task:update, task:delete
 ```
 
 这样新增动作，例如 `project:clone`，只需要改代码配置，不需要改数据库。
@@ -249,7 +255,6 @@ project:
     - "project:view"
     - "project:update"
     - "project:delete"
-    - "project:archive"
     - "project:member.create"
     - "project:member.update"
     - "project:member.delete"
@@ -266,7 +271,6 @@ project:
   member:
     - "project:view"
     - "project:member.list"
-    - "project:member.leave"
 
 file:
   owner:
@@ -340,8 +344,10 @@ is_last_owner    // 被操作 owner 是否为项目最后一个 owner
 | member | `project:member.create` | 拒绝 |
 | member | `project:member.update` | 拒绝 |
 | member | `project:member.delete` | 拒绝 |
-| member | `project:member.leave` | 只允许删除自己的 member binding，表示退出项目 |
+| member | `project:member.leave` | 仅允许操作自己；最后一个 owner 拒绝 |
 | member | `project:member.list` | 允许 |
+| owner | `project:member.leave` | 仅允许操作自己；最后一个 owner 拒绝 |
+| admin | `project:member.leave` | 仅允许操作自己 |
 
 补充规则：
 
@@ -466,6 +472,21 @@ Can(actor, "artifact:view", artifact_resource)
 Can(actor, "artifact:download", artifact_resource)
 ```
 
+创建任务：
+
+```text
+Can(actor, "task:create", project_resource)  # 经父项目 effective role 解释，任务资源创建前判定
+leros_resource(type='task', biz_id=task.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
+```
+
+访问任务：
+
+```text
+Can(actor, "task:view", task_resource)
+Can(actor, "task:update", task_resource)
+Can(actor, "task:delete", task_resource)
+```
+
 - Artifact 和 File 不建立父子关系。Artifact 的来源通过业务关系表表达，权限只看 Artifact 自己的 resource 继承链。
 
 产物来源关系可以用业务表表达：
@@ -483,7 +504,7 @@ CREATE TABLE IF NOT EXISTS leros_artifact_sources (
 
 - 老数据中的项目 owner/admin/member 迁移为项目资源上的 `leros_resource_binding`。
 - `viewer` 如仍存在，统一迁移为 `member`。
-- 迁移完成后，鉴权不再读取 `project_members`。
+- 迁移完成后，鉴权不再读取 `project_members`；应用代码不再写入 `project_members`（表保留供历史数据与启动 backfill）。
 - `projects.owner_id` 仅保留为业务展示或历史兼容字段，不作为最终鉴权来源。
 
 ## 6. 接口与前端
@@ -517,7 +538,7 @@ POST /BatchCheckPermission
 {
   "allowed": true,
   "reason": "identity_policy_allowed",
-  "identity": "admin",
+  "role": "admin",
   "resource_id": 3,
   "matched_resource_id": 1,
   "matched_binding_id": 88,
@@ -571,7 +592,8 @@ POST /BatchCheckPermission
 - Project 可以作为根资源被授权。
 - File 可以作为 Project 子资源继承 Project 权限。
 - Artifact 可以作为 Project 子资源继承 Project 权限。
-- 成员只在 Project 下维护，File / Artifact 不提供成员管理入口。
+- Task 可以作为 Project 子资源继承 Project 权限；`task:view` / `task:update` / `task:delete` 走 PermissionService。
+- 成员只在 Project 下维护，File / Artifact / Task 不提供成员管理入口。
 - 新增 action 不需要改数据库。
 - user 和 assistant 都可以作为 principal 被授权。
 - 非授权主体默认无法访问资源。
@@ -586,6 +608,10 @@ POST /BatchCheckPermission
 - 让业务服务各自实现权限判断。
 - 在第一阶段引入复杂外部权限引擎。
 - 一期不接入 KnowledgeBase / Folder 的创建规则、接口和验收。
+
+暂不建设（后续按需补充）：
+
+- `project:archive`：归档业务逻辑尚未实现，action 暂不定义；待归档功能落地后再同步加入 PermissionPolicy 和服务入口。
 
 后续扩展只需要补充：
 

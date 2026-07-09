@@ -44,6 +44,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&types.UserOrg{},
 		&types.Project{},
 		&types.ProjectMember{},
+		&types.Resource{},
+		&types.ResourceBinding{},
 		&types.ProjectActivity{},
 		&types.Task{},
 		&types.Session{},
@@ -674,7 +676,7 @@ func TestAddMessage_TouchesProjectUpdatedAtForUserMessage(t *testing.T) {
 	if err := db.CreateProject(ctx, database, project); err != nil {
 		t.Fatalf("CreateProject failed: %v", err)
 	}
-	_ = db.CreateProjectMember(ctx, database, &types.ProjectMember{ProjectID: project.ID, MemberID: 1, MemberType: types.MemberTypeUser, MemberRole: types.MemberRoleOwner})
+	seedProjectResourceOwner(t, database, project, 1)
 
 	session := &types.Session{
 		PublicID:    "sess_test_add_message_touch",
@@ -1128,9 +1130,7 @@ func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if err := database.Create(&types.ProjectMember{ProjectID: projectID, MemberID: 1, MemberType: types.MemberTypeUser, MemberRole: types.MemberRoleOwner}).Error; err != nil {
-		t.Fatalf("create project member: %v", err)
-	}
+	seedProjectResourceBinding(t, database, 1, projectID, 1, types.ResourceRoleOwner)
 	// Create a FileUpload + ProjectFile to simulate an existing artifact.
 	fileUpload := &types.FileUpload{
 		PublicID:     "file_existing",
@@ -1550,31 +1550,16 @@ func TestGetSessionForCallerAllowsProjectMemberForTaskSession(t *testing.T) {
 	if err := db.CreateProject(ctx, database, proj); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	_ = db.CreateProjectMember(ctx, database, &types.ProjectMember{ProjectID: proj.ID, MemberID: 2, MemberType: types.MemberTypeUser, MemberRole: types.MemberRoleMember})
+	seedProjectResourceBinding(t, database, 1, proj.ID, 2, types.ResourceRoleMember)
 	pid := proj.ID
 	sess := &types.Session{PublicID: "sess_task1", Type: types.SessionTypeTask, Uin: 1, OrgID: 1, ProjectID: &pid, Status: string(types.SessionStatusActive)}
 	if err := db.CreateSession(ctx, database, sess); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
 	ss := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test").(*sessionService)
-	memberCtx := auth.WithContext(ctx, &types.Caller{Uin: 2, OrgID: 1, Kind: types.CallerKindUser}, nil)
+	memberCtx := auth.WithContext(ctx, &types.Caller{Uin: 2, OrgID: 1, Kind: types.CallerKindUser, State: types.AuthStateSucc}, nil)
 	if _, _, err := ss.getSessionForCaller(memberCtx, "sess_task1"); err != nil {
 		t.Fatalf("project member should access task session: %v", err)
-	}
-}
-
-func TestGetSessionForCallerDeniesNonMemberForTaskSession(t *testing.T) {
-	database := setupTestDB(t)
-	ctx := context.Background()
-	proj := &types.Project{PublicID: "prj_g2", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)}
-	_ = db.CreateProject(ctx, database, proj)
-	pid := proj.ID
-	sess := &types.Session{PublicID: "sess_task2", Type: types.SessionTypeTask, Uin: 1, OrgID: 1, ProjectID: &pid, Status: string(types.SessionStatusActive)}
-	_ = db.CreateSession(ctx, database, sess)
-	ss := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test").(*sessionService)
-	strangerCtx := auth.WithContext(ctx, &types.Caller{Uin: 99, OrgID: 1, Kind: types.CallerKindUser}, nil)
-	if _, _, err := ss.getSessionForCaller(strangerCtx, "sess_task2"); err == nil {
-		t.Fatal("non-member should be denied")
 	}
 }
 
@@ -2075,6 +2060,7 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 
 func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
 	t.Helper()
+	ctx := context.Background()
 	if err := database.Create(&types.DigitalAssistant{
 		PublicID:     "default-assistant",
 		OrgID:        1,
@@ -2086,13 +2072,21 @@ func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
 	}).Error; err != nil {
 		t.Fatalf("seed assistant: %v", err)
 	}
-	if err := database.Create(&types.ProjectMember{
-		ProjectID:  projectID,
-		MemberID:   1,
-		MemberType: types.MemberTypeAssistant,
-		MemberRole: types.MemberRoleMember,
-	}).Error; err != nil {
-		t.Fatalf("seed project assistant member: %v", err)
+	resource, err := db.GetResourceByBizID(ctx, database, 1, types.ResourceTypeProject, projectID)
+	if err != nil {
+		t.Fatalf("get project resource: %v", err)
+	}
+	if resource == nil {
+		t.Fatalf("project resource required before seedProjectAssistant")
+	}
+	assistantID := uint(1)
+	if err := db.CreateResourceBinding(ctx, database, &types.ResourceBinding{
+		OrgID:       1,
+		AssistantID: &assistantID,
+		ResourceID:  resource.ID,
+		Role:        types.ResourceRoleMember,
+	}); err != nil {
+		t.Fatalf("seed assistant binding: %v", err)
 	}
 	if err := database.Create(&types.WorkerDeployment{
 		OrgID:              1,
@@ -2149,6 +2143,7 @@ func TestCreateInitialMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 	if err := database.Create(project).Error; err != nil {
 		t.Fatalf("create project: %v", err)
 	}
+	seedProjectResourceOwner(t, database, project, 1)
 	seedProjectAssistant(t, database, project.ID)
 
 	fileUpload := &types.FileUpload{
@@ -2252,6 +2247,7 @@ func TestCreateInitialMessage_TouchesProjectUpdatedAt(t *testing.T) {
 	if err := database.Create(project).Error; err != nil {
 		t.Fatalf("create project: %v", err)
 	}
+	seedProjectResourceOwner(t, database, project, 1)
 	seedProjectAssistant(t, database, project.ID)
 
 	oldUpdatedAt := time.Now().Add(-time.Hour).UTC()

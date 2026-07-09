@@ -48,6 +48,9 @@ func (m *mockProjectServiceForAddFile) DeleteProject(ctx context.Context, public
 	}
 	return nil
 }
+func (m *mockProjectServiceForAddFile) LeaveProject(ctx context.Context, publicID string) error {
+	return nil
+}
 func (m *mockProjectServiceForAddFile) ListProjects(ctx context.Context, req *contract.ListProjectsRequest) (*contract.ProjectList, error) {
 	if m.listProjectsFn != nil {
 		return m.listProjectsFn(ctx, req)
@@ -93,7 +96,37 @@ func setupProjectFileRouter(t *testing.T, svc contract.ProjectService, caller *t
 		ctx.Next()
 	})
 
-	h := handler.NewProjectFileHandler(svc)
+	h := handler.NewProjectFileHandler(svc, noopPermGuarder{})
 	h.RegisterRoutes(router.Group("/v1"))
 	return router
+}
+
+type noopPermGuarder struct{}
+
+func (noopPermGuarder) GuardProject(ctx context.Context, caller types.PermissionCaller, publicID string, actions ...types.Action) error {
+	return nil
+}
+
+func (noopPermGuarder) GuardTask(ctx context.Context, caller types.PermissionCaller, publicID string, actions ...types.Action) error {
+	return nil
+}
+
+func (noopPermGuarder) GuardByPublicID(ctx context.Context, caller types.PermissionCaller, resourceType types.ResourceType, publicID string, actions ...types.Action) error {
+	return nil
+}
+
+func (noopPermGuarder) GuardProjectTaskAction(ctx context.Context, caller types.PermissionCaller, projectPublicID string, action types.Action) error {
+	return nil
+}
+
+func (noopPermGuarder) GuardSessionAccess(ctx context.Context, caller types.PermissionCaller, sessionPublicID string) error {
+	return nil
+}
+
+func (noopPermGuarder) GuardSessionAccessByMessageID(ctx context.Context, caller types.PermissionCaller, messageID uint) error {
+	return nil
+}
+
+func (noopPermGuarder) GuardNewMessageRequest(ctx context.Context, caller types.PermissionCaller, projectID, taskID string) error {
+	return nil
 }

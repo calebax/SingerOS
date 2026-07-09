@@ -59,7 +59,7 @@ func TestDepartmentServiceCRUDAndList(t *testing.T) {
 	if err := service.DeleteDepartment(ctx, created.ID); err != nil {
 		t.Fatalf("DeleteDepartment failed: %v", err)
 	}
-	if _, err := service.GetDepartment(ctx, created.ID); err == nil || err.Error() != "department not found" {
+	if _, err := service.GetDepartment(ctx, created.ID); err == nil || err.Error() != "部门不存在" {
 		t.Fatalf("expected not found after delete, got %v", err)
 	}
 }
@@ -134,7 +134,7 @@ func TestDepartmentParentIDs(t *testing.T) {
 	cycleParentID := grandchild.ID
 	if _, err := service.UpdateDepartment(ctx, child.ID, &contract.UpdateDepartmentRequest{
 		ParentID: &cycleParentID,
-	}); err == nil || err.Error() != "department parent creates a cycle" {
+	}); err == nil || err.Error() != "部门父级设置形成循环" {
 		t.Fatalf("expected cycle error, got %v", err)
 	}
 }

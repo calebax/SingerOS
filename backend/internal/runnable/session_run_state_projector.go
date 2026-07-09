@@ -530,6 +530,25 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 		if err := infradb.CreateProjectFile(ctx, tx, projectFile); err != nil {
 			return fmt.Errorf("create artifact project file: %w", err)
 		}
+		projResource, err := infradb.GetResourceByBizID(ctx, tx, session.OrgID, types.ResourceTypeProject, *session.ProjectID)
+		if err != nil {
+			return fmt.Errorf("get project resource for artifact: %w", err)
+		}
+		if projResource != nil {
+			ar := &types.Resource{
+				OrgID:                 session.OrgID,
+				Uin:                   session.Uin,
+				Type:                  types.ResourceTypeArtifact,
+				BizID:                 projectFile.ID,
+				ParentResourceID:      &projResource.ID,
+				ParentResourcePathIDs: types.ResourcePathIDs{projResource.ID},
+			}
+			if err := infradb.CreateResource(ctx, tx, ar); err != nil {
+				return fmt.Errorf("sync artifact resource: %w", err)
+			}
+		} else {
+			logs.WarnContextf(ctx, "project resource not found, skip artifact resource sync, project_id=%d", *session.ProjectID)
+		}
 		return nil
 	})
 	if err != nil {
@@ -637,6 +656,25 @@ func (p *declaredArtifactPersister) PersistPublishedPlan(ctx context.Context, ro
 		}
 		if err := infradb.CreateProjectFile(ctx, tx, projectFile); err != nil {
 			return fmt.Errorf("create plan project file: %w", err)
+		}
+		projResource, err := infradb.GetResourceByBizID(ctx, tx, session.OrgID, types.ResourceTypeProject, *session.ProjectID)
+		if err != nil {
+			return fmt.Errorf("get project resource for plan: %w", err)
+		}
+		if projResource != nil {
+			fr := &types.Resource{
+				OrgID:                 session.OrgID,
+				Uin:                   session.Uin,
+				Type:                  types.ResourceTypeFile,
+				BizID:                 projectFile.ID,
+				ParentResourceID:      &projResource.ID,
+				ParentResourcePathIDs: types.ResourcePathIDs{projResource.ID},
+			}
+			if err := infradb.CreateResource(ctx, tx, fr); err != nil {
+				return fmt.Errorf("sync plan file resource: %w", err)
+			}
+		} else {
+			logs.WarnContextf(ctx, "project resource not found, skip plan file resource sync, project_id=%d", *session.ProjectID)
 		}
 		return nil
 	})

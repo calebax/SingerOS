@@ -44,6 +44,7 @@ type projectActivityCursor struct {
 
 type projectService struct {
 	db          *gorm.DB
+	perm        *PermissionService
 	inferrer    AssistantInferrer
 	giteaClient *gitea.Client
 	giteaCfg    *config.GiteaConfig
@@ -62,6 +63,7 @@ type fileTreeEntry struct {
 func NewProjectService(db *gorm.DB, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.ProjectService {
 	return &projectService{
 		db:          db,
+		perm:        NewPermissionService(db),
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
 		env:         env,
@@ -71,11 +73,18 @@ func NewProjectService(db *gorm.DB, giteaClient *gitea.Client, giteaCfg *config.
 func NewProjectServiceWithInferrer(db *gorm.DB, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.ProjectService {
 	return &projectService{
 		db:          db,
+		perm:        NewPermissionService(db),
 		inferrer:    inferrer,
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
 		env:         env,
 	}
+}
+
+// permWithDB returns a PermissionService bound to db. Inside an open transaction, pass tx
+// so auth reads uncommitted bindings and avoids SQLite single-connection deadlocks.
+func (s *projectService) permWithDB(db *gorm.DB) *PermissionService {
+	return PermissionForDB(db, s.perm)
 }
 
 func (s *projectService) CreateProject(ctx context.Context, req *contract.CreateProjectRequest) (*contract.Project, error) {
@@ -136,7 +145,26 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 		if err := db.CreateProject(ctx, tx, project); err != nil {
 			return err
 		}
-		participantsPayload, participantsChanged, err := s.bindProjectMembers(ctx, tx, project.ID, caller, req.Members)
+		resource := &types.Resource{
+			OrgID: caller.OrgID,
+			Uin:   caller.Uin,
+			Type:  types.ResourceTypeProject,
+			BizID: project.ID,
+		}
+		if err := db.CreateResource(ctx, tx, resource); err != nil {
+			return fmt.Errorf("sync project resource: %w", err)
+		}
+		uin := caller.Uin
+		binding := &types.ResourceBinding{
+			OrgID:      caller.OrgID,
+			Uin:        &uin,
+			ResourceID: resource.ID,
+			Role:       types.ResourceRoleOwner,
+		}
+		if err := db.CreateResourceBinding(ctx, tx, binding); err != nil {
+			return err
+		}
+		participantsPayload, participantsChanged, err := s.bindProjectMembers(ctx, tx, project.ID, resource.ID, caller, req.Members)
 		if err != nil {
 			return err
 		}
@@ -189,9 +217,6 @@ func (s *projectService) GetProject(ctx context.Context, publicID string) (*cont
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
-		return nil, err
-	}
 	return convertToContractProject(project), nil
 }
 
@@ -212,9 +237,6 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 		}
 		if project == nil {
 			return errors.New("project not found")
-		}
-		if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
-			return err
 		}
 
 		if req.Name != nil {
@@ -261,8 +283,8 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 			return err
 		}
 
-		if len(req.Members) > 0 {
-			payload, changed, err := s.syncProjectMembers(ctx, tx, project.ID, caller.OrgID, caller.Uin, req.Members)
+		if req.Members != nil {
+			payload, changed, err := s.syncProjectMembers(ctx, tx, project.ID, caller.OrgID, caller, req.Members)
 			if err != nil {
 				return err
 			}
@@ -310,13 +332,50 @@ func (s *projectService) DeleteProject(ctx context.Context, publicID string) err
 		if project == nil {
 			return errors.New("project not found")
 		}
-		if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
-			return err
-		}
 		if err := db.DeleteTasksByProjectID(ctx, tx, caller.OrgID, project.ID); err != nil {
 			return err
 		}
 		return db.DeleteProject(ctx, tx, project.ID)
+	})
+}
+
+func (s *projectService) LeaveProject(ctx context.Context, publicID string) error {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return err
+	}
+	if caller.Uin == 0 {
+		return errors.New("only user principals can leave project")
+	}
+	if strings.TrimSpace(publicID) == "" {
+		return errors.New("public_id is required")
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		project, err := db.GetProjectByPublicID(ctx, tx, caller.OrgID, publicID)
+		if err != nil {
+			return err
+		}
+		if project == nil {
+			return errors.New("project not found")
+		}
+
+		resource, err := db.GetResourceByBizID(ctx, tx, caller.OrgID, types.ResourceTypeProject, project.ID)
+		if err != nil {
+			return fmt.Errorf("get project resource: %w", err)
+		}
+		if resource == nil {
+			return errors.New("project resource not found")
+		}
+
+		binding, err := db.GetResourceBindingByUin(ctx, tx, resource.ID, caller.Uin)
+		if err != nil {
+			return fmt.Errorf("get resource binding: %w", err)
+		}
+		if binding == nil {
+			return errors.New("not a project member")
+		}
+		return db.DeleteResourceBinding(ctx, tx, binding.ID)
 	})
 }
 
@@ -424,9 +483,6 @@ func (s *projectService) ListProjectActivities(ctx context.Context, req *contrac
 		if project == nil {
 			return nil, errors.New("project not found")
 		}
-		if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
-			return nil, err
-		}
 		opt.ProjectID = project.PublicID
 	} else {
 		projectIDs, err := db.ListProjectIDsByUser(ctx, s.db, caller.OrgID, caller.Uin)
@@ -481,7 +537,7 @@ func (s *projectService) GetWorkbenchRecentContext(ctx context.Context) (*contra
 	if err != nil {
 		return nil, err
 	}
-	if project == nil || project.OrgID != caller.OrgID || s.verifyProjectAccess(ctx, s.db, project, caller) != nil {
+	if project == nil || project.OrgID != caller.OrgID || s.perm.RequireProject(ctx, FromTypeCaller(caller), project, types.ActionProjectView) != nil {
 		return nil, nil
 	}
 
@@ -491,7 +547,7 @@ func (s *projectService) GetWorkbenchRecentContext(ctx context.Context) (*contra
 		if err != nil {
 			return nil, err
 		}
-		if task == nil || task.ProjectID != project.ID || verifyUserPermission(task.OwnerID, caller.Uin) != nil {
+		if task == nil || task.ProjectID != project.ID || s.perm.RequireTask(ctx, FromTypeCaller(caller), task, types.ActionTaskView) != nil {
 			task = nil
 		}
 	}
@@ -515,9 +571,6 @@ func (s *projectService) SaveWorkbenchRecentContext(ctx context.Context, req *co
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
-		return nil, err
-	}
 
 	var task *types.Task
 	var taskID *uint
@@ -529,7 +582,7 @@ func (s *projectService) SaveWorkbenchRecentContext(ctx context.Context, req *co
 		if task == nil {
 			return nil, errors.New("task not found")
 		}
-		if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
+		if err := s.perm.RequireTask(ctx, FromTypeCaller(caller), task, types.ActionTaskView); err != nil {
 			return nil, err
 		}
 		if task.ProjectID != project.ID {
@@ -553,8 +606,9 @@ func (s *projectService) SaveWorkbenchRecentContext(ctx context.Context, req *co
 	return buildWorkbenchRecentContext(project, task, usedAt), nil
 }
 
-// bindProjectMembers 创建项目时绑定默认 AI 队友 + 用户指定的额外 AI 队友 + 创建者本人。
-func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, projectID uint, caller *types.Caller, inputs []contract.MemberInput) (types.ProjectActivityPayload, bool, error) {
+// bindProjectMembers 创建项目时绑定默认 AI 队友与用户成员（写 leros_resource_binding）。
+// 创建者本人的 owner 绑定由调用方在事务内先行创建，此处跳过。
+func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, projectID, resourceID uint, caller *types.Caller, inputs []contract.MemberInput) (types.ProjectActivityPayload, bool, error) {
 	payload := types.ProjectActivityPayload{}
 	defaultAssistantID, err := db.GetDefaultAssistantIDByOrg(ctx, tx, caller.OrgID)
 	if err != nil {
@@ -564,7 +618,7 @@ func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, pr
 		return payload, false, ErrNoDefaultAssistantInOrg
 	}
 
-	assistantPublicIDs, userPublicIDs, err := parseMemberInputs(inputs)
+	assistantPublicIDs, userMembers, err := parseMemberInputs(inputs)
 	if err != nil {
 		return payload, false, err
 	}
@@ -578,56 +632,11 @@ func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, pr
 		return payload, false, err
 	}
 
-	userUins, err := db.GetUinsByPublicIDs(ctx, tx, caller.OrgID, userPublicIDs)
-	if err != nil {
-		return payload, false, fmt.Errorf("get user uins: %w", err)
+	if err := s.bindProjectAssistantMembers(ctx, tx, caller.OrgID, resourceID, projectID, caller, defaultAssistantID, assistantIDs); err != nil {
+		return payload, false, err
 	}
 
-	var members []*types.ProjectMember
-	now := time.Now()
-
-	members = append(members, &types.ProjectMember{
-		ProjectID:  projectID,
-		MemberID:   defaultAssistantID,
-		MemberType: types.MemberTypeAssistant,
-		MemberRole: types.MemberRoleMember,
-		IsDefault:  true,
-		JoinedAt:   now,
-	})
-
-	for _, id := range assistantIDs {
-		members = append(members, &types.ProjectMember{
-			ProjectID:  projectID,
-			MemberID:   id,
-			MemberType: types.MemberTypeAssistant,
-			MemberRole: types.MemberRoleMember,
-			IsDefault:  false,
-			JoinedAt:   now,
-		})
-	}
-
-	members = append(members, &types.ProjectMember{
-		ProjectID:  projectID,
-		MemberID:   caller.Uin,
-		MemberType: types.MemberTypeUser,
-		MemberRole: types.MemberRoleOwner,
-		JoinedAt:   now,
-	})
-
-	for _, uin := range userUins {
-		if uin == caller.Uin {
-			continue
-		}
-		members = append(members, &types.ProjectMember{
-			ProjectID:  projectID,
-			MemberID:   uin,
-			MemberType: types.MemberTypeUser,
-			MemberRole: types.MemberRoleMember,
-			JoinedAt:   now,
-		})
-	}
-
-	if err := db.BatchCreateProjectMembers(ctx, tx, members); err != nil {
+	if err := s.bindProjectUserMembers(ctx, tx, caller.OrgID, resourceID, projectID, caller, userMembers); err != nil {
 		return payload, false, err
 	}
 
@@ -642,9 +651,19 @@ func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, pr
 	if err != nil {
 		return payload, false, err
 	}
-	addedUserIDs := make([]uint, 0, len(userUins))
-	for _, uin := range userUins {
-		if uin == caller.Uin {
+
+	addedUserIDs := make([]uint, 0, len(userMembers))
+	publicIDs := make([]string, 0, len(userMembers))
+	for _, m := range userMembers {
+		publicIDs = append(publicIDs, m.PublicID)
+	}
+	uinMap, err := db.GetPublicIDUinMapByPublicIDs(ctx, tx, caller.OrgID, publicIDs)
+	if err != nil {
+		return payload, false, fmt.Errorf("get user uins: %w", err)
+	}
+	for _, m := range userMembers {
+		uin, ok := uinMap[m.PublicID]
+		if !ok || uin == 0 || uin == caller.Uin {
 			continue
 		}
 		addedUserIDs = append(addedUserIDs, uin)
@@ -658,24 +677,119 @@ func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, pr
 	return payload, changed, nil
 }
 
-// parseMemberInputs 将 MemberInput 列表拆分为 assistant public_id 和 user public_id 两组。
-func parseMemberInputs(inputs []contract.MemberInput) (assistantPublicIDs []string, userPublicIDs []string, err error) {
+// bindProjectUserMembers 为用户成员在指定资源上创建 leros_resource_binding（带角色），跳过创建者本人。
+func (s *projectService) bindProjectUserMembers(ctx context.Context, tx *gorm.DB, orgID, resourceID, projectID uint, caller *types.Caller, userMembers []userMemberInput) error {
+	if len(userMembers) == 0 {
+		return nil
+	}
+	publicIDs := make([]string, 0, len(userMembers))
+	for _, m := range userMembers {
+		publicIDs = append(publicIDs, m.PublicID)
+	}
+	uinMap, err := db.GetPublicIDUinMapByPublicIDs(ctx, tx, orgID, publicIDs)
+	if err != nil {
+		return fmt.Errorf("get user uins: %w", err)
+	}
+
+	seen := make(map[uint]bool, len(userMembers))
+	for _, m := range userMembers {
+		uin, ok := uinMap[m.PublicID]
+		if !ok || uin == 0 || uin == caller.Uin || seen[uin] {
+			continue
+		}
+		seen[uin] = true
+		if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberCreate, &MemberInput{
+			TargetUin:     uin,
+			RequestedRole: m.Role,
+		}); err != nil {
+			return err
+		}
+		boundUin := uin
+		if err := db.CreateResourceBinding(ctx, tx, &types.ResourceBinding{
+			OrgID:      orgID,
+			Uin:        &boundUin,
+			ResourceID: resourceID,
+			Role:       m.Role,
+		}); err != nil {
+			return fmt.Errorf("bind project user member %d: %w", uin, err)
+		}
+	}
+	return nil
+}
+
+// bindProjectAssistantMembers 为默认及额外 AI 队友在指定资源上创建 leros_resource_binding（member 角色）。
+func (s *projectService) bindProjectAssistantMembers(ctx context.Context, tx *gorm.DB, orgID, resourceID, projectID uint, caller *types.Caller, defaultAssistantID uint, assistantIDs []uint) error {
+	allIDs := append([]uint{defaultAssistantID}, assistantIDs...)
+	seen := make(map[uint]bool, len(allIDs))
+	for _, id := range allIDs {
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberCreate, &MemberInput{
+			TargetAssistantID: &id,
+			RequestedRole:     types.ResourceRoleMember,
+		}); err != nil {
+			return err
+		}
+		boundID := id
+		if err := db.CreateResourceBinding(ctx, tx, &types.ResourceBinding{
+			OrgID:       orgID,
+			AssistantID: &boundID,
+			ResourceID:  resourceID,
+			Role:        types.ResourceRoleMember,
+		}); err != nil {
+			return fmt.Errorf("bind project assistant member %d: %w", id, err)
+		}
+	}
+	return nil
+}
+
+// userMemberInput 表示带角色的用户成员输入，供绑定到 leros_resource_binding 使用。
+type userMemberInput struct {
+	PublicID string
+	Role     types.ResourceRole
+}
+
+// resolveResourceRole 将请求传入的角色字符串解析为 ResourceRole。
+// 空值默认为 member；非法值返回错误。
+func resolveResourceRole(raw string) (types.ResourceRole, error) {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "":
+		return types.ResourceRoleMember, nil
+	case string(types.ResourceRoleOwner):
+		return types.ResourceRoleOwner, nil
+	case string(types.ResourceRoleAdmin):
+		return types.ResourceRoleAdmin, nil
+	case string(types.ResourceRoleMember):
+		return types.ResourceRoleMember, nil
+	default:
+		return "", fmt.Errorf("invalid member role: %s", raw)
+	}
+}
+
+// parseMemberInputs 将 MemberInput 列表拆分为 assistant public_id 组和带角色的 user 成员组。
+func parseMemberInputs(inputs []contract.MemberInput) (assistantPublicIDs []string, userMembers []userMemberInput, err error) {
 	for _, m := range inputs {
 		switch m.Type {
 		case "assistant":
 			assistantPublicIDs = append(assistantPublicIDs, m.ID)
 		case "user":
-			userPublicIDs = append(userPublicIDs, m.ID)
+			role, rerr := resolveResourceRole(m.Role)
+			if rerr != nil {
+				return nil, nil, rerr
+			}
+			userMembers = append(userMembers, userMemberInput{PublicID: m.ID, Role: role})
 		default:
 			return nil, nil, fmt.Errorf("invalid member type: %s", m.Type)
 		}
 	}
-	return assistantPublicIDs, userPublicIDs, nil
+	return assistantPublicIDs, userMembers, nil
 }
 
 // syncProjectMembers 在 UpdateProject 时 diff 当前成员与传入列表：
 // 新增的添加，要移除的删除（is_default=true 的不可移除）。
-func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, projectID, orgID, callerUin uint, inputs []contract.MemberInput) (types.ProjectActivityPayload, bool, error) {
+func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, projectID, orgID uint, caller *types.Caller, inputs []contract.MemberInput) (types.ProjectActivityPayload, bool, error) {
 	payload := types.ProjectActivityPayload{}
 	defaultAssistantID, err := db.GetDefaultAssistantIDByOrg(ctx, tx, orgID)
 	if err != nil {
@@ -685,7 +799,7 @@ func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, pr
 		return payload, false, ErrNoDefaultAssistantInOrg
 	}
 
-	assistantPublicIDs, userPublicIDs, err := parseMemberInputs(inputs)
+	assistantPublicIDs, userMembers, err := parseMemberInputs(inputs)
 	if err != nil {
 		return payload, false, err
 	}
@@ -699,34 +813,10 @@ func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, pr
 		return payload, false, err
 	}
 
-	userUins, err := db.GetUinsByPublicIDs(ctx, tx, orgID, userPublicIDs)
+	addedAssistantIDs, removedAssistantIDs, err := s.syncProjectAssistantMembers(ctx, tx, projectID, orgID, caller, assistantIDs, defaultAssistantID)
 	if err != nil {
-		return payload, false, fmt.Errorf("get user uins: %w", err)
+		return payload, false, err
 	}
-
-	now := time.Now()
-
-	// 同步 AI 队友
-	existingAssistants, err := db.ListProjectAssistantMembers(ctx, tx, projectID)
-	if err != nil {
-		return payload, false, fmt.Errorf("list project assistants: %w", err)
-	}
-	existingNonDefault := make(map[uint]*types.ProjectMember)
-	for _, m := range existingAssistants {
-		if m.IsDefault {
-			continue
-		}
-		existingNonDefault[m.MemberID] = m
-	}
-	requestedAssistantSet := make(map[uint]bool, len(assistantIDs))
-	for _, id := range assistantIDs {
-		requestedAssistantSet[id] = true
-	}
-	oldAssistantIDs := make([]uint, 0, len(existingNonDefault))
-	for id := range existingNonDefault {
-		oldAssistantIDs = append(oldAssistantIDs, id)
-	}
-	addedAssistantIDs, removedAssistantIDs := diffUintSlices(oldAssistantIDs, assistantIDs)
 	payload.AddedAITeammateIDs, err = publicIDsForAssistants(ctx, tx, addedAssistantIDs)
 	if err != nil {
 		return payload, false, err
@@ -735,54 +825,12 @@ func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, pr
 	if err != nil {
 		return payload, false, err
 	}
-	for _, m := range existingNonDefault {
-		if !requestedAssistantSet[m.MemberID] {
-			if err := db.DeleteProjectMember(ctx, tx, m.ID); err != nil {
-				return payload, false, fmt.Errorf("delete project assistant member %d: %w", m.MemberID, err)
-			}
-		}
-	}
-	for _, id := range assistantIDs {
-		if _, ok := existingNonDefault[id]; !ok {
-			if err := db.CreateProjectMember(ctx, tx, &types.ProjectMember{
-				ProjectID:  projectID,
-				MemberID:   id,
-				MemberType: types.MemberTypeAssistant,
-				MemberRole: types.MemberRoleMember,
-				IsDefault:  false,
-				JoinedAt:   now,
-			}); err != nil {
-				return payload, false, fmt.Errorf("create project assistant member %d: %w", id, err)
-			}
-		}
-	}
 
-	// 同步用户成员
-	existingUsers, err := db.ListProjectMemberByType(ctx, tx, projectID, types.MemberTypeUser)
+	// 同步用户成员：权限与成员来源为 leros_resource_binding。
+	addedUserIDs, removedUserIDs, err := s.syncProjectUserMembers(ctx, tx, projectID, orgID, caller, userMembers)
 	if err != nil {
-		return payload, false, fmt.Errorf("list project user members: %w", err)
+		return payload, false, err
 	}
-	existingUserMap := make(map[uint]*types.ProjectMember)
-	for _, m := range existingUsers {
-		if m.MemberRole == types.MemberRoleOwner {
-			continue
-		}
-		existingUserMap[m.MemberID] = m
-	}
-	requestedUserSet := make(map[uint]bool, len(userUins))
-	requestedUserIDs := make([]uint, 0, len(userUins))
-	for _, uin := range userUins {
-		if uin == callerUin {
-			continue
-		}
-		requestedUserSet[uin] = true
-		requestedUserIDs = append(requestedUserIDs, uin)
-	}
-	oldUserIDs := make([]uint, 0, len(existingUserMap))
-	for id := range existingUserMap {
-		oldUserIDs = append(oldUserIDs, id)
-	}
-	addedUserIDs, removedUserIDs := diffUintSlices(oldUserIDs, requestedUserIDs)
 	payload.AddedMemberIDs, err = publicIDsForUsers(ctx, tx, addedUserIDs)
 	if err != nil {
 		return payload, false, err
@@ -790,29 +838,6 @@ func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, pr
 	payload.RemovedMemberIDs, err = publicIDsForUsers(ctx, tx, removedUserIDs)
 	if err != nil {
 		return payload, false, err
-	}
-	for _, m := range existingUserMap {
-		if !requestedUserSet[m.MemberID] {
-			if err := db.DeleteProjectMember(ctx, tx, m.ID); err != nil {
-				return payload, false, fmt.Errorf("delete project user member %d: %w", m.MemberID, err)
-			}
-		}
-	}
-	for _, uin := range userUins {
-		if uin == callerUin {
-			continue
-		}
-		if _, ok := existingUserMap[uin]; !ok {
-			if err := db.CreateProjectMember(ctx, tx, &types.ProjectMember{
-				ProjectID:  projectID,
-				MemberID:   uin,
-				MemberType: types.MemberTypeUser,
-				MemberRole: types.MemberRoleMember,
-				JoinedAt:   now,
-			}); err != nil {
-				return payload, false, fmt.Errorf("create project user member %d: %w", uin, err)
-			}
-		}
 	}
 
 	changed := len(payload.AddedMemberIDs) > 0 ||
@@ -822,19 +847,200 @@ func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, pr
 	return payload, changed, nil
 }
 
-// verifyProjectAccess 校验调用方是否有权限访问项目（owner 或成员）。
-func (s *projectService) verifyProjectAccess(ctx context.Context, dbConn *gorm.DB, project *types.Project, caller *types.Caller) error {
-	if project.OwnerID == caller.Uin {
-		return nil
-	}
-	isMember, err := db.IsProjectUserMember(ctx, dbConn, caller.OrgID, caller.Uin, project.ID)
+// syncProjectAssistantMembers 在 UpdateProject 时 diff 项目上的 AI 队友成员与 resource binding：
+// 新增创建、缺失删除；写入前逐人校验 project:member.* 权限。默认 AI 队友不参与 diff。
+func (s *projectService) syncProjectAssistantMembers(ctx context.Context, tx *gorm.DB, projectID, orgID uint, caller *types.Caller, assistantIDs []uint, defaultAssistantID uint) (addedAssistantIDs, removedAssistantIDs []uint, err error) {
+	resource, err := db.GetResourceByBizID(ctx, tx, orgID, types.ResourceTypeProject, projectID)
 	if err != nil {
-		return err
+		return nil, nil, fmt.Errorf("get project resource: %w", err)
 	}
-	if !isMember {
-		return errors.New("permission denied")
+	if resource == nil {
+		return nil, nil, fmt.Errorf("project resource not found for project %d", projectID)
 	}
-	return nil
+
+	requestedAssistantSet := make(map[uint]bool, len(assistantIDs))
+	for _, id := range assistantIDs {
+		requestedAssistantSet[id] = true
+	}
+
+	bindings, err := db.ListResourceBindingsByResourceID(ctx, tx, resource.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list resource bindings: %w", err)
+	}
+	existingAssistantBindings := make(map[uint]*types.ResourceBinding)
+	for _, b := range bindings {
+		if b.AssistantID == nil || *b.AssistantID == 0 || *b.AssistantID == defaultAssistantID {
+			continue
+		}
+		existingAssistantBindings[*b.AssistantID] = b
+	}
+
+	for id := range existingAssistantBindings {
+		if !requestedAssistantSet[id] {
+			targetID := id
+			if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberDelete, &MemberInput{
+				TargetAssistantID: &targetID,
+			}); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	for _, id := range assistantIDs {
+		if _, ok := existingAssistantBindings[id]; !ok {
+			targetID := id
+			if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberCreate, &MemberInput{
+				TargetAssistantID: &targetID,
+				RequestedRole:     types.ResourceRoleMember,
+			}); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
+	oldAssistantIDs := make([]uint, 0, len(existingAssistantBindings))
+	for id := range existingAssistantBindings {
+		oldAssistantIDs = append(oldAssistantIDs, id)
+	}
+	addedAssistantIDs, removedAssistantIDs = diffUintSlices(oldAssistantIDs, assistantIDs)
+
+	for id, b := range existingAssistantBindings {
+		if !requestedAssistantSet[id] {
+			if err := db.DeleteResourceBinding(ctx, tx, b.ID); err != nil {
+				return nil, nil, fmt.Errorf("delete resource binding for assistant %d: %w", id, err)
+			}
+		}
+	}
+	for _, id := range assistantIDs {
+		if _, ok := existingAssistantBindings[id]; !ok {
+			boundID := id
+			if err := db.CreateResourceBinding(ctx, tx, &types.ResourceBinding{
+				OrgID:       orgID,
+				AssistantID: &boundID,
+				ResourceID:  resource.ID,
+				Role:        types.ResourceRoleMember,
+			}); err != nil {
+				return nil, nil, fmt.Errorf("create resource binding for assistant %d: %w", id, err)
+			}
+		}
+	}
+
+	return addedAssistantIDs, removedAssistantIDs, nil
+}
+
+// syncProjectUserMembers 在 UpdateProject 时 diff 项目资源上的用户绑定与传入用户成员：
+// 新增创建、缺失删除、角色变化更新；写入前逐人校验 project:member.* 权限。
+func (s *projectService) syncProjectUserMembers(ctx context.Context, tx *gorm.DB, projectID, orgID uint, caller *types.Caller, userMembers []userMemberInput) (addedUserIDs []uint, removedUserIDs []uint, err error) {
+	resource, err := db.GetResourceByBizID(ctx, tx, orgID, types.ResourceTypeProject, projectID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get project resource: %w", err)
+	}
+	if resource == nil {
+		return nil, nil, fmt.Errorf("project resource not found for project %d", projectID)
+	}
+
+	bindings, err := db.ListResourceBindingsByResourceID(ctx, tx, resource.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list resource bindings: %w", err)
+	}
+	existingUserBindings := make(map[uint]*types.ResourceBinding)
+	for _, b := range bindings {
+		if b.Uin == nil || *b.Uin == 0 {
+			continue
+		}
+		existingUserBindings[*b.Uin] = b
+	}
+
+	publicIDs := make([]string, 0, len(userMembers))
+	for _, m := range userMembers {
+		publicIDs = append(publicIDs, m.PublicID)
+	}
+	uinMap, err := db.GetPublicIDUinMapByPublicIDs(ctx, tx, orgID, publicIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get user uins: %w", err)
+	}
+	requestedRoles := make(map[uint]types.ResourceRole, len(userMembers))
+	for _, m := range userMembers {
+		uin, ok := uinMap[m.PublicID]
+		if !ok || uin == 0 || uin == caller.Uin {
+			continue
+		}
+		requestedRoles[uin] = m.Role
+	}
+	for uin, b := range existingUserBindings {
+		if b.Role == types.ResourceRoleOwner {
+			if _, ok := requestedRoles[uin]; !ok {
+				requestedRoles[uin] = types.ResourceRoleOwner
+			}
+		}
+	}
+
+	for uin := range existingUserBindings {
+		if _, ok := requestedRoles[uin]; !ok {
+			if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberDelete, &MemberInput{
+				TargetUin: uin,
+			}); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	for uin, role := range requestedRoles {
+		if b, ok := existingUserBindings[uin]; ok {
+			if b.Role != role {
+				if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberUpdate, &MemberInput{
+					TargetUin:     uin,
+					RequestedRole: role,
+				}); err != nil {
+					return nil, nil, err
+				}
+			}
+			continue
+		}
+		if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberCreate, &MemberInput{
+			TargetUin:     uin,
+			RequestedRole: role,
+		}); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	oldUserIDs := make([]uint, 0, len(existingUserBindings))
+	for uin := range existingUserBindings {
+		oldUserIDs = append(oldUserIDs, uin)
+	}
+	requestedUserIDs := make([]uint, 0, len(requestedRoles))
+	for uin := range requestedRoles {
+		requestedUserIDs = append(requestedUserIDs, uin)
+	}
+	addedUserIDs, removedUserIDs = diffUintSlices(oldUserIDs, requestedUserIDs)
+
+	for uin, b := range existingUserBindings {
+		if _, ok := requestedRoles[uin]; !ok {
+			if err := db.DeleteResourceBinding(ctx, tx, b.ID); err != nil {
+				return nil, nil, fmt.Errorf("delete resource binding for user %d: %w", uin, err)
+			}
+		}
+	}
+	for uin, role := range requestedRoles {
+		if b, ok := existingUserBindings[uin]; ok {
+			if b.Role != role {
+				if err := db.UpdateResourceBindingRole(ctx, tx, b.ID, role); err != nil {
+					return nil, nil, fmt.Errorf("update resource binding role for user %d: %w", uin, err)
+				}
+			}
+			continue
+		}
+		boundUin := uin
+		if err := db.CreateResourceBinding(ctx, tx, &types.ResourceBinding{
+			OrgID:      orgID,
+			Uin:        &boundUin,
+			ResourceID: resource.ID,
+			Role:       role,
+		}); err != nil {
+			return nil, nil, fmt.Errorf("create resource binding for user %d: %w", uin, err)
+		}
+	}
+
+	return addedUserIDs, removedUserIDs, nil
 }
 
 func (s *projectService) createProjectActivity(
@@ -1336,9 +1542,6 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
-		return nil, err
-	}
 
 	result := &contract.ProjectDetail{
 		Project: *convertToContractProject(project),
@@ -1377,7 +1580,17 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		sessionMap[sess.ID] = sess
 	}
 
+	canViewAllTasks, err := s.perm.AllowsTaskViewViaProject(ctx, FromTypeCaller(caller), project)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, t := range tasks {
+		if !canViewAllTasks {
+			if err := s.perm.RequireTask(ctx, FromTypeCaller(caller), t, types.ActionTaskView); err != nil {
+				continue
+			}
+		}
 		item := contract.ProjectTaskItem{
 			Task: *convertToContractTask(t, project.PublicID, project.Name),
 		}
@@ -1389,19 +1602,31 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		result.Tasks = append(result.Tasks, item)
 	}
 
-	// 查询项目成员
-	members, err := db.ListProjectMembers(ctx, s.db, project.ID)
+	// 查询项目成员：统一从 leros_resource_binding 读取用户与 AI 队友。
+	resource, err := db.GetResourceByBizID(ctx, s.db, caller.OrgID, types.ResourceTypeProject, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	if resource == nil {
+		return result, nil
+	}
+
+	bindings, err := db.ListResourceBindingsByResourceID(ctx, s.db, resource.ID)
 	if err != nil {
 		return nil, err
 	}
 
+	defaultAssistantID, _ := db.GetDefaultAssistantIDByOrg(ctx, s.db, caller.OrgID)
+
 	userIDs := make([]uint, 0)
 	assistantIDs := make([]uint, 0)
-	for _, m := range members {
-		if m.MemberType == types.MemberTypeUser {
-			userIDs = append(userIDs, m.MemberID)
-		} else if m.MemberType == types.MemberTypeAssistant {
-			assistantIDs = append(assistantIDs, m.MemberID)
+	for _, b := range bindings {
+		if b.Uin != nil && *b.Uin != 0 {
+			userIDs = append(userIDs, *b.Uin)
+			continue
+		}
+		if b.AssistantID != nil && *b.AssistantID != 0 {
+			assistantIDs = append(assistantIDs, *b.AssistantID)
 		}
 	}
 
@@ -1417,28 +1642,41 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		assistantMap[a.ID] = a
 	}
 
-	for _, m := range members {
-		item := contract.ProjectMemberItem{
-			MemberID:   m.MemberID,
-			MemberType: string(m.MemberType),
-			MemberRole: string(m.MemberRole),
-			IsDefault:  m.IsDefault,
-			JoinedAt:   m.JoinedAt,
-		}
-		if m.MemberType == types.MemberTypeUser {
-			if u, ok := userMap[m.MemberID]; ok {
-				// 中文注释：项目成员弹窗依赖 public_id 判断候选项是否已加入项目。
-				item.PublicID = u.PublicID
-				item.Name = u.Name
-				item.AvatarURL = u.AvatarURL
+	for _, b := range bindings {
+		if b.AssistantID != nil && *b.AssistantID != 0 {
+			assistantID := *b.AssistantID
+			item := contract.ProjectMemberItem{
+				MemberID:   assistantID,
+				MemberType: string(types.MemberTypeAssistant),
+				MemberRole: string(b.Role),
+				IsDefault:  defaultAssistantID > 0 && assistantID == defaultAssistantID,
+				JoinedAt:   b.CreatedAt,
 			}
-		} else if m.MemberType == types.MemberTypeAssistant {
-			if a, ok := assistantMap[m.MemberID]; ok {
+			if a, ok := assistantMap[assistantID]; ok {
 				// 中文注释：AI 队友同样返回 public_id，避免前端只能用内部 ID 匹配导致漏过滤。
 				item.PublicID = a.PublicID
 				item.Name = a.Name
 				item.AvatarURL = a.Avatar
 			}
+			result.Members = append(result.Members, item)
+			continue
+		}
+		if b.Uin == nil || *b.Uin == 0 {
+			continue
+		}
+		uin := *b.Uin
+		item := contract.ProjectMemberItem{
+			MemberID:   uin,
+			MemberType: string(types.MemberTypeUser),
+			MemberRole: string(b.Role),
+			IsDefault:  false,
+			JoinedAt:   b.CreatedAt,
+		}
+		if u, ok := userMap[uin]; ok {
+			// 中文注释：项目成员弹窗依赖 public_id 判断候选项是否已加入项目。
+			item.PublicID = u.PublicID
+			item.Name = u.Name
+			item.AvatarURL = u.AvatarURL
 		}
 		result.Members = append(result.Members, item)
 	}
@@ -1463,9 +1701,6 @@ func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) 
 	}
 	if project == nil {
 		return nil, errors.New("project not found")
-	}
-	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
-		return nil, err
 	}
 
 	// 3. 拼 repo 路径: {workspaceRoot}/projects/{orgID}/{publicID}/repo/
@@ -1518,9 +1753,6 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
-		return nil, err
-	}
 
 	var files []types.ProjectFile
 	if taskPublicID != "" {
@@ -1545,7 +1777,9 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 		}
 	}
 
-	return buildFileTreeFromProjectFiles(ctx, s.db, files), nil
+	authorized := s.perm.FilterProjectFilesByAction(ctx, FromTypeCaller(caller), files, projectFileViewAction)
+
+	return buildFileTreeFromProjectFiles(ctx, s.db, authorized), nil
 }
 
 // DownloadProjectFile 通过 project_file 表和 filestore 下载/预览项目文件。
@@ -1567,9 +1801,6 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	}
 	if project == nil {
 		return nil, "", 0, errors.New("project not found")
-	}
-	if err := s.verifyProjectAccess(ctx, s.db, project, caller); err != nil {
-		return nil, "", 0, err
 	}
 
 	if !isPathAllowed(filePath) {
@@ -1595,6 +1826,9 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	}
 	if target == nil {
 		return nil, "", 0, fmt.Errorf("file %q not found in project files", fileName)
+	}
+	if err := s.perm.RequireProjectFile(ctx, FromTypeCaller(caller), target, projectFileDownloadAction(target)); err != nil {
+		return nil, "", 0, err
 	}
 
 	fileUpload, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, target.FilePublicID)

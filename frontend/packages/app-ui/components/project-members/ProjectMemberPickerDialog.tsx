@@ -7,6 +7,7 @@ import {
 	projectMemberApi,
 	useDAStore,
 } from "@leros/store";
+import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Command,
@@ -24,14 +25,26 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import { cn } from "@leros/ui/lib/utils";
 import { Bot, Check, LoaderCircle, UserRound, X } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, type SyntheticEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
 
+/** 项目成员 chip 列表容器：两列换行排列 */
+export const projectMemberListClassName = "flex flex-wrap items-start gap-2";
+
+/** 单个成员 chip 宽度：与添加成员弹窗「已选择」区域一致 */
+export const projectMemberChipClassName = "w-[calc(50%-4px)]";
+
 type MemberTab = "assistant" | "human";
+
+type MemberListItem = ProjectMember & {
+	disabled?: boolean;
+	disabledReason?: string;
+};
 
 type ProjectMemberPickerDialogProps = {
 	open: boolean;
@@ -84,6 +97,17 @@ function memberKey(member: Pick<ProjectMember, "type" | "memberId" | "publicId">
 function memberMatchesQuery(member: ProjectMember, query: string) {
 	if (!query) return true;
 	return [member.name, member.description, member.role].join(" ").toLowerCase().includes(query);
+}
+
+function projectMemberSortRank(member: ProjectMember): number {
+	if (member.role === "owner") return 0;
+	if (member.role === "admin") return 1;
+	if (member.type === "user") return 2;
+	return 3;
+}
+
+export function sortProjectMembers(members: ProjectMember[]): ProjectMember[] {
+	return [...members].sort((a, b) => projectMemberSortRank(a) - projectMemberSortRank(b));
 }
 
 function isSameProjectMember(
@@ -145,6 +169,8 @@ export function ProjectMemberPickerDialog({
 	const [humanOptions, setHumanOptions] = useState<ProjectMember[]>([]);
 	const [humansLoading, setHumansLoading] = useState(false);
 	const [humansError, setHumansError] = useState<string | null>(null);
+	// 中文注释：真人成员的角色在左侧待选列表内选择，按候选项 key 暂存草稿，加入时带入。
+	const [humanRoleDrafts, setHumanRoleDrafts] = useState<Record<string, string>>({});
 	const wasOpenRef = useRef(false);
 
 	useEffect(() => {
@@ -157,6 +183,7 @@ export function ProjectMemberPickerDialog({
 		setActiveTab("assistant");
 		setAssistantSearch("");
 		setHumanSearch("");
+		setHumanRoleDrafts({});
 		if (!assistantsLoaded) {
 			void fetchAssistants();
 		}
@@ -206,9 +233,11 @@ export function ProjectMemberPickerDialog({
 	);
 	const visibleDraftMembers = useMemo(
 		() =>
-			draftMembers.filter(
-				// 中文注释：默认 AI 员工是系统兜底成员，不在添加成员弹窗的已选择列表里展示。
-				(member) => !(member.type === "assistant" && member.isDefault),
+			sortProjectMembers(
+				draftMembers.filter(
+					// 中文注释：默认 AI 员工是系统兜底成员，不在添加成员弹窗的已选择列表里展示。
+					(member) => !(member.type === "assistant" && member.isDefault),
+				),
 			),
 		[draftMembers],
 	);
@@ -221,18 +250,23 @@ export function ProjectMemberPickerDialog({
 				memberMatchesQuery(member, query),
 		);
 	}, [assistantOptions, assistantSearch, draftMembers, selectedKeys]);
-	const filteredHumans = useMemo(() => {
+	const filteredHumans = useMemo((): MemberListItem[] => {
 		const query = humanSearch.trim().toLowerCase();
-		return humanOptions.filter(
-			(member) =>
-				member.publicId !== user?.publicId &&
-				!selectedKeys.has(memberKey(member)) &&
-				!isAlreadySelectedMember(draftMembers, member) &&
-				memberMatchesQuery(member, query),
-		);
+		return humanOptions
+			.filter((member) => member.publicId !== user?.publicId && memberMatchesQuery(member, query))
+			.map((member) => {
+				const alreadySelected =
+					selectedKeys.has(memberKey(member)) || isAlreadySelectedMember(draftMembers, member);
+				return {
+					...member,
+					disabled: alreadySelected,
+					disabledReason: alreadySelected ? "已加入" : undefined,
+				};
+			});
 	}, [draftMembers, humanOptions, humanSearch, selectedKeys, user?.publicId]);
 
-	const addMember = (member: ProjectMember) => {
+	const addMember = (member: ProjectMember, roleOverride?: string) => {
+		const nextMember = roleOverride ? { ...member, role: roleOverride } : member;
 		setDraftMembers((current) => {
 			if (
 				current.some(
@@ -242,7 +276,7 @@ export function ProjectMemberPickerDialog({
 			) {
 				return current;
 			}
-			return [...current, member];
+			return [...current, nextMember];
 		});
 	};
 
@@ -251,10 +285,14 @@ export function ProjectMemberPickerDialog({
 		setDraftMembers((current) => current.filter((item) => memberKey(item) !== memberKey(member)));
 	};
 
+	const setHumanRoleDraft = (key: string, role: string) => {
+		setHumanRoleDrafts((current) => ({ ...current, [key]: role }));
+	};
+
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
-				className="flex max-h-[calc(100vh-48px)] flex-col overflow-hidden sm:max-w-[720px]"
+				className="flex max-h-[calc(100vh-48px)] flex-col overflow-hidden sm:max-w-[820px]"
 				showCloseButton={false}
 			>
 				<DialogHeader className="shrink-0">
@@ -273,7 +311,7 @@ export function ProjectMemberPickerDialog({
 					<DialogDescription>选择 AI 队友或真人成员加入项目。</DialogDescription>
 				</DialogHeader>
 
-				<div className="mt-4 grid h-[420px] max-h-[calc(100vh-220px)] min-h-0 gap-4 overflow-hidden sm:grid-cols-[minmax(0,1fr)_220px]">
+				<div className="mt-4 grid h-[420px] max-h-[calc(100vh-220px)] min-h-0 gap-4 overflow-hidden sm:grid-cols-[minmax(0,1fr)_340px]">
 					<div className="flex min-h-0 flex-col">
 						<div className="grid h-9 shrink-0 grid-cols-2 rounded-lg bg-[var(--leros-surface-soft)] p-1">
 							<MemberTabButton
@@ -301,12 +339,18 @@ export function ProjectMemberPickerDialog({
 								<MemberCommandList
 									search={humanSearch}
 									onSearchChange={setHumanSearch}
-									placeholder="搜索真人成员"
+									placeholder="搜索姓名或手机号"
 									emptyText="没有可添加的真人成员"
 									members={filteredHumans}
-									onSelect={addMember}
+									onSelect={(member) => {
+										if (member.disabled) return;
+										addMember(member, humanRoleDrafts[memberKey(member)] || "member");
+									}}
 									loading={humansLoading}
 									error={humansError}
+									showRole
+									roleDrafts={humanRoleDrafts}
+									onRoleDraftChange={setHumanRoleDraft}
 								/>
 							)}
 						</div>
@@ -321,15 +365,18 @@ export function ProjectMemberPickerDialog({
 								暂未选择成员
 							</div>
 						) : (
-							<div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 no-scrollbar">
-								{visibleDraftMembers.map((member) => (
-									<ProjectMemberChip
-										key={memberKey(member)}
-										member={member}
-										readonly={isProtectedMember(member)}
-										onRemove={() => removeMember(member)}
-									/>
-								))}
+							<div className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">
+								<div className={projectMemberListClassName}>
+									{visibleDraftMembers.map((member) => (
+										<ProjectMemberChip
+											key={memberKey(member)}
+											member={member}
+											readonly={isProtectedMember(member)}
+											onRemove={() => removeMember(member)}
+											className={projectMemberChipClassName}
+										/>
+									))}
+								</div>
 							</div>
 						)}
 					</div>
@@ -380,6 +427,69 @@ function MemberTabButton({
 	);
 }
 
+const PROJECT_ROLE_OPTIONS: { value: string; label: string }[] = [
+	{ value: "member", label: "成员" },
+	{ value: "admin", label: "管理员" },
+];
+
+function projectRoleOptionLabel(role: string | undefined): string {
+	return PROJECT_ROLE_OPTIONS.find((option) => option.value === role)?.label ?? "成员";
+}
+
+function MemberRoleSelect({
+	memberName,
+	role,
+	onRoleChange,
+	disabled = false,
+}: {
+	memberName: string;
+	role: string;
+	onRoleChange: (role: string) => void;
+	disabled?: boolean;
+}) {
+	const stopRowSelect = (event: SyntheticEvent) => {
+		event.stopPropagation();
+	};
+
+	return (
+		<Select
+			value={role}
+			disabled={disabled}
+			onValueChange={(value) => {
+				// 中文注释：Base UI Select 的 value 可能为 null，这里统一回落为 member。
+				onRoleChange(value ?? "member");
+			}}
+		>
+			<SelectTrigger
+				size="sm"
+				aria-label={`设置 ${memberName} 的项目角色`}
+				onClick={stopRowSelect}
+				onPointerDown={stopRowSelect}
+				className="h-8 min-w-[88px] shrink-0 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-2.5 text-sm font-medium text-[var(--leros-text)] shadow-none transition-colors hover:border-[var(--leros-control-border)] focus-visible:border-[var(--leros-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--leros-primary)]/12"
+			>
+				<span className="min-w-0 truncate text-left">{projectRoleOptionLabel(role)}</span>
+			</SelectTrigger>
+			<SelectContent
+				align="end"
+				side="bottom"
+				sideOffset={4}
+				alignItemWithTrigger={false}
+				className="min-w-[88px] rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-1 shadow-md"
+			>
+				{PROJECT_ROLE_OPTIONS.map((option) => (
+					<SelectItem
+						key={option.value}
+						value={option.value}
+						className="rounded-md px-2.5 py-1.5 text-sm font-medium text-[var(--leros-text)]"
+					>
+						{option.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
+
 function MemberCommandList({
 	search,
 	onSearchChange,
@@ -389,15 +499,21 @@ function MemberCommandList({
 	onSelect,
 	loading,
 	error,
+	showRole = false,
+	roleDrafts,
+	onRoleDraftChange,
 }: {
 	search: string;
 	onSearchChange: (value: string) => void;
 	placeholder: string;
 	emptyText: string;
-	members: ProjectMember[];
-	onSelect: (member: ProjectMember) => void;
+	members: MemberListItem[];
+	onSelect: (member: MemberListItem) => void;
 	loading?: boolean;
 	error?: string | null;
+	showRole?: boolean;
+	roleDrafts?: Record<string, string>;
+	onRoleDraftChange?: (key: string, role: string) => void;
 }) {
 	return (
 		<Command
@@ -417,25 +533,53 @@ function MemberCommandList({
 					{!loading && error && <div className="px-3 py-2 text-xs text-red-400">{error}</div>}
 					{!loading &&
 						!error &&
-						members.map((member) => (
-							<CommandItem
-								key={memberKey(member)}
-								value={memberKey(member)}
-								onSelect={() => onSelect(member)}
-								className="rounded-lg px-2.5 py-2 data-selected:bg-[var(--leros-surface-soft)]"
-							>
-								<MemberAvatar member={member} />
-								<div className="min-w-0 flex-1">
-									<div className="truncate font-medium text-slate-700">
-										{renderHighlightedText(member.name, search)}
+						members.map((member) => {
+							const key = memberKey(member);
+							return (
+								<CommandItem
+									key={key}
+									value={key}
+									disabled={member.disabled}
+									onSelect={() => {
+										if (member.disabled) return;
+										onSelect(member);
+									}}
+									className={cn(
+										"items-center gap-3 rounded-lg px-2.5 py-2 data-selected:bg-[var(--leros-surface-soft)]",
+										member.disabled && "cursor-not-allowed opacity-50",
+									)}
+								>
+									<MemberAvatar member={member} />
+									<div className="min-w-0 flex-1">
+										<div className="truncate font-medium text-slate-700">
+											{renderHighlightedText(member.name, search)}
+										</div>
+										<div className="truncate text-xs text-slate-400">
+											{renderHighlightedText(member.description ?? "", search)}
+										</div>
 									</div>
-									<div className="truncate text-xs text-slate-400">
-										{renderHighlightedText(member.description ?? "", search)}
-									</div>
-								</div>
-								<Check className="size-4 opacity-0" />
-							</CommandItem>
-						))}
+									{member.disabledReason && (
+										<Badge
+											variant="outline"
+											className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-normal text-slate-400"
+										>
+											{member.disabledReason}
+										</Badge>
+									)}
+									{showRole && (
+										<div className="ml-3 shrink-0">
+											<MemberRoleSelect
+												memberName={member.name}
+												role={roleDrafts?.[key] || "member"}
+												disabled={member.disabled}
+												onRoleChange={(nextRole) => onRoleDraftChange?.(key, nextRole)}
+											/>
+										</div>
+									)}
+									<Check className="size-4 opacity-0" />
+								</CommandItem>
+							);
+						})}
 				</CommandGroup>
 			</CommandList>
 		</Command>
@@ -444,6 +588,36 @@ function MemberCommandList({
 
 function isProtectedMember(member: ProjectMember) {
 	return member.role === "owner" || member.isDefault === true;
+}
+
+function formatProjectMemberRoleLabel(role: string | undefined): string | null {
+	switch (role) {
+		case "owner":
+			return "所有者";
+		case "admin":
+			return "管理员";
+		case "member":
+		case "":
+		case undefined:
+			return "成员";
+		default:
+			return null;
+	}
+}
+
+function formatProjectMemberSubtitle(member: ProjectMember): string {
+	if (member.type === "user") {
+		const description = member.description?.trim();
+		if (description) return description;
+		return "";
+	}
+	if (member.isDefault) {
+		return "默认 AI 队友";
+	}
+	if (member.type === "assistant") {
+		return "AI 队友";
+	}
+	return "成员";
 }
 
 export function ProjectMemberChip({
@@ -457,36 +631,47 @@ export function ProjectMemberChip({
 	readonly?: boolean;
 	className?: string;
 }) {
+	const userRoleLabel = member.type === "user" ? formatProjectMemberRoleLabel(member.role) : null;
+	const subtitle = formatProjectMemberSubtitle(member);
+
 	return (
 		<div
 			className={cn(
-				"group inline-flex min-w-0 items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2",
+				"group flex min-h-[52px] min-w-0 items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2",
 				className,
 			)}
 		>
 			<MemberAvatar member={member} />
 			<div className="min-w-0 flex-1">
-				<div className="truncate text-xs font-medium text-[var(--leros-text)]">{member.name}</div>
-				<div className="text-[10px] text-[var(--leros-text-subtle)]">
-					{member.role === "owner"
-						? "创建者"
-						: member.isDefault
-							? "默认 AI 队友"
-							: member.type === "assistant"
-								? "AI 队友"
-								: "真人成员"}
+				<div className="flex min-w-0 items-center gap-1.5">
+					<div className="truncate text-xs font-medium text-[var(--leros-text)]">{member.name}</div>
+					{userRoleLabel && (
+						<Badge
+							variant="outline"
+							className="h-4 shrink-0 px-1.5 py-0 text-[10px] font-normal text-[var(--leros-text-subtle)]"
+						>
+							{userRoleLabel}
+						</Badge>
+					)}
 				</div>
+				{subtitle ? (
+					<div className="truncate text-[10px] leading-4 text-[var(--leros-text-subtle)]">
+						{subtitle}
+					</div>
+				) : null}
 			</div>
-			{!readonly && onRemove && (
-				<button
-					type="button"
-					className="rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100"
-					aria-label={`移除成员 ${member.name}`}
-					onClick={onRemove}
-				>
-					<X className="size-3" />
-				</button>
-			)}
+			<div className="flex size-4 shrink-0 items-center justify-center">
+				{!readonly && onRemove && (
+					<button
+						type="button"
+						className="rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100"
+						aria-label={`移除成员 ${member.name}`}
+						onClick={onRemove}
+					>
+						<X className="size-3" />
+					</button>
+				)}
+			</div>
 		</div>
 	);
 }
