@@ -26,7 +26,6 @@ import {
 	DropdownMenuTrigger,
 } from "@leros/ui/components/ui/dropdown-menu";
 import { Input } from "@leros/ui/components/ui/input";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	ArrowLeftRight,
@@ -76,7 +75,6 @@ import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
 const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
 const LEFT_RAIL_COLLAPSED_WIDTH = 72;
-const RECENT_PROJECT_LIMIT = 5;
 // 中文注释：设计稿要求项目展开后先预览 10 条任务，点“展开显示”后再展示全部任务。
 const PROJECT_TASK_PREVIEW_LIMIT = 10;
 
@@ -160,6 +158,7 @@ export function LeftRail({
 		() => new Set(),
 	);
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
+	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
 
 	/* ── Desktop update notifier ── */
 	const [promptOpen, setPromptOpen] = useState(false);
@@ -328,6 +327,15 @@ export function LeftRail({
 		window.localStorage.setItem(LEFT_RAIL_COLLAPSED_STORAGE_KEY, String(leftRailCollapsed));
 	}, [leftRailCollapsed]);
 
+	// 中文注释：项目展开态属于当前登录会话的浏览上下文，登出后应重置，避免重新登录后仍显示空的展开列表。
+	useEffect(() => {
+		if (isAuthenticated) return;
+		setExpandedProjectIds(new Set());
+		setExpandedTaskProjectIds(new Set());
+		setTaskLoadedProjectIds(new Set());
+		setLoadingTaskProjectIds(new Set());
+	}, [isAuthenticated]);
+
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
 		const navigate = () => {
@@ -373,9 +381,14 @@ export function LeftRail({
 			});
 
 			if (shouldLoadTasks) {
+				setLoadingTaskProjectIds((current) => new Set(current).add(project.id));
 				void fetchTasks(project.id).finally(() => {
-					// 中文注释：避免无任务项目在每次展开时重复请求详情接口。
 					setTaskLoadedProjectIds((current) => new Set(current).add(project.id));
+					setLoadingTaskProjectIds((current) => {
+						const next = new Set(current);
+						next.delete(project.id);
+						return next;
+					});
 				});
 			}
 		});
@@ -561,62 +574,59 @@ export function LeftRail({
 				</div>
 			</div>
 
-			<ScrollArea hideScrollbar className="min-h-0 flex-1 overflow-hidden">
-				<nav className="leros-nav" aria-label="主导航">
-					{navGroups.map((group) => {
-						return (
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+				<nav className="leros-nav shrink-0" aria-label="主导航">
+					{navGroups
+						.filter((group) => group.id !== "projects")
+						.map((group) => (
 							<div key={group.id} className="leros-nav-section">
-								{group.id === "projects" ? (
-									<div
-										className={cn(
-											"leros-nav-section-label",
-											"normal-case leading-snug tracking-normal font-normal",
-										)}
-									>
-										<span className="text-sm">最近项目</span>
-										<span className="text-xs">（仅展示5个）</span>
-									</div>
-								) : group.label ? (
-									<div className="leros-nav-section-label">{group.label}</div>
-								) : null}
-								{group.id === "projects" ? (
-									<ProjectList
-										projects={projects}
-										activeProjectId={activeProjectId}
-										activeTaskDetailProjectId={activeTaskDetailProjectId}
-										activeTaskDetailTaskId={activeTaskDetailTaskId}
-										currentView={currentView}
-										currentPath={navigation?.currentPath}
-										expandedProjectIds={expandedProjectIds}
-										expandedTaskProjectIds={expandedTaskProjectIds}
-										onToggleProject={handleToggleProject}
-										onEnterProject={handleProjectClick}
-										onOpenTask={handleOpenTask}
-										onExpandTasks={handleExpandProjectTasks}
-										onRenameProject={handleOpenRename}
-										onDeleteProject={setDeleteTarget}
-										onRenameTask={handleOpenTaskRename}
-										onDeleteTask={setDeleteTaskTarget}
-										collapsed={leftRailCollapsed}
-									/>
-								) : (
-									<div className="space-y-1">
-										{group.items.map((item: NavItem) => (
-											<NavItemButton
-												key={item.id}
-												item={item}
-												active={isItemActive(item)}
-												collapsed={leftRailCollapsed}
-												onClick={() => handleNavClick(item)}
-											/>
-										))}
-									</div>
-								)}
+								{group.label ? <div className="leros-nav-section-label">{group.label}</div> : null}
+								<div className="space-y-1">
+									{group.items.map((item: NavItem) => (
+										<NavItemButton
+											key={item.id}
+											item={item}
+											active={isItemActive(item)}
+											collapsed={leftRailCollapsed}
+											onClick={() => handleNavClick(item)}
+										/>
+									))}
+								</div>
 							</div>
-						);
-					})}
+						))}
 				</nav>
-			</ScrollArea>
+
+				<section className="leros-nav leros-nav-section mb-0 flex min-h-0 flex-1 flex-col">
+					<div
+						className={cn(
+							"leros-nav-section-label shrink-0",
+							"normal-case leading-snug tracking-normal font-normal",
+						)}
+					>
+						<span className="text-sm">最近项目</span>
+					</div>
+					<ProjectList
+						projects={projects}
+						activeProjectId={activeProjectId}
+						activeTaskDetailProjectId={activeTaskDetailProjectId}
+						activeTaskDetailTaskId={activeTaskDetailTaskId}
+						currentView={currentView}
+						currentPath={navigation?.currentPath}
+						expandedProjectIds={expandedProjectIds}
+						expandedTaskProjectIds={expandedTaskProjectIds}
+						loadingTaskProjectIds={loadingTaskProjectIds}
+						onToggleProject={handleToggleProject}
+						onEnterProject={handleProjectClick}
+						onOpenTask={handleOpenTask}
+						onExpandTasks={handleExpandProjectTasks}
+						onRenameProject={handleOpenRename}
+						onDeleteProject={setDeleteTarget}
+						onRenameTask={handleOpenTaskRename}
+						onDeleteTask={setDeleteTaskTarget}
+						collapsed={leftRailCollapsed}
+					/>
+				</section>
+			</div>
 
 			<div className="leros-sidebar-footer shrink-0">
 				{!isHydrated ? (
@@ -1359,6 +1369,7 @@ function ProjectList({
 	currentPath,
 	expandedProjectIds,
 	expandedTaskProjectIds,
+	loadingTaskProjectIds,
 	onToggleProject,
 	onEnterProject,
 	onOpenTask,
@@ -1377,6 +1388,7 @@ function ProjectList({
 	currentPath?: string;
 	expandedProjectIds: Set<string>;
 	expandedTaskProjectIds: Set<string>;
+	loadingTaskProjectIds: Set<string>;
 	onToggleProject: (project: Project) => void;
 	onEnterProject: (projectId: string) => void;
 	onOpenTask: (projectId: string, task: ProjectTask) => void;
@@ -1387,20 +1399,16 @@ function ProjectList({
 	onDeleteTask: (task: ProjectTask) => void;
 	collapsed: boolean;
 }) {
-	const recentProjects = getRecentProjectsForLeftRail(
-		projects,
-		expandedProjectIds,
-		RECENT_PROJECT_LIMIT,
-	);
+	const recentProjects = getRecentProjectsForLeftRail(projects);
 
 	return (
 		<div
-			className={cn("space-y-1", !collapsed && "no-scrollbar overflow-y-auto pr-1")}
-			style={!collapsed ? { maxHeight: "max(180px, calc(100vh - 420px))" } : undefined}
+			className={cn("no-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto", !collapsed && "pr-1")}
 		>
 			{recentProjects.map((project) => {
 				const projectExpanded = expandedProjectIds.has(project.id);
 				const tasksExpanded = expandedTaskProjectIds.has(project.id);
+				const isLoadingTasks = loadingTaskProjectIds.has(project.id);
 				const visibleTasks = tasksExpanded
 					? project.tasks
 					: project.tasks.slice(0, PROJECT_TASK_PREVIEW_LIMIT);
@@ -1494,7 +1502,12 @@ function ProjectList({
 						</div>
 						{!collapsed && projectExpanded ? (
 							<div className="space-y-1">
-								{visibleTasks.length > 0 ? (
+								{isLoadingTasks ? (
+									<div className="flex items-center gap-2 px-8 py-2 text-sm text-[var(--leros-text-subtle)]">
+										<Loader2 className="size-3.5 animate-spin" />
+										<span>任务加载中...</span>
+									</div>
+								) : visibleTasks.length > 0 ? (
 									visibleTasks.map((task) => {
 										const taskActive = currentPath
 											? currentPath.startsWith(`/projects/${project.id}/tasks/${task.id}`)

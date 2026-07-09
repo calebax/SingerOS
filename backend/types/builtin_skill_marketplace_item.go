@@ -55,7 +55,7 @@ type BuiltinSkillMarketplaceItem struct {
 	Version string `gorm:"column:version;type:varchar(50);not null;uniqueIndex:idx_builtin_skill_id_version" json:"version"`
 
 	// Author 是 Skill 作者或发布方。
-	Author string `gorm:"column:author;type:varchar(255);not null;default:Leros" json:"author"`
+	Author string `gorm:"column:author;type:varchar(255);not null;default:Lework" json:"author"`
 
 	// Category 是 Skill 分类。
 	Category string `gorm:"column:category;type:varchar(100);not null;index" json:"category"`

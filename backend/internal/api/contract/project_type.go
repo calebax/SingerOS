@@ -142,6 +142,7 @@ type ProjectTaskItem struct {
 // ProjectMemberItem 项目详情中的成员项，包含用户基本信息
 type ProjectMemberItem struct {
 	MemberID   uint      `json:"member_id"`
+	PublicID   string    `json:"public_id,omitempty"`
 	MemberType string    `json:"member_type"`
 	MemberRole string    `json:"member_role"`
 	IsDefault  bool      `json:"is_default"`

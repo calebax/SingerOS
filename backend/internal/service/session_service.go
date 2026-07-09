@@ -1294,6 +1294,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 		Timestamp:   req.CreatedAt.UnixMilli(),
 		SenderName:  assistantName,
 		RunID:       req.RunID,
+		AssistantID: req.AssistantID,
 	}
 
 	if req.Chunks != nil && len(req.Chunks) > 0 {
@@ -1381,6 +1382,7 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 		Timestamp:   req.CreatedAt.UnixMilli(),
 		SenderName:  assistantName,
 		RunID:       req.RunID,
+		AssistantID: req.AssistantID,
 	}
 	if msgEntity.Content == "" {
 		msgEntity.Content = req.ErrorMsg

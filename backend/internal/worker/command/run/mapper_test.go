@@ -93,3 +93,68 @@ func TestInputMessagesFromTaskPreservesSenderName(t *testing.T) {
 		t.Fatalf("sender names not preserved: %+v", got)
 	}
 }
+
+func TestRequestFromWorkerTaskMapsProjectContext(t *testing.T) {
+	task := runTask{
+		ID:        "msg_proj_1",
+		CreatedAt: time.Now().UTC(),
+		Trace: messaging.TraceContext{
+			TraceID: "trace_proj",
+			TaskID:  "task_proj",
+		},
+		Route: messaging.RouteContext{
+			OrgID:     42,
+			SessionID: "sess_proj",
+		},
+		TaskType: messaging.TaskTypeAgentRun,
+		Execution: messaging.ExecutionTarget{
+			AssistantID: "assistant_10",
+		},
+		Workspace: messaging.WorkspaceOptions{
+			ProjectID: "prj_1",
+		},
+		Project: messaging.ProjectContext{
+			Name:        "投标协作项目",
+			Description: "自动化投标文件生成与审查",
+			Objective:   "提升投标效率",
+			Members: []messaging.MemberBrief{
+				{MemberID: 1, MemberType: "user", MemberRole: "owner", Name: "张三", IsCurrentUser: true},
+				{MemberID: 10, MemberType: "assistant", MemberRole: "member", Name: "投标策略师", IsCurrentExec: true},
+				{MemberID: 11, MemberType: "assistant", MemberRole: "member", Name: "合同审查专家", IsDefault: true},
+			},
+		},
+		Input: messaging.TaskInput{
+			Type: messaging.InputTypeMessage,
+			Messages: []messaging.ChatMessage{
+				{Role: messaging.MessageRoleUser, Content: "开始"},
+			},
+		},
+	}
+
+	req := RequestFromWorkerTask(task)
+
+	if req.Project.Name != "投标协作项目" {
+		t.Fatalf("project name = %q, want 投标协作项目", req.Project.Name)
+	}
+	if req.Project.Description != "自动化投标文件生成与审查" {
+		t.Fatalf("project description = %q, want", req.Project.Description)
+	}
+	if req.Project.Objective != "提升投标效率" {
+		t.Fatalf("project objective = %q, want 提升投标效率", req.Project.Objective)
+	}
+	if len(req.Project.Members) != 3 {
+		t.Fatalf("project members len = %d, want 3", len(req.Project.Members))
+	}
+	assistantMember := req.Project.Members[1]
+	if assistantMember.Name != "投标策略师" || !assistantMember.IsCurrentExec {
+		t.Fatalf("assistant member not mapped correctly: %+v", assistantMember)
+	}
+	defaultMember := req.Project.Members[2]
+	if defaultMember.Name != "合同审查专家" || !defaultMember.IsDefault {
+		t.Fatalf("default member not mapped correctly: %+v", defaultMember)
+	}
+	userMember := req.Project.Members[0]
+	if userMember.Name != "张三" || !userMember.IsCurrentUser {
+		t.Fatalf("current user not mapped correctly: %+v", userMember)
+	}
+}

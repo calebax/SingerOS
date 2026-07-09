@@ -150,13 +150,21 @@ export function GlobalTaskSearchDialog({
 		return () => window.clearTimeout(timer);
 	}, [open]);
 
+	const resolveTaskSessionId = (task: BackendTask): string | null => {
+		const sessionIdFromTask = task.session?.session_id?.trim();
+		if (sessionIdFromTask) return sessionIdFromTask;
+		const project = projects.find((item) => item.id === task.project_id);
+		return project?.tasks.find((item) => item.id === task.public_id)?.sessionId ?? null;
+	};
+
 	const handleOpenTask = (task: BackendTask) => {
+		const sessionId = resolveTaskSessionId(task);
 		onOpenChange(false);
 		if (navigation) {
-			navigation.goToTaskDetail(task.project_id, task.public_id, null);
+			navigation.goToTaskDetail(task.project_id, task.public_id, sessionId);
 			return;
 		}
-		openTaskDetail(task.project_id, task.public_id, null);
+		openTaskDetail(task.project_id, task.public_id, sessionId);
 	};
 
 	return (

@@ -22,6 +22,7 @@ import { cn } from "@leros/ui/lib/utils";
 import { ShieldCheck, Smartphone } from "lucide-react";
 import {
 	createContext,
+	type FocusEvent,
 	type FormEvent,
 	type MouseEvent,
 	type ReactNode,
@@ -226,7 +227,9 @@ function AuthDialog({
 	const shouldShowError = (field: string) => submitted || Boolean(touched[field]);
 	const showPhoneError = shouldShowError("phone") && !phoneValid;
 	const showCodeError = shouldShowError("code") && !codeValid;
-	const markTouched = (field: string) => {
+
+	const handleFieldBlur = (field: string) => (event: FocusEvent<HTMLInputElement>) => {
+		if (!shouldValidateFieldBlur(event)) return;
 		setTouched((current) => ({ ...current, [field]: true }));
 	};
 	const handleOpenPolicyPdf = async (
@@ -313,7 +316,7 @@ function AuthDialog({
 									inputMode="numeric"
 									value={phone}
 									onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))}
-									onBlur={() => markTouched("phone")}
+									onBlur={handleFieldBlur("phone")}
 									placeholder="请输入手机号"
 									className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
 								/>
@@ -326,7 +329,7 @@ function AuthDialog({
 									inputMode="numeric"
 									value={code}
 									onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 8))}
-									onBlur={() => markTouched("code")}
+									onBlur={handleFieldBlur("code")}
 									placeholder="请输入验证码"
 									className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
 								/>
@@ -393,6 +396,17 @@ function AuthDialog({
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function shouldValidateFieldBlur(event: FocusEvent<HTMLInputElement>): boolean {
+	const relatedTarget = event.relatedTarget;
+	if (!(relatedTarget instanceof HTMLElement)) return false;
+
+	const dialogContent = event.currentTarget.closest('[data-slot="dialog-content"]');
+	if (!dialogContent?.contains(relatedTarget)) return false;
+	if (relatedTarget.closest('[data-slot="dialog-close"]')) return false;
+
+	return true;
 }
 
 function FieldWithError({ children, error }: { children: ReactNode; error?: string }) {

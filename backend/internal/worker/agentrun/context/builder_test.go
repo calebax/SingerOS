@@ -87,3 +87,42 @@ func TestContextBuilderBuildSystemPromptLayers(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildProjectContextSection(t *testing.T) {
+	builder := NewContextBuilder(ContextBuilder{})
+	prompt, err := builder.BuildSystemPrompt(context.Background(), &agentrundomain.RunRequest{
+		Assistant: agentrundomain.AssistantContext{
+			Name: "投标策略师",
+		},
+		Project: agentrundomain.ProjectContext{
+			Name:        "投标协作项目",
+			Description: "自动化投标文件生成与审查",
+			Objective:   "提升投标效率",
+			Members: []agentrundomain.MemberBrief{
+				{MemberID: 1, MemberType: "user", MemberRole: "owner", Name: "张三", IsCurrentUser: true},
+				{MemberID: 10, MemberType: "assistant", MemberRole: "member", Name: "投标策略师", IsCurrentExec: true},
+				{MemberID: 11, MemberType: "assistant", MemberRole: "member", Name: "合同审查专家", IsDefault: true},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("build system prompt: %v", err)
+	}
+
+	for _, expected := range []string{
+		"## 协作成员",
+		"用户：张三（owner）",
+		"AI 队友：投标策略师（member）",
+		"AI 队友：合同审查专家（member）",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected prompt to contain %q", expected)
+		}
+	}
+
+	projectIdx := strings.Index(prompt, "## 协作成员")
+	workspaceIdx := strings.Index(prompt, "## 工作区信息")
+	if projectIdx >= 0 && workspaceIdx >= 0 && projectIdx > workspaceIdx {
+		t.Fatal("expected project section to appear before workspace section")
+	}
+}

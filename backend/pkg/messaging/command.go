@@ -88,6 +88,7 @@ type RunCommandPayload struct {
 	Actor     ActorContext     `json:"actor"`
 	Execution ExecutionTarget  `json:"execution"`
 	Workspace WorkspaceOptions `json:"workspace,omitempty"`
+	Project   ProjectContext   `json:"project,omitempty"`
 	Input     TaskInput        `json:"input"`
 
 	Model   ModelOptions   `json:"model,omitempty"`
@@ -307,6 +308,25 @@ type ExecutionTarget struct {
 type WorkspaceOptions struct {
 	ProjectID string `json:"project_id,omitempty"`
 	TaskID    string `json:"task_id,omitempty"`
+}
+
+// ProjectContext carries project business context to the worker.
+type ProjectContext struct {
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Objective   string         `json:"objective,omitempty"`
+	Members     []MemberBrief `json:"members,omitempty"`
+}
+
+// MemberBrief is a lightweight project member snapshot.
+type MemberBrief struct {
+	MemberID      uint   `json:"member_id"`
+	MemberType    string `json:"member_type"`                // user / assistant
+	MemberRole    string `json:"member_role"`                // owner / admin / member / viewer
+	Name          string `json:"name"`
+	IsDefault     bool   `json:"is_default,omitempty"`
+	IsCurrentExec bool   `json:"is_current_exec,omitempty"` // marks the assistant executing this run
+	IsCurrentUser bool   `json:"is_current_user,omitempty"` // marks the user who initiated this run
 }
 
 type TaskInput struct {

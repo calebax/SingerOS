@@ -10,7 +10,7 @@ WORKDIR /build
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
 ENV GOPROXY=https://goproxy.cn,direct
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     tzdata \
@@ -43,7 +43,7 @@ ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
     && sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
     curl \
@@ -52,9 +52,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     less \
     bubblewrap \
     libsqlite3-0 \
+    libreoffice \
     python3.12 \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+RUN soffice --version
 
 ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
     PIP_DEFAULT_TIMEOUT=120 \
