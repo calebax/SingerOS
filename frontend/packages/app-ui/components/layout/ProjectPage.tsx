@@ -505,7 +505,7 @@ export function ProjectPage({
 				{showProjectSidebar && rightSidebarCollapsed && (
 					<button
 						type="button"
-						className="absolute right-6 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						className="absolute right-8 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 						aria-label="展开右侧栏"
 						title="展开右侧栏"
 						onClick={() => setRightSidebarCollapsed(false)}
@@ -516,13 +516,22 @@ export function ProjectPage({
 
 				{showProjectSidebar && !rightSidebarCollapsed && (
 					<aside
-						className="relative flex min-h-0 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] transition-[width] duration-200 ease-out"
+						className="relative flex min-h-0 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6 transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
+						{/* 中文注释：收起按钮移到侧栏外部，和收起态展开按钮保持同一行高度。 */}
+						<button
+							type="button"
+							className="absolute -left-14 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							aria-label="收起右侧栏"
+							title="收起右侧栏"
+							onClick={() => setRightSidebarCollapsed(true)}
+						>
+							<ChevronsRight className="size-4" />
+						</button>
 						<ProjectConfigSidebar
 							project={project}
 							compact={!isWideRightSidebar}
-							onCollapse={() => setRightSidebarCollapsed(true)}
 							onUpdateProject={async (params) => {
 								const updated = await updateProject(params);
 								if (params.members && project.id) {
@@ -589,12 +598,10 @@ function ProjectChat({
 function ProjectConfigSidebar({
 	project,
 	compact,
-	onCollapse,
 	onUpdateProject,
 }: {
 	project: Project;
 	compact: boolean;
-	onCollapse: () => void;
 	onUpdateProject: (params: {
 		public_id: string;
 		name?: string;
@@ -821,21 +828,10 @@ function ProjectConfigSidebar({
 	};
 
 	return (
-		<div className="no-scrollbar min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-6 pr-4">
-			<div className="flex items-start justify-between gap-3">
-				<div>
-					<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目配置</p>
-					<p className="mt-1 text-xs text-[var(--leros-text-muted)]">管理项目描述和可用技能</p>
-				</div>
-				<button
-					type="button"
-					className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
-					aria-label="收起右侧栏"
-					title="收起右侧栏"
-					onClick={onCollapse}
-				>
-					<ChevronsRight className="size-4" />
-				</button>
+		<div className="no-scrollbar min-h-0 flex-1 space-y-7 overflow-y-auto pr-1">
+			<div>
+				<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目配置</p>
+				<p className="mt-1 text-xs text-[var(--leros-text-muted)]">管理项目描述和可用技能</p>
 			</div>
 
 			<section>
