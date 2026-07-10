@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { Message } from "../types/chat";
 import {
+	allLocalMessagesBelongToSession,
 	applySessionEventToMessage,
 	attachAssistantReplyTargets,
 	createAssistantSessionEventsWaitingMessage,
 	insertGlobalUserMessageId,
 	mapBackendMessage,
+	retainLocalMessagesForSession,
 } from "./chatSlice";
 
 function assistantMessage(content = ""): Message {
@@ -281,5 +283,156 @@ describe("insertGlobalUserMessageId", () => {
 		);
 
 		expect(result).toEqual(["user-1", "assistant-history", "user-2", "msg-assistant-run-1"]);
+	});
+});
+
+describe("retainLocalMessagesForSession", () => {
+	const baseState = {
+		messagesMap: {},
+		messageIds: [],
+		streamingMessageId: null,
+		isGenerating: false,
+		pendingBootstrapSessionId: null,
+		cancellingSessionId: null,
+		streamCancelRef: null,
+		inputText: "",
+		inputAttachments: [],
+		inputFocused: false,
+		selectedModel: "gpt-4",
+		executionMode: "default" as const,
+		modelOptions: [],
+		activeSessionId: "session-a",
+		tokenUsage: { total: 0, currentSession: 0 },
+	};
+
+	it("drops messages from other sessions and resets stale streaming state", () => {
+		const result = retainLocalMessagesForSession(
+			{
+				...baseState,
+				messageIds: ["user-a", "assistant-a", "assistant-b"],
+				messagesMap: {
+					"user-a": {
+						id: "user-a",
+						conversationId: "session-a",
+						role: "user",
+						content: "问题 A",
+						timestamp: 1,
+					},
+					"assistant-a": {
+						id: "assistant-a",
+						conversationId: "session-a",
+						role: "assistant",
+						content: "",
+						timestamp: 2,
+						status: "streaming",
+					},
+					"assistant-b": {
+						id: "assistant-b",
+						conversationId: "session-b",
+						role: "assistant",
+						content: "",
+						timestamp: 3,
+						status: "streaming",
+					},
+				},
+				streamingMessageId: "assistant-a",
+				isGenerating: true,
+				streamCancelRef: () => undefined,
+			},
+			"session-b",
+		);
+
+		expect(result.messageIds).toEqual(["assistant-b"]);
+		expect(result.streamingMessageId).toBe("assistant-b");
+		expect(result.isGenerating).toBe(true);
+	});
+
+	it("clears generating flags when the target session has no active stream", () => {
+		const result = retainLocalMessagesForSession(
+			{
+				...baseState,
+				messageIds: ["user-a", "assistant-a"],
+				messagesMap: {
+					"user-a": {
+						id: "user-a",
+						conversationId: "session-a",
+						role: "user",
+						content: "问题 A",
+						timestamp: 1,
+					},
+					"assistant-a": {
+						id: "assistant-a",
+						conversationId: "session-a",
+						role: "assistant",
+						content: "",
+						timestamp: 2,
+						status: "streaming",
+					},
+				},
+				streamingMessageId: "assistant-a",
+				isGenerating: true,
+			},
+			"session-b",
+		);
+
+		expect(result.messageIds).toEqual([]);
+		expect(result.streamingMessageId).toBeNull();
+		expect(result.isGenerating).toBe(false);
+	});
+});
+
+describe("allLocalMessagesBelongToSession", () => {
+	it("returns true when every local message belongs to the session", () => {
+		expect(
+			allLocalMessagesBelongToSession(
+				{
+					messageIds: ["user-1", "assistant-1"],
+					messagesMap: {
+						"user-1": {
+							id: "user-1",
+							conversationId: "session-1",
+							role: "user",
+							content: "hello",
+							timestamp: 1,
+						},
+						"assistant-1": {
+							id: "assistant-1",
+							conversationId: "session-1",
+							role: "assistant",
+							content: "",
+							timestamp: 2,
+						},
+					},
+				} as never,
+				"session-1",
+			),
+		).toBe(true);
+	});
+
+	it("returns false when messages from multiple sessions are mixed", () => {
+		expect(
+			allLocalMessagesBelongToSession(
+				{
+					messageIds: ["user-1", "assistant-2"],
+					messagesMap: {
+						"user-1": {
+							id: "user-1",
+							conversationId: "session-1",
+							role: "user",
+							content: "hello",
+							timestamp: 1,
+						},
+						"assistant-2": {
+							id: "assistant-2",
+							conversationId: "session-2",
+							role: "assistant",
+							content: "",
+							timestamp: 2,
+						},
+					},
+				} as never,
+				"session-1",
+			),
+		).toBe(false);
 	});
 });

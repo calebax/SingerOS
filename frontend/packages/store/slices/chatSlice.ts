@@ -1458,6 +1458,45 @@ function getSessionLocalMessages(state: ChatState, sessionId: string): Message[]
 		.filter((message): message is Message => message?.conversationId === sessionId);
 }
 
+function isActiveStreamingMessage(message: Message | undefined): boolean {
+	return message?.status === "waiting" || message?.status === "streaming";
+}
+
+/** 切换 session 时仅保留目标会话消息，并同步流式状态，避免多任务并发时消息串台。 */
+export function retainLocalMessagesForSession(state: ChatState, sessionId: string): ChatState {
+	const retainedIds: string[] = [];
+	const retainedMap: Record<string, Message> = {};
+
+	for (const id of state.messageIds) {
+		const message = state.messagesMap[id];
+		if (message?.conversationId === sessionId) {
+			retainedIds.push(id);
+			retainedMap[id] = message;
+		}
+	}
+
+	const streamingMessageId =
+		state.streamingMessageId && retainedMap[state.streamingMessageId]
+			? state.streamingMessageId
+			: (retainedIds.findLast((id) => isActiveStreamingMessage(retainedMap[id])) ?? null);
+	const streamingMessage = streamingMessageId ? retainedMap[streamingMessageId] : undefined;
+	const isGenerating = isActiveStreamingMessage(streamingMessage);
+
+	return {
+		...state,
+		messagesMap: retainedMap,
+		messageIds: retainedIds,
+		streamingMessageId,
+		isGenerating,
+		streamCancelRef: isGenerating ? state.streamCancelRef : null,
+	};
+}
+
+export function allLocalMessagesBelongToSession(state: ChatState, sessionId: string): boolean {
+	if (state.messageIds.length === 0) return true;
+	return state.messageIds.every((id) => state.messagesMap[id]?.conversationId === sessionId);
+}
+
 function parseWorkTitleUpdatedRecord(
 	payload: unknown,
 	fallbackSessionId?: string,
@@ -1645,8 +1684,24 @@ export class ChatActionImpl {
 	};
 
 	setActiveSession = (sessionId: string) => {
+		const state = this.#get();
+		const switchingSession = state.activeSessionId !== sessionId;
+
+		if (switchingSession) {
+			if (this.#sseClient && this.#sseSessionId !== sessionId) {
+				this.#sseClient.close();
+				this.#sseClient = null;
+				this.#resetSSEBinding();
+			}
+			this.#set((current) => retainLocalMessagesForSession(current, sessionId));
+		}
+
 		this.#set({ activeSessionId: sessionId });
 		this.#drainPendingGlobalEvents(sessionId);
+	};
+
+	allMessagesBelongToSession = (sessionId: string) => {
+		return allLocalMessagesBelongToSession(this.#get(), sessionId);
 	};
 
 	// 中文注释：新建任务跳转任务详情前只写入等待占位，真实用户问题与附件统一等待 GlobalEvents 回推。
