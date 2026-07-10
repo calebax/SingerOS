@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,8 @@ import (
 )
 
 const aliyunSMSEndpoint = "https://dysmsapi.aliyuncs.com/"
+
+var errAliyunSMSRateLimited = errors.New("aliyun sms rate limited")
 
 type smsSender interface {
 	SendVerificationCode(ctx context.Context, phone string, code string) error
@@ -115,6 +118,9 @@ func (s *aliyunSMSSender) SendVerificationCode(ctx context.Context, phone string
 	if result.Code != "OK" {
 		logs.WarnContextf(ctx, "Aliyun SMS SendSms rejected: phone=%s code=%s message=%s",
 			maskPhone(phone), result.Code, result.Message)
+		if isAliyunSMSRateLimited(result.Code, result.Message) {
+			return fmt.Errorf("%w: %s", errAliyunSMSRateLimited, result.Message)
+		}
 		return fmt.Errorf("aliyun sms failed: %s", result.Message)
 	}
 	logs.InfoContextf(ctx, "Aliyun SMS SendSms completed: phone=%s code=%s message=%s",
@@ -148,4 +154,21 @@ func aliyunPercentEncode(value string) string {
 	encoded = strings.ReplaceAll(encoded, "*", "%2A")
 	encoded = strings.ReplaceAll(encoded, "%7E", "~")
 	return encoded
+}
+
+func isAliyunSMSRateLimited(code string, message string) bool {
+	switch strings.TrimSpace(code) {
+	case "isv.BUSINESS_LIMIT_CONTROL", "isv.DAY_LIMIT_CONTROL", "isv.MONTH_LIMIT_CONTROL":
+		return true
+	}
+
+	trimmedMessage := strings.TrimSpace(message)
+	if trimmedMessage == "" {
+		return false
+	}
+
+	return strings.Contains(trimmedMessage, "流控") ||
+		strings.Contains(trimmedMessage, "Permits") ||
+		strings.Contains(trimmedMessage, "频率") ||
+		strings.Contains(trimmedMessage, "过于频繁")
 }
