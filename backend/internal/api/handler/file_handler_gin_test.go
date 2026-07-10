@@ -1,4 +1,4 @@
-package service
+package handler
 
 import (
 	"bytes"
@@ -18,7 +18,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -54,7 +53,7 @@ func setupFileRouter(t *testing.T, svc contract.FileService, caller *types.Calle
 		ctx.Next()
 	})
 
-	h := handler.NewFileHandler(svc)
+	h := NewFileHandler(svc)
 	h.RegisterRoutes(router.Group("/v1"))
 	return router
 }
