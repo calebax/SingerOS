@@ -467,7 +467,9 @@ function AuthField({
 				invalid && "border-red-400 text-red-500 ring-1 ring-red-400",
 			)}
 		>
-			{icon}
+			<span className="inline-flex size-4 shrink-0 items-center justify-center overflow-visible">
+				{icon}
+			</span>
 			{children}
 		</div>
 	);
