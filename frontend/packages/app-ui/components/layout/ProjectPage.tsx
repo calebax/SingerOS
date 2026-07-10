@@ -1400,7 +1400,7 @@ function ProjectTaskList({
 								{content}
 							</button>
 							{!compact && (onRename || onDelete) ? (
-								<div className="pointer-events-none absolute right-4 top-4 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+								<div className="pointer-events-none absolute right-4 top-4 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
 									<TaskInlineActions task={task} onRename={onRename} onDelete={onDelete} />
 								</div>
 							) : null}

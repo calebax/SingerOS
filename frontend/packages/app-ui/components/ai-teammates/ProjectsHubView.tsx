@@ -450,6 +450,8 @@ function ProjectCard({
 	onDelete: (project: Project) => void;
 	onLeave: (project: Project) => void;
 }) {
+	const [actionsOpen, setActionsOpen] = useState(false);
+
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: The card contains a nested menu button, so the card itself cannot be a button.
 		<div
@@ -459,10 +461,14 @@ function ProjectCard({
 				"group relative flex min-h-[132px] w-full cursor-pointer flex-col rounded-lg border border-slate-200 bg-white p-4 text-left transition-colors",
 				"hover:border-blue-200 hover:bg-blue-50/30",
 			)}
-			onClick={() => onOpen(project.id)}
+			onClick={() => {
+				if (actionsOpen) return;
+				onOpen(project.id);
+			}}
 			onKeyDown={(event) => {
 				if (event.key === "Enter" || event.key === " ") {
 					event.preventDefault();
+					if (actionsOpen) return;
 					onOpen(project.id);
 				}
 			}}
@@ -498,6 +504,7 @@ function ProjectCard({
 				onDelete={onDelete}
 				onLeave={onLeave}
 				variant="card"
+				onOpenChange={setActionsOpen}
 			/>
 		</div>
 	);
