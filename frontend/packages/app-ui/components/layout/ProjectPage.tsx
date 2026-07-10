@@ -144,6 +144,7 @@ export function ProjectPage({
 		clearLocalMessages,
 		clearPendingBootstrapSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		loadConversationMessages,
 		resetLocalMessages,
 	} = useChatStore((s) => s);
@@ -310,7 +311,14 @@ export function ProjectPage({
 		if (bootstrapPending && !sessionHasMessages) {
 			clearPendingBootstrapSession();
 		}
-		if (isGenerating && activeSessionId === nextSessionId && sessionHasMessages) return;
+		if (
+			isGenerating &&
+			activeSessionId === nextSessionId &&
+			sessionHasMessages &&
+			allMessagesBelongToSession(nextSessionId)
+		) {
+			return;
+		}
 		if (!sessionHasMessages) {
 			clearLocalMessages();
 		}
@@ -327,6 +335,7 @@ export function ProjectPage({
 		activeSessionId,
 		setActiveSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
@@ -992,7 +1001,9 @@ function ProjectConfigSidebar({
 										placeholder="搜索技能"
 									/>
 									<CommandList className="max-h-64">
-										<CommandEmpty className="py-6 text-slate-400">没有可继续添加的技能</CommandEmpty>
+										<CommandEmpty className="py-6 text-slate-400">
+											没有可继续添加的技能
+										</CommandEmpty>
 										<CommandGroup className="p-0">
 											{skillsLoading && (
 												<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>

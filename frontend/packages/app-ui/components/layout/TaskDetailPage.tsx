@@ -100,6 +100,7 @@ export function TaskDetailPage({
 		clearLocalMessages,
 		clearPendingBootstrapSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		loadConversationMessages,
 		sendMessage,
 	} = useChatStore((s) => s);
@@ -214,7 +215,7 @@ export function TaskDetailPage({
 		const sessionHasMessages = hasSessionMessages(resolvedSessionId);
 		// 中文注释：bootstrap 已完成且本地仍有等待态消息时，交给 GlobalEvents 接管，不抢先拉历史。
 		if (bootstrapPending && sessionHasMessages) return;
-		if (isGenerating && sessionHasMessages) return;
+		if (isGenerating && sessionHasMessages && allMessagesBelongToSession(resolvedSessionId)) return;
 		// bootstrap 标记还在但消息已被卸载清理掉，清除标记并回退为正常加载。
 		if (bootstrapPending && !sessionHasMessages) {
 			clearPendingBootstrapSession();
@@ -232,6 +233,7 @@ export function TaskDetailPage({
 		isGenerating,
 		setActiveSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
