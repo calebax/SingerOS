@@ -21,6 +21,7 @@ import (
 // ManifestArtifact 表示 Agent 在一次 turn 中写入 JSON Lines manifest 的一条产物声明。
 type ManifestArtifact struct {
 	Path         string `json:"path"`
+	PreviousPath string `json:"previous_path,omitempty"`
 	Title        string `json:"title,omitempty"`
 	Description  string `json:"description,omitempty"`
 	MimeType     string `json:"mime_type,omitempty"`
@@ -37,6 +38,7 @@ type ArtifactRecord struct {
 	Description  string
 	ArtifactType string
 	RelativePath string
+	PreviousPath string
 	StorageKey   string
 	StorageURI   string
 	MimeType     string
@@ -82,6 +84,11 @@ func CollectFinalArtifacts(ctx context.Context, plan *TaskWorkspace) ([]Artifact
 			return nil, fmt.Errorf("invalid artifact path %q", item.Path)
 		}
 		item.Path = key
+		if existing, ok := declared[key]; ok && strings.TrimSpace(item.PreviousPath) != "" {
+			existing.PreviousPath = item.PreviousPath
+			declared[key] = existing
+			continue
+		}
 		declared[key] = item
 	}
 	if err := scanner.Err(); err != nil {
@@ -146,6 +153,7 @@ func BuildArtifactRecord(plan *TaskWorkspace, item ManifestArtifact) (ArtifactRe
 		Description:  strings.TrimSpace(item.Description),
 		ArtifactType: artifactType,
 		RelativePath: item.Path,
+		PreviousPath: strings.TrimSpace(item.PreviousPath),
 		StorageKey:   storageKey,
 		MimeType:     detectMimeType(absolute, item.MimeType),
 		FileSize:     info.Size(),

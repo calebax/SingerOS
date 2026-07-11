@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/logs"
@@ -123,20 +125,21 @@ func handleArtifactDeclaredEvent(ctx context.Context, persister *declaredArtifac
 		runEvent.Route.SessionID, art.ArtifactID, art.StorageKey)
 
 	artifact := messaging.ArtifactPayload{
-		ArtifactID:   art.ArtifactID,
-		Title:        art.Title,
-		Filename:     art.Filename,
-		OriginalName: art.OriginalName,
-		Description:  art.Description,
-		MimeType:     art.MimeType,
-		ArtifactType: art.ArtifactType,
-		FileSize:     art.FileSize,
-		RelativePath: art.RelativePath,
-		StorageKey:   art.StorageKey,
-		StorageURI:   art.StorageURI,
-		Sha256:       art.Sha256,
-		Source:       art.Source,
-		Status:       art.Status,
+		ArtifactID:           art.ArtifactID,
+		Title:                art.Title,
+		Filename:             art.Filename,
+		OriginalName:         art.OriginalName,
+		Description:          art.Description,
+		MimeType:             art.MimeType,
+		ArtifactType:         art.ArtifactType,
+		FileSize:             art.FileSize,
+		RelativePath:         art.RelativePath,
+		PreviousRelativePath: art.PreviousRelativePath,
+		StorageKey:           art.StorageKey,
+		StorageURI:           art.StorageURI,
+		Sha256:               art.Sha256,
+		Source:               art.Source,
+		Status:               art.Status,
 	}
 
 	if err := persister.PersistDeclaredArtifact(ctx, messaging.RouteContext{
@@ -504,6 +507,21 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 	if originalName == "" {
 		originalName = filename
 	}
+	relativePath := strings.TrimSpace(item.RelativePath)
+	if relativePath == "" {
+		relativePath = "artifacts/" + filepath.Base(originalName)
+	}
+	relativePath, err = workspace.NormalizeRelativePath(relativePath)
+	if err != nil {
+		return fmt.Errorf("normalize artifact relative path: %w", err)
+	}
+	previousRelativePath := strings.TrimSpace(item.PreviousRelativePath)
+	if previousRelativePath != "" {
+		previousRelativePath, err = workspace.NormalizeRelativePath(previousRelativePath)
+		if err != nil {
+			return fmt.Errorf("normalize artifact previous relative path: %w", err)
+		}
+	}
 
 	// Use transaction to ensure FileUpload and ProjectFile are created atomically.
 	err = p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -531,8 +549,9 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 			ResourceID:   fileUpload.ID,
 			ResourceType: types.ProjectFileResourceTypeArtifact,
 			Uin:          session.Uin,
+			RelativePath: relativePath,
 		}
-		if err := infradb.CreateProjectFile(ctx, tx, projectFile); err != nil {
+		if err := infradb.CreateProjectFileVersionFromPreviousPath(ctx, tx, projectFile, previousRelativePath); err != nil {
 			return fmt.Errorf("create artifact project file: %w", err)
 		}
 		projResource, err := infradb.GetResourceByBizID(ctx, tx, session.OrgID, types.ResourceTypeProject, *session.ProjectID)
@@ -632,6 +651,10 @@ func (p *declaredArtifactPersister) PersistPublishedPlan(ctx context.Context, ro
 	if mimeType == "" {
 		mimeType = "text/markdown"
 	}
+	relativePath, err := workspace.NormalizeRelativePath("plans/" + filepath.Base(filename))
+	if err != nil {
+		return fmt.Errorf("normalize plan relative path: %w", err)
+	}
 
 	err = p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		fileUpload, err := filestore.RecordUpload(ctx, tx, filestore.RecordUploadParams{
@@ -658,8 +681,9 @@ func (p *declaredArtifactPersister) PersistPublishedPlan(ctx context.Context, ro
 			ResourceID:   fileUpload.ID,
 			ResourceType: types.ProjectFileResourceTypePlan,
 			Uin:          session.Uin,
+			RelativePath: relativePath,
 		}
-		if err := infradb.CreateProjectFile(ctx, tx, projectFile); err != nil {
+		if err := infradb.CreateProjectFileVersion(ctx, tx, projectFile); err != nil {
 			return fmt.Errorf("create plan project file: %w", err)
 		}
 		projResource, err := infradb.GetResourceByBizID(ctx, tx, session.OrgID, types.ResourceTypeProject, *session.ProjectID)

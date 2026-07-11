@@ -59,12 +59,18 @@ func ShouldSkipArtifactFile(absPath string) bool {
 
 // manifestHasFinalEntries checks whether the manifest already contains at least one final entry.
 func manifestHasFinalEntries(manifestPath string) (bool, error) {
+	paths, err := manifestFinalPaths(manifestPath)
+	return len(paths) > 0, err
+}
+
+func manifestFinalPaths(manifestPath string) (map[string]bool, error) {
+	paths := make(map[string]bool)
 	file, err := os.Open(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, nil
+			return paths, nil
 		}
-		return false, fmt.Errorf("open manifest: %w", err)
+		return nil, fmt.Errorf("open manifest: %w", err)
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
@@ -78,8 +84,11 @@ func manifestHasFinalEntries(manifestPath string) (bool, error) {
 			continue
 		}
 		if entry.IsFinal {
-			return true, nil
+			path := filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(entry.Path))))
+			if path != "." {
+				paths[path] = true
+			}
 		}
 	}
-	return false, scanner.Err()
+	return paths, scanner.Err()
 }
