@@ -45,6 +45,7 @@ export type {
 	OrgMemberDepartment,
 } from "./api/orgAdminApi";
 export { orgAdminApi } from "./api/orgAdminApi";
+export { permissionApi } from "./api/permissionApi";
 export type {
 	ListProjectActivitiesParams,
 	ProjectActivityActor,
@@ -54,7 +55,6 @@ export type {
 	ProjectActivitySkill,
 } from "./api/projectActivityApi";
 export { projectActivityApi } from "./api/projectActivityApi";
-export { permissionApi } from "./api/permissionApi";
 export { projectFileApi } from "./api/projectFileApi";
 export type { HumanProjectMemberOption } from "./api/projectMemberApi";
 export { projectMemberApi } from "./api/projectMemberApi";

@@ -131,6 +131,23 @@ func DeleteResourceBinding(ctx context.Context, d *gorm.DB, id uint) error {
 	return d.WithContext(ctx).Delete(&types.ResourceBinding{}, id).Error
 }
 
+// GetFirstResourceAssistantBinding 取指定资源上按绑定顺序第一个 assistant 绑定（assistant_id IS NOT NULL，id ASC）。
+// 无结果返回 nil, nil。
+func GetFirstResourceAssistantBinding(ctx context.Context, d *gorm.DB, resourceID uint) (*types.ResourceBinding, error) {
+	var entity types.ResourceBinding
+	err := d.WithContext(ctx).
+		Where("resource_id = ? AND assistant_id IS NOT NULL AND deleted_at IS NULL", resourceID).
+		Order("id ASC").
+		First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
+}
+
 // CountResourceBindingsByRole 统计指定资源上指定角色的有效绑定数量。
 // 供 PermissionService 判断 is_last_owner 时使用。
 func CountResourceBindingsByRole(ctx context.Context, d *gorm.DB, resourceID uint, role types.ResourceRole) (int64, error) {

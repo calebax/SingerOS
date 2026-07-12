@@ -17,6 +17,7 @@ type NodeHandler struct {
 	sessionStore  ProviderSessionStore
 	provider      string
 	sessionKey    string
+	assistantID   string
 	planErr       error
 }
 
@@ -27,6 +28,7 @@ func NewNodeHandler(
 	sessionStore ProviderSessionStore,
 	provider string,
 	sessionKey string,
+	assistantID string,
 ) *NodeHandler {
 	return &NodeHandler{
 		journal:       journal,
@@ -34,6 +36,7 @@ func NewNodeHandler(
 		sessionStore:  sessionStore,
 		provider:      strings.TrimSpace(provider),
 		sessionKey:    sessionKey,
+		assistantID:   assistantID,
 	}
 }
 
@@ -57,6 +60,7 @@ func (h *NodeHandler) Observe(ctx context.Context, event agent.NodeEvent) error 
 	if !ok || h.journal == nil {
 		return nil
 	}
+
 	return h.journal.Record(ctx, RunEventDraft{
 		OccurredAt: event.OccurredAt,
 		Body:       body,

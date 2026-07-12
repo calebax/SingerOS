@@ -50,40 +50,39 @@ type AddMessageRequest struct {
 // Session is the API response shape for a conversation.
 // SubmitApprovalRequest forwards an approval decision to the worker via NATS.
 type SubmitApprovalRequest struct {
-	OrgID     uint   `json:"-"`
-	WorkerID  uint   `json:"-"` // TODO: 由 session 关联的运行时动态获取
-	SessionID string `json:"session_id"`
-	RequestID string `json:"request_id"`
-	Action    string `json:"action"`
-	Reason    string `json:"reason,omitempty"`
+	OrgID       uint   `json:"-"`
+	SessionID   string `json:"session_id"`
+	RequestID   string `json:"request_id"`
+	Action      string `json:"action"`
+	Reason      string `json:"reason,omitempty"`
+	AssistantID string `json:"assistant_id" binding:"required"`
 }
 
 // SubmitQuestionAnswerRequest forwards a question answer to the worker via NATS.
 type SubmitQuestionAnswerRequest struct {
-	OrgID     uint       `json:"-"`
-	WorkerID  uint       `json:"-"`
-	SessionID string     `json:"session_id"`
-	RequestID string     `json:"request_id"`
-	Answers   [][]string `json:"answers"`
+	OrgID       uint       `json:"-"`
+	SessionID   string     `json:"session_id"`
+	RequestID   string     `json:"request_id"`
+	Answers     [][]string `json:"answers"`
+	AssistantID string     `json:"assistant_id" binding:"required"`
 }
 
+
 type Session struct {
-	SessionID            string                `json:"session_id"`
-	Type                 string                `json:"type"`
-	Uin                  uint                  `json:"uin"`
-	OrgID                uint                  `json:"org_id"`
-	AssistantID          string                `json:"assistant_id"`
-	AllocatedAssistantID string                `json:"allocated_assistant_id"`
-	Status               string                `json:"status"`
-	RuntimeStatus        string                `json:"runtime_status"`
-	Title                string                `json:"title"`
-	TitleManuallySet     bool                  `json:"title_manually_set,omitempty"`
-	Metadata             *types.ObjectMetadata `json:"metadata,omitempty"`
-	MessageCount         int                   `json:"message_count"`
-	LastMessageAt        *time.Time            `json:"last_message_at,omitempty"`
-	ExpiredAt            *time.Time            `json:"expired_at,omitempty"`
-	CreatedAt            time.Time             `json:"created_at"`
-	UpdatedAt            time.Time             `json:"updated_at"`
+	SessionID            string                       `json:"session_id"`
+	Type                 string                       `json:"type"`
+	Uin                  uint                         `json:"uin"`
+	OrgID                uint                         `json:"org_id"`
+	Status               string                       `json:"status"`
+	RuntimeStatus        string                       `json:"runtime_status"`
+	Title                string                       `json:"title"`
+	TitleManuallySet     bool                         `json:"title_manually_set,omitempty"`
+	Metadata             *types.ObjectMetadata        `json:"metadata,omitempty"`
+	MessageCount         int                          `json:"message_count"`
+	LastMessageAt        *time.Time                   `json:"last_message_at,omitempty"`
+	ExpiredAt            *time.Time                   `json:"expired_at,omitempty"`
+	CreatedAt            time.Time                    `json:"created_at"`
+	UpdatedAt            time.Time                    `json:"updated_at"`
 }
 
 // SessionMessage is the API response shape for a persisted conversation message.
@@ -110,11 +109,12 @@ type SessionMessage struct {
 
 // SessionEvent is the public event shape embedded in persisted message chunks.
 type SessionEvent struct {
-	Type      string      `json:"type"`
-	SessionID string      `json:"session_id"`
-	Payload   interface{} `json:"payload,omitempty"`
-	Sequence  int64       `json:"sequence"`
-	Timestamp int64       `json:"timestamp"`
+	Type        string      `json:"type"`
+	SessionID   string      `json:"session_id"`
+	AssistantID string      `json:"assistant_id,omitempty"`
+	Payload     interface{} `json:"payload,omitempty"`
+	Sequence    int64       `json:"sequence"`
+	Timestamp   int64       `json:"timestamp"`
 }
 
 // SessionList is a paginated session response.
@@ -180,4 +180,5 @@ type SessionRunStartedRequest struct {
 	StreamStartSeq    uint64   `json:"stream_start_seq"`
 	StateStartSeq     uint64   `json:"state_start_seq,omitempty"`
 	RunID             string   `json:"run_id,omitempty"`
+	AssistantID       uint     `json:"assistant_id,omitempty"`
 }

@@ -273,11 +273,12 @@ func messagingEventsToChunks(records []messaging.RunEventRecord) []types.Message
 	chunks := make([]types.MessageChunk, 0, len(records))
 	for _, record := range records {
 		chunks = append(chunks, types.MessageChunk{
-			Seq:       record.Seq,
-			LastSeq:   record.LastSeq,
-			Type:      record.Type,
-			Timestamp: record.Timestamp,
-			Payload:   json.RawMessage(record.Payload),
+			Seq:         record.Seq,
+			LastSeq:     record.LastSeq,
+			Type:        record.Type,
+			Timestamp:   record.Timestamp,
+			Payload:     json.RawMessage(record.Payload),
+			AssistantID: record.AssistantID,
 		})
 	}
 	return chunks

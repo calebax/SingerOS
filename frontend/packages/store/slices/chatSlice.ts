@@ -731,6 +731,7 @@ function getApprovalStatus(action?: string): ApprovalRequest["status"] {
 
 function mapApprovalRequestPayload(
 	payload: BackendApprovalRequestPayload,
+	assistantId?: string,
 ): ApprovalRequest | undefined {
 	const requestId = payload.request_id?.trim();
 	if (!requestId) return undefined;
@@ -743,6 +744,7 @@ function mapApprovalRequestPayload(
 		arguments: payload.arguments,
 		metadata: payload.metadata,
 		status: "pending",
+		assistantId,
 	};
 }
 
@@ -852,6 +854,7 @@ function getQuestionAnswerPayload(
 
 function mapQuestionRequestPayload(
 	payload: BackendQuestionRequestPayload,
+	assistantId?: string,
 ): QuestionRequest | undefined {
 	const requestId = payload.request_id?.trim();
 	if (!requestId) return undefined;
@@ -870,6 +873,7 @@ function mapQuestionRequestPayload(
 	return {
 		requestId,
 		questions,
+		assistantId,
 		toolCallId: payload.tool_call_id?.trim() || undefined,
 		messageId: payload.message_id?.trim() || undefined,
 		interactionType: payload.interaction_type?.trim() || undefined,
@@ -1052,7 +1056,12 @@ export function applySessionEventToMessage(
 		}
 		case "approval.requested": {
 			const approvalPayload = getApprovalRequestPayload(payload);
-			const approval = approvalPayload ? mapApprovalRequestPayload(approvalPayload) : undefined;
+			const approval = approvalPayload
+				? mapApprovalRequestPayload(
+						approvalPayload,
+						"assistant_id" in normalizedEvent ? normalizedEvent.assistant_id : undefined,
+					)
+				: undefined;
 			if (!approval) return message;
 			return {
 				...message,
@@ -1070,7 +1079,12 @@ export function applySessionEventToMessage(
 		}
 		case "question.asked": {
 			const questionPayload = getQuestionRequestPayload(payload);
-			const question = questionPayload ? mapQuestionRequestPayload(questionPayload) : undefined;
+			const question = questionPayload
+				? mapQuestionRequestPayload(
+						questionPayload,
+						"assistant_id" in normalizedEvent ? normalizedEvent.assistant_id : undefined,
+					)
+				: undefined;
 			if (!question) return message;
 			return {
 				...message,
@@ -2925,6 +2939,12 @@ export class ChatActionImpl {
 		const sessionId = message?.conversationId || state.activeSessionId;
 		if (!sessionId) return;
 
+		const approval = message?.approvals?.find((a) => a.requestId === requestId);
+		const assistantId = approval?.assistantId;
+		if (!assistantId) {
+			console.warn("submitApprovalDecision: missing assistantId, request may fail");
+		}
+
 		this.#dispatchChat({
 			type: "updateApprovalStatus",
 			messageId,
@@ -2941,6 +2961,7 @@ export class ChatActionImpl {
 				request_id: requestId,
 				action,
 				reason,
+				assistant_id: assistantId ?? "",
 			});
 			this.#dispatchChat({
 				type: "updateApprovalStatus",
@@ -2971,6 +2992,12 @@ export class ChatActionImpl {
 		const sessionId = message?.conversationId || state.activeSessionId;
 		if (!sessionId) return;
 
+		const question = message?.questions?.find((q) => q.requestId === requestId);
+		const assistantId = question?.assistantId;
+		if (!assistantId) {
+			console.warn("submitQuestionAnswer: missing assistantId, request may fail");
+		}
+
 		this.#dispatchChat({
 			type: "updateQuestionStatus",
 			messageId,
@@ -2985,6 +3012,7 @@ export class ChatActionImpl {
 				session_id: sessionId,
 				request_id: requestId,
 				answers,
+				assistant_id: assistantId ?? "",
 			});
 		} catch (err) {
 			console.error("submitQuestionAnswer error:", err);

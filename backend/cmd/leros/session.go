@@ -103,14 +103,6 @@ func newSessionCommand() *cobra.Command {
 					out.UserName = cli.ResolveUserName(ctx, cliServerAddr(), cliAuthToken(), sess.Uin)
 				}
 
-				if sess.AssistantID != "" {
-					ast, err := cli.GetDigitalAssistantByPublicID(ctx, cliServerAddr(), cliAuthToken(), sess.AssistantID)
-					if err != nil {
-						logs.Warnf("get assistant: %v", err)
-					} else {
-						out.Assistant = ast
-					}
-				}
 				msgs, err := cli.GetSessionMessages(ctx, cliServerAddr(), cliAuthToken(), sessionID, 1, 10)
 				if err != nil {
 					logs.Warnf("get session messages: %v", err)
@@ -221,15 +213,8 @@ func printSessionDetail(out *sessionDetailOutput) {
 
 	if out.Assistant != nil {
 		fmt.Fprintf(w, "Assistant:\t%s (ID=%d, PublicID=%s)\n", out.Assistant.Name, out.Assistant.ID, out.Assistant.PublicID)
-	} else {
-		fmt.Fprintf(w, "AssistantID:\t%s\n", s.AssistantID)
 	}
 
-	if s.AllocatedAssistantID != "" {
-		fmt.Fprintf(w, "AllocatedWorkerID:\t%s\n", s.AllocatedAssistantID)
-	}
-
-	fmt.Fprintf(w, "AssistantID:\t%s\n", s.AssistantID)
 	fmt.Fprintf(w, "MessageCount:\t%d\n", s.MessageCount)
 	if s.LastMessageAt != nil {
 		fmt.Fprintf(w, "LastMessageAt:\t%s\n", s.LastMessageAt.Format("2006-01-02T15:04:05Z"))

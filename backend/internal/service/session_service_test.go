@@ -683,7 +683,6 @@ func TestAddMessage_TouchesProjectUpdatedAtForUserMessage(t *testing.T) {
 		Type:        types.SessionTypeProject,
 		Uin:         1,
 		OrgID:       1,
-		AssistantID: 1,
 		ProjectID:   &project.ID,
 		Status:      string(types.SessionStatusActive),
 		Title:       "项目协作",
@@ -1581,15 +1580,13 @@ func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 	}
 
 	session := &types.Session{
-		PublicID:             "sess_hist",
-		Type:                 types.SessionTypeTask,
-		Uin:                  1,
-		OrgID:                1,
-		AssistantID:          1,
-		AllocatedAssistantID: 1,
-		ProjectID:            &proj.ID,
-		Status:               string(types.SessionStatusActive),
-		Title:                "history test",
+		PublicID:  "sess_hist",
+		Type:      types.SessionTypeTask,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &proj.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     "history test",
 	}
 	if err := db.CreateSession(ctx, database, session); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1636,7 +1633,7 @@ func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 		t.Fatalf("create current message: %v", err)
 	}
 
-	if err := poster.publishWorkerTask(ctx, session, message, types.ExecutionModeDefault); err != nil {
+	if err := poster.publishWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: 1, WorkerID: 1}); err != nil {
 		t.Fatalf("publishWorkerTask failed: %v", err)
 	}
 
@@ -1734,7 +1731,6 @@ func TestCompleteSessionMessageDoesNotPublishAssistantEvent(t *testing.T) {
 		Type:        types.SessionTypeProject,
 		Uin:         1,
 		OrgID:       1,
-		AssistantID: assistant.ID,
 		ProjectID:   &project.ID,
 		Status:      string(types.SessionStatusActive),
 	}
@@ -2003,7 +1999,6 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 		Type:        types.SessionTypeProject,
 		Uin:         1,
 		OrgID:       1,
-		AssistantID: assistant.ID,
 		ProjectID:   &project.ID,
 		Status:      string(types.SessionStatusActive),
 	}
@@ -2325,9 +2320,6 @@ func TestCreateInitialMessage_EmptySummonCreatesAssistantBoundSession(t *testing
 	var session types.Session
 	if err := database.Where("public_id = ?", resp.SessionID).First(&session).Error; err != nil {
 		t.Fatalf("load task session: %v", err)
-	}
-	if session.AssistantID != assistant.ID {
-		t.Fatalf("session assistant id = %d, want %d", session.AssistantID, assistant.ID)
 	}
 
 	var count int64

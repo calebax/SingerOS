@@ -292,9 +292,10 @@ type RunResultPayload struct {
 
 // RunEventRecord 是归一化、已归档的运行时事件。
 type RunEventRecord struct {
-	Seq       int64           `json:"seq,omitempty"`
-	LastSeq   int64           `json:"last_seq,omitempty"`
-	Type      string          `json:"type"`
-	Timestamp int64           `json:"timestamp,omitempty"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	Seq         int64           `json:"seq,omitempty"`
+	LastSeq     int64           `json:"last_seq,omitempty"`
+	Type        string          `json:"type"`
+	Timestamp   int64           `json:"timestamp,omitempty"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
+	AssistantID string          `json:"assistant_id,omitempty"`
 }

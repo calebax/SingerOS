@@ -1,8 +1,4 @@
-import {
-	fetchFilePreviewByPublicId,
-	fetchFilePreviewByStorageUri,
-	projectFileApi,
-} from "@leros/store";
+import { fetchFilePreviewByPublicId, fetchFilePreviewByStorageUri } from "@leros/store";
 import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat } from "./OfficePreview";
 
 export const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
@@ -85,9 +81,6 @@ export async function fetchFilePreviewContent(
 	if (item.storageUri) {
 		return fetchFilePreviewByStorageUri(item.storageUri, options);
 	}
-	if (item.projectId && item.projectPath) {
-		return projectFileApi.fetchDownload(item.projectId, item.projectPath, options);
-	}
 	if (item.publicId) {
 		return fetchFilePreviewByPublicId(item.publicId, options);
 	}
@@ -144,7 +137,7 @@ export function artifactToFilePreviewItem(
 		title: artifact.title || artifact.name,
 		mimeType: artifact.mimeType,
 		storageUri: artifact.storageUri,
-		publicId: !artifact.storageUri && !hasProjectPath ? artifact.id : undefined,
+		publicId: artifact.storageUri ? undefined : artifact.id,
 		projectId: hasProjectPath ? projectId : undefined,
 		projectPath: hasProjectPath ? artifact.id : undefined,
 	};
