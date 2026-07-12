@@ -18,9 +18,10 @@ const (
 // ProjectRunEvent converts a messaging.RunEvent into the public session event shape.
 func ProjectRunEvent(runEvent messaging.RunEvent) (*contract.SessionEvent, bool) {
 	event := &contract.SessionEvent{
-		SessionID: runEvent.Route.SessionID,
-		Sequence:  runEvent.Body.Seq,
-		Timestamp: runEvent.CreatedAt.UnixMilli(),
+		SessionID:   runEvent.Route.SessionID,
+		AssistantID: runEvent.Route.AssistantID,
+		Sequence:    runEvent.Body.Seq,
+		Timestamp:   runEvent.CreatedAt.UnixMilli(),
 	}
 
 	switch runEvent.Body.Event {
@@ -155,7 +156,10 @@ func runEventFromRecord(
 	runEvent := messaging.RunEvent{
 		Type:      messaging.MessageTypeRunEvent,
 		CreatedAt: time.UnixMilli(chunk.Timestamp).UTC(),
-		Route:     messaging.RouteContext{SessionID: sessionID},
+		Route: messaging.RouteContext{
+			SessionID:   sessionID,
+			AssistantID: chunk.AssistantID,
+		},
 		Body: messaging.RunEventBody{
 			Seq:   chunk.Seq,
 			Event: eventType,

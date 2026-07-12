@@ -80,6 +80,7 @@ export type BackendMessageAttachment = {
 export type BackendSessionEvent = {
 	type: string;
 	session_id?: string;
+	assistant_id?: string;
 	sequence?: number;
 	timestamp?: number;
 	payload?: BackendSessionEventPayloadLike;

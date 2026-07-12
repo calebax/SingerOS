@@ -611,7 +611,7 @@ func TestJournalArchivesPayloadUsageAndToolResults(t *testing.T) {
 		testEventContext("run-1"),
 		recorder,
 	)
-	handler := NewNodeHandler(journal, nil, nil, "test", "")
+	handler := NewNodeHandler(journal, nil, nil, "test", "", "")
 	now := time.Now().UTC()
 	events := []agent.NodeEvent{
 		{

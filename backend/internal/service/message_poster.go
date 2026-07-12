@@ -57,12 +57,21 @@ func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInfer
 	}
 }
 
+// MessageRoutingOverride 消息级别的路由覆盖，用于在同个 session 内将消息发给不同的 assistant/worker。
+// 决定消息发往哪个 worker 的唯一依据。publishWorkerTask 要求 routing 必须非 nil 且 WorkerID > 0。
+type MessageRoutingOverride struct {
+	AssistantID uint
+	WorkerID    uint
+}
+
 // PostMessage 在已有 session 上创建一条消息并完成后续投递（统计、EventBus、WorkerTask）。
+// routing 为 nil 时使用 session 级别的 assistant/worker（默认行为）。
 func (p *MessagePoster) PostMessage(
 	ctx context.Context,
 	session *types.Session,
 	executionMode types.ExecutionMode,
 	buildMessage func(sequence int64) *types.SessionMessage,
+	routing *MessageRoutingOverride,
 ) (*types.SessionMessage, error) {
 	sequence, err := infradb.GetNextSequence(ctx, p.db, session.ID)
 	if err != nil {
@@ -106,10 +115,10 @@ func (p *MessagePoster) PostMessage(
 
 	publishMessageCreatedEvent(ctx, p.db, p.eventbus, session, message)
 
-	logs.InfoContextf(ctx, "published message.created (human): session_id=%s message_id=%d project_id=%v worker_id=%d assistant_id=%d",
-		session.PublicID, message.ID, session.ProjectID, session.AllocatedAssistantID, session.AssistantID)
+	logs.InfoContextf(ctx, "published message.created (human): session_id=%s message_id=%d project_id=%v",
+		session.PublicID, message.ID, session.ProjectID)
 
-	if err := p.publishWorkerTask(ctx, session, message, executionMode); err != nil {
+	if err := p.publishWorkerTask(ctx, session, message, executionMode, routing); err != nil {
 		return nil, err
 	}
 
@@ -180,23 +189,26 @@ func (p *MessagePoster) RunNewMessage(
 			if req.Metadata != nil {
 				msg.Metadata = *req.Metadata
 			}
+			if o.taskRoute != nil {
+				msg.AssistantID = o.taskRoute.AssistantID
+			}
 			return msg
-		})
+		}, o.taskRoute)
 		if err != nil {
 			logs.ErrorContextf(ctx, "NewMessage PostMessage failed: %v", err)
 			return nil, err
 		}
 		messageID = fmt.Sprintf("%d", message.ID)
 	} else {
-		logs.InfoContextf(ctx, "NewMessage empty summon: project=%s task=%s session=%s assistant=%d (no first message)",
-			o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, o.taskSession.AllocatedAssistantID)
+		logs.InfoContextf(ctx, "NewMessage empty summon: project=%s task=%s session=%s (no first message)",
+			o.project.PublicID, o.task.PublicID, o.taskSession.PublicID)
 	}
 	// 中文注释：项目页里通过 NewMessage 创建任务/首条消息后，要立即刷新项目活跃时间，供左侧列表排序使用。
 	if err := infradb.TouchProjectUpdatedAt(ctx, p.db, o.project.ID, time.Now()); err != nil {
 		logs.WarnContextf(ctx, "NewMessage touch project updated_at failed: %v", err)
 	}
 
-	assistantPublicID := assistantIDToPublicID(o.poster.db, o.taskSession.AssistantID)
+	assistantPublicID := assistantIDToPublicID(o.ctx, o.poster.db, o.taskRoute.AssistantID)
 	logs.InfoContextf(ctx, "NewMessage completed: project=%s task=%s session=%s message=%s assistant=%s",
 		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, messageID, assistantPublicID)
 
@@ -217,10 +229,11 @@ type newMessageOrchestrator struct {
 	req    *contract.NewMessageRequest
 	caller *types.Caller
 
-	project      *types.Project
-	task         *types.Task
-	taskSession  *types.Session
-	assistantIDs []uint
+	project       *types.Project
+	task          *types.Task
+	taskSession   *types.Session
+	assistantIDs  []uint
+	taskRoute     *MessageRoutingOverride
 }
 
 func (o *newMessageOrchestrator) resolveOrCreateProject() error {
@@ -373,21 +386,19 @@ func (o *newMessageOrchestrator) ensureProjectSession() error {
 		return nil
 	}
 
-	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.assistantIDs, o.poster.inferrer)
+	_, _, err = resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.assistantIDs, o.poster.inferrer)
 	if err != nil {
 		return err
 	}
 	projectSessionID := fmt.Sprintf("sess_%s", snowflake.GenerateIDBase58())
 	projectSession = &types.Session{
-		PublicID:             projectSessionID,
-		Type:                 types.SessionTypeProject,
-		Uin:                  o.caller.Uin,
-		OrgID:                o.caller.OrgID,
-		AssistantID:          assistantID,
-		AllocatedAssistantID: workerID,
-		ProjectID:            &o.project.ID,
-		Status:               string(types.SessionStatusActive),
-		Title:                "项目协作",
+		PublicID:  projectSessionID,
+		Type:      types.SessionTypeProject,
+		Uin:       o.caller.Uin,
+		OrgID:     o.caller.OrgID,
+		ProjectID: &o.project.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     "项目协作",
 	}
 	if err := infradb.CreateSession(o.ctx, o.poster.db, projectSession); err != nil {
 		return fmt.Errorf("create project session: %w", err)
@@ -456,18 +467,17 @@ func (o *newMessageOrchestrator) createTaskSession() error {
 	if err != nil {
 		return err
 	}
+	o.taskRoute = &MessageRoutingOverride{AssistantID: assistantID, WorkerID: workerID}
 	taskSessionID := fmt.Sprintf("sess_%s", snowflake.GenerateIDBase58())
 	o.taskSession = &types.Session{
-		PublicID:             taskSessionID,
-		Type:                 types.SessionTypeTask,
-		Uin:                  o.caller.Uin,
-		OrgID:                o.caller.OrgID,
-		AssistantID:          assistantID,
-		AllocatedAssistantID: workerID,
-		ProjectID:            &o.project.ID,
-		TaskID:               &o.task.ID,
-		Status:               string(types.SessionStatusActive),
-		Title:                o.task.Title,
+		PublicID: taskSessionID,
+		Type:     types.SessionTypeTask,
+		Uin:      o.caller.Uin,
+		OrgID:     o.caller.OrgID,
+		ProjectID: &o.project.ID,
+		TaskID:    &o.task.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     o.task.Title,
 	}
 	if err := infradb.CreateSession(o.ctx, o.poster.db, o.taskSession); err != nil {
 		return fmt.Errorf("create task session: %w", err)
@@ -495,13 +505,9 @@ type assistantEvolutionContext struct {
 	promptExtension string
 }
 
-// buildExecutionTarget 根据会话绑定的 DigitalAssistant 构造 ExecutionTarget。
-// 查询失败或无 assistant_id 时返回零值，不阻塞 run（降级为通用 lework 身份）。
-func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types.Session, message *types.SessionMessage) messaging.ExecutionTarget {
-	if session == nil {
-		return messaging.ExecutionTarget{}
-	}
-	assistantID := session.AssistantID
+// buildExecutionTarget 根据 assistantID 构造 ExecutionTarget。
+// 查询失败或 assistantID 为 0 时返回零值，不阻塞 run（降级为通用 lework 身份）。
+func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types.Session, assistantID uint, message *types.SessionMessage) messaging.ExecutionTarget {
 	if p == nil || p.db == nil || assistantID == 0 {
 		return messaging.ExecutionTarget{}
 	}
@@ -522,7 +528,7 @@ func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types
 	}
 
 	return messaging.ExecutionTarget{
-		AssistantID:   strconv.FormatUint(uint64(assistantID), 10),
+		AssistantID:   da.PublicID,
 		AssistantName: da.Name,
 		AssistantDesc: da.Description,
 		SystemPrompt:  systemPrompt,
@@ -634,8 +640,9 @@ func memoryIDs(memories []*types.DigitalAssistantMemory) []string {
 }
 
 // buildProjectContext queries project business context and member list for the worker.
+// assistantID 用于标记 IsCurrentExec。
 // Returns zero value when session has no project (e.g. chat sessions) or query fails.
-func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.Session) messaging.ProjectContext {
+func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.Session, currentAssistantID uint) messaging.ProjectContext {
 	if session == nil || session.ProjectID == nil || p == nil || p.db == nil {
 		return messaging.ProjectContext{}
 	}
@@ -697,7 +704,7 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 				IsDefault:  defaultAssistantID > 0 && assistantID == defaultAssistantID,
 				Name:       assistantMap[assistantID],
 			}
-			if assistantID == session.AssistantID {
+			if assistantID == currentAssistantID {
 				brief.IsCurrentExec = true
 			}
 			briefs = append(briefs, brief)
@@ -761,6 +768,7 @@ func (p *MessagePoster) publishWorkerTask(
 	session *types.Session,
 	message *types.SessionMessage,
 	executionMode types.ExecutionMode,
+	routing *MessageRoutingOverride,
 ) error {
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
@@ -768,22 +776,13 @@ func (p *MessagePoster) publishWorkerTask(
 		orgID = caller.OrgID
 	}
 
-	if session.AssistantID == 0 && session.AllocatedAssistantID == 0 && p.inferrer != nil {
-		assignedAssistantID := p.inferrer.InferAssignedAssistantID(ctx, orgID, string(session.Type))
-		if assignedAssistantID > 0 {
-			session.AllocatedAssistantID = assignedAssistantID
-			if err := infradb.UpdateAllocatedAssistantID(ctx, p.db, session.ID, assignedAssistantID); err != nil {
-				return fmt.Errorf("failed to update allocated_assistant_id: %w", err)
-			}
-		}
+	if routing == nil || routing.WorkerID == 0 {
+		return fmt.Errorf("no assistant routing provided for worker task: session %s", session.PublicID)
 	}
+	effectiveAssistantID := routing.AssistantID
+	effectiveWorkerID := routing.WorkerID
 
-	if session.AllocatedAssistantID == 0 {
-		logs.DebugContextf(ctx, "Skipping task publish: no worker allocated for session %s", session.PublicID)
-		return nil
-	}
-
-	topic, err := messaging.WorkerCommandSubject(orgID, session.AllocatedAssistantID, messaging.LaneRun)
+	topic, err := messaging.WorkerCommandSubject(orgID, effectiveWorkerID, messaging.LaneRun)
 	if err != nil {
 		return fmt.Errorf("failed to construct worker command topic: %w", err)
 	}
@@ -805,7 +804,7 @@ func (p *MessagePoster) publishWorkerTask(
 	// 群聊历史上下文注入：以当前 AI 队友上一条回复为起点，增量获取时间窗口内的 user/assistant 消息
 	if session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject {
 		windowStart := session.CreatedAt
-		if lastTime, err := infradb.GetLastAssistantMessageCreatedAt(ctx, p.db, session.ID, session.AllocatedAssistantID); err != nil {
+		if lastTime, err := infradb.GetLastAssistantMessageCreatedAt(ctx, p.db, session.ID, effectiveAssistantID); err != nil {
 			logs.WarnContextf(ctx, "publishWorkerTask: get last assistant message time: %v", err)
 		} else if lastTime != nil {
 			windowStart = *lastTime
@@ -842,15 +841,15 @@ func (p *MessagePoster) publishWorkerTask(
 		Content:    message.Content,
 		SenderName: message.SenderName,
 	})
-	executionTarget := p.buildExecutionTarget(ctx, session, message)
-	projectContext := p.buildProjectContext(ctx, session)
+	executionTarget := p.buildExecutionTarget(ctx, session, effectiveAssistantID, message)
+	projectContext := p.buildProjectContext(ctx, session, effectiveAssistantID)
 
 	cmd := messaging.NewRunCommand(
 		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
 		messaging.RouteContext{
 			OrgID:     orgID,
 			SessionID: session.PublicID,
-			WorkerID:  session.AllocatedAssistantID,
+			WorkerID:  effectiveWorkerID,
 		},
 		messaging.TraceContext{
 			TraceID:   session.PublicID,
@@ -887,11 +886,11 @@ func (p *MessagePoster) publishWorkerTask(
 	)
 
 	if err := p.eventbus.Publish(ctx, topic, cmd); err != nil {
-		logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", session.AllocatedAssistantID, err)
+		logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", effectiveAssistantID, err)
 		return fmt.Errorf("failed to publish message to assistant: %w", err)
 	}
 	logs.InfoContextf(ctx, "published run command: topic=%s org_id=%d worker_id=%d assistant_id=%d session_id=%s run_id=%s message_id=%d sequence=%d",
-		topic, orgID, session.AllocatedAssistantID, session.AssistantID, session.PublicID, requestID, message.ID, message.Sequence)
+		topic, orgID, effectiveWorkerID, effectiveAssistantID, session.PublicID, requestID, message.ID, message.Sequence)
 	return nil
 }
 

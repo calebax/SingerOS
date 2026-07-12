@@ -42,9 +42,10 @@ type TraceContext struct {
 
 // RouteContext 携带消息路由信息，用于消息投递和租户隔离。
 type RouteContext struct {
-	OrgID     uint   `json:"org_id"`
-	SessionID string `json:"session_id,omitempty"`
-	WorkerID  uint   `json:"worker_id,omitempty"`
+	OrgID       uint   `json:"org_id"`
+	SessionID   string `json:"session_id,omitempty"`
+	WorkerID    uint   `json:"worker_id,omitempty"`
+	AssistantID string `json:"assistant_id,omitempty"`
 }
 
 // Envelope 是通用消息信封，用于所有 MQ topic 上的消息传输。

@@ -1573,7 +1573,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	// 查询项目会话
 	prjSession, _ := db.GetProjectSession(ctx, s.db, project.ID)
 	if prjSession != nil {
-		result.Session = convertToContractSession(prjSession, s.db)
+		result.Session = convertToContractSession(ctx, prjSession, s.db)
 	}
 
 	// 查询项目任务
@@ -1617,7 +1617,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		}
 		if t.SessionID != nil {
 			if sess, ok := sessionMap[*t.SessionID]; ok {
-				item.Session = convertToContractSession(sess, s.db)
+				item.Session = convertToContractSession(ctx, sess, s.db)
 			}
 		}
 		result.Tasks = append(result.Tasks, item)

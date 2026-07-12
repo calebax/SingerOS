@@ -101,12 +101,14 @@ export type SubmitApprovalDecisionParams = {
 	request_id: string;
 	action: ApprovalDecisionAction;
 	reason?: string;
+	assistant_id: string;
 };
 
 export type SubmitQuestionAnswerParams = {
 	session_id: string;
 	request_id: string;
 	answers: string[][];
+	assistant_id: string;
 };
 
 export type CreateInitialMessageParams = {
@@ -183,6 +185,7 @@ export const sessionApi = {
 				payload: {
 					request_id: params.request_id,
 					action: params.action,
+					assistant_id: params.assistant_id,
 					...(params.reason ? { reason: params.reason } : {}),
 				},
 			},
@@ -196,6 +199,7 @@ export const sessionApi = {
 				payload: {
 					request_id: params.request_id,
 					answers: params.answers,
+					assistant_id: params.assistant_id,
 				},
 			},
 		),

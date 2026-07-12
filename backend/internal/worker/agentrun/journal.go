@@ -73,7 +73,7 @@ func (j *runJournal) Record(ctx context.Context, draft RunEventDraft) error {
 	}
 	j.observeLocked(body)
 	if !isTerminalRunEvent(body.Event) {
-		record, recordErr := archiveRecord(body, occurredAt)
+		record, recordErr := archiveRecord(body, occurredAt, j.eventContext.AssistantID)
 		if recordErr != nil {
 			j.mu.Unlock()
 			return recordErr
@@ -137,9 +137,10 @@ func (j *runJournal) envelopeLocked(
 			ParentID:  j.eventContext.ParentID,
 		},
 		Route: messaging.RouteContext{
-			OrgID:     j.eventContext.OrgID,
-			WorkerID:  j.eventContext.WorkerID,
-			SessionID: j.eventContext.SessionID,
+			OrgID:       j.eventContext.OrgID,
+			WorkerID:    j.eventContext.WorkerID,
+			SessionID:   j.eventContext.SessionID,
+			AssistantID: j.eventContext.AssistantID,
 		},
 		Body: body,
 	}
@@ -181,17 +182,19 @@ func (j *runJournal) observeLocked(body messaging.RunEventBody) {
 func archiveRecord(
 	body messaging.RunEventBody,
 	occurredAt time.Time,
+	assistantID string,
 ) (messaging.RunEventRecord, error) {
 	payload, err := archivePayload(body)
 	if err != nil {
 		return messaging.RunEventRecord{}, fmt.Errorf("archive %s payload: %w", body.Event, err)
 	}
 	return messaging.RunEventRecord{
-		Seq:       body.Seq,
-		LastSeq:   body.Seq,
-		Type:      string(body.Event),
-		Timestamp: occurredAt.UnixMilli(),
-		Payload:   payload,
+		Seq:         body.Seq,
+		LastSeq:     body.Seq,
+		Type:        string(body.Event),
+		Timestamp:   occurredAt.UnixMilli(),
+		Payload:     payload,
+		AssistantID: assistantID,
 	}, nil
 }
 
