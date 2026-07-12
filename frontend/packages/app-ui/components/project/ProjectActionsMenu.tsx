@@ -3,7 +3,20 @@
 import { Action, type Project, useProjectCapabilities } from "@leros/store";
 import { DropdownMenuItem } from "@leros/ui/components/ui/dropdown-menu";
 import { LogOut, Pencil, Trash2 } from "lucide-react";
+import type { MouseEvent, PointerEvent } from "react";
 import { CanGate } from "../permission/CanGate";
+
+function runMenuAction(event: MouseEvent, action: () => void) {
+	// 中文注释：菜单关闭时 pointerup 可能落到下方可点击卡片上，preventDefault 阻断这次穿透点击。
+	event.preventDefault();
+	event.stopPropagation();
+	action();
+}
+
+function preventClickThrough(event: PointerEvent) {
+	event.preventDefault();
+	event.stopPropagation();
+}
 
 type ProjectActionsMenuProps = {
 	project: Project;
@@ -25,19 +38,29 @@ export function ProjectActionsMenu({
 	return (
 		<>
 			<CanGate action={Action.ProjectUpdate} resource={resource}>
-				<DropdownMenuItem onClick={() => onRename(project)}>
+				<DropdownMenuItem
+					onPointerDown={preventClickThrough}
+					onClick={(event) => runMenuAction(event, () => onRename(project))}
+				>
 					<Pencil className="size-3.5" />
 					<span>重命名</span>
 				</DropdownMenuItem>
 			</CanGate>
 			<CanGate action={Action.ProjectDelete} resource={resource}>
-				<DropdownMenuItem variant="destructive" onClick={() => onDelete(project)}>
+				<DropdownMenuItem
+					variant="destructive"
+					onPointerDown={preventClickThrough}
+					onClick={(event) => runMenuAction(event, () => onDelete(project))}
+				>
 					<Trash2 className="size-3.5" />
 					<span>删除</span>
 				</DropdownMenuItem>
 			</CanGate>
 			<CanGate action={Action.ProjectMemberLeave} resource={resource}>
-				<DropdownMenuItem onClick={() => onLeave(project)}>
+				<DropdownMenuItem
+					onPointerDown={preventClickThrough}
+					onClick={(event) => runMenuAction(event, () => onLeave(project))}
+				>
 					<LogOut className="size-3.5" />
 					<span>离开项目</span>
 				</DropdownMenuItem>
