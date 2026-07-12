@@ -122,3 +122,126 @@ func TestPersistPublishedPlanCreatesFileUploadAndProjectFileIdempotently(t *test
 		t.Fatalf("file resource = %#v", resources[0])
 	}
 }
+
+func TestPersistDeclaredArtifactCreatesPathVersionChain(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s-%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "-"), time.Now().UnixNano())
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.Session{}, &types.FileUpload{}, &types.ProjectFile{}, &types.Resource{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+	if err := filestore.Init(&config.StorageConfig{
+		Driver:   "local",
+		LocalDir: t.TempDir(),
+		Bucket:   "dev-bucket",
+	}); err != nil {
+		t.Fatalf("init filestore: %v", err)
+	}
+
+	projectID := uint(10)
+	taskID := uint(20)
+	projResource := &types.Resource{
+		OrgID: 1,
+		Uin:   30,
+		Type:  types.ResourceTypeProject,
+		BizID: projectID,
+	}
+	if err := db.CreateResource(context.Background(), database, projResource); err != nil {
+		t.Fatalf("create project resource: %v", err)
+	}
+	session := &types.Session{
+		PublicID:  "session-artifact-versions",
+		Type:      types.SessionTypeTask,
+		Uin:       30,
+		OrgID:     1,
+		ProjectID: &projectID,
+		TaskID:    &taskID,
+		Status:    string(types.SessionStatusActive),
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	persister := &declaredArtifactPersister{db: database}
+	route := messaging.RouteContext{OrgID: 1, WorkerID: 1, SessionID: session.PublicID}
+	items := []messaging.ArtifactPayload{
+		{
+			ArtifactID:   "file_artifact_v1",
+			Filename:     "report.md",
+			OriginalName: "report.md",
+			RelativePath: "artifacts/report.md",
+			StorageURI:   "file:///dev-bucket/projects/1/prj/artifacts/v1.md",
+			MimeType:     "text/markdown",
+			FileSize:     2,
+			Sha256:       strings.Repeat("a", 64),
+		},
+		{
+			ArtifactID:   "file_artifact_v2",
+			Filename:     "report.md",
+			OriginalName: "report.md",
+			RelativePath: "artifacts/report.md",
+			StorageURI:   "file:///dev-bucket/projects/1/prj/artifacts/v2.md",
+			MimeType:     "text/markdown",
+			FileSize:     3,
+			Sha256:       strings.Repeat("b", 64),
+		},
+		{
+			ArtifactID:           "file_artifact_v3",
+			Filename:             "renamed-report.md",
+			OriginalName:         "renamed-report.md",
+			RelativePath:         "artifacts/renamed-report.md",
+			PreviousRelativePath: "artifacts/report.md",
+			StorageURI:           "file:///dev-bucket/projects/1/prj/artifacts/v3.md",
+			MimeType:             "text/markdown",
+			FileSize:             4,
+			Sha256:               strings.Repeat("c", 64),
+		},
+	}
+	for i := range items {
+		if err := persister.PersistDeclaredArtifact(context.Background(), route, items[i]); err != nil {
+			t.Fatalf("persist artifact %d: %v", i, err)
+		}
+	}
+
+	var projectFiles []types.ProjectFile
+	if err := database.Order("version_no ASC").Find(&projectFiles).Error; err != nil {
+		t.Fatalf("list project files: %v", err)
+	}
+	if len(projectFiles) != 3 {
+		t.Fatalf("project file count = %d, want 3", len(projectFiles))
+	}
+	if projectFiles[0].RelativePath != "artifacts/report.md" ||
+		projectFiles[0].InitialFilePublicID != "file_artifact_v1" ||
+		projectFiles[0].VersionNo != 1 {
+		t.Fatalf("first project file = %#v", projectFiles[0])
+	}
+	if projectFiles[1].InitialFilePublicID != "file_artifact_v1" || projectFiles[1].VersionNo != 2 {
+		t.Fatalf("second project file = %#v", projectFiles[1])
+	}
+	if projectFiles[2].RelativePath != "artifacts/renamed-report.md" ||
+		projectFiles[2].InitialFilePublicID != "file_artifact_v1" ||
+		projectFiles[2].VersionNo != 3 {
+		t.Fatalf("renamed project file = %#v", projectFiles[2])
+	}
+
+	latest, err := db.ListProjectFiles(context.Background(), database, 1, projectID, string(types.ProjectFileResourceTypeArtifact))
+	if err != nil {
+		t.Fatalf("list latest project files: %v", err)
+	}
+	if len(latest) != 1 || latest[0].FilePublicID != "file_artifact_v3" {
+		t.Fatalf("latest project files = %#v", latest)
+	}
+
+	if err := persister.PersistDeclaredArtifact(context.Background(), route, items[2]); err != nil {
+		t.Fatalf("replay artifact: %v", err)
+	}
+	var count int64
+	if err := database.Model(&types.ProjectFile{}).Count(&count).Error; err != nil {
+		t.Fatalf("count project files: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("project file count after replay = %d, want 3", count)
+	}
+}

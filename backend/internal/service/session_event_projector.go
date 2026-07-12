@@ -444,6 +444,7 @@ func publicStreamArtifactPayload(
 			payload.CreatedAt,
 			createdAt.Format(time.RFC3339Nano),
 		),
+		RelativePath: payload.RelativePath, PreviousRelativePath: payload.PreviousRelativePath,
 		StorageURI: payload.StorageURI, Sha256: payload.Sha256,
 	}
 }

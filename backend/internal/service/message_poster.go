@@ -874,10 +874,10 @@ func (p *MessagePoster) publishWorkerTask(
 				Messages:    inputMessages,
 				Attachments: convertMessageToMessagingAttachments(message.Attachments),
 			},
-		Model:     modelOptions,
-		Execution: executionTarget,
-		Project:   projectContext,
-	},
+			Model:     modelOptions,
+			Execution: executionTarget,
+			Project:   projectContext,
+		},
 		&messaging.RunCommandMetadata{
 			SessionID:   session.PublicID,
 			MessageType: message.MessageType,
@@ -998,6 +998,13 @@ func attachFilesToProject(
 
 		exists, _ := infradb.GetProjectFileByFilePublicID(ctx, db, orgID, fileUpload.PublicID)
 		if exists == nil {
+			fileName := strings.TrimSpace(fileUpload.OriginalName)
+			if fileName == "" {
+				fileName = strings.TrimSpace(fileUpload.Filename)
+			}
+			if fileName == "" {
+				fileName = fileUpload.PublicID
+			}
 			pf := &types.ProjectFile{
 				FilePublicID: fileUpload.PublicID,
 				OrgID:        orgID,
@@ -1005,11 +1012,14 @@ func attachFilesToProject(
 				ResourceID:   fileUpload.ID,
 				ResourceType: types.ProjectFileResourceTypeUserUpload,
 				Uin:          uin,
+				RelativePath: "uploads/" + filepath.Base(fileName),
 			}
 			if taskID != nil {
 				pf.TaskID = *taskID
 			}
-			if err := infradb.CreateProjectFile(ctx, db, pf); err != nil {
+			if err := db.Transaction(func(tx *gorm.DB) error {
+				return infradb.CreateProjectFileVersion(ctx, tx, pf)
+			}); err != nil {
 				logs.WarnContextf(ctx, "create project_file record for attachment %s: %v", attachments[i].FileUploadID, err)
 			} else {
 				projResource, rerr := infradb.GetResourceByBizID(ctx, db, orgID, types.ResourceTypeProject, project.ID)

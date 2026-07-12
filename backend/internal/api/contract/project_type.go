@@ -161,17 +161,43 @@ type ProjectMemory struct {
 
 // FileTreeNode 文件树节点，递归结构
 type FileTreeNode struct {
-	Name       string          `json:"name"`                  // 文件/目录名
-	Path       string          `json:"path"`                  // 相对路径，兼做节点标识
-	Type       string          `json:"type"`                  // "file" | "directory"
-	Children   []*FileTreeNode `json:"children,omitempty"`    // 仅目录有
-	Size       int64           `json:"size,omitempty"`        // 仅文件有
-	MimeType   string          `json:"mime_type,omitempty"`   // 仅文件有
-	ModTime    int64           `json:"mod_time,omitempty"`    // 最后修改时间，Unix 时间戳（秒）
-	CreatedAt  int64           `json:"created_at,omitempty"`  // 文件首次 commit 时间，Unix 秒；未找到则为 0
-	PublicID   string          `json:"public_id,omitempty"`   // 上传文件关联的 public_id，仓库文件为空
-	StorageURI string          `json:"storage_uri,omitempty"` // 对象存储 URI，用于文件预览
-	Sha256     string          `json:"sha256,omitempty"`      // 文件 SHA256 校验值
+	Name                string          `json:"name"`                  // 文件/目录名
+	Path                string          `json:"path"`                  // 相对路径，兼做节点标识
+	Type                string          `json:"type"`                  // "file" | "directory"
+	Children            []*FileTreeNode `json:"children,omitempty"`    // 仅目录有
+	Size                int64           `json:"size,omitempty"`        // 仅文件有
+	MimeType            string          `json:"mime_type,omitempty"`   // 仅文件有
+	ModTime             int64           `json:"mod_time,omitempty"`    // 最后修改时间，Unix 时间戳（秒）
+	CreatedAt           int64           `json:"created_at,omitempty"`  // 文件首次 commit 时间，Unix 秒；未找到则为 0
+	PublicID            string          `json:"public_id,omitempty"`   // 上传文件关联的 public_id，仓库文件为空
+	StorageURI          string          `json:"storage_uri,omitempty"` // 对象存储 URI，用于文件预览
+	Sha256              string          `json:"sha256,omitempty"`      // 文件 SHA256 校验值
+	InitialFilePublicID string          `json:"initial_file_public_id,omitempty"`
+	VersionNo           int             `json:"version_no,omitempty"`
+	VersionLabel        string          `json:"version_label,omitempty"`
+	VersionCount        int             `json:"version_count,omitempty"`
+}
+
+// ProjectFileVersion describes one concrete version in a logical project file chain.
+type ProjectFileVersion struct {
+	PublicID            string `json:"public_id"`
+	InitialFilePublicID string `json:"initial_file_public_id"`
+	RelativePath        string `json:"relative_path"`
+	Name                string `json:"name"`
+	VersionNo           int    `json:"version_no"`
+	VersionLabel        string `json:"version_label"`
+	Size                int64  `json:"size,omitempty"`
+	MimeType            string `json:"mime_type,omitempty"`
+	CreatedAt           int64  `json:"created_at,omitempty"`
+	StorageURI          string `json:"storage_uri,omitempty"`
+	Sha256              string `json:"sha256,omitempty"`
+}
+
+// ProjectFileVersionList contains all versions of one logical project file.
+type ProjectFileVersionList struct {
+	InitialFilePublicID string               `json:"initial_file_public_id"`
+	CurrentFilePublicID string               `json:"current_file_public_id"`
+	Items               []ProjectFileVersion `json:"items"`
 }
 
 // FileUploadResult 文件上传结果
