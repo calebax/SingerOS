@@ -119,6 +119,56 @@ func TestGitDiffIntegration(t *testing.T) {
 	t.Log("✓ Git diff integration test passed")
 }
 
+func TestDiffArtifactsDetectsRenamePaths(t *testing.T) {
+	repoDir := t.TempDir()
+	runGitTestCommand(t, repoDir, "init")
+	runGitTestCommand(t, repoDir, "config", "user.email", "test@test.com")
+	runGitTestCommand(t, repoDir, "config", "user.name", "test")
+
+	oldPath := filepath.Join(repoDir, "reports", "old-name.txt")
+	if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
+		t.Fatalf("create reports directory: %v", err)
+	}
+	if err := os.WriteFile(oldPath, []byte("same content"), 0o644); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+	runGitTestCommand(t, repoDir, "add", ".")
+	runGitTestCommand(t, repoDir, "commit", "-m", "initial")
+
+	preTreeSHA, err := CapturePreRunTree(context.Background(), repoDir)
+	if err != nil {
+		t.Fatalf("capture pre-run tree: %v", err)
+	}
+	newPath := filepath.Join(repoDir, "reports", "new-name.txt")
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatalf("rename file: %v", err)
+	}
+	postTreeSHA, err := CapturePostRunTree(context.Background(), repoDir)
+	if err != nil {
+		t.Fatalf("capture post-run tree: %v", err)
+	}
+
+	entries, err := DiffArtifacts(context.Background(), repoDir, preTreeSHA, postTreeSHA)
+	if err != nil {
+		t.Fatalf("diff artifacts: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("rename entries = %#v, want one", entries)
+	}
+	if entries[0].Path != "reports/new-name.txt" || entries[0].PreviousPath != "reports/old-name.txt" {
+		t.Fatalf("rename entry = %#v", entries[0])
+	}
+}
+
+func runGitTestCommand(t *testing.T, repoDir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, output)
+	}
+}
+
 func TestGitDiffNoCommits(t *testing.T) {
 	dir := t.TempDir()
 	repoDir := filepath.Join(dir, "repo")
@@ -219,4 +269,59 @@ func TestManifestPriority(t *testing.T) {
 	}
 
 	t.Log("✓ Manifest priority test passed")
+}
+
+func TestGitDiffReconcileEnrichesExplicitRename(t *testing.T) {
+	repoDir := t.TempDir()
+	runGitTestCommand(t, repoDir, "init")
+	runGitTestCommand(t, repoDir, "config", "user.email", "test@test.com")
+	runGitTestCommand(t, repoDir, "config", "user.name", "test")
+
+	oldPath := filepath.Join(repoDir, "old-name.txt")
+	if err := os.WriteFile(oldPath, []byte("same content"), 0o644); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+	runGitTestCommand(t, repoDir, "add", ".")
+	runGitTestCommand(t, repoDir, "commit", "-m", "initial")
+
+	ctx := context.Background()
+	preTreeSHA, err := CapturePreRunTree(ctx, repoDir)
+	if err != nil {
+		t.Fatalf("capture pre-run tree: %v", err)
+	}
+	newPath := filepath.Join(repoDir, "new-name.txt")
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatalf("rename file: %v", err)
+	}
+
+	turnDir := filepath.Join(repoDir, ".leros", "tasks", "1", "turns", "req1")
+	if err := os.MkdirAll(turnDir, 0o755); err != nil {
+		t.Fatalf("create turn directory: %v", err)
+	}
+	manifestPath := filepath.Join(turnDir, "artifacts.jsonl")
+	if err := os.WriteFile(
+		manifestPath,
+		[]byte(`{"path":"new-name.txt","title":"Renamed report","is_final":true,"source":"agent_declared"}`+"\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	plan := &TaskWorkspace{RepoDir: repoDir, ArtifactManifestPath: manifestPath}
+	if err := GitDiffReconcile(ctx, plan, preTreeSHA); err != nil {
+		t.Fatalf("reconcile rename: %v", err)
+	}
+
+	records, err := CollectFinalArtifacts(ctx, plan)
+	if err != nil {
+		t.Fatalf("collect artifacts: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %#v, want one", records)
+	}
+	if records[0].RelativePath != "new-name.txt" || records[0].PreviousPath != "old-name.txt" {
+		t.Fatalf("renamed record = %#v", records[0])
+	}
+	if records[0].Title != "Renamed report" || records[0].Source != "agent_declared" {
+		t.Fatalf("explicit metadata was not preserved: %#v", records[0])
+	}
 }

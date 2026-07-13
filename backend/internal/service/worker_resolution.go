@@ -77,12 +77,16 @@ func resolveDefaultRuntimeWorker(ctx context.Context, database *gorm.DB, orgID u
 
 func resolveProjectWorkerID(ctx context.Context, database *gorm.DB, orgID, projectID uint, inferrer AssistantInferrer) (uint, error) {
 	if database != nil && projectID > 0 {
-		session, err := db.GetProjectSession(ctx, database, projectID)
+		assistantID, err := db.ResolveBoundProjectAssistantID(ctx, database, orgID, projectID)
 		if err != nil {
 			return 0, err
 		}
-		if session != nil && session.OrgID == orgID && session.AllocatedAssistantID > 0 {
-			return session.AllocatedAssistantID, nil
+		if assistantID > 0 {
+			_, workerID, err := resolveRuntimeWorker(ctx, database, orgID, assistantID, inferrer)
+			if err != nil {
+				return 0, err
+			}
+			return workerID, nil
 		}
 	}
 	_, workerID, err := resolveDefaultRuntimeWorker(ctx, database, orgID, inferrer)
@@ -114,6 +118,29 @@ func resolveProjectAssistantWorker(ctx context.Context, database *gorm.DB, orgID
 		return 0, 0, ErrNoDefaultAssistant
 	}
 	return resolveRuntimeWorker(ctx, database, orgID, assistantID, inferrer)
+}
+
+// resolveDefaultBindingWorker 未指定 assistant 时，取项目 resource_bindings 中按绑定顺序第一个 assistant。
+// projectID 为 0 时 fallback 到 resolveDefaultRuntimeWorker。
+func resolveDefaultBindingWorker(ctx context.Context, database *gorm.DB, orgID, projectID uint, inferrer AssistantInferrer) (uint, uint, error) {
+	if projectID == 0 {
+		return resolveDefaultRuntimeWorker(ctx, database, orgID, inferrer)
+	}
+	resource, err := db.GetResourceByBizID(ctx, database, orgID, types.ResourceTypeProject, projectID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if resource == nil {
+		return 0, 0, ErrNoDefaultAssistant
+	}
+	binding, err := db.GetFirstResourceAssistantBinding(ctx, database, resource.ID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if binding == nil || binding.AssistantID == nil || *binding.AssistantID == 0 {
+		return 0, 0, ErrNoDefaultAssistant
+	}
+	return resolveRuntimeWorker(ctx, database, orgID, *binding.AssistantID, inferrer)
 }
 
 func firstOrDefault(ids []uint) uint {

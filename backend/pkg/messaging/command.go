@@ -297,12 +297,12 @@ type ActorContext struct {
 }
 
 type ExecutionTarget struct {
-	AssistantID        string   `json:"assistant_id,omitempty"`
-	AssistantName      string   `json:"assistant_name,omitempty"`
-	AssistantDesc      string   `json:"assistant_desc,omitempty"`
-	SystemPrompt       string   `json:"system_prompt,omitempty"`
-	Skills             []string `json:"skills,omitempty"`
-	Tools              []string `json:"tools,omitempty"`
+	AssistantID   string   `json:"assistant_id,omitempty"`
+	AssistantName string   `json:"assistant_name,omitempty"`
+	AssistantDesc string   `json:"assistant_desc,omitempty"`
+	SystemPrompt  string   `json:"system_prompt,omitempty"`
+	Skills        []string `json:"skills,omitempty"`
+	Tools         []string `json:"tools,omitempty"`
 }
 
 type WorkspaceOptions struct {
@@ -312,17 +312,17 @@ type WorkspaceOptions struct {
 
 // ProjectContext carries project business context to the worker.
 type ProjectContext struct {
-	Name        string         `json:"name,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Objective   string         `json:"objective,omitempty"`
+	Name        string        `json:"name,omitempty"`
+	Description string        `json:"description,omitempty"`
+	Objective   string        `json:"objective,omitempty"`
 	Members     []MemberBrief `json:"members,omitempty"`
 }
 
 // MemberBrief is a lightweight project member snapshot.
 type MemberBrief struct {
 	MemberID      uint   `json:"member_id"`
-	MemberType    string `json:"member_type"`                // user / assistant
-	MemberRole    string `json:"member_role"`                // owner / admin / member / viewer
+	MemberType    string `json:"member_type"` // user / assistant
+	MemberRole    string `json:"member_role"` // owner / admin / member / viewer
 	Name          string `json:"name"`
 	IsDefault     bool   `json:"is_default,omitempty"`
 	IsCurrentExec bool   `json:"is_current_exec,omitempty"` // marks the assistant executing this run

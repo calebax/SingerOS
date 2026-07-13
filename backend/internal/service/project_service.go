@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1573,7 +1574,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	// 查询项目会话
 	prjSession, _ := db.GetProjectSession(ctx, s.db, project.ID)
 	if prjSession != nil {
-		result.Session = convertToContractSession(prjSession, s.db)
+		result.Session = convertToContractSession(ctx, prjSession, s.db)
 	}
 
 	// 查询项目任务
@@ -1617,7 +1618,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		}
 		if t.SessionID != nil {
 			if sess, ok := sessionMap[*t.SessionID]; ok {
-				item.Session = convertToContractSession(sess, s.db)
+				item.Session = convertToContractSession(ctx, sess, s.db)
 			}
 		}
 		result.Tasks = append(result.Tasks, item)
@@ -1827,37 +1828,422 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	if !isPathAllowed(filePath) {
 		return nil, "", 0, errors.New("file access denied")
 	}
-
-	files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, "")
+	normalizedPath, err := workspace.NormalizeRelativePath(filePath)
 	if err != nil {
-		return nil, "", 0, fmt.Errorf("list project files: %w", err)
+		return nil, "", 0, errors.New("file path is required")
 	}
-
-	fileName := filepath.Base(filePath)
-	var target *types.ProjectFile
-	for i := range files {
-		fileUpload, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, files[i].FilePublicID)
+	resourceType := types.ProjectFileResourceTypeUserUpload
+	if strings.HasPrefix(normalizedPath, "artifacts/") {
+		resourceType = types.ProjectFileResourceTypeArtifact
+	}
+	target, err := db.GetLatestProjectFileByRelativePath(
+		ctx,
+		s.db,
+		caller.OrgID,
+		project.ID,
+		resourceType,
+		normalizedPath,
+	)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("get latest project file: %w", err)
+	}
+	if target == nil {
+		files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, "")
 		if err != nil {
-			return nil, "", 0, fmt.Errorf("get file upload: %w", err)
+			return nil, "", 0, fmt.Errorf("list project files: %w", err)
 		}
-		if fileUpload != nil && (fileUpload.OriginalName == fileName || fileUpload.Filename == fileName) {
-			target = &files[i]
-			break
+		fileName := filepath.Base(normalizedPath)
+		for i := range files {
+			fileUpload, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, files[i].FilePublicID)
+			if err != nil {
+				return nil, "", 0, fmt.Errorf("get file upload: %w", err)
+			}
+			if fileUpload != nil && (fileUpload.OriginalName == fileName || fileUpload.Filename == fileName) {
+				target = &files[i]
+				break
+			}
 		}
 	}
 	if target == nil {
-		return nil, "", 0, fmt.Errorf("file %q not found in project files", fileName)
+		return nil, "", 0, errors.New("file not found")
 	}
 	if err := s.perm.RequireProjectFile(ctx, FromTypeCaller(caller), target, projectFileDownloadAction(target)); err != nil {
 		return nil, "", 0, err
 	}
+	return openProjectFileVersion(ctx, s.db, caller.OrgID, target.FilePublicID)
+}
 
-	fileUpload, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, target.FilePublicID)
+// DownloadProjectFileByPublicID downloads one concrete project file version.
+func (s *projectService) DownloadProjectFileByPublicID(
+	ctx context.Context,
+	publicID string,
+	filePublicID string,
+) (io.ReadCloser, string, int64, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, strings.TrimSpace(publicID))
+	if err != nil {
+		return nil, "", 0, err
+	}
+	if project == nil {
+		return nil, "", 0, errors.New("project not found")
+	}
+	if err := s.perm.RequireProject(ctx, FromTypeCaller(caller), project, types.ActionProjectView); err != nil {
+		return nil, "", 0, err
+	}
+	file, err := db.GetProjectFileByProjectAndFilePublicID(
+		ctx,
+		s.db,
+		caller.OrgID,
+		project.ID,
+		strings.TrimSpace(filePublicID),
+	)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	if file == nil {
+		return nil, "", 0, errors.New("file not found")
+	}
+	return openProjectFileVersion(ctx, s.db, caller.OrgID, file.FilePublicID)
+}
+
+// GetProjectFileVersions returns every version in the selected file's initial-file chain.
+func (s *projectService) GetProjectFileVersions(
+	ctx context.Context,
+	publicID string,
+	filePublicID string,
+) (*contract.ProjectFileVersionList, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, strings.TrimSpace(publicID))
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+	if err := s.perm.RequireProject(ctx, FromTypeCaller(caller), project, types.ActionProjectView); err != nil {
+		return nil, err
+	}
+	selected, err := db.GetProjectFileByProjectAndFilePublicID(
+		ctx,
+		s.db,
+		caller.OrgID,
+		project.ID,
+		strings.TrimSpace(filePublicID),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if selected == nil {
+		return nil, errors.New("file not found")
+	}
+	initialID := selected.InitialFilePublicID
+	if initialID == "" {
+		initialID = selected.FilePublicID
+	}
+	versions, err := db.ListProjectFileVersions(ctx, s.db, caller.OrgID, project.ID, initialID)
+	if err != nil {
+		return nil, fmt.Errorf("list project file versions: %w", err)
+	}
+	result := &contract.ProjectFileVersionList{
+		InitialFilePublicID: initialID,
+		Items:               make([]contract.ProjectFileVersion, 0, len(versions)),
+	}
+	for i := range versions {
+		fileUpload, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, versions[i].FilePublicID)
+		if err != nil {
+			return nil, fmt.Errorf("get file upload: %w", err)
+		}
+		if fileUpload == nil {
+			continue
+		}
+		if result.CurrentFilePublicID == "" {
+			result.CurrentFilePublicID = versions[i].FilePublicID
+		}
+		result.Items = append(result.Items, contract.ProjectFileVersion{
+			PublicID:            versions[i].FilePublicID,
+			InitialFilePublicID: initialID,
+			RelativePath:        versions[i].RelativePath,
+			Name:                filepath.Base(versions[i].RelativePath),
+			VersionNo:           versions[i].VersionNo,
+			VersionLabel:        fmt.Sprintf("第 %d 版", versions[i].VersionNo),
+			Size:                fileUpload.FileSize,
+			MimeType:            fileUpload.MimeType,
+			CreatedAt:           versions[i].CreatedAt.Unix(),
+			StorageURI:          fileUpload.StorageURI,
+			Sha256:              fileUpload.Sha256,
+		})
+	}
+	return result, nil
+}
+
+// RestoreProjectFileVersion restores one stored version to the project path and creates a new version.
+func (s *projectService) RestoreProjectFileVersion(
+	ctx context.Context,
+	publicID string,
+	filePublicID string,
+) (*contract.FileTreeNode, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, strings.TrimSpace(publicID))
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+	if err := s.perm.RequireProject(ctx, FromTypeCaller(caller), project, types.ActionProjectView); err != nil {
+		return nil, err
+	}
+	target, err := db.GetProjectFileByProjectAndFilePublicID(
+		ctx,
+		s.db,
+		caller.OrgID,
+		project.ID,
+		strings.TrimSpace(filePublicID),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if target == nil {
+		return nil, errors.New("file not found")
+	}
+	if target.ResourceType != types.ProjectFileResourceTypeArtifact {
+		return nil, errors.New("only artifact versions can be restored")
+	}
+	relativePath, err := workspace.NormalizeRelativePath(target.RelativePath)
+	if err != nil {
+		return nil, errors.New("file access denied")
+	}
+	if err := s.perm.RequireProjectFile(ctx, FromTypeCaller(caller), target, projectFileDownloadAction(target)); err != nil {
+		return nil, err
+	}
+
+	reader, targetUpload, err := filestore.OpenFileByPublicID(ctx, s.db, caller.OrgID, target.FilePublicID)
+	if err != nil {
+		return nil, fmt.Errorf("open project file version: %w", err)
+	}
+	data, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("read project file version: %w", readErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close project file version: %w", closeErr)
+	}
+
+	workerID, err := resolveProjectWorkerID(ctx, s.db, project.OrgID, project.ID, s.inferrer)
+	if err != nil {
+		return nil, fmt.Errorf("resolve project worker: %w", err)
+	}
+	repoDir, err := workspace.ProjectRepoPath(project.OrgID, workerID, project.PublicID)
+	if err != nil {
+		return nil, err
+	}
+	absolutePath, err := workspace.SafeJoin(repoDir, relativePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve restore path: %w", err)
+	}
+	if err := writeProjectFileAtomically(absolutePath, data); err != nil {
+		return nil, err
+	}
+	if err := commitRestoredProjectFile(ctx, repoDir, relativePath, project.GiteaDefaultBranch, caller); err != nil {
+		return nil, err
+	}
+
+	fileName := filepath.Base(relativePath)
+	mimeType := strings.TrimSpace(targetUpload.MimeType)
+	if mimeType == "" {
+		mimeType = mimeTypeByExt(fileName)
+	}
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	objectKey := fmt.Sprintf(
+		"projects/%d/%s/artifacts/%s%s",
+		caller.OrgID,
+		project.PublicID,
+		snowflake.GenerateIDBase58(),
+		filepath.Ext(fileName),
+	)
+
+	var restoredFile *types.ProjectFile
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		fileUpload, err := filestore.Upload(ctx, tx, filestore.UploadParams{
+			Data:         data,
+			Filename:     fileName,
+			OriginalName: targetUpload.OriginalName,
+			MimeType:     mimeType,
+			OrgID:        caller.OrgID,
+			OwnerID:      caller.Uin,
+			ObjectKey:    objectKey,
+			Purpose:      filestore.PurposeArtifact,
+		})
+		if err != nil {
+			return fmt.Errorf("upload restored project file: %w", err)
+		}
+
+		restoredFile = &types.ProjectFile{
+			FilePublicID: fileUpload.PublicID,
+			OrgID:        target.OrgID,
+			ProjectID:    target.ProjectID,
+			TaskID:       target.TaskID,
+			ResourceID:   fileUpload.ID,
+			ResourceType: target.ResourceType,
+			Uin:          caller.Uin,
+			RelativePath: relativePath,
+		}
+		if err := db.CreateProjectFileVersion(ctx, tx, restoredFile); err != nil {
+			return fmt.Errorf("create restored project file version: %w", err)
+		}
+		projResource, err := db.GetResourceByBizID(ctx, tx, project.OrgID, types.ResourceTypeProject, project.ID)
+		if err != nil {
+			return fmt.Errorf("get project resource for restored file: %w", err)
+		}
+		if projResource != nil {
+			resourceType := types.ResourceTypeFile
+			if restoredFile.ResourceType == types.ProjectFileResourceTypeArtifact {
+				resourceType = types.ResourceTypeArtifact
+			}
+			parentID := projResource.ID
+			if err := db.CreateResource(ctx, tx, &types.Resource{
+				OrgID:                 project.OrgID,
+				Uin:                   caller.Uin,
+				Type:                  resourceType,
+				BizID:                 restoredFile.ID,
+				ParentResourceID:      &parentID,
+				ParentResourcePathIDs: types.ResourcePathIDs{projResource.ID},
+			}); err != nil {
+				return fmt.Errorf("sync restored project file resource: %w", err)
+			}
+		}
+		if err := db.TouchProjectUpdatedAt(ctx, tx, project.ID, time.Now()); err != nil {
+			return fmt.Errorf("touch project updated_at: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	nodes := buildFileTreeFromProjectFiles(ctx, s.db, []types.ProjectFile{*restoredFile})
+	if len(nodes) == 0 {
+		return nil, errors.New("file not found")
+	}
+	return nodes[0], nil
+}
+
+func writeProjectFileAtomically(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create project file directory: %w", err)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".leros-restore-*")
+	if err != nil {
+		return fmt.Errorf("create restored project file: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write restored project file: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close restored project file: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("replace project file with restored version: %w", err)
+	}
+	removeTemporary = false
+	return nil
+}
+
+func commitRestoredProjectFile(
+	ctx context.Context,
+	repoDir string,
+	relativePath string,
+	branch string,
+	caller *types.Caller,
+) error {
+	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
+		return fmt.Errorf("project repository is unavailable: %w", err)
+	}
+	add := exec.CommandContext(ctx, "git", "add", "--", relativePath)
+	add.Dir = repoDir
+	if output, err := add.CombinedOutput(); err != nil {
+		return fmt.Errorf("stage restored project file: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	diff := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet", "--", relativePath)
+	diff.Dir = repoDir
+	if err := diff.Run(); err == nil {
+		return nil
+	} else {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			return fmt.Errorf("check restored project file diff: %w", err)
+		}
+	}
+	commit := exec.CommandContext(ctx, "git", "commit", "-m", "restore: "+relativePath, "--", relativePath)
+	commit.Dir = repoDir
+	commit.Env = projectFileGitAuthorEnv(caller)
+	if output, err := commit.CombinedOutput(); err != nil {
+		return fmt.Errorf("commit restored project file: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	remote := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
+	remote.Dir = repoDir
+	if remote.Run() != nil {
+		return nil
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		branch = "main"
+	}
+	push := exec.CommandContext(ctx, "git", "push", "origin", branch)
+	push.Dir = repoDir
+	if output, err := push.CombinedOutput(); err != nil {
+		return fmt.Errorf("push restored project file: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func projectFileGitAuthorEnv(caller *types.Caller) []string {
+	name := "leros-project-file-restore"
+	email := "project-file-restore@leros.local"
+	if caller != nil {
+		name = fmt.Sprintf("leros-user-%d", caller.Uin)
+		email = fmt.Sprintf("user-%d@org-%d.leros.local", caller.Uin, caller.OrgID)
+	}
+	return append(
+		os.Environ(),
+		"GIT_AUTHOR_NAME="+name,
+		"GIT_AUTHOR_EMAIL="+email,
+		"GIT_COMMITTER_NAME="+name,
+		"GIT_COMMITTER_EMAIL="+email,
+	)
+}
+
+func openProjectFileVersion(
+	ctx context.Context,
+	dbConn *gorm.DB,
+	orgID uint,
+	filePublicID string,
+) (io.ReadCloser, string, int64, error) {
+	fileUpload, err := db.GetFileUploadByPublicID(ctx, dbConn, orgID, filePublicID)
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("get file upload: %w", err)
 	}
 	if fileUpload == nil {
-		return nil, "", 0, fmt.Errorf("file upload %q not found", target.FilePublicID)
+		return nil, "", 0, errors.New("file not found")
 	}
 
 	objectKey, err := storageKeyFromFilestoreURI(fileUpload.StorageURI)
@@ -1920,27 +2306,35 @@ func buildFileTreeFromProjectFiles(ctx context.Context, dbParam *gorm.DB, files 
 			continue
 		}
 
-		var sourcePrefix string
-		var fileName string
-		if pf.ResourceType == types.ProjectFileResourceTypeArtifact {
-			sourcePrefix = "artifacts/"
-			fileName = fileUpload.OriginalName
-		} else {
-			sourcePrefix = "uploads/"
-			fileName = fileUpload.OriginalName
+		fullPath := strings.TrimSpace(pf.RelativePath)
+		if fullPath == "" {
+			prefix := "uploads/"
+			if pf.ResourceType == types.ProjectFileResourceTypeArtifact {
+				prefix = "artifacts/"
+			}
+			fullPath = prefix + filepath.Base(fileUpload.OriginalName)
 		}
-		fullPath := sourcePrefix + fileName
+		fileName := filepath.Base(fullPath)
+		initialID := pf.InitialFilePublicID
+		if initialID == "" {
+			initialID = pf.FilePublicID
+		}
 
 		node := &contract.FileTreeNode{
-			Name:       fileName,
-			Path:       fullPath,
-			Type:       "file",
-			Size:       fileUpload.FileSize,
-			MimeType:   fileUpload.MimeType,
-			CreatedAt:  pf.CreatedAt.Unix(),
-			PublicID:   pf.FilePublicID,
-			StorageURI: fileUpload.StorageURI,
-			Sha256:     fileUpload.Sha256,
+			Name:                fileName,
+			Path:                fullPath,
+			Type:                "file",
+			Size:                fileUpload.FileSize,
+			MimeType:            fileUpload.MimeType,
+			ModTime:             pf.UpdatedAt.Unix(),
+			CreatedAt:           pf.CreatedAt.Unix(),
+			PublicID:            pf.FilePublicID,
+			StorageURI:          fileUpload.StorageURI,
+			Sha256:              fileUpload.Sha256,
+			InitialFilePublicID: initialID,
+			VersionNo:           pf.VersionNo,
+			VersionLabel:        fmt.Sprintf("第 %d 版", pf.VersionNo),
+			VersionCount:        pf.VersionNo,
 		}
 		roots = append(roots, node)
 	}

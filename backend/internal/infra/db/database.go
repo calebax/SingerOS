@@ -7,6 +7,7 @@ package db
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/ygpkg/yg-go/dbtools"
@@ -167,6 +168,10 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	if err := backfillFileArtifactResources(db); err != nil {
+		return err
+	}
+
+	if err := backfillProjectFileVersions(db); err != nil {
 		return err
 	}
 
@@ -987,4 +992,106 @@ func maskAPIKey(key string) string {
 		return "***"
 	}
 	return key[:3] + "***" + key[len(key)-4:]
+}
+
+type projectFileVersionGroup struct {
+	initialFilePublicID string
+	versionNo           int
+}
+
+func backfillProjectFileVersions(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&types.ProjectFile{}) {
+		return nil
+	}
+
+	var projectFiles []types.ProjectFile
+	if err := db.Unscoped().Order("created_at ASC, id ASC").Find(&projectFiles).Error; err != nil {
+		return fmt.Errorf("list project files for version backfill: %w", err)
+	}
+	if len(projectFiles) == 0 {
+		return createProjectFileVersionUniqueIndex(db)
+	}
+
+	var uploads []types.FileUpload
+	if err := db.Unscoped().Find(&uploads).Error; err != nil {
+		return fmt.Errorf("list file uploads for project file version backfill: %w", err)
+	}
+	uploadsByID := make(map[uint]types.FileUpload, len(uploads))
+	for i := range uploads {
+		uploadsByID[uploads[i].ID] = uploads[i]
+	}
+
+	groups := make(map[string]projectFileVersionGroup)
+	err := db.Transaction(func(tx *gorm.DB) error {
+		for i := range projectFiles {
+			file := &projectFiles[i]
+			relativePath := strings.TrimSpace(file.RelativePath)
+			if relativePath == "" {
+				upload := uploadsByID[file.ResourceID]
+				name := strings.TrimSpace(upload.OriginalName)
+				if name == "" {
+					name = strings.TrimSpace(upload.Filename)
+				}
+				if name == "" {
+					name = file.FilePublicID
+				}
+				relativePath = projectFileBackfillPrefix(file.ResourceType) + filepath.Base(name)
+			}
+			relativePath = filepath.ToSlash(filepath.Clean(filepath.FromSlash(relativePath)))
+
+			groupKey := fmt.Sprintf("%d\x00%d\x00%s\x00%s", file.OrgID, file.ProjectID, file.ResourceType, relativePath)
+			group, exists := groups[groupKey]
+			if !exists {
+				group.initialFilePublicID = file.FilePublicID
+			}
+			group.versionNo++
+			groups[groupKey] = group
+
+			updates := map[string]interface{}{
+				"relative_path":          relativePath,
+				"initial_file_public_id": group.initialFilePublicID,
+				"version_no":             group.versionNo,
+			}
+			if err := tx.Unscoped().Model(&types.ProjectFile{}).Where("id = ?", file.ID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("backfill project file %d version fields: %w", file.ID, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return createProjectFileVersionUniqueIndex(db)
+}
+
+func projectFileBackfillPrefix(resourceType types.ProjectFileResourceType) string {
+	switch resourceType {
+	case types.ProjectFileResourceTypeArtifact:
+		return "artifacts/"
+	case types.ProjectFileResourceTypeUserUpload:
+		return "uploads/"
+	case types.ProjectFileResourceTypePlan:
+		return "plans/"
+	default:
+		return "files/"
+	}
+}
+
+func createProjectFileVersionUniqueIndex(db *gorm.DB) error {
+	statements := []string{
+		fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_project_file_version ON %s (org_id, project_id, initial_file_public_id, version_no)",
+			types.TableNameProjectFile,
+		),
+		fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_project_file_path_version ON %s (org_id, project_id, resource_type, relative_path, version_no)",
+			types.TableNameProjectFile,
+		),
+	}
+	for _, statement := range statements {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("create project file version unique index: %w", err)
+		}
+	}
+	return nil
 }

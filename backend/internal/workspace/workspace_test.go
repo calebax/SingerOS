@@ -86,6 +86,34 @@ func TestPrepareTaskWorkspaceDoesNotCreateAssetsDirForLocalInit(t *testing.T) {
 	assertNoAssetsDir(t, plan.RepoDir)
 }
 
+func TestPrepareTaskWorkspacePreservesLocalGitRepoWithoutRemote(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	request := TaskWorkspaceRequest{
+		OrgID:     7,
+		ProjectID: "project-1",
+		TaskID:    "task-1",
+		RequestID: "request-1",
+	}
+	plan, err := PrepareTaskWorkspace(context.Background(), request)
+	if err != nil {
+		t.Fatalf("PrepareTaskWorkspace() error = %v", err)
+	}
+	writeWorkspaceFile(t, filepath.Join(plan.RepoDir, "report.md"), "keep me")
+	runGit(t, plan.RepoDir, "add", "report.md")
+	runGit(t, plan.RepoDir, "-c", "user.name=Leros Test", "-c", "user.email=test@example.com", "commit", "-m", "add report")
+
+	request.RequestID = "request-2"
+	plan, err = PrepareTaskWorkspace(context.Background(), request)
+	if err != nil {
+		t.Fatalf("second PrepareTaskWorkspace() error = %v", err)
+	}
+	if got, readErr := os.ReadFile(filepath.Join(plan.RepoDir, "report.md")); readErr != nil || string(got) != "keep me" {
+		t.Fatalf("local repo file after second prepare = %q, error = %v", got, readErr)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)

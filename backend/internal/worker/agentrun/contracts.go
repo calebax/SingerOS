@@ -57,6 +57,7 @@ type EventContext struct {
 	OrgID             uint
 	WorkerID          uint
 	SessionID         string
+	AssistantID       string
 	TraceID           string
 	RequestID         string
 	TaskID            string

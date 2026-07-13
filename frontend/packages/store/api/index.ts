@@ -82,6 +82,8 @@ export type {
 	BackendPaginatedResponse,
 	BackendPolicyConfig,
 	BackendProject,
+	BackendProjectFileVersion,
+	BackendProjectFileVersionList,
 	BackendRuntimeConfig,
 	BackendRuntimeTodoItem,
 	BackendSession,

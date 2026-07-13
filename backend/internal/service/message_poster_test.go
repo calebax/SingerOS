@@ -38,16 +38,14 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 		t.Fatalf("create task: %v", err)
 	}
 	session := &types.Session{
-		PublicID:             "sess_persona",
-		Type:                 types.SessionTypeTask,
-		Uin:                  1,
-		OrgID:                1,
-		AssistantID:          assistant.ID,
-		AllocatedAssistantID: assistant.ID,
-		ProjectID:            &project.ID,
-		TaskID:               &task.ID,
-		Status:               string(types.SessionStatusActive),
-		Title:                "Persona Session",
+		PublicID:  "sess_persona",
+		Type:      types.SessionTypeTask,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		TaskID:    &task.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     "Persona Session",
 	}
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
@@ -62,7 +60,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 			Sequence:    sequence,
 			Timestamp:   time.Now().UnixMilli(),
 		}
-	})
+	}, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID})
 	if err != nil {
 		t.Fatalf("PostMessage failed: %v", err)
 	}
@@ -75,8 +73,8 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode run command: %v", err)
 	}
-	if payload.Execution.AssistantID != "1" {
-		t.Fatalf("execution assistant id = %q, want 1", payload.Execution.AssistantID)
+	if payload.Execution.AssistantID != "assistant-bid-strategist" {
+		t.Fatalf("execution assistant id = %q, want assistant-bid-strategist", payload.Execution.AssistantID)
 	}
 	if payload.Execution.AssistantName != assistant.Name {
 		t.Fatalf("execution assistant name = %q, want %q", payload.Execution.AssistantName, assistant.Name)
@@ -139,16 +137,14 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 		t.Fatalf("create task: %v", err)
 	}
 	session := &types.Session{
-		PublicID:             "sess_persona_evolution",
-		Type:                 types.SessionTypeTask,
-		Uin:                  1,
-		OrgID:                1,
-		AssistantID:          assistant.ID,
-		AllocatedAssistantID: assistant.ID,
-		ProjectID:            &project.ID,
-		TaskID:               &task.ID,
-		Status:               string(types.SessionStatusActive),
-		Title:                "Persona Evolution Session",
+		PublicID:  "sess_persona_evolution",
+		Type:      types.SessionTypeTask,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		TaskID:    &task.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     "Persona Evolution Session",
 	}
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
@@ -163,7 +159,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 			Sequence:    sequence,
 			Timestamp:   time.Now().UnixMilli(),
 		}
-	})
+	}, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID})
 	if err != nil {
 		t.Fatalf("PostMessage failed: %v", err)
 	}

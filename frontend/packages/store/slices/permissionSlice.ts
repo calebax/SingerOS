@@ -105,7 +105,8 @@ export class PermissionActionImpl {
 			this.#set((current) => {
 				const next = { ...current.decisions };
 				for (let i = 0; i < toFetch.length; i++) {
-					const item = toFetch[i]!;
+					const item = toFetch[i];
+					if (!item) continue;
 					const key = buildPermissionCacheKey(orgId, item.resource, item.action);
 					next[key] = decisionFromBatchResult(results[i] ?? { allowed: false });
 				}

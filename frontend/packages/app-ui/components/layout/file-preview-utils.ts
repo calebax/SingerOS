@@ -8,6 +8,7 @@ import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat } from "./OfficePrevie
 export const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
 export const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
 export const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
+export const PROJECT_FILE_RESTORED_EVENT = "leros:project-file-restored";
 
 export type FilePreviewKind =
 	| OfficeOpenXmlFormat
@@ -24,8 +25,14 @@ export type FilePreviewItem = {
 	mimeType?: string;
 	storageUri?: string;
 	publicId?: string;
+	versionPublicId?: string;
 	projectId?: string;
 	projectPath?: string;
+	versionLabel?: string;
+	versionNo?: number;
+	versionCount?: number;
+	taskId?: string;
+	openHistory?: boolean;
 	url?: string;
 };
 
@@ -84,6 +91,9 @@ export async function fetchFilePreviewContent(
 ): Promise<Response> {
 	if (item.storageUri) {
 		return fetchFilePreviewByStorageUri(item.storageUri, options);
+	}
+	if (item.projectId && item.versionPublicId) {
+		return projectFileApi.fetchDownloadVersion(item.projectId, item.versionPublicId, options);
 	}
 	if (item.projectId && item.projectPath) {
 		return projectFileApi.fetchDownload(item.projectId, item.projectPath, options);
@@ -144,7 +154,7 @@ export function artifactToFilePreviewItem(
 		title: artifact.title || artifact.name,
 		mimeType: artifact.mimeType,
 		storageUri: artifact.storageUri,
-		publicId: !artifact.storageUri && !hasProjectPath ? artifact.id : undefined,
+		publicId: artifact.storageUri ? undefined : artifact.id,
 		projectId: hasProjectPath ? projectId : undefined,
 		projectPath: hasProjectPath ? artifact.id : undefined,
 	};

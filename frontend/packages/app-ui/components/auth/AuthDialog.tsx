@@ -20,6 +20,7 @@ import {
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
 import { Input } from "@leros/ui/components/ui/input";
+import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
 import { ShieldCheck, Smartphone } from "lucide-react";
 import {
@@ -292,7 +293,7 @@ function AuthDialog({
 			setCountdown(Math.max(1, Math.floor(result.data.resend_after || 120)));
 		} catch (err) {
 			console.error("send phone login code error:", err);
-			setErrorMessage(getAuthErrorMessage(err) ?? "验证码发送失败，请稍后再试");
+			setErrorMessage(getRequestErrorMessage(err) ?? "验证码发送失败，请稍后再试");
 		} finally {
 			setSendingCode(false);
 		}
@@ -320,7 +321,7 @@ function AuthDialog({
 			onAuthenticated(result.data);
 		} catch (err) {
 			console.error("login by phone code error:", err);
-			setErrorMessage(getAuthErrorMessage(err) ?? "登录失败，请稍后再试");
+			setErrorMessage(getRequestErrorMessage(err) ?? "登录失败，请稍后再试");
 		} finally {
 			setSubmitting(false);
 		}
@@ -467,28 +468,10 @@ function AuthField({
 				invalid && "border-red-400 text-red-500 ring-1 ring-red-400",
 			)}
 		>
-			{icon}
+			<span className="inline-flex size-4 shrink-0 items-center justify-center overflow-visible">
+				{icon}
+			</span>
 			{children}
 		</div>
 	);
-}
-
-function getAuthErrorMessage(error: unknown): string | undefined {
-	if (!error || typeof error !== "object") return undefined;
-
-	const responseData = (error as { response?: { data?: unknown } }).response?.data;
-	if (
-		responseData &&
-		typeof responseData === "object" &&
-		"message" in responseData &&
-		typeof (responseData as { message?: unknown }).message === "string"
-	) {
-		return (responseData as { message: string }).message;
-	}
-
-	if ("message" in error && typeof (error as { message?: unknown }).message === "string") {
-		return (error as { message: string }).message;
-	}
-
-	return undefined;
 }

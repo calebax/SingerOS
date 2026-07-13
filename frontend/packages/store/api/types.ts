@@ -80,6 +80,7 @@ export type BackendMessageAttachment = {
 export type BackendSessionEvent = {
 	type: string;
 	session_id?: string;
+	assistant_id?: string;
 	sequence?: number;
 	timestamp?: number;
 	payload?: BackendSessionEventPayloadLike;
@@ -418,6 +419,30 @@ export type BackendProjectFileNode = {
 	public_id?: string;
 	storage_uri?: string;
 	sha256?: string;
+	initial_file_public_id?: string;
+	version_no?: number;
+	version_label?: string;
+	version_count?: number;
+};
+
+export type BackendProjectFileVersion = {
+	public_id: string;
+	initial_file_public_id: string;
+	relative_path: string;
+	name: string;
+	version_no: number;
+	version_label: string;
+	size?: number;
+	mime_type?: string;
+	created_at?: number;
+	storage_uri?: string;
+	sha256?: string;
+};
+
+export type BackendProjectFileVersionList = {
+	initial_file_public_id: string;
+	current_file_public_id: string;
+	items: BackendProjectFileVersion[];
 };
 
 export type BackendProjectFileUploadResult = {

@@ -126,25 +126,55 @@ func DiffArtifacts(ctx context.Context, repoDir, preTreeSHA, postTreeSHA string)
 
 	// git diff-tree -r --diff-filter=ACMRT lists Added, Copied, Modified, Renamed, Type-changed files.
 	// -r recurses into trees. -z uses NUL terminators for safe filename parsing.
-	cmd := exec.CommandContext(ctx, "git", "diff-tree", "-r", "--diff-filter=ACMRT", "--name-status", "-z", preTreeSHA, postTreeSHA)
+	cmd := exec.CommandContext(ctx, "git", "diff-tree", "-r", "--find-renames", "--diff-filter=ACMRT", "--name-status", "-z", preTreeSHA, postTreeSHA)
 	cmd.Dir = repoDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git diff-tree %s..%s: %w: %s", preTreeSHA, postTreeSHA, err, strings.TrimSpace(string(output)))
 	}
 
-	// Parse NUL-delimited output: pairs of (status, filename).
+	// Parse NUL-delimited output. Normal changes contain status/path, while
+	// copies and renames contain status/source-path/destination-path.
 	parts := strings.Split(string(output), "\x00")
 	if len(parts) < 2 {
 		return nil, nil
 	}
 
 	var entries []ManifestArtifact
-	for i := 0; i+1 < len(parts); i += 2 {
+	for i := 0; i < len(parts); {
 		status := strings.TrimSpace(parts[i])
-		filePath := parts[i+1]
-
-		if status == "" || filePath == "" {
+		i++
+		if status == "" {
+			continue
+		}
+		changeType := status[0]
+		if changeType == 'R' || changeType == 'C' {
+			if i+1 >= len(parts) {
+				break
+			}
+			previousPath := parts[i]
+			filePath := parts[i+1]
+			i += 2
+			if filePath == "" {
+				continue
+			}
+			entry := ManifestArtifact{
+				Path:    filePath,
+				IsFinal: true,
+				Source:  string(types.ArtifactSourceDiff),
+			}
+			if changeType == 'R' {
+				entry.PreviousPath = previousPath
+			}
+			entries = append(entries, entry)
+			continue
+		}
+		if i >= len(parts) {
+			break
+		}
+		filePath := parts[i]
+		i++
+		if filePath == "" {
 			continue
 		}
 
@@ -185,15 +215,13 @@ func GitDiffReconcile(ctx context.Context, plan *TaskWorkspace, preTreeSHA strin
 		return nil
 	}
 
-	// First check if manifest already has final entries from explicit artifact_declare calls.
-	hasFinal, err := manifestHasFinalEntries(plan.ArtifactManifestPath)
+	// Explicit declarations remain authoritative, but matching rename records are
+	// appended as metadata so the server can keep the old and new paths in one chain.
+	finalPaths, err := manifestFinalPaths(plan.ArtifactManifestPath)
 	if err != nil {
 		return err
 	}
-	if hasFinal {
-		// Explicit declarations take priority; skip Git diff fallback.
-		return nil
-	}
+	hasFinal := len(finalPaths) > 0
 
 	// Capture post-run tree.
 	postTreeSHA, err := CapturePostRunTree(ctx, plan.RepoDir)
@@ -212,6 +240,18 @@ func GitDiffReconcile(ctx context.Context, plan *TaskWorkspace, preTreeSHA strin
 	}
 	if len(entries) == 0 {
 		return nil
+	}
+	if hasFinal {
+		renamed := entries[:0]
+		for _, entry := range entries {
+			if entry.PreviousPath != "" && finalPaths[entry.Path] {
+				renamed = append(renamed, entry)
+			}
+		}
+		entries = renamed
+		if len(entries) == 0 {
+			return nil
+		}
 	}
 
 	// Append diff entries to manifest.

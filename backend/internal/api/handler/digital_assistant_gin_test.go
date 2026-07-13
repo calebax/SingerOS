@@ -1,4 +1,4 @@
-package service
+package handler
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/handler"
+	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/types"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -46,8 +46,8 @@ func TestCreateDigitalAssistantViaGin(t *testing.T) {
 		ctx.Next()
 	})
 
-	svc := NewDigitalAssistantService(db, nil)
-	handler.RegisterDigitalAssistantRoutes(router.Group("/v1"), svc)
+	svc := service.NewDigitalAssistantService(db, nil)
+	RegisterDigitalAssistantRoutes(router.Group("/v1"), svc)
 
 	body, _ := json.Marshal(contract.CreateDigitalAssistantRequest{
 		Name:         "Gin Test",
@@ -94,8 +94,8 @@ func TestCreateDigitalAssistantViaGin_NoCaller(t *testing.T) {
 		ctx.Next()
 	})
 
-	svc := NewDigitalAssistantService(db, nil)
-	handler.RegisterDigitalAssistantRoutes(router.Group("/v1"), svc)
+	svc := service.NewDigitalAssistantService(db, nil)
+	RegisterDigitalAssistantRoutes(router.Group("/v1"), svc)
 
 	body, _ := json.Marshal(contract.CreateDigitalAssistantRequest{
 		Name: "No Auth Test",

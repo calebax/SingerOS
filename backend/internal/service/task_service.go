@@ -331,7 +331,7 @@ func (s *taskService) attachTaskSession(
 		return result
 	}
 	if sess != nil {
-		result.Session = convertToContractSession(sess, s.db)
+		result.Session = convertToContractSession(ctx, sess, s.db)
 	}
 	return result
 }
@@ -370,7 +370,7 @@ func (s *taskService) attachTasksSessions(
 			continue
 		}
 		if sess, ok := sessionMap[*task.SessionID]; ok {
-			items[i].Session = convertToContractSession(sess, s.db)
+			items[i].Session = convertToContractSession(ctx, sess, s.db)
 		}
 	}
 	return items
