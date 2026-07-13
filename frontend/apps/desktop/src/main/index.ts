@@ -71,6 +71,22 @@ function createWindow(): void {
 		return { action: "deny" };
 	});
 
+	mainWindow.webContents.on("before-input-event", (event, input) => {
+		const isDevToolsShortcut =
+			input.key === "F12" ||
+			(input.key.toLowerCase() === "i" &&
+				((process.platform === "darwin" && input.meta && input.alt) ||
+					(process.platform !== "darwin" && input.control && input.shift)));
+
+		if (!isDevToolsShortcut) return;
+
+		// 正式版也保留手动打开开发者工具的能力，方便排查客户端运行时问题。
+		event.preventDefault();
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			mainWindow.webContents.openDevTools({ mode: "detach" });
+		}
+	});
+
 	mainWindow.on("close", (event) => {
 		if (isAppQuitting()) return;
 
