@@ -70,6 +70,7 @@ import {
 	sortProjectMembers,
 } from "../project-members/ProjectMemberPickerDialog";
 import { openProjectFilePreview } from "./file-preview-store";
+import { PROJECT_FILE_RESTORED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
@@ -232,6 +233,17 @@ export function ProjectPage({
 		});
 		setProjectFiles(normalizeProjectFileTree(response.data.data));
 	};
+
+	useEffect(() => {
+		if (!resolvedProjectId) return;
+		const handleRestored = (event: Event) => {
+			const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+			if (detail?.projectId && detail.projectId !== resolvedProjectId) return;
+			void refreshProjectFiles();
+		};
+		window.addEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+		return () => window.removeEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+	}, [resolvedProjectId]);
 
 	useEffect(() => {
 		if (!resolvedProjectId || resolvedTab !== "files") {
@@ -1540,7 +1552,7 @@ function ProjectFiles({
 				) : (
 					<div className="overflow-x-auto rounded-2xl border border-[var(--leros-control-border)] bg-white">
 						<div className="min-w-[640px]">
-							<div className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_180px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
+							<div className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_220px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
 								<div>名称</div>
 								<div>类型</div>
 								<div>大小</div>
@@ -1551,7 +1563,7 @@ function ProjectFiles({
 								{allFlatFiles.map((file) => (
 									<div
 										key={file.path}
-										className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_180px] items-center px-5 py-4 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
+										className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_220px] items-center px-5 py-4 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
 									>
 										<button
 											type="button"

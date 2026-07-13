@@ -1,8 +1,20 @@
 "use client";
 
-import { ChevronsLeftRightEllipsis, Download, FileText, LoaderCircle, X } from "lucide-react";
+import { type BackendProjectFileVersion, projectFileApi } from "@leros/store";
+import { cn } from "@leros/ui/lib/utils";
+import {
+	ChevronsLeftRightEllipsis,
+	Download,
+	FileText,
+	History,
+	LoaderCircle,
+	RotateCcw,
+	X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import { filePreviewActions } from "./file-preview-store";
 import {
 	detectFilePreviewKind,
 	downloadFilePreviewContent,
@@ -13,6 +25,7 @@ import {
 	type FilePreviewKind,
 	type FilePreviewState,
 	fetchFilePreviewContent,
+	PROJECT_FILE_RESTORED_EVENT,
 } from "./file-preview-utils";
 import { OfficePreview } from "./OfficePreview";
 import { SpreadsheetPreview } from "./SpreadsheetPreview";
@@ -30,8 +43,33 @@ export function FilePreviewDrawer({
 }) {
 	const [preview, setPreview] = useState<FilePreviewState>({ status: "idle" });
 	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
+	const [historyOpen, setHistoryOpen] = useState(false);
+	const [versions, setVersions] = useState<BackendProjectFileVersion[]>([]);
+	const [versionsLoading, setVersionsLoading] = useState(false);
+	const [versionsError, setVersionsError] = useState<string | null>(null);
+	const [selectedVersionPublicId, setSelectedVersionPublicId] = useState("");
+	const [restoreTarget, setRestoreTarget] = useState<BackendProjectFileVersion | null>(null);
+	const [restoring, setRestoring] = useState(false);
 	const drawerRef = useRef<HTMLDivElement>(null);
-	const previewKind = useMemo(() => detectFilePreviewKind(file), [file]);
+	const selectedVersion = useMemo(
+		() => versions.find((version) => version.public_id === selectedVersionPublicId) ?? null,
+		[versions, selectedVersionPublicId],
+	);
+	const previewFile = useMemo(() => {
+		if (!file || !selectedVersion) return file;
+		return {
+			...file,
+			name: selectedVersion.name || file.name,
+			title: `${selectedVersion.name || file.name} ${selectedVersion.version_label || `第 ${selectedVersion.version_no} 版`}`,
+			mimeType: selectedVersion.mime_type || file.mimeType,
+			storageUri: selectedVersion.storage_uri || undefined,
+			versionPublicId: selectedVersion.public_id,
+			versionLabel: selectedVersion.version_label,
+			versionNo: selectedVersion.version_no,
+		} satisfies FilePreviewItem;
+	}, [file, selectedVersion]);
+	const previewKind = useMemo(() => detectFilePreviewKind(previewFile), [previewFile]);
+	const canShowHistory = Boolean(file?.projectId && file.publicId);
 
 	const closePreview = () => {
 		onOpenChange(false);
@@ -40,15 +78,22 @@ export function FilePreviewDrawer({
 	useEffect(() => {
 		if (!open || !file) {
 			setPreview({ status: "idle" });
+			setHistoryOpen(false);
+			setVersions([]);
+			setVersionsError(null);
+			setSelectedVersionPublicId("");
 			return;
 		}
-
 		if (previewKind === "unsupported") {
 			setPreview({ status: "ready" });
 			return;
 		}
+		if (!previewFile) {
+			setPreview({ status: "error", message: "文件缺少预览来源" });
+			return;
+		}
 
-		const currentFile = file;
+		const currentFile = previewFile;
 		let cancelled = false;
 		let objectUrl: string | undefined;
 		const controller = new AbortController();
@@ -98,7 +143,48 @@ export function FilePreviewDrawer({
 			controller.abort();
 			if (objectUrl) URL.revokeObjectURL(objectUrl);
 		};
-	}, [open, file, previewKind]);
+	}, [open, file, previewFile, previewKind]);
+
+	useEffect(() => {
+		if (open && file) {
+			setHistoryOpen(Boolean(file.openHistory));
+		}
+	}, [open, file]);
+
+	useEffect(() => {
+		if (!open || !file?.projectId || !file.publicId || !historyOpen) return;
+		const projectId = file.projectId;
+		const filePublicId = file.publicId;
+
+		let cancelled = false;
+		async function loadVersions() {
+			setVersionsLoading(true);
+			setVersionsError(null);
+			try {
+				const response = await projectFileApi.versions(projectId, filePublicId);
+				if (cancelled) return;
+				if (response.data.code !== 0) {
+					throw new Error(response.data.message || "版本历史加载失败");
+				}
+				const items = response.data.data?.items ?? [];
+				setVersions(items);
+				if (!selectedVersionPublicId) {
+					setSelectedVersionPublicId(response.data.data?.current_file_public_id || filePublicId);
+				}
+			} catch (err) {
+				if (!cancelled) {
+					setVersionsError(err instanceof Error ? err.message : "版本历史加载失败");
+				}
+			} finally {
+				if (!cancelled) setVersionsLoading(false);
+			}
+		}
+
+		loadVersions();
+		return () => {
+			cancelled = true;
+		};
+	}, [open, file?.projectId, file?.publicId, historyOpen, selectedVersionPublicId]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -118,18 +204,52 @@ export function FilePreviewDrawer({
 	const handleDownload = async () => {
 		if (!file) return;
 		try {
-			const response = await downloadFilePreviewContent(file);
+			const response = await downloadFilePreviewContent(previewFile ?? file);
 			const blob = await response.blob();
 			const objectUrl = URL.createObjectURL(blob);
 			const link = document.createElement("a");
 			link.href = objectUrl;
-			link.download = file.name;
+			link.download = previewFile?.name || file.name;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
 			window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 		} catch (err) {
 			console.error("Failed to download file preview", err);
+		}
+	};
+
+	const handleRestoreVersion = async () => {
+		if (!file?.projectId || !restoreTarget) return;
+		setRestoring(true);
+		try {
+			const response = await projectFileApi.restoreVersion(file.projectId, restoreTarget.public_id);
+			if (response.data.code !== 0) {
+				throw new Error(response.data.message || "恢复版本失败");
+			}
+			toast.success("已恢复为新的最新版本");
+			const node = response.data.data;
+			if (file && node) {
+				filePreviewActions.open({
+					...file,
+					publicId: node.public_id ?? file.publicId,
+					storageUri: node.storage_uri ?? file.storageUri,
+					versionNo: node.version_no,
+					versionLabel: node.version_label,
+					versionCount: node.version_count,
+				});
+			}
+			setRestoreTarget(null);
+			setSelectedVersionPublicId("");
+			window.dispatchEvent(
+				new CustomEvent(PROJECT_FILE_RESTORED_EVENT, {
+					detail: { projectId: file.projectId, taskId: file.taskId },
+				}),
+			);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "恢复版本失败");
+		} finally {
+			setRestoring(false);
 		}
 	};
 
@@ -161,7 +281,7 @@ export function FilePreviewDrawer({
 		return null;
 	}
 
-	const displayTitle = file.title || file.name;
+	const displayTitle = previewFile?.title || file.title || file.name;
 
 	return (
 		<div
@@ -187,6 +307,16 @@ export function FilePreviewDrawer({
 					</div>
 				</div>
 				<div className="flex items-center gap-2">
+					{canShowHistory ? (
+						<button
+							type="button"
+							onClick={() => setHistoryOpen((value) => !value)}
+							className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
+							title="版本历史"
+						>
+							<History className="size-4" />
+						</button>
+					) : null}
 					<button
 						type="button"
 						onClick={() => void handleDownload()}
@@ -205,16 +335,172 @@ export function FilePreviewDrawer({
 					</button>
 				</div>
 			</div>
-			<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--leros-surface-soft)] p-6">
-				<FilePreviewContent
-					fileName={file.name}
-					displayTitle={displayTitle}
-					previewKind={previewKind}
-					preview={preview}
-				/>
+			<div className="flex min-h-0 flex-1 overflow-hidden bg-[var(--leros-surface-soft)]">
+				<div className="flex min-w-0 flex-1 flex-col overflow-hidden p-6">
+					<FilePreviewContent
+						fileName={previewFile?.name || file.name}
+						displayTitle={displayTitle}
+						previewKind={previewKind}
+						preview={preview}
+					/>
+				</div>
+				{historyOpen && canShowHistory ? (
+					<FileVersionPanel
+						currentPublicId={file.publicId ?? ""}
+						selectedPublicId={selectedVersionPublicId || (file.publicId ?? "")}
+						versions={versions}
+						loading={versionsLoading}
+						error={versionsError}
+						onSelect={(version) => setSelectedVersionPublicId(version.public_id)}
+						onRestore={setRestoreTarget}
+					/>
+				) : null}
 			</div>
+			{restoreTarget ? (
+				<div className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 px-8">
+					<div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+						<div className="flex items-start justify-between gap-4">
+							<div>
+								<h3 className="text-base font-semibold text-[var(--leros-text-strong)]">
+									恢复此版本
+								</h3>
+								<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
+									该版本将作为新的最新版本保存，历史记录仍会保留。
+								</p>
+								<p className="mt-3 text-sm font-medium text-[var(--leros-text-strong)]">
+									{restoreTarget.version_label || `第 ${restoreTarget.version_no} 版`} ·{" "}
+									{restoreTarget.name}
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => setRestoreTarget(null)}
+								className="rounded-lg p-1.5 text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]"
+								disabled={restoring}
+							>
+								<X className="size-4" />
+							</button>
+						</div>
+						<div className="mt-5 flex justify-end gap-2">
+							<button
+								type="button"
+								onClick={() => setRestoreTarget(null)}
+								className="rounded-lg px-4 py-2 text-sm text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]"
+								disabled={restoring}
+							>
+								取消
+							</button>
+							<button
+								type="button"
+								onClick={() => void handleRestoreVersion()}
+								className="inline-flex items-center gap-2 rounded-lg bg-[var(--leros-text-strong)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+								disabled={restoring}
+							>
+								{restoring ? <LoaderCircle className="size-4 animate-spin" /> : null}
+								确认恢复
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
+}
+
+function FileVersionPanel({
+	currentPublicId,
+	selectedPublicId,
+	versions,
+	loading,
+	error,
+	onSelect,
+	onRestore,
+}: {
+	currentPublicId: string;
+	selectedPublicId: string;
+	versions: BackendProjectFileVersion[];
+	loading: boolean;
+	error: string | null;
+	onSelect: (version: BackendProjectFileVersion) => void;
+	onRestore: (version: BackendProjectFileVersion) => void;
+}) {
+	return (
+		<aside className="flex w-52 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-white">
+			<div className="border-b border-[var(--leros-control-border)] px-3 py-2.5">
+				<div className="text-sm font-semibold text-[var(--leros-text-strong)]">历史记录</div>
+				<div className="mt-0.5 text-xs text-[var(--leros-text-muted)]">
+					{versions.length > 0 ? `${versions.length} 个版本` : "查看文件版本"}
+				</div>
+			</div>
+			<div className="min-h-0 flex-1 overflow-auto p-1.5">
+				{loading ? (
+					<div className="flex items-center justify-center py-10 text-xs text-[var(--leros-text-muted)]">
+						<LoaderCircle className="mr-2 size-3.5 animate-spin" />
+						加载中
+					</div>
+				) : error ? (
+					<div className="px-3 py-8 text-center text-xs text-[var(--leros-danger)]">{error}</div>
+				) : versions.length === 0 ? (
+					<div className="px-3 py-8 text-center text-xs text-[var(--leros-text-muted)]">
+						暂无历史版本
+					</div>
+				) : (
+					<div className="space-y-1">
+						{versions.map((version) => {
+							const isCurrent = version.public_id === currentPublicId;
+							const isSelected = version.public_id === selectedPublicId;
+							return (
+								<div key={version.public_id} className="relative">
+									<button
+										type="button"
+										onClick={() => onSelect(version)}
+										className={cn(
+											"w-full cursor-pointer rounded-md px-2.5 py-1.5 pr-8 text-left transition-colors",
+											isSelected
+												? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]"
+												: "hover:bg-[var(--leros-surface-soft)]",
+										)}
+									>
+										<span className="block truncate text-xs font-semibold">
+											{version.version_label || `第 ${version.version_no} 版`}
+										</span>
+										<span className="mt-0.5 block truncate text-[10px] text-[var(--leros-text-muted)]">
+											{formatVersionTime(version.created_at)}
+											{isCurrent ? (
+												<span className="ml-1.5 rounded-full bg-[var(--leros-primary)]/10 px-1 py-0 text-[9px] text-[var(--leros-primary)]">
+													最新
+												</span>
+											) : null}
+										</span>
+									</button>
+									{!isCurrent ? (
+										<button
+											type="button"
+											onClick={() => onRestore(version)}
+											className="absolute right-1.5 top-1.5 rounded p-1 text-[var(--leros-text-muted)] hover:bg-white hover:text-[var(--leros-primary)]"
+											title="恢复"
+										>
+											<RotateCcw className="size-3" />
+										</button>
+									) : null}
+								</div>
+							);
+						})}
+					</div>
+				)}
+			</div>
+		</aside>
+	);
+}
+
+function formatVersionTime(timestamp?: number): string {
+	if (!timestamp) return "-";
+	return new Intl.DateTimeFormat("zh-CN", {
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(new Date(timestamp * 1000));
 }
 
 function FilePreviewContent({

@@ -55,6 +55,7 @@ export type {
 	ProjectActivitySkill,
 } from "./api/projectActivityApi";
 export { projectActivityApi } from "./api/projectActivityApi";
+export type { GetProjectFilesParams, UploadProjectFileParams } from "./api/projectFileApi";
 export { projectFileApi } from "./api/projectFileApi";
 export type { HumanProjectMemberOption } from "./api/projectMemberApi";
 export { projectMemberApi } from "./api/projectMemberApi";
@@ -74,7 +75,12 @@ export type {
 } from "./api/skillMarketplaceApi";
 export { installedToCardItem, skillMarketplaceApi } from "./api/skillMarketplaceApi";
 export { taskApi } from "./api/taskApi";
-export type { BackendAITeammateTemplate, BackendTask } from "./api/types";
+export type {
+	BackendAITeammateTemplate,
+	BackendProjectFileVersion,
+	BackendProjectFileVersionList,
+	BackendTask,
+} from "./api/types";
 export type { UpdateUserParams, UserInfo } from "./api/userApi";
 export { userApi } from "./api/userApi";
 export type { AppAction, AppStore } from "./appStore";

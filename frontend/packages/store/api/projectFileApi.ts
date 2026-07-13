@@ -5,6 +5,7 @@ import type {
 	BackendDataResponse,
 	BackendProjectFileNode,
 	BackendProjectFileUploadResult,
+	BackendProjectFileVersionList,
 } from "./types";
 
 export type GetProjectFilesParams = {
@@ -125,6 +126,9 @@ export const projectFileApi = {
 	download: (projectId: string, filePath: string): string =>
 		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/download?path=${encodeURIComponent(filePath)}`,
 
+	downloadVersion: (projectId: string, filePublicId: string): string =>
+		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/download`,
+
 	async fetchDownload(
 		projectId: string,
 		filePath: string,
@@ -140,6 +144,34 @@ export const projectFileApi = {
 		}
 		return response;
 	},
+
+	async fetchDownloadVersion(
+		projectId: string,
+		filePublicId: string,
+		options?: { signal?: AbortSignal },
+	): Promise<Response> {
+		const response = await authenticatedFetch(
+			projectFileApi.downloadVersion(projectId, filePublicId),
+			{
+				method: "GET",
+				signal: options?.signal,
+			},
+		);
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}`);
+		}
+		return response;
+	},
+
+	versions: (projectId: string, filePublicId: string) =>
+		apiClient.get<BackendDataResponse<BackendProjectFileVersionList>>(
+			`/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/versions`,
+		),
+
+	restoreVersion: (projectId: string, filePublicId: string) =>
+		apiClient.post<BackendDataResponse<BackendProjectFileNode>>(
+			`/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/restore`,
+		),
 
 	upload: async ({ file, projectPublicId }: UploadProjectFileParams) => {
 		const uploadResponse = assertBackendSuccess(

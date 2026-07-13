@@ -43,6 +43,7 @@ import { buildPromptSuggestions } from "../digitalAssistant/promptSuggestions";
 import { ChatInput } from "../input/ChatInput";
 import { CanGate } from "../permission/CanGate";
 import { openProjectFilePreview } from "./file-preview-store";
+import { PROJECT_FILE_RESTORED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
@@ -197,6 +198,18 @@ export function TaskDetailPage({
 			setTaskFiles([]);
 		}
 	}, [resolvedProjectId, resolvedTaskId]);
+
+	useEffect(() => {
+		if (!resolvedProjectId || !resolvedTaskId) return;
+		const handleRestored = (event: Event) => {
+			const detail = (event as CustomEvent<{ projectId?: string; taskId?: string }>).detail;
+			if (detail?.projectId && detail.projectId !== resolvedProjectId) return;
+			if (detail?.taskId && detail.taskId !== resolvedTaskId) return;
+			void fetchTaskFiles();
+		};
+		window.addEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+		return () => window.removeEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+	}, [resolvedProjectId, resolvedTaskId, fetchTaskFiles]);
 
 	useEffect(() => {
 		fetchProjects();
@@ -590,7 +603,13 @@ export function TaskDetailPage({
 								</div>
 								<TaskFileList
 									files={flatTaskFiles}
-									onPreview={(file) => openProjectFilePreview(resolvedProjectId, file)}
+									onPreview={(file) =>
+										openProjectFilePreview(
+											resolvedProjectId,
+											file,
+											resolvedTaskId ? { taskId: resolvedTaskId } : undefined,
+										)
+									}
 								/>
 							</section>
 						</div>
