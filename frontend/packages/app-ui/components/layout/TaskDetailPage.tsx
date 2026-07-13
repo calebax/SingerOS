@@ -43,6 +43,7 @@ import { buildPromptSuggestions } from "../digitalAssistant/promptSuggestions";
 import { ChatInput } from "../input/ChatInput";
 import { CanGate } from "../permission/CanGate";
 import { openProjectFilePreview } from "./file-preview-store";
+import { PROJECT_FILE_RESTORED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
@@ -100,6 +101,7 @@ export function TaskDetailPage({
 		clearLocalMessages,
 		clearPendingBootstrapSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		loadConversationMessages,
 		sendMessage,
 	} = useChatStore((s) => s);
@@ -198,6 +200,18 @@ export function TaskDetailPage({
 	}, [resolvedProjectId, resolvedTaskId]);
 
 	useEffect(() => {
+		if (!resolvedProjectId || !resolvedTaskId) return;
+		const handleRestored = (event: Event) => {
+			const detail = (event as CustomEvent<{ projectId?: string; taskId?: string }>).detail;
+			if (detail?.projectId && detail.projectId !== resolvedProjectId) return;
+			if (detail?.taskId && detail.taskId !== resolvedTaskId) return;
+			void fetchTaskFiles();
+		};
+		window.addEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+		return () => window.removeEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+	}, [resolvedProjectId, resolvedTaskId, fetchTaskFiles]);
+
+	useEffect(() => {
 		fetchProjects();
 	}, [fetchProjects]);
 
@@ -214,7 +228,7 @@ export function TaskDetailPage({
 		const sessionHasMessages = hasSessionMessages(resolvedSessionId);
 		// 中文注释：bootstrap 已完成且本地仍有等待态消息时，交给 GlobalEvents 接管，不抢先拉历史。
 		if (bootstrapPending && sessionHasMessages) return;
-		if (isGenerating && sessionHasMessages) return;
+		if (isGenerating && sessionHasMessages && allMessagesBelongToSession(resolvedSessionId)) return;
 		// bootstrap 标记还在但消息已被卸载清理掉，清除标记并回退为正常加载。
 		if (bootstrapPending && !sessionHasMessages) {
 			clearPendingBootstrapSession();
@@ -232,6 +246,7 @@ export function TaskDetailPage({
 		isGenerating,
 		setActiveSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
@@ -588,7 +603,13 @@ export function TaskDetailPage({
 								</div>
 								<TaskFileList
 									files={flatTaskFiles}
-									onPreview={(file) => openProjectFilePreview(resolvedProjectId, file)}
+									onPreview={(file) =>
+										openProjectFilePreview(
+											resolvedProjectId,
+											file,
+											resolvedTaskId ? { taskId: resolvedTaskId } : undefined,
+										)
+									}
 								/>
 							</section>
 						</div>

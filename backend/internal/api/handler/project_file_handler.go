@@ -29,6 +29,9 @@ func (h *ProjectFileHandler) RegisterRoutes(r gin.IRouter) {
 	viewGuard := PermGuardPath(h.permSvc, types.ResourceTypeProject, "project_id", types.ActionProjectView)
 	r.GET("/projects/:project_id/files", viewGuard, h.GetProjectFileTree)
 	r.GET("/projects/:project_id/files/download", viewGuard, h.DownloadProjectFile)
+	r.GET("/projects/:project_id/files/:file_public_id/versions", viewGuard, h.GetProjectFileVersions)
+	r.GET("/projects/:project_id/files/:file_public_id/download", viewGuard, h.DownloadProjectFileByPublicID)
+	r.POST("/projects/:project_id/files/:file_public_id/restore", viewGuard, h.RestoreProjectFileVersion)
 	r.GET("/projects/:project_id/memory", viewGuard, h.GetProjectMemory)
 }
 
@@ -96,15 +99,66 @@ func (h *ProjectFileHandler) DownloadProjectFile(ctx *gin.Context) {
 		handleProjectFileServiceError(ctx, err)
 		return
 	}
-	defer reader.Close()
+	writeProjectFileResponse(ctx, reader, contentType, size)
+}
 
+// GetProjectFileVersions 获取项目文件历史版本。
+func (h *ProjectFileHandler) GetProjectFileVersions(ctx *gin.Context) {
+	projectID := strings.TrimSpace(ctx.Param("project_id"))
+	filePublicID := strings.TrimSpace(ctx.Param("file_public_id"))
+	if projectID == "" || filePublicID == "" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "project_id and file_public_id are required"))
+		return
+	}
+	result, err := h.service.GetProjectFileVersions(ctx, projectID, filePublicID)
+	if err != nil {
+		handleProjectFileServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// DownloadProjectFileByPublicID 下载一个指定的项目文件版本。
+func (h *ProjectFileHandler) DownloadProjectFileByPublicID(ctx *gin.Context) {
+	projectID := strings.TrimSpace(ctx.Param("project_id"))
+	filePublicID := strings.TrimSpace(ctx.Param("file_public_id"))
+	if projectID == "" || filePublicID == "" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "project_id and file_public_id are required"))
+		return
+	}
+	reader, contentType, size, err := h.service.DownloadProjectFileByPublicID(ctx, projectID, filePublicID)
+	if err != nil {
+		handleProjectFileServiceError(ctx, err)
+		return
+	}
+	writeProjectFileResponse(ctx, reader, contentType, size)
+}
+
+// RestoreProjectFileVersion 恢复一个历史版本并创建新的最新版本。
+func (h *ProjectFileHandler) RestoreProjectFileVersion(ctx *gin.Context) {
+	projectID := strings.TrimSpace(ctx.Param("project_id"))
+	filePublicID := strings.TrimSpace(ctx.Param("file_public_id"))
+	if projectID == "" || filePublicID == "" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "project_id and file_public_id are required"))
+		return
+	}
+	result, err := h.service.RestoreProjectFileVersion(ctx, projectID, filePublicID)
+	if err != nil {
+		handleProjectFileServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+func writeProjectFileResponse(ctx *gin.Context, reader io.ReadCloser, contentType string, size int64) {
+	defer reader.Close()
 	ctx.Header("Content-Type", contentType)
 	if size > 0 {
 		ctx.Header("Content-Length", fmt.Sprintf("%d", size))
 	}
 	ctx.Status(http.StatusOK)
 	if _, err := io.Copy(ctx.Writer, reader); err != nil {
-		ctx.Error(err)
+		_ = ctx.Error(err)
 	}
 }
 
@@ -146,14 +200,15 @@ func handleProjectFileServiceError(ctx *gin.Context, err error) {
 	switch errMsg {
 	case "project not found", "file not found", "directory not found":
 		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, errMsg))
-	case "file access denied":
+	case "file access denied", "permission denied":
 		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
 	case "public_id is required",
 		"file_public_id is required",
 		"file path is required",
 		"filename is required",
 		"invalid parent path",
-		"cannot download a directory":
+		"cannot download a directory",
+		"only artifact versions can be restored":
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 	default:
 		if isPermissionDenied(err) {

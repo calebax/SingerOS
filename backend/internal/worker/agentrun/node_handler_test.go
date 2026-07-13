@@ -40,7 +40,7 @@ func (p *planPublisherStub) Publish(
 
 func TestNodeHandlerFiltersInternalAndMapsPublicEvents(t *testing.T) {
 	journal := &testJournal{}
-	handler := NewNodeHandler(journal, nil, nil, "test", "")
+	handler := NewNodeHandler(journal, nil, nil, "test", "", "")
 
 	if err := handler.Observe(context.Background(), agent.NodeEvent{
 		Type:    agent.NodeEventPlanReady,
@@ -365,7 +365,7 @@ func TestRunEventBodyFromNodeKeepsRuntimeOnlyEventsInternal(t *testing.T) {
 }
 
 func TestNodeHandlerRejectsWrongPayloadType(t *testing.T) {
-	handler := NewNodeHandler(&testJournal{}, nil, nil, "test", "")
+	handler := NewNodeHandler(&testJournal{}, nil, nil, "test", "", "")
 	err := handler.Observe(context.Background(), agent.NodeEvent{
 		Type:    agent.NodeEventMessageUpdate,
 		Payload: &agent.TodoSnapshotPayload{},
@@ -387,7 +387,7 @@ func TestNodeHandlerPublishesPlanReadyAsBusinessPlanPublished(t *testing.T) {
 	}
 	publisher := &planPublisherStub{body: published}
 	journal := &testJournal{}
-	handler := NewNodeHandler(journal, publisher, nil, "opencode", "session-1")
+	handler := NewNodeHandler(journal, publisher, nil, "opencode", "session-1", "")
 	occurredAt := time.Now().UTC()
 
 	err := handler.Observe(context.Background(), agent.NodeEvent{

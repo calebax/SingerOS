@@ -144,6 +144,22 @@ func (p *TaskWorkspace) StorageKey(relativePath string) (string, error) {
 	return filepath.ToSlash(key), nil
 }
 
+// NormalizeRelativePath validates and normalizes a repository-relative file path.
+func NormalizeRelativePath(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("relative path is required")
+	}
+	if filepath.IsAbs(value) {
+		return "", fmt.Errorf("relative path must not be absolute")
+	}
+	normalized := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value)))
+	if normalized == "." || normalized == ".." || strings.HasPrefix(normalized, "../") {
+		return "", fmt.Errorf("relative path escapes repository")
+	}
+	return normalized, nil
+}
+
 // SafeJoin 解析相对路径，并确保最终路径仍在指定根目录内。
 func SafeJoin(root string, child string) (string, error) {
 	rootAbs, err := filepath.Abs(root)
@@ -306,6 +322,9 @@ func ensureGitRepo(ctx context.Context, plan *TaskWorkspace) error {
 			if output, err := cmd.CombinedOutput(); err != nil {
 				return fmt.Errorf("git pull: %w: %s", err, strings.TrimSpace(string(output)))
 			}
+			return nil
+		}
+		if strings.TrimSpace(plan.CloneURL) == "" {
 			return nil
 		}
 		if err := os.RemoveAll(plan.RepoDir); err != nil {

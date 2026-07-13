@@ -80,9 +80,9 @@ type WorkspaceContext struct {
 
 // ProjectContext is the project snapshot used for one run.
 type ProjectContext struct {
-	Name        string         `json:"name,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Objective   string         `json:"objective,omitempty"`
+	Name        string        `json:"name,omitempty"`
+	Description string        `json:"description,omitempty"`
+	Objective   string        `json:"objective,omitempty"`
 	Members     []MemberBrief `json:"members,omitempty"`
 }
 

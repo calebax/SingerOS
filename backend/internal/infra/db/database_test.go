@@ -83,3 +83,57 @@ func TestVerifyProjectResourceBindingsReturnsNilWhenProjectMissingOwnerBinding(t
 		t.Fatalf("verifyProjectResourceBindings should warn-only, got err: %v", err)
 	}
 }
+
+func TestBackfillProjectFileVersionsGroupsExistingPaths(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.FileUpload{}, &types.ProjectFile{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+
+	uploads := []types.FileUpload{
+		{PublicID: "file_old_1", OrgID: 1, OwnerID: 1, Filename: "report.md", OriginalName: "report.md", StorageURI: "file:///bucket/v1.md", Status: "active"},
+		{PublicID: "file_old_2", OrgID: 1, OwnerID: 1, Filename: "report.md", OriginalName: "report.md", StorageURI: "file:///bucket/v2.md", Status: "active"},
+	}
+	for i := range uploads {
+		if err := database.Create(&uploads[i]).Error; err != nil {
+			t.Fatalf("create upload %d: %v", i, err)
+		}
+		projectFile := &types.ProjectFile{
+			FilePublicID: uploads[i].PublicID,
+			OrgID:        1,
+			ProjectID:    10,
+			TaskID:       20,
+			ResourceID:   uploads[i].ID,
+			ResourceType: types.ProjectFileResourceTypeArtifact,
+			Uin:          1,
+		}
+		if err := database.Create(projectFile).Error; err != nil {
+			t.Fatalf("create project file %d: %v", i, err)
+		}
+	}
+
+	if err := backfillProjectFileVersions(database); err != nil {
+		t.Fatalf("backfill project file versions: %v", err)
+	}
+	var files []types.ProjectFile
+	if err := database.Order("version_no ASC").Find(&files).Error; err != nil {
+		t.Fatalf("list project files: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("project file count = %d", len(files))
+	}
+	for i := range files {
+		if files[i].RelativePath != "artifacts/report.md" || files[i].InitialFilePublicID != "file_old_1" || files[i].VersionNo != i+1 {
+			t.Fatalf("project file %d = %#v", i, files[i])
+		}
+	}
+	if !database.Migrator().HasIndex(&types.ProjectFile{}, "idx_project_file_version") {
+		t.Fatal("project file version unique index was not created")
+	}
+	if !database.Migrator().HasIndex(&types.ProjectFile{}, "idx_project_file_path_version") {
+		t.Fatal("project file path version unique index was not created")
+	}
+}

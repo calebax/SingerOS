@@ -70,6 +70,7 @@ import {
 	sortProjectMembers,
 } from "../project-members/ProjectMemberPickerDialog";
 import { openProjectFilePreview } from "./file-preview-store";
+import { PROJECT_FILE_RESTORED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
@@ -144,6 +145,7 @@ export function ProjectPage({
 		clearLocalMessages,
 		clearPendingBootstrapSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		loadConversationMessages,
 		resetLocalMessages,
 	} = useChatStore((s) => s);
@@ -233,6 +235,17 @@ export function ProjectPage({
 	};
 
 	useEffect(() => {
+		if (!resolvedProjectId) return;
+		const handleRestored = (event: Event) => {
+			const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+			if (detail?.projectId && detail.projectId !== resolvedProjectId) return;
+			void refreshProjectFiles();
+		};
+		window.addEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+		return () => window.removeEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+	}, [resolvedProjectId]);
+
+	useEffect(() => {
 		if (!resolvedProjectId || resolvedTab !== "files") {
 			setProjectFiles([]);
 			return;
@@ -310,7 +323,14 @@ export function ProjectPage({
 		if (bootstrapPending && !sessionHasMessages) {
 			clearPendingBootstrapSession();
 		}
-		if (isGenerating && activeSessionId === nextSessionId && sessionHasMessages) return;
+		if (
+			isGenerating &&
+			activeSessionId === nextSessionId &&
+			sessionHasMessages &&
+			allMessagesBelongToSession(nextSessionId)
+		) {
+			return;
+		}
 		if (!sessionHasMessages) {
 			clearLocalMessages();
 		}
@@ -327,6 +347,7 @@ export function ProjectPage({
 		activeSessionId,
 		setActiveSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
@@ -408,7 +429,10 @@ export function ProjectPage({
 	}
 
 	return (
-		<div data-slot="project-page" className="flex h-full flex-1 flex-col bg-[var(--leros-surface)]">
+		<div
+			data-slot="project-page"
+			className="flex h-full min-w-0 flex-1 flex-col bg-[var(--leros-surface)]"
+		>
 			<header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
 				<div className="flex items-center gap-3 text-[var(--leros-text-muted)]">
 					{/* 中文注释：项目详情页顶部保留面包屑，方便从具体项目快速回到项目列表页。 */}
@@ -453,14 +477,14 @@ export function ProjectPage({
 				))}
 			</nav>
 
-			<div className="relative min-h-0 flex flex-1">
+			<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
 				<main
 					className={cn(
 						"min-w-0 flex-1",
 						resolvedTab === "chat"
 							? "flex min-h-0 flex-col bg-[var(--leros-surface)]"
 							: resolvedTab === "files" || resolvedTab === "activity"
-								? "min-h-0 bg-[var(--leros-surface)]"
+								? "min-h-0 overflow-hidden bg-[var(--leros-surface)]"
 								: "overflow-y-auto px-10 py-8",
 					)}
 				>
@@ -493,7 +517,7 @@ export function ProjectPage({
 				{showProjectSidebar && rightSidebarCollapsed && (
 					<button
 						type="button"
-						className="absolute right-6 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						className="absolute right-8 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 						aria-label="展开右侧栏"
 						title="展开右侧栏"
 						onClick={() => setRightSidebarCollapsed(false)}
@@ -504,13 +528,22 @@ export function ProjectPage({
 
 				{showProjectSidebar && !rightSidebarCollapsed && (
 					<aside
-						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] transition-[width] duration-200 ease-out"
+						className="relative flex min-h-0 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6 transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
+						{/* 中文注释：收起按钮移到侧栏外部，和收起态展开按钮保持同一行高度。 */}
+						<button
+							type="button"
+							className="absolute -left-14 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							aria-label="收起右侧栏"
+							title="收起右侧栏"
+							onClick={() => setRightSidebarCollapsed(true)}
+						>
+							<ChevronsRight className="size-4" />
+						</button>
 						<ProjectConfigSidebar
 							project={project}
 							compact={!isWideRightSidebar}
-							onCollapse={() => setRightSidebarCollapsed(true)}
 							onUpdateProject={async (params) => {
 								const updated = await updateProject(params);
 								if (params.members && project.id) {
@@ -577,12 +610,10 @@ function ProjectChat({
 function ProjectConfigSidebar({
 	project,
 	compact,
-	onCollapse,
 	onUpdateProject,
 }: {
 	project: Project;
 	compact: boolean;
-	onCollapse: () => void;
 	onUpdateProject: (params: {
 		public_id: string;
 		name?: string;
@@ -809,21 +840,10 @@ function ProjectConfigSidebar({
 	};
 
 	return (
-		<div className="no-scrollbar min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-6 pr-4">
-			<div className="flex items-start justify-between gap-3">
-				<div>
-					<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目配置</p>
-					<p className="mt-1 text-xs text-[var(--leros-text-muted)]">管理项目描述和可用技能</p>
-				</div>
-				<button
-					type="button"
-					className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
-					aria-label="收起右侧栏"
-					title="收起右侧栏"
-					onClick={onCollapse}
-				>
-					<ChevronsRight className="size-4" />
-				</button>
+		<div className="no-scrollbar min-h-0 flex-1 space-y-7 overflow-y-auto pr-1">
+			<div>
+				<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目配置</p>
+				<p className="mt-1 text-xs text-[var(--leros-text-muted)]">管理项目描述和可用技能</p>
 			</div>
 
 			<section>
@@ -992,7 +1012,9 @@ function ProjectConfigSidebar({
 										placeholder="搜索技能"
 									/>
 									<CommandList className="max-h-64">
-										<CommandEmpty className="py-6 text-slate-400">没有可继续添加的技能</CommandEmpty>
+										<CommandEmpty className="py-6 text-slate-400">
+											没有可继续添加的技能
+										</CommandEmpty>
 										<CommandGroup className="p-0">
 											{skillsLoading && (
 												<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>
@@ -1386,7 +1408,7 @@ function ProjectTaskList({
 								{content}
 							</button>
 							{!compact && (onRename || onDelete) ? (
-								<div className="pointer-events-none absolute right-4 top-4 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+								<div className="pointer-events-none absolute right-4 top-4 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
 									<TaskInlineActions task={task} onRename={onRename} onDelete={onDelete} />
 								</div>
 							) : null}
@@ -1463,10 +1485,10 @@ function ProjectFiles({
 	};
 
 	return (
-		<div className="h-full overflow-y-auto px-10 py-7">
-			<div className="mx-auto w-full max-w-[1200px]">
-				<div className="mb-7 flex items-center justify-between gap-5">
-					<div>
+		<div className="h-full min-w-0 overflow-auto px-10 py-7">
+			<div className="mx-auto w-full min-w-0 max-w-[1200px]">
+				<div className="mb-7 flex flex-wrap items-center justify-between gap-4">
+					<div className="min-w-0">
 						<h2 className="text-[2rem] font-semibold tracking-tight text-[var(--leros-text-strong)]">
 							项目文件
 						</h2>
@@ -1475,7 +1497,7 @@ function ProjectFiles({
 						</p>
 					</div>
 					{/* 中文注释：项目文件页顶部筛选条整体收一档，保持结构不变，只降低高度和横向占比，让桌面端视觉更紧凑。 */}
-					<div className="flex items-center gap-2.5">
+					<div className="flex flex-wrap items-center gap-2.5">
 						<div className="relative">
 							<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
 							<input
@@ -1528,70 +1550,72 @@ function ProjectFiles({
 						暂无文件
 					</div>
 				) : (
-					<div className="overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-white">
-						<div className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_180px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
-							<div>名称</div>
-							<div>类型</div>
-							<div>大小</div>
-							<div>创建时间</div>
-							<div className="text-right">操作</div>
-						</div>
-						<div className="divide-y divide-[var(--leros-control-border)]/60">
-							{allFlatFiles.map((file) => (
-								<div
-									key={file.path}
-									className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_180px] items-center px-5 py-4 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
-								>
-									<button
-										type="button"
-										data-file-preview-trigger
-										onClick={() => openProjectFilePreview(projectId, file)}
-										className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-[var(--leros-primary-softer)]/50"
-										title="查看"
+					<div className="overflow-x-auto rounded-2xl border border-[var(--leros-control-border)] bg-white">
+						<div className="min-w-[640px]">
+							<div className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_220px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
+								<div>名称</div>
+								<div>类型</div>
+								<div>大小</div>
+								<div>创建时间</div>
+								<div className="text-right">操作</div>
+							</div>
+							<div className="divide-y divide-[var(--leros-control-border)]/60">
+								{allFlatFiles.map((file) => (
+									<div
+										key={file.path}
+										className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_220px] items-center px-5 py-4 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
 									>
-										<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-											<ProjectFileTypeIcon fileName={file.name} />
-										</div>
-										<div className="min-w-0">
-											<p className="truncate text-[15px] font-semibold text-[var(--leros-text-strong)]">
-												{file.name}
-											</p>
-										</div>
-									</button>
-									<div className="text-[13px]">
-										<span className="inline-block rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
-											{getFileSource(file.path) === "task" ? "任务文件" : "上传文件"}
-										</span>
-									</div>
-									<div className="text-[13px] text-[var(--leros-text-muted)]">
-										{formatBytes(file.size)}
-									</div>
-									<div className="text-[13px] text-[var(--leros-text-muted)]">
-										{formatTime(file.createdAt)}
-									</div>
-									<div className="flex items-center justify-end gap-1.5">
 										<button
 											type="button"
 											data-file-preview-trigger
 											onClick={() => openProjectFilePreview(projectId, file)}
-											className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+											className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-[var(--leros-primary-softer)]/50"
 											title="查看"
 										>
-											<Eye className="size-4" />
-											查看
+											<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+												<ProjectFileTypeIcon fileName={file.name} />
+											</div>
+											<div className="min-w-0">
+												<p className="truncate text-[15px] font-semibold text-[var(--leros-text-strong)]">
+													{file.name}
+												</p>
+											</div>
 										</button>
-										<button
-											type="button"
-											onClick={() => handleDownload(file)}
-											className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-											title="下载"
-										>
-											<Download className="size-4" />
-											下载
-										</button>
+										<div className="text-[13px]">
+											<span className="inline-block rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
+												{getFileSource(file.path) === "task" ? "任务文件" : "上传文件"}
+											</span>
+										</div>
+										<div className="text-[13px] text-[var(--leros-text-muted)]">
+											{formatBytes(file.size)}
+										</div>
+										<div className="text-[13px] text-[var(--leros-text-muted)]">
+											{formatTime(file.createdAt)}
+										</div>
+										<div className="flex items-center justify-end gap-1.5">
+											<button
+												type="button"
+												data-file-preview-trigger
+												onClick={() => openProjectFilePreview(projectId, file)}
+												className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+												title="查看"
+											>
+												<Eye className="size-4" />
+												查看
+											</button>
+											<button
+												type="button"
+												onClick={() => handleDownload(file)}
+												className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+												title="下载"
+											>
+												<Download className="size-4" />
+												下载
+											</button>
+										</div>
 									</div>
-								</div>
-							))}
+								))}
+							</div>
 						</div>
 					</div>
 				)}

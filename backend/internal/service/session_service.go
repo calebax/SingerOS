@@ -107,7 +107,17 @@ func (s *sessionService) getSessionMessagesForCaller(ctx context.Context, sessio
 		return nil, errors.New("permission denied")
 	}
 	if caller.Kind == types.CallerKindWorker {
-		if caller.WorkerID == 0 || session.AllocatedAssistantID != caller.WorkerID {
+		if caller.WorkerID == 0 {
+			return nil, errors.New("permission denied")
+		}
+		if session.ProjectID == nil || *session.ProjectID == 0 {
+			return nil, errors.New("permission denied")
+		}
+		ok, err := db.IsProjectAssistantBound(ctx, s.db, caller.OrgID, *session.ProjectID, caller.WorkerID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
 			return nil, errors.New("permission denied")
 		}
 		return session, nil
@@ -150,21 +160,19 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 	if err != nil {
 		return nil, err
 	}
-	assistantID, workerID, err := resolveRuntimeWorker(ctx, s.db, caller.OrgID, assistantID, s.inferrer)
+	_, _, err = resolveRuntimeWorker(ctx, s.db, caller.OrgID, assistantID, s.inferrer)
 	if err != nil {
 		return nil, err
 	}
 	session := &types.Session{
-		PublicID:             sessionID,
-		Type:                 types.SessionType(req.Type),
-		Uin:                  caller.Uin,
-		OrgID:                caller.OrgID,
-		AssistantID:          assistantID,
-		AllocatedAssistantID: workerID,
-		Status:               string(types.SessionStatusActive),
-		Title:                req.Title,
-		MessageCount:         0,
-		ExpiredAt:            req.ExpiredAt,
+		PublicID: sessionID,
+		Type:     types.SessionType(req.Type),
+		Uin:      caller.Uin,
+		OrgID:    caller.OrgID,
+		Status:       string(types.SessionStatusActive),
+		Title:        req.Title,
+		MessageCount: 0,
+		ExpiredAt:    req.ExpiredAt,
 	}
 
 	if req.Metadata != nil {
@@ -175,7 +183,7 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 		return nil, err
 	}
 
-	return convertToContractSession(session, s.db), nil
+	return convertToContractSession(ctx, session, s.db), nil
 }
 
 func (s *sessionService) resolveRuntimeWorker(ctx context.Context, orgID, assistantID uint) (uint, uint, error) {
@@ -195,7 +203,7 @@ func (s *sessionService) GetSession(ctx context.Context, sessionID string) (*con
 		return nil, err
 	}
 
-	result := convertToContractSession(session, s.db)
+	result := convertToContractSession(ctx, session, s.db)
 	result.RuntimeStatus = s.sessionRuntimeStatus(ctx, session.ID)
 	return result, nil
 }
@@ -223,7 +231,7 @@ func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, re
 		return nil, err
 	}
 
-	return convertToContractSession(session, s.db), nil
+	return convertToContractSession(ctx, session, s.db), nil
 }
 
 func (s *sessionService) DeleteSession(ctx context.Context, sessionID string) error {
@@ -271,7 +279,7 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 
 	items := make([]contract.Session, 0, len(sessions))
 	for _, session := range sessions {
-		items = append(items, *convertToContractSession(session, s.db))
+		items = append(items, *convertToContractSession(ctx, session, s.db))
 	}
 
 	return &contract.SessionList{
@@ -306,9 +314,43 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		}
 	}
 
+	// 解析消息级别的 assistant 路由覆盖
+	var routing *MessageRoutingOverride
+	if len(req.AssistantIDs) > 0 {
+		assistantIDs, err := resolveAssistantIDsByPublicID(ctx, s.db, session.OrgID, req.AssistantIDs)
+		if err != nil {
+			return nil, fmt.Errorf("resolve assistant ids: %w", err)
+		}
+		if len(assistantIDs) > 0 {
+			var projectID uint
+			if session.ProjectID != nil {
+				projectID = *session.ProjectID
+			}
+			assistantID, workerID, err := resolveProjectAssistantWorker(ctx, s.db, session.OrgID, projectID, assistantIDs, s.inferrer)
+			if err != nil {
+				return nil, fmt.Errorf("resolve assistant worker: %w", err)
+			}
+			routing = &MessageRoutingOverride{AssistantID: assistantID, WorkerID: workerID}
+		}
+	} else {
+		projectID := uint(0)
+		if session.ProjectID != nil {
+			projectID = *session.ProjectID
+		}
+		assistantID, workerID, err := resolveDefaultBindingWorker(ctx, s.db, session.OrgID, projectID, s.inferrer)
+		if err != nil {
+			return nil, fmt.Errorf("resolve default assistant worker: %w", err)
+		}
+		routing = &MessageRoutingOverride{AssistantID: assistantID, WorkerID: workerID}
+	}
+
 	message, err := s.newMessagePoster().PostMessage(ctx, session, types.ExecutionMode(req.ExecutionMode), func(sequence int64) *types.SessionMessage {
-		return s.buildMessage(req, sequence)
-	})
+		msg := s.buildMessage(req, sequence)
+		if routing != nil {
+			msg.AssistantID = routing.AssistantID
+		}
+		return msg
+	}, routing)
 	if err != nil {
 		return nil, err
 	}
@@ -397,22 +439,18 @@ func fallbackWorkTitle(content string) string {
 }
 
 func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.SubmitApprovalRequest) error {
-	session, caller, err := s.getSessionForCaller(ctx, req.SessionID)
+	_, caller, err := s.getSessionForCaller(ctx, req.SessionID)
 	if err != nil {
 		return err
 	}
 	req.OrgID = caller.OrgID
-	if req.WorkerID == 0 {
-		req.WorkerID = session.AllocatedAssistantID
+
+	workerID, err := db.GetWorkerIDByAssistantPublicID(ctx, s.db, req.AssistantID)
+	if err != nil {
+		return fmt.Errorf("resolve worker by assistant: %w", err)
 	}
-	if req.WorkerID == 0 {
-		_, workerID, err := resolveDefaultRuntimeWorker(ctx, s.db, caller.OrgID, s.inferrer)
-		if err != nil {
-			return err
-		}
-		req.WorkerID = workerID
-	}
-	topic, err := messaging.WorkerCommandSubject(req.OrgID, req.WorkerID, messaging.LaneInteraction)
+
+	topic, err := messaging.WorkerCommandSubject(req.OrgID, workerID, messaging.LaneInteraction)
 	if err != nil {
 		return fmt.Errorf("build approval topic: %w", err)
 	}
@@ -421,7 +459,7 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 		fmt.Sprintf("approval_%s", snowflake.GenerateIDBase58()),
 		messaging.RouteContext{
 			OrgID:     req.OrgID,
-			WorkerID:  req.WorkerID,
+			WorkerID:  workerID,
 			SessionID: req.SessionID,
 		},
 		messaging.ApprovalResolveCommandPayload{
@@ -434,22 +472,18 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 }
 
 func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract.SubmitQuestionAnswerRequest) error {
-	session, caller, err := s.getSessionForCaller(ctx, req.SessionID)
+	_, caller, err := s.getSessionForCaller(ctx, req.SessionID)
 	if err != nil {
 		return err
 	}
 	req.OrgID = caller.OrgID
-	if req.WorkerID == 0 {
-		req.WorkerID = session.AllocatedAssistantID
+
+	workerID, err := db.GetWorkerIDByAssistantPublicID(ctx, s.db, req.AssistantID)
+	if err != nil {
+		return fmt.Errorf("resolve worker by assistant: %w", err)
 	}
-	if req.WorkerID == 0 {
-		_, workerID, err := resolveDefaultRuntimeWorker(ctx, s.db, caller.OrgID, s.inferrer)
-		if err != nil {
-			return err
-		}
-		req.WorkerID = workerID
-	}
-	topic, err := messaging.WorkerCommandSubject(req.OrgID, req.WorkerID, messaging.LaneInteraction)
+
+	topic, err := messaging.WorkerCommandSubject(req.OrgID, workerID, messaging.LaneInteraction)
 	if err != nil {
 		return fmt.Errorf("build question answer topic: %w", err)
 	}
@@ -458,7 +492,7 @@ func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract
 		fmt.Sprintf("question_%s", snowflake.GenerateIDBase58()),
 		messaging.RouteContext{
 			OrgID:     req.OrgID,
-			WorkerID:  req.WorkerID,
+			WorkerID:  workerID,
 			SessionID: req.SessionID,
 		},
 		messaging.QuestionAnswerCommandPayload{
@@ -533,7 +567,7 @@ func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contr
 		return err
 	}
 
-	publishAssistantReplyStartedEvent(ctx, s.db, s.eventbus, session, req.RunID)
+	publishAssistantReplyStartedEvent(ctx, s.db, s.eventbus, session, req.RunID, req.AssistantID)
 
 	logs.InfoContextf(ctx, "handled session run started: session_id=%s run_id=%s state_start_seq=%d reply_ids=%v",
 		req.SessionID, req.RunID, req.StateStartSeq, req.ReplyToMessageIDs)
@@ -690,8 +724,10 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 		return err
 	}
 
+	var filterAssistantID string
 	var filterWorkerID uint
 	if assistantPublicID != "" {
+		filterAssistantID = assistantPublicID
 		assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, assistantPublicID)
 		if err != nil {
 			return err
@@ -756,10 +792,12 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 		if runEvent.Body.Seq == 0 {
 			return
 		}
-		// 群聊多 AI 队友场景：按请求 assistantID 过滤，只下发匹配 AI 的事件
-		// （Route.WorkerID = 该 run 绑定的 AI 队友，由 worker NATS sink 在发布时填充）。
-		// filterWorkerID 已在上面由 DigitalAssistant.ID 解析为 WorkerDeployment.WorkerID。
-		if filterWorkerID > 0 && runEvent.Route.WorkerID != filterWorkerID {
+		if filterAssistantID != "" && runEvent.Route.AssistantID != "" &&
+			runEvent.Route.AssistantID != filterAssistantID {
+			return
+		}
+		if filterWorkerID > 0 && runEvent.Route.AssistantID == "" &&
+			runEvent.Route.WorkerID != filterWorkerID {
 			return
 		}
 		if replay && !runEventMatchesReplyIDs(runEvent, replayState.MessageIDs) {
@@ -937,20 +975,18 @@ func runEventMatchesReplyIDs(runEvent messaging.RunEvent, ids map[string]struct{
 	return false
 }
 
-func convertToContractSession(session *types.Session, db *gorm.DB) *contract.Session {
+func convertToContractSession(ctx context.Context, session *types.Session, db *gorm.DB) *contract.Session {
 	result := &contract.Session{
-		SessionID:            session.PublicID,
-		Type:                 string(session.Type),
-		Uin:                  session.Uin,
-		OrgID:                session.OrgID,
-		AssistantID:          assistantIDToPublicID(db, session.AssistantID),
-		AllocatedAssistantID: assistantIDToPublicID(db, session.AllocatedAssistantID),
-		Status:               session.Status,
-		Title:                session.Title,
-		TitleManuallySet:     session.TitleManuallySet,
-		MessageCount:         session.MessageCount,
-		CreatedAt:            session.CreatedAt,
-		UpdatedAt:            session.UpdatedAt,
+		SessionID:        session.PublicID,
+		Type:             string(session.Type),
+		Uin:              session.Uin,
+		OrgID:            session.OrgID,
+		Status:           session.Status,
+		Title:            session.Title,
+		TitleManuallySet: session.TitleManuallySet,
+		MessageCount:     session.MessageCount,
+		CreatedAt:        session.CreatedAt,
+		UpdatedAt:        session.UpdatedAt,
 	}
 
 	if session.Metadata.Tags != nil || session.Metadata.Extra != nil {
@@ -972,6 +1008,7 @@ func publishAssistantReplyStartedEvent(
 	eb eventbus.EventBus,
 	session *types.Session,
 	runID string,
+	assistantID uint,
 ) {
 	if session == nil || eb == nil || gdb == nil {
 		return
@@ -985,13 +1022,13 @@ func publishAssistantReplyStartedEvent(
 		SenderType: messaging.SenderTypeAssistant,
 		RunID:      runID,
 	}
-	if session.AssistantID > 0 {
-		publicID := assistantIDToPublicID(gdb, session.AssistantID)
+	if assistantID > 0 {
+		publicID := assistantIDToPublicID(ctx, gdb, assistantID)
 		data.AssistantID = &publicID
-		if da, err := db.GetDigitalAssistantByID(ctx, gdb, session.AssistantID); err == nil && da != nil {
+		if da, err := db.GetDigitalAssistantByID(ctx, gdb, assistantID); err == nil && da != nil {
 			data.AssistantName = da.Name
 		} else if err != nil {
-			logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: get assistant %d: %v", session.AssistantID, err)
+			logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: get assistant %d: %v", assistantID, err)
 		}
 	}
 
@@ -1019,7 +1056,7 @@ func publishAssistantReplyStartedEvent(
 		logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: publish to %s: %v", subject, err)
 	}
 	logs.InfoContextf(ctx, "published message.created (assistant): session_id=%s project_id=%d run_id=%s assistant_id=%d subject=%s",
-		session.PublicID, *session.ProjectID, runID, session.AssistantID, subject)
+		session.PublicID, *session.ProjectID, runID, assistantID, subject)
 }
 
 func normalizeMessageUsage(usage *types.MessageUsage) types.MessageUsage {
@@ -1199,50 +1236,104 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 		return nil, err
 	}
 
-	workerID := session.AllocatedAssistantID
 	if req.AssistantID != "" {
-		wid, err := db.GetWorkerIDByAssistantPublicID(ctx, s.db, req.AssistantID)
+		workerID, err := db.GetWorkerIDByAssistantPublicID(ctx, s.db, req.AssistantID)
 		if err != nil {
 			return nil, fmt.Errorf("resolve worker by assistant: %w", err)
 		}
-		workerID = wid
-	}
-	if workerID == 0 {
+
+		topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneControl)
+		if err != nil {
+			return nil, fmt.Errorf("build control topic: %w", err)
+		}
+
+		cmd := messaging.NewCancelRunCommand(
+			fmt.Sprintf("ctrl_%s", snowflake.GenerateIDBase58()),
+			messaging.RouteContext{
+				OrgID:     caller.OrgID,
+				WorkerID:  workerID,
+				SessionID: sessionID,
+			},
+			messaging.CancelRunCommandPayload{
+				RunID:  req.RunID,
+				Reason: req.Reason,
+			},
+			req.RunID,
+		)
+
+		if err := s.eventbus.Publish(ctx, topic, cmd); err != nil {
+			return nil, fmt.Errorf("publish cancel control: %w", err)
+		}
+
+		logs.InfoContextf(ctx, "CancelSessionRun: session=%s worker=%d run=%s assistant=%s",
+			sessionID, workerID, req.RunID, req.AssistantID)
+
 		return &contract.CancelSessionRunResponse{
 			SessionID: sessionID,
-			Status:    "no_active_run",
+			Status:    "cancelled",
 		}, nil
 	}
 
-	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneControl)
-	if err != nil {
-		return nil, fmt.Errorf("build control topic: %w", err)
+	// 未指定 assistant_id：取消 session 关联的所有活跃 worker 的 run
+	if session.ProjectID != nil && *session.ProjectID > 0 {
+		resource, err := db.GetResourceByBizID(ctx, s.db, caller.OrgID, types.ResourceTypeProject, *session.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("find project resource: %w", err)
+		}
+		if resource != nil {
+			bindings, err := db.ListResourceBindingsByResourceID(ctx, s.db, resource.ID)
+			if err != nil {
+				return nil, fmt.Errorf("list project bindings: %w", err)
+			}
+			var lastErr error
+			for _, binding := range bindings {
+				if binding.AssistantID == nil || *binding.AssistantID == 0 {
+					continue
+				}
+				_, workerID, err := resolveRuntimeWorker(ctx, s.db, caller.OrgID, *binding.AssistantID, s.inferrer)
+				if err != nil {
+					logs.WarnContextf(ctx, "CancelSessionRun: resolve worker for assistant %d failed: %v", *binding.AssistantID, err)
+					lastErr = err
+					continue
+				}
+				topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneControl)
+				if err != nil {
+					lastErr = err
+					continue
+				}
+				cmd := messaging.NewCancelRunCommand(
+					fmt.Sprintf("ctrl_%s", snowflake.GenerateIDBase58()),
+					messaging.RouteContext{
+						OrgID:     caller.OrgID,
+						WorkerID:  workerID,
+						SessionID: sessionID,
+					},
+					messaging.CancelRunCommandPayload{
+						RunID:  req.RunID,
+						Reason: req.Reason,
+					},
+					req.RunID,
+				)
+				if err := s.eventbus.Publish(ctx, topic, cmd); err != nil {
+					logs.WarnContextf(ctx, "CancelSessionRun: publish cancel to worker %d failed: %v", workerID, err)
+					lastErr = err
+				}
+				logs.InfoContextf(ctx, "CancelSessionRun: session=%s worker=%d run=%s assistant=%d",
+					sessionID, workerID, req.RunID, *binding.AssistantID)
+			}
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return &contract.CancelSessionRunResponse{
+				SessionID: sessionID,
+				Status:    "cancelled",
+			}, nil
+		}
 	}
-
-	cmd := messaging.NewCancelRunCommand(
-		fmt.Sprintf("ctrl_%s", snowflake.GenerateIDBase58()),
-		messaging.RouteContext{
-			OrgID:     caller.OrgID,
-			WorkerID:  workerID,
-			SessionID: sessionID,
-		},
-		messaging.CancelRunCommandPayload{
-			RunID:  req.RunID,
-			Reason: req.Reason,
-		},
-		req.RunID,
-	)
-
-	if err := s.eventbus.Publish(ctx, topic, cmd); err != nil {
-		return nil, fmt.Errorf("publish cancel control: %w", err)
-	}
-
-	logs.InfoContextf(ctx, "CancelSessionRun: session=%s worker=%d run=%s assistant=%s",
-		sessionID, workerID, req.RunID, req.AssistantID)
 
 	return &contract.CancelSessionRunResponse{
 		SessionID: sessionID,
-		Status:    "cancelled",
+		Status:    "no_active_run",
 	}, nil
 }
 
@@ -1266,11 +1357,11 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 
 	// 群聊模式下为 AI 回复填充发送者名称（反查 DigitalAssistant.Name）
 	assistantName := ""
-	if session.AssistantID > 0 {
-		if da, err := db.GetDigitalAssistantByID(ctx, s.db, session.AssistantID); err == nil && da != nil {
+	if req.AssistantID > 0 {
+		if da, err := db.GetDigitalAssistantByID(ctx, s.db, req.AssistantID); err == nil && da != nil {
 			assistantName = da.Name
 		} else if err != nil {
-			logs.WarnContextf(ctx, "complete session message: get assistant %d: %v", session.AssistantID, err)
+			logs.WarnContextf(ctx, "complete session message: get assistant %d: %v", req.AssistantID, err)
 		}
 	}
 
@@ -1348,11 +1439,11 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 
 	// 群聊模式下为 AI 回复填充发送者名称（反查 DigitalAssistant.Name）
 	assistantName := ""
-	if session.AssistantID > 0 {
-		if da, err := db.GetDigitalAssistantByID(ctx, s.db, session.AssistantID); err == nil && da != nil {
+	if req.AssistantID > 0 {
+		if da, err := db.GetDigitalAssistantByID(ctx, s.db, req.AssistantID); err == nil && da != nil {
 			assistantName = da.Name
 		} else if err != nil {
-			logs.WarnContextf(ctx, "failed session message: get assistant %d: %v", session.AssistantID, err)
+			logs.WarnContextf(ctx, "failed session message: get assistant %d: %v", req.AssistantID, err)
 		}
 	}
 
@@ -1511,13 +1602,24 @@ func resolveAssistantByPublicID(ctx context.Context, database *gorm.DB, orgID ui
 	return da.ID, nil
 }
 
-func assistantIDToPublicID(database *gorm.DB, assistantID uint) string {
+func assistantIDToPublicID(ctx context.Context, database *gorm.DB, assistantID uint) string {
 	if database == nil || assistantID == 0 {
 		return ""
 	}
-	da, err := db.GetDigitalAssistantByID(context.Background(), database, assistantID)
+	da, err := db.GetDigitalAssistantByID(ctx, database, assistantID)
 	if err != nil || da == nil {
 		return ""
 	}
 	return da.PublicID
+}
+
+func workerIDToPublicID(ctx context.Context, database *gorm.DB, orgID uint, workerID uint) string {
+	if database == nil || orgID == 0 || workerID == 0 {
+		return ""
+	}
+	deployment, err := db.GetWorkerDeploymentByOrgWorkerID(ctx, database, orgID, workerID)
+	if err != nil || deployment == nil {
+		return ""
+	}
+	return deployment.PublicID
 }

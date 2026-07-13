@@ -129,6 +129,7 @@ func (s *Service) Run(
 		s.sessionStore,
 		prepared.Execution.Runtime,
 		prepared.Execution.SessionKey,
+		prepared.Execution.InstanceKey,
 	)
 	runtimeResult, err := s.executor.Execute(ctx, prepared.Execution, nodeHandler)
 	if err != nil {

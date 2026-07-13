@@ -175,20 +175,21 @@ func collectArtifacts(
 			},
 		})
 		artifacts = append(artifacts, messaging.ArtifactPayload{
-			ArtifactID:   payload.ArtifactID,
-			Title:        payload.Title,
-			Filename:     payload.Filename,
-			OriginalName: payload.OriginalName,
-			Description:  payload.Description,
-			MimeType:     payload.MimeType,
-			ArtifactType: payload.ArtifactType,
-			FileSize:     payload.FileSize,
-			RelativePath: payload.RelativePath,
-			StorageKey:   payload.StorageKey,
-			StorageURI:   payload.StorageURI,
-			Sha256:       payload.Sha256,
-			Source:       payload.Source,
-			Status:       payload.Status,
+			ArtifactID:           payload.ArtifactID,
+			Title:                payload.Title,
+			Filename:             payload.Filename,
+			OriginalName:         payload.OriginalName,
+			Description:          payload.Description,
+			MimeType:             payload.MimeType,
+			ArtifactType:         payload.ArtifactType,
+			FileSize:             payload.FileSize,
+			RelativePath:         payload.RelativePath,
+			PreviousRelativePath: payload.PreviousRelativePath,
+			StorageKey:           payload.StorageKey,
+			StorageURI:           payload.StorageURI,
+			Sha256:               payload.Sha256,
+			Source:               payload.Source,
+			Status:               payload.Status,
 		})
 	}
 	return events, artifacts, nil
@@ -214,20 +215,19 @@ func uploadArtifacts(
 	}
 
 	for i := range records {
-		storageURI, err := uploadArtifact(
+		storageURI := buildArtifactStorageURI(storageConfig, projectPublicID, &records[i])
+		records[i].StorageURI = storageURI
+
+		if err := uploadArtifact(
 			ctx,
 			serverAddr,
 			authToken,
 			storageConfig,
 			repoDir,
-			projectPublicID,
 			records[i],
-		)
-		if err != nil {
+		); err != nil {
 			logs.WarnContextf(ctx, "upload artifact %s to server: %v", records[i].RelativePath, err)
-			continue
 		}
-		records[i].StorageURI = storageURI
 	}
 }
 
@@ -237,16 +237,72 @@ func uploadArtifact(
 	authToken string,
 	storageConfig *cli.StorageConfig,
 	repoDir string,
-	projectPublicID string,
 	record agentworkspace.ArtifactRecord,
-) (string, error) {
+) error {
 	absolutePath, err := agentworkspace.SafeJoin(repoDir, record.RelativePath)
 	if err != nil {
-		return "", fmt.Errorf("resolve artifact path %q: %w", record.RelativePath, err)
+		return fmt.Errorf("resolve artifact path %q: %w", record.RelativePath, err)
 	}
 	data, err := os.ReadFile(absolutePath)
 	if err != nil {
-		return "", fmt.Errorf("read artifact file: %w", err)
+		return fmt.Errorf("read artifact file: %w", err)
+	}
+
+	key := record.StorageKey
+	if key == "" {
+		return fmt.Errorf("artifact storage key is empty")
+	}
+
+	bucket := ""
+	if storageConfig != nil {
+		bucket = storageConfig.Bucket
+	}
+
+	uploadURL, err := cli.GetPresignUploadURL(ctx, serverAddr, authToken, bucket, key)
+	if err != nil {
+		return fmt.Errorf("get presign upload url: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create artifact upload request: %w", err)
+	}
+	request.Header.Set("Content-Type", record.MimeType)
+	request.ContentLength = record.FileSize
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("upload artifact file: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return fmt.Errorf(
+			"upload artifact file returned %d: %s",
+			response.StatusCode,
+			strings.TrimSpace(string(body)),
+		)
+	}
+	return nil
+}
+
+// buildArtifactStorageURI constructs the storage URI for an artifact without
+// performing the actual upload. This ensures StorageURI is always populated
+// when a bucket is configured, even if the HTTP upload later fails.
+// The generated storage key is stored in record.StorageKey so that
+// uploadArtifact can use the same key for the actual upload.
+func buildArtifactStorageURI(
+	storageConfig *cli.StorageConfig,
+	projectPublicID string,
+	record *agentworkspace.ArtifactRecord,
+) string {
+	bucket := ""
+	scheme := "s3"
+	if storageConfig != nil {
+		bucket = storageConfig.Bucket
+		scheme = storageConfig.Scheme
+	}
+	if bucket == "" {
+		return ""
 	}
 
 	storageFilename := snowflake.GenerateIDBase58() + filepath.Ext(record.OriginalName)
@@ -256,47 +312,13 @@ func uploadArtifact(
 		projectPublicID,
 		storageFilename,
 	)
+	record.StorageKey = key
 
-	bucket := ""
-	scheme := "s3"
-	if storageConfig != nil {
-		bucket = storageConfig.Bucket
-		scheme = storageConfig.Scheme
-	}
-
-	storageURI := ""
-	if bucket != "" {
-		storageURI, err = storage.BuildURI(scheme, bucket, key)
-		if err != nil {
-			return "", fmt.Errorf("build storage uri: %w", err)
-		}
-	}
-
-	uploadURL, err := cli.GetPresignUploadURL(ctx, serverAddr, authToken, bucket, key)
+	uri, err := storage.BuildURI(scheme, bucket, key)
 	if err != nil {
-		return "", fmt.Errorf("get presign upload url: %w", err)
+		return ""
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("create artifact upload request: %w", err)
-	}
-	request.Header.Set("Content-Type", record.MimeType)
-	request.ContentLength = record.FileSize
-
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return "", fmt.Errorf("upload artifact file: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= http.StatusMultipleChoices {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return "", fmt.Errorf(
-			"upload artifact file returned %d: %s",
-			response.StatusCode,
-			strings.TrimSpace(string(body)),
-		)
-	}
-	return storageURI, nil
+	return uri
 }
 
 // pushWorkspace stages, commits, and pushes workspace changes.
@@ -380,20 +402,21 @@ func workspacePlan(workspace WorkspacePreparation) (*agentworkspace.TaskWorkspac
 // artifactPayloadFromRecord converts a workspace artifact record to an event payload.
 func artifactPayloadFromRecord(record agentworkspace.ArtifactRecord) messaging.ArtifactPayload {
 	return messaging.ArtifactPayload{
-		ArtifactID:   newArtifactID(),
-		Title:        artifactTitle(record),
-		Filename:     artifactFilename(record),
-		OriginalName: strings.TrimSpace(record.OriginalName),
-		Description:  strings.TrimSpace(record.Description),
-		MimeType:     strings.TrimSpace(record.MimeType),
-		ArtifactType: artifactTypeValue(record.ArtifactType),
-		FileSize:     record.FileSize,
-		RelativePath: strings.TrimSpace(record.RelativePath),
-		StorageKey:   strings.TrimSpace(record.StorageKey),
-		StorageURI:   strings.TrimSpace(record.StorageURI),
-		Sha256:       record.Sha256,
-		Source:       artifactSourceValue(record.Source),
-		Status:       artifactStatusValue(record.Status),
+		ArtifactID:           newArtifactID(),
+		Title:                artifactTitle(record),
+		Filename:             artifactFilename(record),
+		OriginalName:         strings.TrimSpace(record.OriginalName),
+		Description:          strings.TrimSpace(record.Description),
+		MimeType:             strings.TrimSpace(record.MimeType),
+		ArtifactType:         artifactTypeValue(record.ArtifactType),
+		FileSize:             record.FileSize,
+		RelativePath:         strings.TrimSpace(record.RelativePath),
+		PreviousRelativePath: strings.TrimSpace(record.PreviousPath),
+		StorageKey:           strings.TrimSpace(record.StorageKey),
+		StorageURI:           strings.TrimSpace(record.StorageURI),
+		Sha256:               record.Sha256,
+		Source:               artifactSourceValue(record.Source),
+		Status:               artifactStatusValue(record.Status),
 	}
 }
 

@@ -57,6 +57,7 @@ var (
 	errAuthPhoneCodeRequired              = errors.New("请输入验证码")
 	errAuthInvalidPhoneCode               = errors.New("验证码错误或已过期")
 	errAuthPhoneCodeSendTooOften          = errors.New("验证码发送太频繁，请稍后再试")
+	errAuthSMSDeliveryFailed              = errors.New("验证码发送失败，请稍后再试")
 	errAuthRefreshTokenRequired           = errors.New("刷新令牌不能为空")
 	errAuthRefreshTokenInvalid            = errors.New("登录已过期，请重新登录")
 	errAuthUserNotFound                   = errors.New("用户不存在")
@@ -241,7 +242,7 @@ func (s *authService) SendPhoneLoginCode(ctx context.Context, req *contract.Send
 	if err := s.smsSender.SendVerificationCode(ctx, phone, code); err != nil {
 		logs.ErrorContextf(ctx, "SendPhoneLoginCode send failed: phone=%s sms_enabled=%t error=%v",
 			maskPhone(phone), s.smsSender.Enabled(), err)
-		return nil, err
+		return nil, mapSMSSendError(err)
 	}
 
 	if err := db.CreateAuthPhoneVerificationCode(ctx, s.db, &types.AuthPhoneVerificationCode{
@@ -921,6 +922,13 @@ func hashRefreshToken(token string) string {
 func hashPhoneCode(phone string, code string) string {
 	sum := sha256.Sum256([]byte(phone + ":" + code))
 	return hex.EncodeToString(sum[:])
+}
+
+func mapSMSSendError(err error) error {
+	if errors.Is(err, errAliyunSMSRateLimited) {
+		return errAuthPhoneCodeSendTooOften
+	}
+	return errAuthSMSDeliveryFailed
 }
 
 func maskPhone(phone string) string {

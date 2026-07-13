@@ -214,7 +214,14 @@ func (s *PermissionService) GuardSessionAccess(ctx context.Context, caller Calle
 		return fmt.Errorf("permission denied")
 	}
 	if caller.AssistantID != 0 {
-		if session.AllocatedAssistantID != caller.AssistantID {
+		if session.ProjectID == nil || *session.ProjectID == 0 {
+			return fmt.Errorf("permission denied")
+		}
+		ok, err := db.IsProjectAssistantBound(ctx, s.db, caller.OrgID, *session.ProjectID, caller.AssistantID)
+		if err != nil {
+			return fmt.Errorf("check project binding: %w", err)
+		}
+		if !ok {
 			return fmt.Errorf("permission denied")
 		}
 		return nil

@@ -1,4 +1,4 @@
-package service
+package service_test
 
 import (
 	"context"
@@ -13,15 +13,18 @@ import (
 )
 
 type mockProjectServiceForAddFile struct {
-	createProjectFn       func(ctx context.Context, req *contract.CreateProjectRequest) (*contract.Project, error)
-	getProjectFn          func(ctx context.Context, publicID string) (*contract.Project, error)
-	updateProjectFn       func(ctx context.Context, publicID string, req *contract.UpdateProjectRequest) (*contract.Project, error)
-	deleteProjectFn       func(ctx context.Context, publicID string) error
-	listProjectsFn        func(ctx context.Context, req *contract.ListProjectsRequest) (*contract.ProjectList, error)
-	detailProjectFn       func(ctx context.Context, publicID string) (*contract.ProjectDetail, error)
-	getProjectMemoryFn    func(ctx context.Context, publicID string) (*contract.ProjectMemory, error)
-	getProjectFileTreeFn  func(ctx context.Context, publicID string, resourceType string, taskPublicID string) ([]*contract.FileTreeNode, error)
-	downloadProjectFileFn func(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
+	createProjectFn                 func(ctx context.Context, req *contract.CreateProjectRequest) (*contract.Project, error)
+	getProjectFn                    func(ctx context.Context, publicID string) (*contract.Project, error)
+	updateProjectFn                 func(ctx context.Context, publicID string, req *contract.UpdateProjectRequest) (*contract.Project, error)
+	deleteProjectFn                 func(ctx context.Context, publicID string) error
+	listProjectsFn                  func(ctx context.Context, req *contract.ListProjectsRequest) (*contract.ProjectList, error)
+	detailProjectFn                 func(ctx context.Context, publicID string) (*contract.ProjectDetail, error)
+	getProjectMemoryFn              func(ctx context.Context, publicID string) (*contract.ProjectMemory, error)
+	getProjectFileTreeFn            func(ctx context.Context, publicID string, resourceType string, taskPublicID string) ([]*contract.FileTreeNode, error)
+	downloadProjectFileFn           func(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
+	getProjectFileVersionsFn        func(ctx context.Context, publicID string, filePublicID string) (*contract.ProjectFileVersionList, error)
+	downloadProjectFileByPublicIDFn func(ctx context.Context, publicID string, filePublicID string) (io.ReadCloser, string, int64, error)
+	restoreProjectFileVersionFn     func(ctx context.Context, publicID string, filePublicID string) (*contract.FileTreeNode, error)
 }
 
 func (m *mockProjectServiceForAddFile) CreateProject(ctx context.Context, req *contract.CreateProjectRequest) (*contract.Project, error) {
@@ -80,6 +83,24 @@ func (m *mockProjectServiceForAddFile) DownloadProjectFile(ctx context.Context, 
 		return m.downloadProjectFileFn(ctx, publicID, filePath)
 	}
 	return nil, "", 0, nil
+}
+func (m *mockProjectServiceForAddFile) GetProjectFileVersions(ctx context.Context, publicID string, filePublicID string) (*contract.ProjectFileVersionList, error) {
+	if m.getProjectFileVersionsFn != nil {
+		return m.getProjectFileVersionsFn(ctx, publicID, filePublicID)
+	}
+	return nil, nil
+}
+func (m *mockProjectServiceForAddFile) DownloadProjectFileByPublicID(ctx context.Context, publicID string, filePublicID string) (io.ReadCloser, string, int64, error) {
+	if m.downloadProjectFileByPublicIDFn != nil {
+		return m.downloadProjectFileByPublicIDFn(ctx, publicID, filePublicID)
+	}
+	return nil, "", 0, nil
+}
+func (m *mockProjectServiceForAddFile) RestoreProjectFileVersion(ctx context.Context, publicID string, filePublicID string) (*contract.FileTreeNode, error) {
+	if m.restoreProjectFileVersionFn != nil {
+		return m.restoreProjectFileVersionFn(ctx, publicID, filePublicID)
+	}
+	return nil, nil
 }
 
 func setupProjectFileRouter(t *testing.T, svc contract.ProjectService, caller *types.Caller) *gin.Engine {

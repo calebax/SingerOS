@@ -37,6 +37,7 @@ export type QuestionItem = {
 export type QuestionRequest = {
 	requestId: string;
 	questions: QuestionItem[];
+	assistantId?: string;
 	toolCallId?: string;
 	messageId?: string;
 	interactionType?: string;
@@ -91,6 +92,7 @@ export type ApprovalRequest = {
 	action?: ApprovalAction;
 	reason?: string;
 	error?: string;
+	assistantId?: string;
 };
 
 export type MessageArtifact = {

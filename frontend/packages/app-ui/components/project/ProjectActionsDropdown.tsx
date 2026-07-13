@@ -20,6 +20,7 @@ type ProjectActionsDropdownProps = {
 	onLeave: (project: Project) => void;
 	variant: "rail" | "card";
 	className?: string;
+	onOpenChange?: (open: boolean) => void;
 };
 
 /** 项目更多操作：无权限时隐藏触发按钮，菜单项与侧栏/项目页统一。 */
@@ -30,6 +31,7 @@ export function ProjectActionsDropdown({
 	onLeave,
 	variant,
 	className,
+	onOpenChange,
 }: ProjectActionsDropdownProps) {
 	const { loading, hasAny } = useProjectMenuCapabilities(project.id);
 
@@ -59,7 +61,7 @@ export function ProjectActionsDropdown({
 				variant="ghost"
 				size="icon-xs"
 				className={cn(
-					"absolute right-3 top-3 opacity-0 transition-opacity group-hover:opacity-100",
+					"pointer-events-none absolute right-3 top-3 z-10 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 aria-expanded:pointer-events-auto aria-expanded:opacity-100",
 					className,
 				)}
 				onClick={stopPropagation}
@@ -70,7 +72,7 @@ export function ProjectActionsDropdown({
 		);
 
 	return (
-		<DropdownMenu>
+		<DropdownMenu onOpenChange={onOpenChange}>
 			<DropdownMenuTrigger render={trigger} />
 			<DropdownMenuContent align="end" sideOffset={4}>
 				<ProjectActionsMenu
