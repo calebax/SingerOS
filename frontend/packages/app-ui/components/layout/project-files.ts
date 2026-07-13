@@ -9,6 +9,10 @@ export type BackendProjectFileNodeLike = {
 	created_at?: number;
 	public_id?: string;
 	storage_uri?: string;
+	initial_file_public_id?: string;
+	version_no?: number;
+	version_label?: string;
+	version_count?: number;
 };
 
 export type ProjectFileNode = {
@@ -22,6 +26,10 @@ export type ProjectFileNode = {
 	createdAt: number;
 	publicId: string;
 	storageUri: string;
+	initialFilePublicId: string;
+	versionNo: number;
+	versionLabel: string;
+	versionCount: number;
 };
 
 // 统一清洗后端文件树结构，避免页面层到处处理空值和字段名差异。
@@ -40,6 +48,16 @@ export function normalizeProjectFileTree(
 		createdAt: typeof node.created_at === "number" ? node.created_at * 1000 : 0,
 		publicId: typeof node.public_id === "string" ? node.public_id : "",
 		storageUri: typeof node.storage_uri === "string" ? node.storage_uri : "",
+		initialFilePublicId:
+			typeof node.initial_file_public_id === "string" ? node.initial_file_public_id : "",
+		versionNo: typeof node.version_no === "number" ? node.version_no : 0,
+		versionLabel:
+			typeof node.version_label === "string" && node.version_label
+				? node.version_label
+				: typeof node.version_no === "number" && node.version_no > 0
+					? `第 ${node.version_no} 版`
+					: "",
+		versionCount: typeof node.version_count === "number" ? node.version_count : 0,
 		children: normalizeProjectFileTree(node.children),
 	}));
 }

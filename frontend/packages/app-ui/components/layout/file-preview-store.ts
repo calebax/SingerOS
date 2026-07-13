@@ -55,14 +55,24 @@ export function useFilePreviewStore() {
 	};
 }
 
-export function openProjectFilePreview(projectId: string, file: ProjectFileNode) {
+export function openProjectFilePreview(
+	projectId: string,
+	file: ProjectFileNode,
+	options?: { openHistory?: boolean; taskId?: string },
+) {
 	filePreviewActions.open({
 		name: file.name,
 		title: file.name,
 		mimeType: file.mimeType,
 		storageUri: file.storageUri,
+		publicId: file.publicId,
 		projectId,
 		projectPath: file.path,
+		versionLabel: file.versionLabel,
+		versionNo: file.versionNo,
+		versionCount: file.versionCount,
+		openHistory: options?.openHistory,
+		...(options?.taskId ? { taskId: options.taskId } : {}),
 	});
 }
 
