@@ -83,6 +83,7 @@ import {
 	collectSelectableFiles,
 	type FileSource,
 	getFileSource,
+	getProjectFileTypeLabel,
 	normalizeProjectFileTree,
 	type ProjectFileNode,
 	sortProjectFilesByUploadedTimeDesc,
@@ -1552,9 +1553,10 @@ function ProjectFiles({
 				) : (
 					<div className="overflow-x-auto rounded-2xl border border-[var(--leros-control-border)] bg-white">
 						<div className="min-w-[640px]">
-							<div className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_220px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
+							<div className="grid grid-cols-[minmax(0,1fr)_90px_90px_120px_180px_220px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
 								<div>名称</div>
-								<div>类型</div>
+								<div>来源</div>
+								<div>文件类型</div>
 								<div>大小</div>
 								<div>创建时间</div>
 								<div className="text-right">操作</div>
@@ -1563,7 +1565,7 @@ function ProjectFiles({
 								{allFlatFiles.map((file) => (
 									<div
 										key={file.path}
-										className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_220px] items-center px-5 py-4 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
+										className="grid grid-cols-[minmax(0,1fr)_90px_90px_120px_180px_220px] items-center px-5 py-4 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
 									>
 										<button
 											type="button"
@@ -1585,6 +1587,9 @@ function ProjectFiles({
 											<span className="inline-block rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
 												{getFileSource(file.path) === "task" ? "任务文件" : "上传文件"}
 											</span>
+										</div>
+										<div className="text-[13px] text-[var(--leros-text-muted)]">
+											{getProjectFileTypeLabel(file)}
 										</div>
 										<div className="text-[13px] text-[var(--leros-text-muted)]">
 											{formatBytes(file.size)}

@@ -4,7 +4,6 @@ import { type ProjectMember, type ProjectSkill, useChatStore, useLayoutStore } f
 import type {
 	ApprovalAction,
 	ApprovalRequest,
-	Attachment,
 	ComposerToken,
 	Message,
 	MessageMetadata,
@@ -25,15 +24,16 @@ import {
 	Paperclip,
 	SendHorizonal,
 	ShieldAlert,
-	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { AppNavigation } from "../layout";
+import { openPendingAttachmentPreview } from "../layout/file-preview-store";
 import {
 	getProjectChatLayoutClasses,
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
+import { AttachmentPreview } from "./AttachmentPreview";
 import { ComposerActionBar } from "./ComposerActionBar";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
@@ -43,8 +43,9 @@ import {
 	type StructuredComposerHandle,
 } from "./StructuredComposer";
 
-// 只放开当前已有稳定预览能力的文档类型，避免上传后落到不可预览的兜底体验。
-export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.docx,.pptx";
+// 中文注释：统一维护项目文件上传入口的格式白名单，覆盖旧版 Office 和 HTML 文件。
+export const PROJECT_ATTACHMENT_ACCEPT =
+	"image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.doc,.docx,.ppt,.pptx,.html,.htm";
 
 export function ChatInput({
 	variant = "default",
@@ -311,7 +312,11 @@ export function ChatInput({
 		>
 			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && projectLayout.inner)}>
 				{inputAttachments.length > 0 && (
-					<AttachmentPreview attachments={inputAttachments} onRemove={removeAttachment} />
+					<AttachmentPreview
+						attachments={inputAttachments}
+						onPreview={openPendingAttachmentPreview}
+						onRemove={removeAttachment}
+					/>
 				)}
 				<div
 					className={cn(
@@ -792,37 +797,4 @@ function getApprovalDetail(approval: ApprovalRequest): string {
 	if (typeof url === "string" && url.trim()) return url.trim();
 
 	return "";
-}
-
-function AttachmentPreview({
-	attachments,
-	onRemove,
-}: {
-	attachments: Attachment[];
-	onRemove: (id: string) => void;
-}) {
-	return (
-		<div data-slot="attachment-preview" className="mb-3 flex flex-wrap gap-2">
-			{attachments.map((att) => (
-				<div
-					key={att.id}
-					className="flex items-center gap-2 rounded-lg bg-white/90 px-3 py-2 text-sm shadow-sm ring-1 ring-slate-200/70"
-				>
-					{att.type === "image" && att.url ? (
-						<img src={att.url} alt={att.name} className="size-8 rounded object-cover" />
-					) : (
-						<Paperclip className="size-3.5 text-slate-400" />
-					)}
-					<span className="text-slate-600 truncate max-w-[120px]">{att.name}</span>
-					<button
-						type="button"
-						onClick={() => onRemove(att.id)}
-						className="text-slate-400 hover:text-slate-600 transition-colors"
-					>
-						<X className="size-3.5" />
-					</button>
-				</div>
-			))}
-		</div>
-	);
 }

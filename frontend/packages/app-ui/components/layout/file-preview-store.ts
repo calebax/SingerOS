@@ -1,7 +1,7 @@
 "use client";
 
 import type { ProjectArtifact } from "@leros/store";
-import type { MessageAttachment } from "@leros/store/types/chat";
+import type { Attachment, MessageAttachment } from "@leros/store/types/chat";
 import { useSyncExternalStore } from "react";
 import {
 	artifactToFilePreviewItem,
@@ -82,6 +82,18 @@ export function openProjectArtifactPreview(artifact: ProjectArtifact, projectId?
 
 export function openMessageAttachmentPreview(attachment: MessageAttachment) {
 	filePreviewActions.open(toFilePreviewItemFromAttachment(attachment));
+}
+
+// 中文注释：输入框中的附件可能还未发送，优先使用本地 blob URL，否则使用已上传文件的标识预览。
+export function openPendingAttachmentPreview(attachment: Attachment) {
+	filePreviewActions.open({
+		name: attachment.name,
+		title: attachment.name,
+		mimeType: attachment.mimeType,
+		publicId: attachment.fileUploadId,
+		storageUri: attachment.storageUri,
+		url: attachment.url,
+	});
 }
 
 export function openPlanPreview(fileUploadId: string) {

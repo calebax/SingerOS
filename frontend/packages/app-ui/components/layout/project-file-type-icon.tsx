@@ -35,13 +35,13 @@ export function getProjectFileIconSrc(fileName: string): string {
 	if (lowerPath.endsWith(".pdf")) {
 		return FILE_PDF_ICON_SRC;
 	}
-	if (lowerPath.endsWith(".docx")) {
+	if (lowerPath.endsWith(".docx") || lowerPath.endsWith(".doc")) {
 		return FILE_DOCX_ICON_SRC;
 	}
 	if (lowerPath.endsWith(".xlsx") || lowerPath.endsWith(".xls") || lowerPath.endsWith(".csv")) {
 		return FILE_XLSX_ICON_SRC;
 	}
-	if (lowerPath.endsWith(".pptx")) {
+	if (lowerPath.endsWith(".pptx") || lowerPath.endsWith(".ppt")) {
 		return FILE_PPTX_ICON_SRC;
 	}
 	if (lowerPath.endsWith(".md") || lowerPath.endsWith(".markdown")) {
