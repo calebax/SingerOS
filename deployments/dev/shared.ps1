@@ -184,6 +184,40 @@ function Wait-DockerReady {
     throw 'Docker engine did not become ready in time.'
 }
 
+function Test-DevDatabaseHasDuplicateUserOrgUin {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DockerExe
+    )
+
+    $query = "SELECT COUNT(*) FROM (SELECT uin FROM leros_user_org GROUP BY uin HAVING COUNT(*) > 1) duplicates;"
+    $duplicateCount = & $DockerExe exec leros-dev-postgresql psql -U leros_dev_user -d leros_dev_db -tAc $query 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    $duplicateText = ($duplicateCount | Out-String).Trim()
+    return ([int]$duplicateText -gt 0)
+}
+
+function Wait-DevPostgresReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DockerExe
+    )
+
+    for ($i = 0; $i -lt 30; $i++) {
+        $health = & $DockerExe inspect --format '{{.State.Health.Status}}' leros-dev-postgresql 2>$null
+        if ($LASTEXITCODE -eq 0 -and ($health | Out-String).Trim() -eq 'healthy') {
+            return
+        }
+
+        Start-Sleep -Seconds 2
+    }
+
+    throw 'PostgreSQL did not become healthy in time.'
+}
+
 function Import-DevEnvFile {
     $envPath = Join-Path $PSScriptRoot '.env'
     if (-not (Test-Path $envPath)) {
