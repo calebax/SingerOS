@@ -268,10 +268,13 @@ function normalizeRequestError(error: ApiError): ApiError {
 	if (error.status) return error;
 
 	const normalizedMessage = normalizeNetworkErrorMessage(error.message, error.name);
-	if (normalizedMessage) {
-		error.message = normalizedMessage;
-	}
-	return error;
+	if (!normalizedMessage) return error;
+
+	// 中文注释：DOMException.message 在浏览器中是只读属性，不能直接修改原错误。
+	const normalizedError = new Error(normalizedMessage) as ApiError;
+	normalizedError.name = error.name;
+	normalizedError.stack = error.stack;
+	return normalizedError;
 }
 
 function normalizeNetworkErrorMessage(message: string, name?: string): string | undefined {
