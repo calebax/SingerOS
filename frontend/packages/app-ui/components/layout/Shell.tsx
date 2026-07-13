@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthStore, useChatStore, useLayoutStore, usePermissionStore } from "@leros/store";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { AuthProvider } from "../auth";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { PermissionDeniedListener } from "../permission/PermissionDeniedListener";
@@ -21,10 +21,16 @@ export function Shell({
 	navigation?: AppNavigation;
 	children?: ReactNode;
 }) {
+	const [isClientMounted, setIsClientMounted] = useState(false);
 	const currentView = useLayoutStore((s) => s.currentView);
 	const { startGlobalEvents, stopGlobalEvents } = useChatStore((s) => s);
 	const orgId = useAuthStore((s) => s.authUser?.currentOrg?.id);
 	const invalidateAll = usePermissionStore((s) => s.invalidateAll);
+
+	useEffect(() => {
+		// 中文注释：客户端挂载后再渲染工作台，确保侧边栏本地偏好不会参与 SSR hydration。
+		setIsClientMounted(true);
+	}, []);
 
 	useEffect(() => {
 		invalidateAll();
@@ -36,6 +42,10 @@ export function Shell({
 			stopGlobalEvents();
 		};
 	}, [startGlobalEvents, stopGlobalEvents]);
+
+	if (!isClientMounted) {
+		return <div className="leros-app-shell" aria-hidden="true" />;
+	}
 
 	return (
 		<AuthProvider logoSrc={logoSrc}>
