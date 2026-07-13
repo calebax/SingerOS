@@ -365,11 +365,7 @@ export function FilePreviewDrawer({
 									恢复此版本
 								</h3>
 								<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
-									该版本将作为新的最新版本保存，历史记录仍会保留。
-								</p>
-								<p className="mt-3 text-sm font-medium text-[var(--leros-text-strong)]">
-									{restoreTarget.version_label || `第 ${restoreTarget.version_no} 版`} ·{" "}
-									{restoreTarget.name}
+									恢复后，将基于该历史版本的内容生成一个新版本，并设为当前版本。当前版本及其他历史版本均会保留。
 								</p>
 							</div>
 							<button
