@@ -65,6 +65,7 @@ Notes for Windows:
 - `stop-dev.cmd` will auto request administrator permission when needed, because Windows may block killing the frontend process tree under normal permission.
 - `start-dev.cmd` keeps using the repo's normal frontend `dev:web` flow, so frontend still hot reloads as usual.
 - If `bundles/leros.exe` is missing, `start-dev.cmd` will rebuild it automatically.
+- If the local database contains duplicate user-org UINs and the backend migration cannot create its unique index, `start-dev.cmd` will explain the conflict and ask whether to reset the local PostgreSQL/NATS volumes. The reset requires explicit `y` confirmation.
 
 The server and worker scripts support `--build` (or `-b`) to rebuild `./bundles/leros` before starting. The scripts load `deployments/dev/.env` before reading YAML config, so values like `${LLM_API_KEY}` in config files are resolved from `.env`.
 
