@@ -270,7 +270,6 @@ function normalizeRequestError(error: ApiError): ApiError {
 	const normalizedMessage = normalizeNetworkErrorMessage(error.message, error.name);
 	if (!normalizedMessage) return error;
 
-	// 中文注释：DOMException.message 在浏览器中是只读属性，不能直接修改原错误。
 	const normalizedError = new Error(normalizedMessage) as ApiError;
 	normalizedError.name = error.name;
 	normalizedError.stack = error.stack;
