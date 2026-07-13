@@ -84,6 +84,15 @@ export function getFileSource(path: string): FileSource {
 	return normalized.startsWith("artifacts") ? "task" : "upload";
 }
 
+// 中文注释：优先展示文件扩展名，保证未知 MIME 时仍能识别文件格式。
+export function getProjectFileTypeLabel(file: Pick<ProjectFileNode, "name" | "mimeType">): string {
+	const extension = file.name.match(/\.([^.]+)$/)?.[1];
+	if (extension) return extension.toUpperCase();
+
+	const mimeSubtype = file.mimeType.split("/")[1]?.split(";")[0];
+	return mimeSubtype ? mimeSubtype.toUpperCase() : "未知";
+}
+
 export function sortProjectFilesByUploadedTimeDesc(files: ProjectFileNode[]): ProjectFileNode[] {
 	return [...files].sort((left, right) => right.createdAt - left.createdAt);
 }

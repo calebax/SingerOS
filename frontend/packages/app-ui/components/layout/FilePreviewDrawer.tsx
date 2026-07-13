@@ -9,6 +9,7 @@ import {
 	History,
 	LoaderCircle,
 	RotateCcw,
+	ShieldCheck,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -42,6 +43,7 @@ export function FilePreviewDrawer({
 	onOpenChange: (open: boolean) => void;
 }) {
 	const [preview, setPreview] = useState<FilePreviewState>({ status: "idle" });
+	const [htmlView, setHtmlView] = useState<"preview" | "source">("preview");
 	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
 	const [historyOpen, setHistoryOpen] = useState(false);
 	const [versions, setVersions] = useState<BackendProjectFileVersion[]>([]);
@@ -74,6 +76,10 @@ export function FilePreviewDrawer({
 	const closePreview = () => {
 		onOpenChange(false);
 	};
+
+	useEffect(() => {
+		setHtmlView("preview");
+	}, [file?.publicId, file?.name, selectedVersionPublicId]);
 
 	useEffect(() => {
 		if (!open || !file) {
@@ -112,6 +118,14 @@ export function FilePreviewDrawer({
 				if (previewKind === "markdown" || previewKind === "text") {
 					const text = await response.text();
 					if (!cancelled) setPreview({ status: "ready", text });
+					return;
+				}
+
+				if (previewKind === "html") {
+					const text = await response.text();
+					const htmlBlob = new Blob([text], { type: "text/html" });
+					objectUrl = URL.createObjectURL(htmlBlob);
+					if (!cancelled) setPreview({ status: "ready", text, objectUrl, mimeType });
 					return;
 				}
 
@@ -342,6 +356,8 @@ export function FilePreviewDrawer({
 						displayTitle={displayTitle}
 						previewKind={previewKind}
 						preview={preview}
+						htmlView={htmlView}
+						onHtmlViewChange={setHtmlView}
 					/>
 				</div>
 				{historyOpen && canShowHistory ? (
@@ -508,11 +524,15 @@ function FilePreviewContent({
 	displayTitle,
 	previewKind,
 	preview,
+	htmlView,
+	onHtmlViewChange,
 }: {
 	fileName: string;
 	displayTitle: string;
 	previewKind: FilePreviewKind;
 	preview: FilePreviewState;
+	htmlView: "preview" | "source";
+	onHtmlViewChange: (view: "preview" | "source") => void;
 }) {
 	if (preview.status === "loading" || preview.status === "idle") {
 		return (
@@ -564,6 +584,54 @@ function FilePreviewContent({
 					content={preview.text ?? ""}
 					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7 prose-pre:rounded-lg prose-pre:bg-slate-950"
 				/>
+			</div>
+		);
+	}
+
+	if (previewKind === "html" && preview.text !== undefined) {
+		return (
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm">
+				<div className="flex shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 py-2">
+					<div className="flex items-center gap-1">
+						{(["preview", "source"] as const).map((view) => (
+							<button
+								key={view}
+								type="button"
+								onClick={() => onHtmlViewChange(view)}
+								className={cn(
+									"rounded-md px-3 py-1.5 text-xs transition-colors",
+									htmlView === view
+										? "bg-white font-medium text-[var(--leros-text-strong)] shadow-sm"
+										: "text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]",
+								)}
+							>
+								{view === "preview" ? "预览" : "源码"}
+							</button>
+						))}
+					</div>
+					{htmlView === "preview" && (
+						<span
+							title="当前仅支持基础静态预览，包含脚本或复杂交互的页面请下载后用浏览器打开。"
+							className="inline-flex items-center gap-1 text-[11px] text-[var(--leros-text-muted)]"
+						>
+							<ShieldCheck className="size-3.5 text-emerald-600" />
+							安全预览
+						</span>
+					)}
+				</div>
+				{htmlView === "preview" && preview.objectUrl ? (
+					<iframe
+						title={`${displayTitle} 预览`}
+						src={preview.objectUrl}
+						sandbox=""
+						referrerPolicy="no-referrer"
+						className="min-h-0 flex-1 border-0 bg-white"
+					/>
+				) : (
+					<pre className="min-h-0 flex-1 overflow-auto bg-slate-950 p-4 text-xs leading-6 text-slate-100">
+						{preview.text}
+					</pre>
+				)}
 			</div>
 		);
 	}

@@ -24,17 +24,16 @@ import {
 	Folder,
 	FolderOpen,
 	ListTodo,
-	Paperclip,
 	Plus,
 	SendHorizonal,
 	Sparkles,
 	Target,
-	X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
+import { AttachmentPreview } from "../input/AttachmentPreview";
 import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ComposerActionBar } from "../input/ComposerActionBar";
 import {
@@ -42,6 +41,7 @@ import {
 	StructuredComposer,
 	type StructuredComposerHandle,
 } from "../input/StructuredComposer";
+import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
@@ -760,32 +760,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							onChange={handleAttachmentSelect}
 						/>
 						{attachments.length > 0 && (
-							<div className="mb-3 flex flex-wrap gap-2">
-								{attachments.map((attachment) => (
-									<div
-										key={attachment.id}
-										className="flex items-center gap-2 rounded-lg bg-white/90 px-3 py-2 text-sm shadow-sm ring-1 ring-slate-200/70"
-									>
-										{attachment.type === "image" && attachment.url ? (
-											<img
-												src={attachment.url}
-												alt={attachment.name}
-												className="size-8 rounded object-cover"
-											/>
-										) : (
-											<Paperclip className="size-3.5 text-slate-400" />
-										)}
-										<span className="max-w-[160px] truncate text-slate-600">{attachment.name}</span>
-										<button
-											type="button"
-											onClick={() => handleRemoveAttachment(attachment.id)}
-											className="text-slate-400 transition-colors hover:text-slate-600"
-										>
-											<X className="size-3.5" />
-										</button>
-									</div>
-								))}
-							</div>
+							<AttachmentPreview
+								attachments={attachments}
+								onPreview={openPendingAttachmentPreview}
+								onRemove={handleRemoveAttachment}
+							/>
 						)}
 						<div className="min-w-0">
 							<StructuredComposer

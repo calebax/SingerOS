@@ -2848,6 +2848,7 @@ export class ChatActionImpl {
 			size: file.size,
 			url,
 			file,
+			mimeType: file.type,
 		};
 		this.#set((state) => ({
 			inputAttachments: [...state.inputAttachments, attachment],

@@ -14,6 +14,7 @@ export type FilePreviewKind =
 	| OfficeOpenXmlFormat
 	| "spreadsheet"
 	| "markdown"
+	| "html"
 	| "text"
 	| "image"
 	| "pdf"
@@ -61,6 +62,9 @@ export function detectFilePreviewKind(item: FilePreviewItem | null): FilePreview
 	}
 	if (mimeType.includes("markdown") || name.endsWith(".md") || name.endsWith(".markdown")) {
 		return "markdown";
+	}
+	if (mimeType.includes("html") || name.endsWith(".html") || name.endsWith(".htm")) {
+		return "html";
 	}
 	if (mimeType.startsWith("image/")) {
 		return "image";
