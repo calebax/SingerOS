@@ -103,7 +103,10 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 	};
 
 	return (
-		<div data-slot="assistant-list-view" className="flex h-full flex-1 flex-col bg-white">
+		<div
+			data-slot="assistant-list-view"
+			className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-white"
+		>
 			<div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
 				<h2 className="text-lg font-semibold text-slate-900">AI队友</h2>
 				<div className="flex items-center gap-3">
@@ -124,7 +127,8 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 				</div>
 			</div>
 
-			<ScrollArea className="flex-1">
+			{/* 中文注释：允许列表区域在固定高度的应用壳内收缩，超出内容由滚动容器承接。 */}
+			<ScrollArea className="min-h-0 flex-1">
 				<div className="grid grid-cols-1 gap-3 p-6 lg:grid-cols-2 xl:grid-cols-3">
 					{filteredAssistants.length === 0 && (
 						<div className="col-span-full flex min-h-[calc(100vh-11rem)] flex-col items-center justify-center text-center">
