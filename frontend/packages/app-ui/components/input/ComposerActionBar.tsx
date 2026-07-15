@@ -128,7 +128,7 @@ export function ComposerActionBar({
 				return false;
 			}
 			if (!query) return true;
-			return [assistant.name, assistant.code, assistant.description]
+			return [assistant.name, assistant.roleName, assistant.code, assistant.description]
 				.join(" ")
 				.toLowerCase()
 				.includes(query);
@@ -251,7 +251,12 @@ export function ComposerActionBar({
 											<div className="truncate font-medium text-slate-700">
 												{renderHighlightedText(assistant.name, assistantSearch)}
 											</div>
-											<div className="truncate text-xs text-slate-400">{assistant.description}</div>
+											{/* 中文注释：选择弹窗固定两行，名称在上、角色名称在下。 */}
+											{assistant.roleName ? (
+												<div className="truncate text-xs text-slate-500">
+													{renderHighlightedText(assistant.roleName, assistantSearch)}
+												</div>
+											) : null}
 										</div>
 									</CommandItem>
 								))}

@@ -9,6 +9,7 @@ export type DigitalAssistantItem = {
 	publicId: string;
 	code: string;
 	name: string;
+	roleName: string;
 	description: string;
 	avatar: string;
 	status: string;
@@ -36,7 +37,6 @@ export type DigitalAssistantState = {
 	assistantsLoaded: boolean;
 	activeAssistantId: number | null;
 	assistantSearchQuery: string;
-	assistantStatusFilter: string;
 };
 
 export type DigitalAssistantAction = Pick<DASliceImpl, keyof DASliceImpl>;
@@ -44,12 +44,15 @@ export type DAStore = DigitalAssistantState & DigitalAssistantAction;
 
 function mapBackendDA(da: BackendDigitalAssistant): DigitalAssistantItem {
 	const publicId = da.public_id || da.code || String(da.id);
+	const roleName = da.role_name?.trim() ?? "";
 	return {
 		id: da.id,
 		publicId,
 		// 中文注释：输入框选择器仍使用 code 作为本地选项值，后端交互统一取 publicId。
 		code: publicId,
 		name: da.name,
+		// 中文注释：历史数据可能把角色名称回填为队友名称，前端隐藏重复副标题。
+		roleName: roleName === da.name.trim() ? "" : roleName,
 		description: da.description ?? "",
 		avatar: da.avatar ?? "",
 		status: da.status,
@@ -71,7 +74,6 @@ const _initialState: DigitalAssistantState = {
 	assistantsLoaded: false,
 	activeAssistantId: null,
 	assistantSearchQuery: "",
-	assistantStatusFilter: "",
 };
 
 type SetState = (
@@ -131,6 +133,7 @@ export class DASliceImpl {
 	createAssistant = async (params: {
 		public_id?: string;
 		name: string;
+		role_name?: string;
 		description?: string;
 		avatar?: string;
 		system_prompt?: string;
@@ -159,6 +162,7 @@ export class DASliceImpl {
 		template_id: number;
 		public_id?: string;
 		name?: string;
+		role_name?: string;
 		description?: string;
 		avatar?: string;
 		system_prompt?: string;
@@ -191,6 +195,7 @@ export class DASliceImpl {
 	updateAssistant = async (params: {
 		id: number;
 		name?: string;
+		role_name?: string;
 		description?: string;
 		avatar?: string;
 		system_prompt?: string;
@@ -242,8 +247,10 @@ export class DASliceImpl {
 				assistants: state.assistants.filter((a) => a.id !== id),
 				activeAssistantId: state.activeAssistantId === id ? null : state.activeAssistantId,
 			}));
+			return true;
 		} catch (err) {
 			console.error("deleteAssistant error:", err);
+			return false;
 		}
 	};
 
@@ -253,10 +260,6 @@ export class DASliceImpl {
 
 	setAssistantSearchQuery = (query: string) => {
 		this.#set({ assistantSearchQuery: query });
-	};
-
-	setAssistantStatusFilter = (filter: string) => {
-		this.#set({ assistantStatusFilter: filter });
 	};
 }
 

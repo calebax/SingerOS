@@ -674,10 +674,11 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 	userIDs, assistantIDs := collectBindingMemberIDs(bindings)
 	userMap := make(map[uint]string)
 	if len(userIDs) > 0 {
-		if users, err := infradb.GetUsersByIDs(ctx, p.db, userIDs); err == nil {
-			for _, u := range users {
-				if u != nil {
-					userMap[u.ID] = u.Name
+		// 中文注释：项目资源绑定使用组织成员 UIN，按 UIN 回填才能让执行上下文保留真人成员姓名。
+		if users, err := infradb.GetUsersByUins(ctx, p.db, userIDs); err == nil {
+			for uin, user := range users {
+				if user != nil {
+					userMap[uin] = user.Name
 				}
 			}
 		}

@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"testing"
 
+	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/types"
 	"gorm.io/driver/sqlite"
@@ -41,6 +43,7 @@ func TestCreateDigitalAssistant_ValidInput(t *testing.T) {
 
 	req := &contract.CreateDigitalAssistantRequest{
 		Name:         "Test Name",
+		RoleName:     "测试专员",
 		Description:  "Test Description",
 		SystemPrompt: "You are a test assistant",
 	}
@@ -55,6 +58,9 @@ func TestCreateDigitalAssistant_ValidInput(t *testing.T) {
 	}
 	if result.Name != "Test Name" {
 		t.Errorf("expected name 'Test Name', got %s", result.Name)
+	}
+	if result.RoleName != "测试专员" {
+		t.Errorf("expected role_name '测试专员', got %s", result.RoleName)
 	}
 }
 
@@ -110,38 +116,18 @@ func TestCreateDigitalAssistant_MissingName(t *testing.T) {
 	}
 }
 
-func TestCreateDigitalAssistant_LimitsPerUserToFive(t *testing.T) {
+func TestCreateDigitalAssistant_AllowsAllPresetRoles(t *testing.T) {
 	db := setupDigitalAssistantDB(t)
 	ctx := setupTestContextWithCaller(t)
 
 	service := NewDigitalAssistantService(db, nil)
-	if err := db.Create(&types.DigitalAssistant{
-		PublicID: defaultWorkerPublicID(1),
-		OrgID:    1,
-		OwnerID:  1,
-		Name:     "lework",
-		Status:   string(contract.DigitalAssistantStatusActive),
-	}).Error; err != nil {
-		t.Fatalf("create default assistant: %v", err)
-	}
-
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 7; i++ {
 		_, err := service.CreateDigitalAssistant(ctx, &contract.CreateDigitalAssistantRequest{
-			Name: "Limit Test",
+			Name: "Preset Role",
 		})
 		if err != nil {
 			t.Fatalf("CreateDigitalAssistant #%d failed: %v", i+1, err)
 		}
-	}
-
-	_, err := service.CreateDigitalAssistant(ctx, &contract.CreateDigitalAssistantRequest{
-		Name: "Overflow",
-	})
-	if err == nil {
-		t.Fatal("expected limit error for sixth assistant")
-	}
-	if err.Error() != "digital assistant limit exceeded: max 5 per user" {
-		t.Fatalf("error = %q, want limit exceeded", err.Error())
 	}
 }
 
@@ -151,20 +137,8 @@ func TestListDigitalAssistantExcludesSystemDefaultAssistant(t *testing.T) {
 	service := NewDigitalAssistantService(database, nil)
 
 	assistants := []*types.DigitalAssistant{
-		{
-			PublicID: "assistant_default_o1",
-			OrgID:    1,
-			OwnerID:  1,
-			Name:     "System Default",
-			Status:   string(contract.DigitalAssistantStatusActive),
-		},
-		{
-			PublicID: "assistant_custom_1",
-			OrgID:    1,
-			OwnerID:  1,
-			Name:     "Custom Assistant",
-			Status:   string(contract.DigitalAssistantStatusActive),
-		},
+		{PublicID: "assistant_default_o1", OrgID: 1, OwnerID: 1, Name: "System Default", Status: string(contract.DigitalAssistantStatusActive)},
+		{PublicID: "assistant_custom_1", OrgID: 1, OwnerID: 1, Name: "Custom Assistant", Status: string(contract.DigitalAssistantStatusActive)},
 	}
 	if err := database.Create(&assistants).Error; err != nil {
 		t.Fatalf("create assistants: %v", err)
@@ -174,11 +148,8 @@ func TestListDigitalAssistantExcludesSystemDefaultAssistant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListDigitalAssistant failed: %v", err)
 	}
-	if result.Total != 1 {
-		t.Fatalf("total = %d, want 1", result.Total)
-	}
-	if len(result.Items) != 1 {
-		t.Fatalf("items length = %d, want 1", len(result.Items))
+	if result.Total != 1 || len(result.Items) != 1 {
+		t.Fatalf("visible assistants = %d/%d, want 1/1", result.Total, len(result.Items))
 	}
 	if result.Items[0].PublicID != "assistant_custom_1" {
 		t.Fatalf("public_id = %q, want assistant_custom_1", result.Items[0].PublicID)
@@ -203,9 +174,7 @@ func TestUpdateDigitalAssistantRejectsTemplateCreatedAssistant(t *testing.T) {
 		t.Fatalf("create template assistant: %v", err)
 	}
 
-	_, err := service.UpdateDigitalAssistant(ctx, assistant.ID, &contract.UpdateDigitalAssistantRequest{
-		Name: "Modified Template Assistant",
-	})
+	_, err := service.UpdateDigitalAssistant(ctx, assistant.ID, &contract.UpdateDigitalAssistantRequest{Name: "Modified Template Assistant"})
 	if err == nil {
 		t.Fatal("expected template-created assistant update to be rejected")
 	}
@@ -219,6 +188,113 @@ func TestUpdateDigitalAssistantRejectsTemplateCreatedAssistant(t *testing.T) {
 	}
 	if stored.Name != assistant.Name {
 		t.Fatalf("name = %q, want %q", stored.Name, assistant.Name)
+	}
+}
+
+func TestOrganizationMemberCanUpdateAndDeleteSharedAssistant(t *testing.T) {
+	database := setupDigitalAssistantDB(t)
+	service := NewDigitalAssistantService(database, nil)
+	assistant := &types.DigitalAssistant{
+		PublicID: "shared-assistant",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "小法",
+		RoleName: "法务专员",
+		Status:   string(contract.DigitalAssistantStatusActive),
+		Source:   "custom",
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create shared assistant: %v", err)
+	}
+
+	memberCtx := auth.WithContext(context.Background(), &types.Caller{
+		Uin:   2,
+		OrgID: 1,
+		Kind:  types.CallerKindUser,
+		State: types.AuthStateSucc,
+	}, nil)
+	if _, err := service.UpdateDigitalAssistant(memberCtx, assistant.ID, &contract.UpdateDigitalAssistantRequest{
+		Name: "法务小周",
+	}); err != nil {
+		t.Fatalf("organization member update failed: %v", err)
+	}
+	if err := service.DeleteDigitalAssistant(memberCtx, assistant.ID); err != nil {
+		t.Fatalf("organization member delete failed: %v", err)
+	}
+}
+
+func TestListDigitalAssistantReturnsCurrentOrganizationAssistants(t *testing.T) {
+	database := setupDigitalAssistantDB(t)
+	service := NewDigitalAssistantService(database, nil)
+	assistants := []*types.DigitalAssistant{
+		{PublicID: "org-one-owner-one", OrgID: 1, OwnerID: 1, Name: "小投", Status: "active"},
+		{PublicID: "org-one-owner-two", OrgID: 1, OwnerID: 2, Name: "小法", Status: "active"},
+		{PublicID: "org-two-owner-three", OrgID: 2, OwnerID: 3, Name: "小数", Status: "active"},
+	}
+	if err := database.Create(assistants).Error; err != nil {
+		t.Fatalf("create assistants: %v", err)
+	}
+
+	memberCtx := auth.WithContext(context.Background(), &types.Caller{
+		Uin:   2,
+		OrgID: 1,
+		Kind:  types.CallerKindUser,
+		State: types.AuthStateSucc,
+	}, nil)
+	result, err := service.ListDigitalAssistant(memberCtx, &contract.ListDigitalAssistantRequest{
+		Pagination: types.Pagination{ListAll: true},
+	})
+	if err != nil {
+		t.Fatalf("ListDigitalAssistant failed: %v", err)
+	}
+	if result.Total != 2 || len(result.Items) != 2 {
+		t.Fatalf("organization assistants = %d/%d, want 2/2", result.Total, len(result.Items))
+	}
+	for _, item := range result.Items {
+		if item.OrgID != 1 {
+			t.Fatalf("returned cross-organization assistant: %#v", item)
+		}
+	}
+}
+
+func TestListDigitalAssistantRejectsCallerWithoutOrganization(t *testing.T) {
+	database := setupDigitalAssistantDB(t)
+	service := NewDigitalAssistantService(database, nil)
+	ctx := auth.WithContext(context.Background(), &types.Caller{
+		Uin:   2,
+		Kind:  types.CallerKindUser,
+		State: types.AuthStateSucc,
+	}, nil)
+
+	if _, err := service.ListDigitalAssistant(ctx, &contract.ListDigitalAssistantRequest{}); err == nil {
+		t.Fatal("expected caller without organization to be rejected")
+	}
+}
+
+func TestOtherOrganizationCannotAccessSharedAssistant(t *testing.T) {
+	database := setupDigitalAssistantDB(t)
+	service := NewDigitalAssistantService(database, nil)
+	assistant := &types.DigitalAssistant{
+		PublicID: "org-one-assistant",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "小投",
+		RoleName: "投标经理",
+		Status:   string(contract.DigitalAssistantStatusActive),
+		Source:   "custom",
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+
+	otherOrgCtx := auth.WithContext(context.Background(), &types.Caller{
+		Uin:   2,
+		OrgID: 2,
+		Kind:  types.CallerKindUser,
+		State: types.AuthStateSucc,
+	}, nil)
+	if _, err := service.GetDigitalAssistantByID(otherOrgCtx, assistant.ID); err == nil {
+		t.Fatal("expected cross-organization access to be rejected")
 	}
 }
 

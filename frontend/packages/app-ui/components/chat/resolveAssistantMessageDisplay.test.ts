@@ -10,6 +10,7 @@ const assistants: DigitalAssistantItem[] = [
 		publicId: "assistant_alpha",
 		code: "assistant_alpha",
 		name: "投标策略师",
+		roleName: "投标经理",
 		description: "",
 		avatar: "file_avatar_alpha",
 		status: "active",
@@ -114,6 +115,7 @@ describe("resolveAssistantMessageDisplay", () => {
 		expect(display).toEqual({
 			useDefaultBrand: false,
 			name: "投标策略师",
+			roleName: "投标经理",
 			avatarUrl: "file_avatar_alpha",
 		});
 	});
@@ -143,6 +145,7 @@ describe("resolveAssistantMessageDisplay", () => {
 		expect(display).toEqual({
 			useDefaultBrand: false,
 			name: "投标策略师",
+			roleName: "投标经理",
 			avatarUrl: "file_avatar_alpha",
 		});
 	});
@@ -172,6 +175,7 @@ describe("resolveAssistantMessageDisplay", () => {
 		expect(display).toEqual({
 			useDefaultBrand: false,
 			name: assistant.name,
+			roleName: assistant.roleName,
 			avatarUrl: assistant.avatar,
 		});
 	});

@@ -115,7 +115,7 @@ const iconMap: Record<string, React.ReactNode> = {
 
 const navIdToView: Record<string, ViewMode> = {
 	workbench: "workbench",
-	"ai-teammates": "aiTeammates",
+	"ai-teammates": "digitalAssistant",
 	"projects-hub": "projectsHub",
 	knowledge: "knowledge",
 	skills: "skills",
@@ -1476,7 +1476,9 @@ function DesktopUpdateMenuSection() {
 function getRouteActive(path: string, view: ViewMode) {
 	if (view === "workbench") return path === "/" || path.startsWith("/workbench");
 	if (view === "chat") return path.startsWith("/chat");
-	if (view === "digitalAssistant") return path.startsWith("/assistants");
+	if (view === "digitalAssistant") {
+		return path.startsWith("/assistants") || path.startsWith("/ai-teammates");
+	}
 	if (view === "aiTeammates") return path.startsWith("/ai-teammates");
 	if (view === "projectsHub") return path === "/projects";
 	if (view === "skills") return path.startsWith("/skills");

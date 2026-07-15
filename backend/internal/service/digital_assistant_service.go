@@ -19,8 +19,6 @@ import (
 
 var _ contract.DigitalAssistantService = (*digitalAssistantService)(nil)
 
-const maxDigitalAssistantsPerUser int64 = 5
-
 type digitalAssistantService struct {
 	db                 *gorm.DB
 	workerScheduler    worker.WorkerScheduler
@@ -54,14 +52,6 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 		return nil, errors.New("name is required")
 	}
 
-	count, err := db.CountDigitalAssistantsByOwner(ctx, s.db, caller.OrgID, caller.Uin, defaultWorkerPublicID(caller.OrgID))
-	if err != nil {
-		return nil, err
-	}
-	if count >= maxDigitalAssistantsPerUser {
-		return nil, fmt.Errorf("digital assistant limit exceeded: max %d per user", maxDigitalAssistantsPerUser)
-	}
-
 	if s.workerProvisioning != nil {
 		if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, caller.OrgID, caller.Uin); err != nil {
 			return nil, fmt.Errorf("ensure default worker deployment: %w", err)
@@ -90,6 +80,7 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 		OrgID:        caller.OrgID,
 		OwnerID:      caller.Uin,
 		Name:         req.Name,
+		RoleName:     strings.TrimSpace(req.RoleName),
 		Description:  req.Description,
 		Avatar:       req.Avatar,
 		Status:       string(contract.DigitalAssistantStatusDraft),
@@ -130,10 +121,6 @@ func (s *digitalAssistantService) GetDigitalAssistantByID(ctx context.Context, i
 	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
 		return nil, err
 	}
-	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
-		return nil, err
-	}
-
 	return &contract.DigitalAssistantDetail{
 		DigitalAssistant: *s.convertToContractDigitalAssistant(ctx, da),
 	}, nil
@@ -156,10 +143,6 @@ func (s *digitalAssistantService) GetDigitalAssistantByPublicID(ctx context.Cont
 	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
 		return nil, err
 	}
-	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
-		return nil, err
-	}
-
 	return &contract.DigitalAssistantDetail{
 		DigitalAssistant: *s.convertToContractDigitalAssistant(ctx, da),
 	}, nil
@@ -182,15 +165,15 @@ func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id
 	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
 		return nil, err
 	}
-	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
-		return nil, err
-	}
+	// 中文注释：模板创建的 AI 队友作为模板实例维护，禁止在实例层直接修改配置。
 	if da.Source == "template" {
 		return nil, errors.New("template-created digital assistant cannot be modified")
 	}
-
 	if req.Name != "" {
 		da.Name = req.Name
+	}
+	if req.RoleName != "" {
+		da.RoleName = strings.TrimSpace(req.RoleName)
 	}
 	if req.Description != "" {
 		da.Description = req.Description
@@ -232,15 +215,11 @@ func (s *digitalAssistantService) DeleteDigitalAssistant(ctx context.Context, id
 	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
 		return err
 	}
-	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
-		return err
-	}
-
 	return db.DeleteDigitalAssistant(ctx, s.db, id)
 }
 
 func (s *digitalAssistantService) ListDigitalAssistant(ctx context.Context, req *contract.ListDigitalAssistantRequest) (*contract.DigitalAssistantList, error) {
-	caller, err := getCallerFromContext(ctx)
+	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -348,6 +327,7 @@ func (s *digitalAssistantService) CreateDigitalAssistantFromTemplate(ctx context
 
 	createReq := &contract.CreateDigitalAssistantRequest{
 		Name:         firstNonEmpty(req.Name, tpl.Name),
+		RoleName:     firstNonEmpty(req.RoleName, tpl.Name),
 		Description:  firstNonEmpty(req.Description, tpl.Description),
 		Avatar:       firstNonEmpty(req.Avatar, tpl.Avatar),
 		SystemPrompt: firstNonEmpty(req.SystemPrompt, tpl.SystemPrompt),
@@ -396,6 +376,7 @@ func (s *digitalAssistantService) convertToContractDigitalAssistant(ctx context.
 		OrgID:        da.OrgID,
 		OwnerID:      da.OwnerID,
 		Name:         da.Name,
+		RoleName:     s.resolveAssistantRoleName(ctx, da),
 		Description:  da.Description,
 		Avatar:       da.Avatar,
 		Status:       da.Status,
@@ -418,6 +399,19 @@ func (s *digitalAssistantService) convertToContractDigitalAssistant(ctx context.
 		}
 	}
 	return item
+}
+
+// resolveAssistantRoleName 为历史模板实例补齐角色名称，避免数据库迁移后旧数据展示为空。
+func (s *digitalAssistantService) resolveAssistantRoleName(ctx context.Context, da *types.DigitalAssistant) string {
+	if roleName := strings.TrimSpace(da.RoleName); roleName != "" {
+		return roleName
+	}
+	if s != nil && s.db != nil && da.TemplateID != nil && *da.TemplateID > 0 {
+		if tpl, err := db.GetAITeammateTemplateByID(ctx, s.db, *da.TemplateID); err == nil && tpl != nil {
+			return strings.TrimSpace(tpl.Name)
+		}
+	}
+	return strings.TrimSpace(da.Name)
 }
 
 func generateAssistantPublicID() string {

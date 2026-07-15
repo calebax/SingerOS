@@ -25,6 +25,8 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { createDiceBearAvatarDataUri } from "../avatar/DiceBearAvatar";
+import { loadProtectedImageDisplayURL } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 
@@ -51,6 +53,7 @@ export type ComposerAssistantOption = {
 	id: string | number;
 	code: string;
 	name: string;
+	roleName?: string;
 	description: string;
 	avatarUrl?: string;
 };
@@ -439,34 +442,6 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 	};
 }
 
-// 中文注释：内联 mention 由 contenteditable DOM 拼装，保留轻量 Bot 图标避免频繁重建图片节点。
-function createBotIcon(): SVGElement {
-	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("fill", "none");
-	svg.setAttribute("stroke", "currentColor");
-	svg.setAttribute("stroke-width", "2");
-	svg.setAttribute("stroke-linecap", "round");
-	svg.setAttribute("stroke-linejoin", "round");
-	svg.setAttribute("class", "size-3.5");
-
-	for (const d of ["M12 8V4H8", "M2 14h2", "M20 14h2", "M15 13v2", "M9 13v2"]) {
-		const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-		path.setAttribute("d", d);
-		svg.appendChild(path);
-	}
-
-	const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-	rect.setAttribute("width", "16");
-	rect.setAttribute("height", "12");
-	rect.setAttribute("x", "4");
-	rect.setAttribute("y", "8");
-	rect.setAttribute("rx", "2");
-	svg.appendChild(rect);
-
-	return svg;
-}
-
 function createSkillSparklesIcon(): SVGElement {
 	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 	svg.setAttribute("viewBox", "0 0 24 24");
@@ -513,7 +488,21 @@ function createRemoveIcon(): SVGElement {
 	return svg;
 }
 
-function buildAssistantMentionIconShell(token: InsertedToken): HTMLSpanElement {
+function findMentionAssistant(
+	token: InsertedToken,
+	assistantOptions: AssistantOption[],
+): AssistantOption | undefined {
+	const assistantName = formatAssistantTokenDisplayLabel(token.label);
+	return assistantOptions.find(
+		(assistant) =>
+			(token.id && String(assistant.id) === token.id) || assistant.name === assistantName,
+	);
+}
+
+function buildAssistantMentionIconShell(
+	token: InsertedToken,
+	assistantOptions: AssistantOption[],
+): HTMLSpanElement {
 	const iconShell = document.createElement("span");
 	iconShell.dataset.mentionRemove = "true";
 	iconShell.dataset.mentionLabel = token.label;
@@ -525,14 +514,36 @@ function buildAssistantMentionIconShell(token: InsertedToken): HTMLSpanElement {
 		`移除AI队友 ${formatAssistantTokenDisplayLabel(token.label)}`,
 	);
 	iconShell.className =
-		"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md bg-white text-blue-600 [&_svg]:block";
-	const botIcon = createBotIcon();
-	botIcon.classList.add("transition-opacity", "group-hover:opacity-0");
+		"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-white text-blue-600";
+	const assistant = findMentionAssistant(token, assistantOptions);
+	const assistantName = assistant?.name ?? formatAssistantTokenDisplayLabel(token.label);
+	const avatar = document.createElement("img");
+	avatar.alt = assistantName;
+	avatar.className = "size-4 rounded-full object-cover transition-opacity group-hover:opacity-0";
+	avatar.decoding = "async";
+	avatar.referrerPolicy = "no-referrer";
+	const fallbackAvatarSrc =
+		createDiceBearAvatarDataUri(`digital-assistant:${assistantName}`, 32) ??
+		"data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+	avatar.src = fallbackAvatarSrc;
+	avatar.onerror = () => {
+		if (avatar.src !== fallbackAvatarSrc) avatar.src = fallbackAvatarSrc;
+	};
+	if (assistant?.avatarUrl) {
+		// 中文注释：头像可能是受保护文件 public_id，解析完成后再替换兜底头像。
+		void loadProtectedImageDisplayURL(assistant.avatarUrl)
+			.then((src) => {
+				avatar.src = src;
+			})
+			.catch((error) => {
+				console.error("load assistant mention avatar error:", error);
+			});
+	}
 	const removeControl = document.createElement("span");
 	removeControl.className =
 		"absolute inset-0 inline-flex items-center justify-center rounded-full opacity-0 transition-opacity hover:bg-current/10 hover:opacity-100 group-hover:opacity-65";
 	removeControl.appendChild(createRemoveIcon());
-	iconShell.append(botIcon, removeControl);
+	iconShell.append(avatar, removeControl);
 	return iconShell;
 }
 
@@ -556,7 +567,12 @@ function buildSkillMentionIconShell(token: InsertedToken): HTMLSpanElement {
 	return iconShell;
 }
 
-function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedToken[]) {
+function buildEditorContent(
+	root: HTMLElement,
+	value: string,
+	tokens: InsertedToken[],
+	assistantOptions: AssistantOption[],
+) {
 	const fragment = document.createDocumentFragment();
 	const orderedTokens = sortTokens(tokens);
 	let cursor = 0;
@@ -587,7 +603,7 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 			const label = document.createElement("span");
 			label.className = "truncate";
 			label.textContent = formatAssistantTokenDisplayLabel(token.label);
-			mention.append(buildAssistantMentionIconShell(token), label);
+			mention.append(buildAssistantMentionIconShell(token, assistantOptions), label);
 		}
 		fragment.appendChild(mention);
 		cursor = token.end;
@@ -866,7 +882,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			return availableAssistantOptions.filter((assistant) => {
 				if (selectedAssistantNames.includes(assistant.name)) return false;
 				if (!query) return true;
-				return [assistant.name, assistant.code, assistant.description]
+				return [assistant.name, assistant.roleName, assistant.code, assistant.description]
 					.join(" ")
 					.toLowerCase()
 					.includes(query);
@@ -940,6 +956,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					editor,
 					nextValue,
 					resolveDisplayTokens(nextValue, nextTokens, availableAssistantOptions),
+					availableAssistantOptions,
 				);
 				pendingCaretRef.current = null;
 				focusAt(nextCaret);
@@ -1021,7 +1038,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, resolvedTokens)) {
 				// 只在纯文本或 mention 结构失配时重建 DOM，避免每次输入都打断用户的光标位置。
-				buildEditorContent(editor, value, resolvedTokens);
+				buildEditorContent(editor, value, resolvedTokens, availableAssistantOptions);
 			}
 
 			if (pendingCaretRef.current !== null) {
@@ -1695,9 +1712,12 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 													<div className="truncate font-medium text-slate-700">
 														{renderHighlightedText(assistant.name, assistantSearch)}
 													</div>
-													<div className="truncate text-xs text-slate-400">
-														{assistant.description}
-													</div>
+													{/* 中文注释：选择弹窗固定两行，名称在上、角色名称在下。 */}
+													{assistant.roleName ? (
+														<div className="truncate text-xs text-slate-500">
+															{renderHighlightedText(assistant.roleName, assistantSearch)}
+														</div>
+													) : null}
 												</div>
 											</CommandItem>
 										))}

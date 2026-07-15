@@ -70,6 +70,12 @@ function loadProtectedImageDataURL(src: string): Promise<string> {
 	return promise;
 }
 
+/** 供原生 DOM 场景读取头像；受保护文件会先转换为可展示的 data URL。 */
+export function loadProtectedImageDisplayURL(src: string): Promise<string> {
+	if (!isProtectedImageSource(src)) return Promise.resolve(src);
+	return loadProtectedImageDataURL(src);
+}
+
 /** @internal test helper */
 export function resetProtectedImageCacheForTests() {
 	memoryCache.clear();

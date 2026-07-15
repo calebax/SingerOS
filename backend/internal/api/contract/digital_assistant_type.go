@@ -23,6 +23,7 @@ type DigitalAssistant struct {
 	OrgID        uint                    `json:"org_id"`
 	OwnerID      uint                    `json:"owner_id"`
 	Name         string                  `json:"name"`
+	RoleName     string                  `json:"role_name"`
 	Description  string                  `json:"description"`
 	Avatar       string                  `json:"avatar"`
 	Status       string                  `json:"status"`
@@ -46,6 +47,7 @@ type WorkerDeploymentStatus struct {
 // CreateDigitalAssistantRequest 创建数字助手请求
 type CreateDigitalAssistantRequest struct {
 	Name         string   `json:"name" binding:"required"`
+	RoleName     string   `json:"role_name"`
 	Description  string   `json:"description"`
 	Avatar       string   `json:"avatar"`
 	SystemPrompt string   `json:"system_prompt"`
@@ -57,6 +59,7 @@ type CreateDigitalAssistantRequest struct {
 // UpdateDigitalAssistantRequest 更新数字助手请求
 type UpdateDigitalAssistantRequest struct {
 	Name         string    `json:"name"`
+	RoleName     string    `json:"role_name"`
 	Description  string    `json:"description"`
 	Avatar       string    `json:"avatar"`
 	SystemPrompt *string   `json:"system_prompt,omitempty"`
@@ -93,6 +96,7 @@ type DigitalAssistantDetail struct {
 type CreateDigitalAssistantFromTemplateRequest struct {
 	TemplateID   uint     `json:"template_id" binding:"required"`
 	Name         string   `json:"name"`
+	RoleName     string   `json:"role_name"`
 	Description  string   `json:"description"`
 	Avatar       string   `json:"avatar"`
 	SystemPrompt string   `json:"system_prompt"`

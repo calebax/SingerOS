@@ -669,6 +669,7 @@ function ProjectConfigSidebar({
 				return {
 					...member,
 					name: member.name || matchedAssistant.name,
+					roleName: matchedAssistant.roleName,
 					description: member.description || matchedAssistant.description,
 					// 中文注释：项目详情里的成员头像可能是旧快照，优先用最新 AI 队友头像 public_id。
 					avatarUrl: matchedAssistant.avatar || member.avatarUrl,

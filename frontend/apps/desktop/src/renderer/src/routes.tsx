@@ -1,5 +1,4 @@
 import {
-	AiTeammatesView,
 	type AppNavigation,
 	AssistantListView,
 	CenterCanvas,
@@ -49,7 +48,7 @@ export function AppRoutes() {
 
 				<Route path="/assistants" element={<AssistantListView navigation={navigation} />} />
 
-				<Route path="/ai-teammates" element={<AiTeammatesView />} />
+				<Route path="/ai-teammates" element={<Navigate to="/assistants" replace />} />
 
 				<Route path="/tasks" element={<EmptyRoutePage />} />
 
@@ -89,7 +88,7 @@ function useDesktopNavigation(): AppNavigation {
 
 				digitalAssistant: "/assistants",
 
-				aiTeammates: "/ai-teammates",
+				aiTeammates: "/assistants",
 
 				knowledge: "/knowledge",
 
