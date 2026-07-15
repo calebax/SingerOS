@@ -1,6 +1,6 @@
 "use client";
 
-import { Action, type Project, useProjectCapabilities } from "@leros/store";
+import { Action, type Project } from "@leros/store";
 import { DropdownMenuItem } from "@leros/ui/components/ui/dropdown-menu";
 import { LogOut, Pencil, Trash2 } from "lucide-react";
 import type { MouseEvent, PointerEvent } from "react";
@@ -42,12 +42,12 @@ export function ProjectActionsMenu({
 	onDelete,
 	onLeave,
 }: ProjectActionsMenuProps) {
-	useProjectCapabilities(project.id);
 	const resource = { type: "project" as const, publicId: project.id };
 
 	return (
 		<>
-			<CanGate action={Action.ProjectUpdate} resource={resource}>
+			{/* 中文注释：父级下拉菜单已批量预取项目权限，菜单项只读取缓存结果。 */}
+			<CanGate action={Action.ProjectUpdate} resource={resource} ensure={false}>
 				<DropdownMenuItem
 					onPointerDown={preventClickThrough}
 					onClick={(event) => runMenuAction(event, () => onRename(project))}
@@ -56,7 +56,7 @@ export function ProjectActionsMenu({
 					<span>重命名</span>
 				</DropdownMenuItem>
 			</CanGate>
-			<CanGate action={Action.ProjectDelete} resource={resource}>
+			<CanGate action={Action.ProjectDelete} resource={resource} ensure={false}>
 				<DropdownMenuItem
 					variant="destructive"
 					onPointerDown={preventClickThrough}
@@ -66,7 +66,7 @@ export function ProjectActionsMenu({
 					<span>删除</span>
 				</DropdownMenuItem>
 			</CanGate>
-			<CanGate action={Action.ProjectMemberLeave} resource={resource}>
+			<CanGate action={Action.ProjectMemberLeave} resource={resource} ensure={false}>
 				<DropdownMenuItem
 					onPointerDown={preventClickThrough}
 					onClick={(event) => runMenuAction(event, () => onLeave(project))}

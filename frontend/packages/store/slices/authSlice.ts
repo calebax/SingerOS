@@ -35,6 +35,7 @@ type SetState = (
 export class AuthActionImpl {
 	readonly #set: SetState;
 	#refreshAuthSessionPromise: Promise<boolean> | null = null;
+	#authContextVersion = 0;
 
 	constructor(set: SetState) {
 		this.#set = set;
@@ -50,6 +51,7 @@ export class AuthActionImpl {
 	};
 
 	setAuthToken = (token: AuthTokenResponse) => {
+		this.#authContextVersion += 1;
 		this.setAuthUser({
 			publicId: token.user_info.public_id,
 			name: token.user_info.name || token.user_info.phone || token.user_info.email || "Lework 用户",
@@ -99,10 +101,13 @@ export class AuthActionImpl {
 	};
 
 	#fetchAuthSession = async (): Promise<boolean> => {
+		const authContextVersion = this.#authContextVersion;
 		try {
 			const response = await authApi.authSession();
 			const result = response.data;
 			if (result.code !== 0) return false;
+			// 中文注释：组织切换后忽略旧会话响应，防止旧组织状态覆盖新 Token。
+			if (authContextVersion !== this.#authContextVersion) return false;
 			this.setAuthSession(result.data);
 			return true;
 		} catch (error) {
@@ -132,6 +137,7 @@ export class AuthActionImpl {
 
 	switchOrganization = async (orgId: number) => {
 		try {
+			this.#authContextVersion += 1;
 			const response = await authApi.switchOrganization(orgId);
 			const result = response.data;
 			if (result.code !== 0) {
@@ -147,6 +153,7 @@ export class AuthActionImpl {
 
 	createOrganization = async (name: string) => {
 		try {
+			this.#authContextVersion += 1;
 			const response = await authApi.createOrganization({ name });
 			const result = response.data;
 			if (result.code !== 0) {
@@ -161,6 +168,7 @@ export class AuthActionImpl {
 	};
 
 	logout = () => {
+		this.#authContextVersion += 1;
 		this.setAuthUser(null);
 	};
 }
