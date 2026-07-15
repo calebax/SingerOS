@@ -65,7 +65,13 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 		},
 		Model:      providerID + "/" + modelID,
 		Agent:      map[string]agentConfig{"build": {Prompt: openCodeBuildAgentPrompt}},
-		Permission: map[string]string{"websearch": "allow"},
+		Permission: map[string]any{
+				"*": "allow",
+				"bash": map[string]string{
+					"*":    "allow",
+					"rm *": "ask",
+				},
+			},
 	}
 
 	// 构建 MCP 配置（遵循 opencode V1 config schema）

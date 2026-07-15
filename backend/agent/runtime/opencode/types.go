@@ -212,7 +212,7 @@ type configContent struct {
 	Provider   map[string]providerConfig `json:"provider"`
 	Model      string                    `json:"model,omitempty"`
 	Agent      map[string]agentConfig    `json:"agent,omitempty"`
-	Permission map[string]string         `json:"permission,omitempty"`
+	Permission map[string]any            `json:"permission,omitempty"`
 	MCP        map[string]any            `json:"mcp,omitempty"`
 }
 
