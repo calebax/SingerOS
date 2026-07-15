@@ -1,0 +1,123 @@
+import "@testing-library/jest-dom/vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { OrganizationSwitchPanel } from "./OrganizationSwitchPanel";
+
+const mockRefreshAuthSession = vi.fn();
+const mockSwitchOrganization = vi.fn();
+const mockCreateOrganization = vi.fn();
+const mockFetchProjects = vi.fn();
+const mockFetchAssistants = vi.fn();
+const mockFetchInstalledSkills = vi.fn();
+const mockResetLayout = vi.fn();
+const mockResetAssistants = vi.fn();
+const mockResetSkills = vi.fn();
+const mockResetMessages = vi.fn();
+const mockClearComposerInput = vi.fn();
+const mockSwitchView = vi.fn();
+
+const mockUser = {
+	publicId: "user-1",
+	name: "测试用户",
+	email: "test@example.com",
+	uin: 1,
+	currentOrg: { id: 1, publicId: "org-1", code: "org-1", name: "个人组织" },
+	organizations: [
+		{ id: 1, publicId: "org-1", code: "org-1", name: "个人组织" },
+		{ id: 2, publicId: "org-2", code: "org-2", name: "AI冲锋队" },
+	],
+};
+
+vi.mock("@leros/store", () => ({
+	resolveLogoUrl: () => "",
+	useAuthStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			authUser: mockUser,
+			refreshAuthSession: mockRefreshAuthSession,
+			switchOrganization: mockSwitchOrganization,
+			createOrganization: mockCreateOrganization,
+		}),
+	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			fetchProjects: mockFetchProjects,
+			resetAuthScopedData: mockResetLayout,
+			switchView: mockSwitchView,
+		}),
+	useDAStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			fetchAssistants: mockFetchAssistants,
+			resetAuthScopedData: mockResetAssistants,
+		}),
+	useSkillStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			fetchInstalledSkills: mockFetchInstalledSkills,
+			resetAuthScopedData: mockResetSkills,
+		}),
+	useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			clearComposerInput: mockClearComposerInput,
+			resetLocalMessages: mockResetMessages,
+		}),
+}));
+
+vi.mock("../avatar/DiceBearAvatar", () => ({
+	DiceBearAvatar: () => <div data-testid="org-avatar" />,
+}));
+
+vi.mock("../avatar/ProtectedImage", () => ({
+	ProtectedImage: ({ fallback }: { fallback: ReactNode }) => <>{fallback}</>,
+}));
+
+vi.mock("sonner", () => ({
+	toast: {
+		success: vi.fn(),
+		error: vi.fn(),
+	},
+}));
+
+describe("OrganizationSwitchPanel", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockRefreshAuthSession.mockResolvedValue(true);
+		mockSwitchOrganization.mockResolvedValue({});
+		mockCreateOrganization.mockResolvedValue({});
+		const pendingRequest = new Promise<never>(() => undefined);
+		mockFetchProjects.mockReturnValue(pendingRequest);
+		mockFetchAssistants.mockReturnValue(pendingRequest);
+		mockFetchInstalledSkills.mockReturnValue(pendingRequest);
+	});
+
+	it("切换成功后立即进入新建任务页，不等待组织数据预加载", async () => {
+		const goToRoute = vi.fn();
+		const onDone = vi.fn();
+		const { rerender } = render(
+			<OrganizationSwitchPanel
+				navigation={{ currentPath: "/projects", goToRoute } as never}
+				onDone={onDone}
+				active
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: /AI冲锋队/ }));
+
+		await waitFor(() => {
+			expect(mockSwitchOrganization).toHaveBeenCalledWith(2);
+			expect(goToRoute).toHaveBeenCalledWith("workbench");
+		});
+		// 中文注释：新路由尚未到达时保留切换层，避免短暂露出旧组织页面。
+		expect(onDone).not.toHaveBeenCalled();
+		rerender(
+			<OrganizationSwitchPanel
+				navigation={{ currentPath: "/workbench", goToRoute } as never}
+				onDone={onDone}
+				active
+			/>,
+		);
+		await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+		expect(mockFetchProjects).toHaveBeenCalledTimes(1);
+		expect(mockFetchAssistants).toHaveBeenCalledTimes(1);
+		expect(mockFetchInstalledSkills).toHaveBeenCalledTimes(1);
+	});
+});

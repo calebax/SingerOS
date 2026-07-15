@@ -8,6 +8,7 @@ import {
 	type SkillInstalledItem,
 	skillMarketplaceApi,
 	useLayoutStore,
+	useProjectsMenuCapabilities,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -181,6 +182,7 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 		activeProjectId,
 		switchView,
 	} = useLayoutStore((s) => s);
+	useProjectsMenuCapabilities(projects.map((project) => project.id));
 	const { isAuthenticated, requireAuth } = useAuth();
 	const [keyword, setKeyword] = useState("");
 	const [createOpen, setCreateOpen] = useState(false);

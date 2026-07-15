@@ -9,6 +9,7 @@ import {
 	useAuthStore,
 	useChatStore,
 	useLayoutStore,
+	useProjectsMenuCapabilities,
 	userApi,
 	useTaskCapabilities,
 } from "@leros/store";
@@ -158,6 +159,7 @@ export function LeftRail({
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
 	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
 	const visibleProjects = isAuthenticated ? projects : [];
+	useProjectsMenuCapabilities(visibleProjects.map((project) => project.id));
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
 	const [renameTask, setRenameTask] = useState<ProjectTask | null>(null);
 	const [renameValue, setRenameValue] = useState("");

@@ -334,7 +334,9 @@ export function AssistantCreateDialog({
 									readOnly={!customMode}
 								/>
 								<label className="space-y-1.5 md:col-span-2">
-									<span className="text-xs font-medium text-slate-700">简介 *</span>
+									<span className="text-xs font-medium text-slate-700">
+										简介 <span className="text-red-500">*</span>
+									</span>
 									<textarea
 										value={introduction}
 										onChange={(event) => setIntroduction(event.target.value)}
@@ -388,7 +390,9 @@ function Field({
 }) {
 	return (
 		<label className="space-y-1.5">
-			<span className="text-xs font-medium text-slate-700">{label} *</span>
+			<span className="text-xs font-medium text-slate-700">
+				{label} <span className="text-red-500">*</span>
+			</span>
 			<input
 				type="text"
 				value={value}

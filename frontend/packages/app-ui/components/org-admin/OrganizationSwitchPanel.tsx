@@ -3,7 +3,6 @@
 import {
 	type AuthUser,
 	resolveLogoUrl,
-	useAppStore,
 	useAuthStore,
 	useChatStore,
 	useDAStore,
@@ -34,6 +33,7 @@ export function OrganizationSwitchPanel({
 	active = true,
 }: OrganizationSwitchPanelProps) {
 	const user = useAuthStore((s) => s.authUser);
+	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const switchOrganization = useAuthStore((s) => s.switchOrganization);
 	const createOrganization = useAuthStore((s) => s.createOrganization);
 	const fetchProjects = useLayoutStore((s) => s.fetchProjects);
@@ -49,33 +49,56 @@ export function OrganizationSwitchPanel({
 	const [organizationName, setOrganizationName] = useState("");
 	const [switchingOrgId, setSwitchingOrgId] = useState<number | null>(null);
 	const [creating, setCreating] = useState(false);
+	const [waitingForNavigation, setWaitingForNavigation] = useState(false);
 
 	useEffect(() => {
 		if (!active) return;
-		void useAppStore.getState().refreshAuthSession();
-	}, [active]);
+		void refreshAuthSession();
+	}, [active, refreshAuthSession]);
 
-	const resetOrgScopedData = async () => {
+	useEffect(() => {
+		if (!waitingForNavigation || navigation?.currentPath !== "/workbench") return;
+		setWaitingForNavigation(false);
+		onDone?.();
+	}, [navigation?.currentPath, onDone, waitingForNavigation]);
+
+	const resetOrgScopedData = () => {
 		resetAuthScopedData();
 		resetDAAuthScopedData();
 		resetSkillAuthScopedData();
 		resetLocalMessages();
 		clearComposerInput();
-		await Promise.all([fetchProjects(), fetchAssistants(), fetchInstalledSkills()]);
+
+		// 中文注释：组织切换成功后先完成导航，避免项目权限预加载阻塞并产生迟到跳转。
 		if (navigation) {
+			setWaitingForNavigation(navigation.currentPath !== "/workbench");
 			navigation.goToRoute("workbench");
+			if (navigation.currentPath === "/workbench") onDone?.();
 		} else {
 			switchView("workbench");
+			onDone?.();
 		}
+
+		void Promise.all([fetchProjects(), fetchAssistants(), fetchInstalledSkills()]).catch(
+			(error) => {
+				console.error("preload organization scoped data error:", error);
+			},
+		);
 	};
 
 	const handleSwitchOrganization = async (orgId: number) => {
-		if (!user || user.currentOrg?.id === orgId || switchingOrgId !== null || creating) return;
+		if (
+			!user ||
+			user.currentOrg?.id === orgId ||
+			switchingOrgId !== null ||
+			creating ||
+			waitingForNavigation
+		)
+			return;
 		setSwitchingOrgId(orgId);
 		try {
 			await switchOrganization(orgId);
-			await resetOrgScopedData();
-			onDone?.();
+			resetOrgScopedData();
 			toast.success("已切换组织");
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "切换组织失败，请稍后重试");
@@ -87,12 +110,11 @@ export function OrganizationSwitchPanel({
 	const handleCreateOrganization = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		const name = organizationName.trim();
-		if (!name || creating) return;
+		if (!name || creating || waitingForNavigation) return;
 		setCreating(true);
 		try {
 			await createOrganization(name);
-			await resetOrgScopedData();
-			onDone?.();
+			resetOrgScopedData();
 			toast.success("已创建并切换组织");
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "创建组织失败，请稍后重试");
@@ -100,6 +122,15 @@ export function OrganizationSwitchPanel({
 			setCreating(false);
 		}
 	};
+
+	if (waitingForNavigation) {
+		return (
+			<div className="flex min-h-48 w-full flex-col items-center justify-center gap-3 text-sm text-[var(--leros-text-muted)]">
+				<Loader2 className="size-5 animate-spin text-[var(--leros-primary)]" />
+				<span>正在进入新建任务...</span>
+			</div>
+		);
+	}
 
 	if (mode === "create") {
 		return (
