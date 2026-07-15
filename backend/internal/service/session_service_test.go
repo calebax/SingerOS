@@ -1085,6 +1085,7 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 		Status:    string(types.MessageStatusCancelled),
 		CreatedAt: time.Now().UTC(),
 		RunID:     "run-abc-123",
+		AssistantID: 1,
 	})
 	if err != nil {
 		t.Fatalf("FailedSessionMessage failed: %v", err)
@@ -2013,6 +2014,7 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 		RequestID:         "test-req",
 		StateStartSeq:     500,
 		RunID:             "run-abc-123",
+		AssistantID:       assistant.ID,
 	})
 	if err != nil {
 		t.Fatalf("HandleSessionRunStarted failed: %v", err)

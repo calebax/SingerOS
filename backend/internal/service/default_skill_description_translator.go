@@ -8,14 +8,11 @@ import (
 	"sync"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
-	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
 
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
-	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
-	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )
@@ -27,12 +24,16 @@ const (
 
 // defaultSkillDescriptionTranslator 使用组织默认 LLM 翻译 Skill 市场文案。
 type defaultSkillDescriptionTranslator struct {
-	db *gorm.DB
+	db     *gorm.DB
+	caller llm.Caller
 }
 
 // NewDefaultSkillDescriptionTranslator 创建默认翻译器。
 func NewDefaultSkillDescriptionTranslator(db *gorm.DB) SkillDescriptionTranslator {
-	return &defaultSkillDescriptionTranslator{db: db}
+	return &defaultSkillDescriptionTranslator{
+		db:     db,
+		caller: llm.NewCaller(llm.NewManager(db), llm.NewRecorder(db)),
+	}
 }
 
 // translationRequest 发送给模型的翻译请求项。
@@ -72,42 +73,11 @@ func (t *defaultSkillDescriptionTranslator) Translate(ctx context.Context, items
 		return map[string]TranslatedSkillText{}, nil
 	}
 
-	chatModel, err := t.buildChatModel(ctx, model)
-	if err != nil {
-		return map[string]TranslatedSkillText{}, nil
-	}
-
-	return t.translateBatches(ctx, chatModel, items)
-}
-
-// buildChatModel 创建 ChatModel 实例，直接连接上游 LLM。
-func (t *defaultSkillDescriptionTranslator) buildChatModel(ctx context.Context, m *types.LLMModel) (model.ToolCallingChatModel, error) {
-	endpointURL := buildLLMEndpointURL(m.BaseURL, m.BaseURLHasV1)
-
-	jsonFormat := einoopenai.ChatCompletionResponseFormat{
-		Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
-	}
-
-	temperature := float32(0.1)
-
-	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
-		Provider:        m.Provider,
-		APIKey:          m.APIKeyEncrypted,
-		Model:           m.ModelName,
-		BaseURL:         endpointURL,
-		ResponseFormat:  &jsonFormat,
-		Temperature:     &temperature,
-		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
-	})
-	if err != nil {
-		logs.WarnContextf(ctx, "skill translator: create chat model: %v", err)
-		return nil, err
-	}
-	return chatModel, nil
+	return t.translateBatches(ctx, caller.OrgID, model.ID, items, caller.Uin)
 }
 
 // translateBatches 将 items 按 batchSize 分组后并发翻译，合并结果。
-func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context, chatModel model.ToolCallingChatModel, items []TranslateItem) (map[string]TranslatedSkillText, error) {
+func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context, orgID, modelID uint, items []TranslateItem, uin uint) (map[string]TranslatedSkillText, error) {
 	var batches [][]TranslateItem
 	for i := 0; i < len(items); i += translateBatchSize {
 		end := i + translateBatchSize
@@ -118,7 +88,7 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 	}
 
 	if len(batches) == 1 {
-		return t.doTranslate(ctx, chatModel, batches[0])
+		return t.doTranslate(ctx, orgID, modelID, batches[0], uin)
 	}
 
 	type batchResult struct {
@@ -138,7 +108,7 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			tMap, err := t.doTranslate(ctx, chatModel, batch)
+			tMap, err := t.doTranslate(ctx, orgID, modelID, batch, uin)
 			select {
 			case resultCh <- batchResult{translations: tMap, err: err}:
 			case <-ctx.Done():
@@ -163,7 +133,7 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 }
 
 // doTranslate 对一批 items 调用 LLM 翻译，返回 skill_id → 中文展示文案的映射。
-func (t *defaultSkillDescriptionTranslator) doTranslate(ctx context.Context, chatModel model.ToolCallingChatModel, items []TranslateItem) (map[string]TranslatedSkillText, error) {
+func (t *defaultSkillDescriptionTranslator) doTranslate(ctx context.Context, orgID, modelID uint, items []TranslateItem, uin uint) (map[string]TranslatedSkillText, error) {
 	reqItems := make([]translationRequest, len(items))
 	for i, item := range items {
 		reqItems[i] = translationRequest{SkillID: item.SkillID, Name: item.Name, Description: item.Description}
@@ -187,15 +157,23 @@ Rules for display_name:
 Input:
 %s`, len(items), string(reqJSON))
 
-	messages := []*schema.Message{
-		{Role: schema.User, Content: prompt},
-	}
-	resp, err := chatModel.Generate(ctx, messages)
+	temperature := 0.1
+	result, err := t.caller.Call(ctx, orgID, &llm.CallRequest{
+		ModelID:    modelID,
+		Messages:      []llm.Message{{Role: "user", Content: prompt}},
+		Temperature:   &temperature,
+		ResponseFormat: &einoopenai.ChatCompletionResponseFormat{
+			Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
+		},
+		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
+		CallerType:      "skill_translator",
+		Uin:             uin,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("LLM generate: %w", err)
 	}
 
-	content := strings.TrimSpace(resp.Content)
+	content := strings.TrimSpace(result.Message.Content)
 	content = strings.TrimPrefix(content, "```json")
 	content = strings.TrimPrefix(content, "```")
 	content = strings.TrimSuffix(content, "```")
@@ -246,16 +224,11 @@ func (t *defaultSkillDescriptionTranslator) TranslateDocument(ctx context.Contex
 		return map[string]string{}, nil
 	}
 
-	chatModel, err := t.buildChatModel(ctx, model)
-	if err != nil {
-		return map[string]string{}, nil
-	}
-
-	return t.translateDocumentBatches(ctx, chatModel, items)
+	return t.translateDocumentBatches(ctx, caller.OrgID, model.ID, items, caller.Uin)
 }
 
 // translateDocumentBatches 将全篇 SKILL.md 按批分组并发翻译。
-func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context.Context, chatModel model.ToolCallingChatModel, items []TranslateDocumentItem) (map[string]string, error) {
+func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context.Context, orgID, modelID uint, items []TranslateDocumentItem, uin uint) (map[string]string, error) {
 	var batches [][]TranslateDocumentItem
 	for i := 0; i < len(items); i += translateBatchSize {
 		end := i + translateBatchSize
@@ -266,7 +239,7 @@ func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context
 	}
 
 	if len(batches) == 1 {
-		return t.doTranslateDocument(ctx, chatModel, batches[0])
+		return t.doTranslateDocument(ctx, orgID, modelID, batches[0], uin)
 	}
 
 	type batchResult struct {
@@ -286,7 +259,7 @@ func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			tMap, err := t.doTranslateDocument(ctx, chatModel, batch)
+			tMap, err := t.doTranslateDocument(ctx, orgID, modelID, batch, uin)
 			select {
 			case resultCh <- batchResult{translations: tMap, err: err}:
 			case <-ctx.Done():
@@ -313,7 +286,7 @@ func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context
 // doTranslateDocument 对一批整篇 SKILL.md 调用 LLM 翻译，只翻译自然语言为简体中文。
 // 保留 YAML frontmatter、标题层级、列表、代码块、链接、表格等 Markdown 结构。
 // 翻译结果需要能被 catalog.ParseDocument 解析，否则丢弃并记录 warning。
-func (t *defaultSkillDescriptionTranslator) doTranslateDocument(ctx context.Context, chatModel model.ToolCallingChatModel, items []TranslateDocumentItem) (map[string]string, error) {
+func (t *defaultSkillDescriptionTranslator) doTranslateDocument(ctx context.Context, orgID, modelID uint, items []TranslateDocumentItem, uin uint) (map[string]string, error) {
 	// 构造请求，每篇之间用分隔线隔开
 	var inputBuilder strings.Builder
 	inputBuilder.WriteString(fmt.Sprintf("Translate %d skill document(s) below.\n\n", len(items)))
@@ -342,15 +315,23 @@ Output format:
 Documents to translate:
 %s`, inputBuilder.String())
 
-	messages := []*schema.Message{
-		{Role: schema.User, Content: prompt},
-	}
-	resp, err := chatModel.Generate(ctx, messages)
+	temperature := 0.1
+	result, err := t.caller.Call(ctx, orgID, &llm.CallRequest{
+		ModelID:    modelID,
+		Messages:      []llm.Message{{Role: "user", Content: prompt}},
+		Temperature:   &temperature,
+		ResponseFormat: &einoopenai.ChatCompletionResponseFormat{
+			Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
+		},
+		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
+		CallerType:      "skill_translator",
+		Uin:             uin,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("LLM generate: %w", err)
 	}
 
-	content := strings.TrimSpace(resp.Content)
+	content := strings.TrimSpace(result.Message.Content)
 	content = strings.TrimPrefix(content, "```json")
 	content = strings.TrimPrefix(content, "```")
 	content = strings.TrimSuffix(content, "```")

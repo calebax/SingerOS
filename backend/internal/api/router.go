@@ -11,12 +11,14 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 	"github.com/gin-gonic/gin"
+	"github.com/nats-io/nats.go"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/runnable"
 	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/internal/worker"
@@ -93,6 +95,11 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterClientUpdateRoutes(v1, cfg.ClientUpdate)
 		logs.Info("Client update routes registered successfully")
 	}
+
+	// ── 内部路由（worker 上报，不走 RequireCallerOrg）─────────────
+	llmUsageRecorder := llm.NewRecorder(db)
+	llm.RegisterUsageRoute(v1, llmUsageRecorder)
+	logs.Info("LLM usage report route registered successfully")
 
 	// ── 鉴权路由（RequireCallerOrg 统一拦截未认证/未绑定 org 的请求）─────────────
 	permSvc := service.NewPermissionService(db)
@@ -172,6 +179,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		} else {
 			logs.Info("Session event consumers disabled by config")
 		}
+
+		// LLM usage consumer 消费 worker 上报的 org.*.usage.llm 事件并写入 llm_history。
+		go llm.StartUsageConsumer(context.Background(), llmUsageRecorder, &llmUsageSubscriberAdapter{eb: eventbus})
+		logs.Info("LLM usage consumer started")
 		if workerScheduler != nil {
 			go service.StartWorkerDeploymentReconciler(context.Background(), db, workerScheduler, cfg.Scheduler, eventbus)
 			logs.Info("Worker deployment reconciler started")
@@ -190,4 +201,13 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 	// Swagger UI 路由
 	v1.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	return r
+}
+
+// llmUsageSubscriberAdapter 将 eventbus.Subscriber 适配为 llm.UsageSubscriber。
+type llmUsageSubscriberAdapter struct {
+	eb eventbus.Subscriber
+}
+
+func (a *llmUsageSubscriberAdapter) Subscribe(ctx context.Context, topic, consumer string, handler func(data []byte)) error {
+	return a.eb.Subscribe(ctx, topic, consumer, func(msg_ *nats.Msg) { handler(msg_.Data) })
 }

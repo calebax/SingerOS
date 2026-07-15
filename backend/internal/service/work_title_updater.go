@@ -9,12 +9,13 @@ import (
 	"time"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
-	einoschema "github.com/cloudwego/eino/schema"
+
 	"gorm.io/gorm"
 
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
+	infradb 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
+	"github.com/insmtx/Leros/backend/internal/api/auth"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
@@ -47,6 +48,11 @@ type workTitleGenerationInput struct {
 	OrgID            uint
 	UserMessage      string
 	AssistantMessage string
+	ReqID            string
+	ProjectID        uint
+	SessionID        uint
+	MessageID        uint
+	Uin              uint
 }
 
 var generateShortWorkTitles = generateShortWorkTitlesWithLLM
@@ -156,11 +162,22 @@ func (u *WorkTitleUpdater) UpdateAfterFirstTurn(ctx context.Context, sessionPubl
 		return u.saveTitleAttemptMarkers(ctx, project, task, session, projectAttempt, taskAttempt, sessionAttempt)
 	}
 
+	_, trace := auth.FromContext(ctx)
+	reqID := ""
+	if trace != nil {
+		reqID = trace.TraceID
+	}
+
 	logs.InfoContextf(ctx, "work title: generating short titles session=%s project=%s task=%s project_writable=%t include_assistant=%t", session.PublicID, project.PublicID, task.PublicID, projectWritable, strings.TrimSpace(assistantMessage) != "")
 	titles, err := generateShortWorkTitles(ctx, u.db, workTitleGenerationInput{
 		OrgID:            session.OrgID,
 		UserMessage:      firstMsg.Content,
 		AssistantMessage: assistantMessage,
+		ReqID:            reqID,
+		ProjectID:        project.ID,
+		SessionID:        session.ID,
+		MessageID:        firstMsg.ID,
+		Uin:              session.Uin,
 	})
 	if err != nil {
 		if saveErr := u.saveTitleAttemptMarkers(ctx, project, task, session, projectAttempt, taskAttempt, sessionAttempt); saveErr != nil {
@@ -398,30 +415,12 @@ func (u *WorkTitleUpdater) publishGlobalWorkTitleUpdated(
 }
 
 func generateShortWorkTitlesWithLLM(ctx context.Context, database *gorm.DB, input workTitleGenerationInput) (generatedWorkTitles, error) {
-	model, err := infradb.GetSystemTranslationLLMModel(ctx, database, input.OrgID)
+	model, err := infradb.GetDefaultLLMModel(ctx, database, input.OrgID)
 	if err != nil {
-		return generatedWorkTitles{}, fmt.Errorf("get system translation model: %w", err)
+		return generatedWorkTitles{}, fmt.Errorf("get default model: %w", err)
 	}
 	if model == nil {
-		return generatedWorkTitles{}, fmt.Errorf("system translation model %q not found", infradb.SystemTranslationLLMModelCode)
-	}
-
-	endpointURL := buildLLMEndpointURL(model.BaseURL, model.BaseURLHasV1)
-	jsonFormat := einoopenai.ChatCompletionResponseFormat{
-		Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
-	}
-	temperature := float32(0.1)
-	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
-		Provider:        model.Provider,
-		APIKey:          model.APIKeyEncrypted,
-		Model:           model.ModelName,
-		BaseURL:         endpointURL,
-		ResponseFormat:  &jsonFormat,
-		Temperature:     &temperature,
-		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
-	})
-	if err != nil {
-		return generatedWorkTitles{}, fmt.Errorf("create title model: %w", err)
+		return generatedWorkTitles{}, fmt.Errorf("no default LLM model configured for org %d", input.OrgID)
 	}
 
 	template := prompts.Get(prompts.KeyWorkShortTitle)
@@ -429,15 +428,34 @@ func generateShortWorkTitlesWithLLM(ctx context.Context, database *gorm.DB, inpu
 		return generatedWorkTitles{}, fmt.Errorf("prompt %q not registered", prompts.KeyWorkShortTitle)
 	}
 	prompt := renderWorkShortTitlePrompt(template, input)
-	resp, err := chatModel.Generate(ctx, []*einoschema.Message{{Role: einoschema.User, Content: prompt}})
+
+	temperature := 0.1
+	caller := llm.NewCaller(llm.NewManager(database), llm.NewRecorder(database))
+	result, err := caller.Call(ctx, input.OrgID, &llm.CallRequest{
+		ModelID:    model.ID,
+		Messages: []llm.Message{
+			{Role: "user", Content: prompt},
+		},
+		Temperature: &temperature,
+		ResponseFormat: &einoopenai.ChatCompletionResponseFormat{
+			Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
+		},
+		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
+		CallerType:      "work_title_updater",
+		ReqID:           input.ReqID,
+		ProjectID:       input.ProjectID,
+		SessionID:       input.SessionID,
+		MessageID:       input.MessageID,
+		Uin:             input.Uin,
+	})
 	if err != nil {
 		return generatedWorkTitles{}, fmt.Errorf("generate title: %w", err)
 	}
-	if resp == nil {
+	if result == nil || result.Message == nil {
 		return generatedWorkTitles{}, errors.New("generate title: empty response")
 	}
 
-	return parseGeneratedWorkTitles(resp.Content)
+	return parseGeneratedWorkTitles(result.Message.Content)
 }
 
 func renderWorkShortTitlePrompt(template string, input workTitleGenerationInput) string {

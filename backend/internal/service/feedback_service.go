@@ -158,7 +158,7 @@ func (s *FeedbackService) processFeedbackAsync(ctx context.Context, job *feedbac
 		return
 	}
 
-	summary := summarizeFeedbackBestEffort(ctx, s.db, job.orgID, job.typeLabel, job.content)
+	summary := summarizeFeedbackBestEffort(ctx, s.db, job.orgID, job.typeLabel, job.content, job.userID)
 
 	attachmentTokens, err := s.uploadAttachments(ctx, job.orgID, job.attachmentIDs)
 	if err != nil {

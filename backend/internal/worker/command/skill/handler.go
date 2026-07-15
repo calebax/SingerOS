@@ -19,10 +19,10 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	"github.com/insmtx/Leros/backend/internal/cli"
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/internal/skill/fetch"
+	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/pkg/leros"

@@ -8,16 +8,16 @@ import (
 	"strings"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
-	einoschema "github.com/cloudwego/eino/schema"
+
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/prompts"
-	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )
 
 const (
-	feedbackTitleMaxRunes        = 30
+	feedbackTitleMaxRunes         = 30
 	feedbackUnderstandingMaxRunes = 300
 )
 
@@ -33,31 +33,13 @@ type feedbackSummaryPayload struct {
 
 var summarizeFeedback = summarizeFeedbackWithLLM
 
-func summarizeFeedbackWithLLM(ctx context.Context, database *gorm.DB, orgID uint, typeLabel, content string) (feedbackSummary, error) {
-	model, err := db.GetSystemTranslationLLMModel(ctx, database, orgID)
+func summarizeFeedbackWithLLM(ctx context.Context, database *gorm.DB, orgID uint, typeLabel, content string, uin uint) (feedbackSummary, error) {
+	model, err := db.GetDefaultLLMModel(ctx, database, orgID)
 	if err != nil {
-		return feedbackSummary{}, fmt.Errorf("get system translation model: %w", err)
+		return feedbackSummary{}, fmt.Errorf("get default model: %w", err)
 	}
 	if model == nil {
-		return feedbackSummary{}, fmt.Errorf("system translation model %q not found", db.SystemTranslationLLMModelCode)
-	}
-
-	endpointURL := buildLLMEndpointURL(model.BaseURL, model.BaseURLHasV1)
-	jsonFormat := einoopenai.ChatCompletionResponseFormat{
-		Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
-	}
-	temperature := float32(0.2)
-	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
-		Provider:        model.Provider,
-		APIKey:          model.APIKeyEncrypted,
-		Model:           model.ModelName,
-		BaseURL:         endpointURL,
-		ResponseFormat:  &jsonFormat,
-		Temperature:     &temperature,
-		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
-	})
-	if err != nil {
-		return feedbackSummary{}, fmt.Errorf("create feedback summary model: %w", err)
+		return feedbackSummary{}, fmt.Errorf("no default LLM model configured for org %d", orgID)
 	}
 
 	template := prompts.Get(prompts.KeyFeedbackSummarize)
@@ -70,15 +52,29 @@ func summarizeFeedbackWithLLM(ctx context.Context, database *gorm.DB, orgID uint
 		"{content}", strings.TrimSpace(content),
 	).Replace(template)
 
-	resp, err := chatModel.Generate(ctx, []*einoschema.Message{{Role: einoschema.User, Content: prompt}})
+	temperature := 0.2
+	caller := llm.NewCaller(llm.NewManager(database), llm.NewRecorder(database))
+	result, err := caller.Call(ctx, orgID, &llm.CallRequest{
+		ModelID:    model.ID,
+		Messages: []llm.Message{
+			{Role: "user", Content: prompt},
+		},
+		Temperature: &temperature,
+		ResponseFormat: &einoopenai.ChatCompletionResponseFormat{
+			Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
+		},
+		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
+		CallerType:      "feedback_summarizer",
+		Uin:             uin,
+	})
 	if err != nil {
 		return feedbackSummary{}, fmt.Errorf("generate feedback summary: %w", err)
 	}
-	if resp == nil || strings.TrimSpace(resp.Content) == "" {
+	if result == nil || result.Message == nil || strings.TrimSpace(result.Message.Content) == "" {
 		return feedbackSummary{}, errors.New("generate feedback summary: empty response")
 	}
 
-	return parseFeedbackSummary(resp.Content)
+	return parseFeedbackSummary(result.Message.Content)
 }
 
 func parseFeedbackSummary(content string) (feedbackSummary, error) {
@@ -103,8 +99,8 @@ func parseFeedbackSummary(content string) (feedbackSummary, error) {
 	return summary, nil
 }
 
-func summarizeFeedbackBestEffort(ctx context.Context, database *gorm.DB, orgID uint, typeLabel, content string) feedbackSummary {
-	summary, err := summarizeFeedback(ctx, database, orgID, typeLabel, content)
+func summarizeFeedbackBestEffort(ctx context.Context, database *gorm.DB, orgID uint, typeLabel, content string, uin uint) feedbackSummary {
+	summary, err := summarizeFeedback(ctx, database, orgID, typeLabel, content, uin)
 	if err != nil {
 		logs.WarnContextf(ctx, "feedback summary llm failed, using fallback: %v", err)
 		return fallbackFeedbackSummary(content)
