@@ -1,6 +1,12 @@
 "use client";
 
-import { type ProjectMember, type ProjectSkill, useChatStore, useLayoutStore } from "@leros/store";
+import {
+	isSystemDefaultAssistant,
+	type ProjectMember,
+	type ProjectSkill,
+	useChatStore,
+	useLayoutStore,
+} from "@leros/store";
 import type {
 	ApprovalAction,
 	ApprovalRequest,
@@ -35,6 +41,8 @@ import {
 } from "../layout/project-chat-layout";
 import { AttachmentPreview } from "./AttachmentPreview";
 import { ComposerActionBar } from "./ComposerActionBar";
+import { ComposerUsageTipsPanel } from "./ComposerUsageTipsPanel";
+import { buildComposerUsageTips } from "./composerUsageTips";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
 	type ComposerAssistantOption,
@@ -114,13 +122,33 @@ export function ChatInput({
 		return (
 			(currentProject?.members ?? [])
 				// 中文注释：项目默认 AI 员工用于兜底分配，不作为输入框里可手动召唤的候选项展示。
-				.filter((member) => member.type === "assistant" && !member.isDefault)
+				.filter(
+					(member) =>
+						member.type === "assistant" &&
+						!member.isDefault &&
+						!isSystemDefaultAssistant(member.publicId),
+				)
 				.map(projectMemberToComposerAssistantOption)
 		);
 	}, [currentProject?.members, isProjectVariant]);
 	const projectSkillLabels = useMemo(
 		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
 		[projectSkillOptions],
+	);
+	const isNewProjectTaskView = isProjectVariant && currentView === "project";
+	const composerUsageTips = useMemo(
+		() => (isNewProjectTaskView ? buildComposerUsageTips(currentProject) : []),
+		[isNewProjectTaskView, currentProject],
+	);
+	const applyUsageTip = useCallback(
+		(prompt: string) => {
+			if (composerRef.current) {
+				composerRef.current.setContent(prompt);
+				return;
+			}
+			setInputText(prompt);
+		},
+		[setInputText],
 	);
 	const activeProjectComposerPrefill =
 		isProjectVariant &&
@@ -311,6 +339,9 @@ export function ChatInput({
 			)}
 		>
 			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && projectLayout.inner)}>
+				{isNewProjectTaskView && (
+					<ComposerUsageTipsPanel tips={composerUsageTips} onApply={applyUsageTip} />
+				)}
 				{inputAttachments.length > 0 && (
 					<AttachmentPreview
 						attachments={inputAttachments}
@@ -322,29 +353,9 @@ export function ChatInput({
 					className={cn(
 						// 中文注释：focus 时使用无偏移阴影，避免 shadow-xl 只在下方显影
 						"relative rounded-2xl bg-white/95 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70",
-						isProjectVariant && "rounded-2xl bg-white px-4 py-2 ring-slate-200",
+						isProjectVariant && "flex flex-col rounded-2xl bg-white px-4 py-2 ring-slate-200",
 					)}
 				>
-					<StructuredComposer
-						ref={composerRef}
-						value={inputText}
-						onChange={setInputText}
-						onSubmit={submitMessage}
-						onPasteFiles={handlePasteFiles}
-						onFocus={() => setInputFocused(true)}
-						onBlur={() => setInputFocused(false)}
-						placeholder={
-							isProjectVariant
-								? "这会儿帮你做些什么？@引用项目"
-								: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
-						}
-						isProjectVariant={isProjectVariant}
-						assistantOptions={projectAssistantOptions}
-						projectSkillOptions={projectSkillOptions}
-						assistantSelectionMode="single"
-						prefill={activeProjectComposerPrefill}
-						onPrefillConsumed={consumeProjectComposerPrefill}
-					/>
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -353,10 +364,34 @@ export function ChatInput({
 						multiple
 						onChange={handleFileSelect}
 					/>
+					<div className="min-w-0">
+						<StructuredComposer
+							ref={composerRef}
+							value={inputText}
+							onChange={setInputText}
+							onSubmit={submitMessage}
+							onPasteFiles={handlePasteFiles}
+							onFocus={() => setInputFocused(true)}
+							onBlur={() => setInputFocused(false)}
+							placeholder={
+								isProjectVariant
+									? isNewProjectTaskView
+										? "在这里输入需求或描述目标。使用@召唤队友、/调用技能..."
+										: "继续帮你做什么？"
+									: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
+							}
+							isProjectVariant={isProjectVariant}
+							assistantOptions={projectAssistantOptions}
+							projectSkillOptions={projectSkillOptions}
+							assistantSelectionMode="single"
+							prefill={activeProjectComposerPrefill}
+							onPrefillConsumed={consumeProjectComposerPrefill}
+						/>
+					</div>
 					<div
 						className={cn(
-							"flex items-center justify-between px-4 pb-3",
-							isProjectVariant && "px-0 pb-0",
+							"flex items-center justify-between",
+							isProjectVariant ? "border-t border-[var(--leros-chat-ai-border)] pt-3" : "px-4 pb-3",
 						)}
 					>
 						<div className="flex items-center gap-1">
