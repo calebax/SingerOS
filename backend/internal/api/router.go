@@ -11,7 +11,6 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 	"github.com/gin-gonic/gin"
-	"github.com/nats-io/nats.go"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
@@ -19,11 +18,13 @@ import (
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/runnable"
 	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/internal/worker/scheduler"
 	workerserver "github.com/insmtx/Leros/backend/internal/worker/server"
+	"github.com/nats-io/nats.go"
 	ygmiddleware "github.com/ygpkg/yg-go/apis/runtime/middleware"
 	"github.com/ygpkg/yg-go/logs"
 
@@ -38,7 +39,7 @@ import (
 //
 // 根据配置初始化并注册 GitHub、GitLab 等渠道连接器，
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
-func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gin.Engine {
+func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB, modelInvoker modelrouter.Invoker) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.CORS())
 	r.Use(middleware.CallerMiddleware(cfg.Server.JWT.Secret, db))
@@ -118,7 +119,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		logs.Info("LLM model routes registered successfully")
 
 		inferrer := service.NewDefaultAssistantInferrer(1)
-		sessionService := service.NewSessionService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env)
+		sessionService := service.NewSessionService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, modelInvoker)
 		handler.RegisterSessionRoutes(authed, sessionService, permSvc)
 		handler.RegisterGlobalEventRoutes(authed, sessionService)
 		logs.Info("Session routes registered successfully")
@@ -155,15 +156,15 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterUserRoutes(authed, userService)
 		logs.Info("User routes registered successfully")
 
-		skillMarketplaceService := service.NewSkillMarketplaceServiceWithTranslator(db, eventbus, inferrer, service.NewDefaultSkillDescriptionTranslator(db), filestore.GetStorage(), filestore.DefaultBucket())
+		skillMarketplaceService := service.NewSkillMarketplaceServiceWithTranslator(db, eventbus, inferrer, service.NewDefaultSkillDescriptionTranslator(db, modelInvoker), filestore.GetStorage(), filestore.DefaultBucket())
 		handler.RegisterSkillMarketplaceRoutes(authed, skillMarketplaceService)
 		logs.Info("Skill marketplace routes registered successfully")
 
-		skillService := service.NewSkillService(db, eventbus, inferrer)
+		skillService := service.NewSkillService(db, eventbus, inferrer, modelInvoker)
 		handler.RegisterSkillRoutes(authed, skillService)
 		logs.Info("Skill management routes registered successfully")
 
-		feedbackService := service.NewFeedbackService(db, fileService, cfg.Feishu)
+		feedbackService := service.NewFeedbackService(db, fileService, cfg.Feishu, modelInvoker)
 		handler.RegisterFeedbackRoutes(v1, feedbackService)
 		logs.Info("Feedback routes registered successfully")
 

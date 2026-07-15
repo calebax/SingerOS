@@ -33,12 +33,10 @@ type LLMHistory struct {
 	OutputTokens int `gorm:"column:output_tokens;type:integer;default:0"`
 	// 总Token数量
 	TotalTokens int `gorm:"column:total_tokens;type:integer;default:0"`
-	// 输出 Token 用量（大整型）
-	OutToken int64 `gorm:"column:out_token;type:bigint;default:0"`
 	// 缓存命中 Token 数
-	CacheHitToken int64 `gorm:"column:cache_hit_token;type:bigint;default:0"`
+	CacheHitTokens int64 `gorm:"column:cache_hit_tokens;type:bigint;default:0"`
 	// 缓存未命中 Token 数
-	CacheMissToken int64 `gorm:"column:cache_miss_token;type:bigint;default:0"`
+	CacheMissTokens int64 `gorm:"column:cache_miss_tokens;type:bigint;default:0"`
 	// 调用耗时，单位毫秒
 	LatencyMS int64 `gorm:"column:latency_ms;type:bigint;default:0"`
 	// 调用费用
@@ -47,8 +45,6 @@ type LLMHistory struct {
 	PromptTokens int64 `gorm:"column:prompt_tokens;type:bigint;default:0"`
 	// HTTP状态码或供应商返回的业务状态码
 	StatusCode int `gorm:"column:status_code;type:integer;default:0"`
-	// 业务状态码（整型，与 status_code 一致）
-	Code int64 `gorm:"column:code;type:bigint;default:0"`
 	// 调用是否成功
 	Success bool `gorm:"column:success;type:boolean;default:false;index:idx_llm_call_success"`
 	// 调用状态字符串：success / error

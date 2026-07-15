@@ -17,6 +17,8 @@ import (
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/service"
 	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	"github.com/insmtx/Leros/backend/pkg/leros"
@@ -98,7 +100,15 @@ func newServerCommand() *cobra.Command {
 				}
 			}
 
-			r := api.SetupRouter(*cfg, publisher, db)
+			var modelInvoker modelrouter.Invoker
+			if db != nil {
+				modelInvoker = modelrouter.NewModelRouter(
+					llm.NewManager(db),
+					llm.NewCallerHTTP(nil, llm.NewRecorder(db)),
+				)
+			}
+
+			r := api.SetupRouter(*cfg, publisher, db, modelInvoker)
 
 			srv := &http.Server{
 				Addr:    fmt.Sprintf(":%s", cfg.Server.Port),

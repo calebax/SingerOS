@@ -220,14 +220,14 @@ func setupTestService(t *testing.T) contract.SessionService {
 	t.Helper()
 	db := setupTestDB(t)
 	inferrer := &mockInferrer{assistantID: 1}
-	return NewSessionService(db, &mockEventBus{}, inferrer, nil, nil, "test")
+	return NewSessionService(db, &mockEventBus{}, inferrer, nil, nil, "test", nil)
 }
 
 func setupTestServiceWithDB(t *testing.T) (contract.SessionService, *gorm.DB) {
 	t.Helper()
 	db := setupTestDB(t)
 	inferrer := &mockInferrer{assistantID: 1}
-	return NewSessionService(db, &mockEventBus{}, inferrer, nil, nil, "test"), db
+	return NewSessionService(db, &mockEventBus{}, inferrer, nil, nil, "test", nil), db
 }
 
 func setupTestServiceWithSubscriber(t *testing.T, subscriber mq.Subscriber) contract.SessionService {
@@ -241,7 +241,7 @@ func setupTestServiceWithSubscriber(t *testing.T, subscriber mq.Subscriber) cont
 		Publisher:  &mockEventBus{},
 		Subscriber: subscriber,
 	}
-	return NewSessionService(db, eb, inferrer, nil, nil, "test")
+	return NewSessionService(db, eb, inferrer, nil, nil, "test", nil)
 }
 
 func setupTestContextWithoutCaller(t *testing.T) context.Context {
@@ -401,7 +401,7 @@ func TestGetSession_NotFound(t *testing.T) {
 
 func TestGetSessionRuntimeStatusRespondingForRecentProcessingMessage(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
 	session := createTestSession(t, database, service, ctx)
 	createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
@@ -417,7 +417,7 @@ func TestGetSessionRuntimeStatusRespondingForRecentProcessingMessage(t *testing.
 
 func TestGetSessionRuntimeStatusIgnoresOldProcessingMessage(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
 	session := createTestSession(t, database, service, ctx)
 	message := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
@@ -439,7 +439,7 @@ func TestGetSessionRuntimeStatusIgnoresOldProcessingMessage(t *testing.T) {
 
 func TestHandleSessionRunStartedMarksReplyMessagesProcessing(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
 	session := createTestSession(t, database, service, ctx)
 	first := createUserMessage(t, database, session.ID, string(types.MessageStatusPending), 1)
@@ -472,7 +472,7 @@ func TestHandleSessionRunStartedMarksReplyMessagesProcessing(t *testing.T) {
 
 func TestCompleteSessionMessageStoresReplyIDsAndCompletesUsers(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
 	session := createTestSession(t, database, service, ctx)
 	first := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
@@ -663,8 +663,10 @@ func TestAddMessage_UpdatesSession(t *testing.T) {
 
 func TestAddMessage_TouchesProjectUpdatedAtForUserMessage(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
+
+	assistant := seedReadyAssistant(t, database, "touch_project", "Project Assistant", "You are helpful")
 
 	project := &types.Project{
 		PublicID: "prj_test_add_message_touch",
@@ -678,14 +680,27 @@ func TestAddMessage_TouchesProjectUpdatedAtForUserMessage(t *testing.T) {
 	}
 	seedProjectResourceOwner(t, database, project, 1)
 
-	session := &types.Session{
-		PublicID:    "sess_test_add_message_touch",
-		Type:        types.SessionTypeProject,
-		Uin:         1,
+	resource, _ := db.GetResourceByBizID(ctx, database, 1, types.ResourceTypeProject, project.ID)
+	if resource == nil {
+		t.Fatal("project resource not found after seed")
+	}
+	if err := db.CreateResourceBinding(ctx, database, &types.ResourceBinding{
 		OrgID:       1,
-		ProjectID:   &project.ID,
-		Status:      string(types.SessionStatusActive),
-		Title:       "项目协作",
+		ResourceID:  resource.ID,
+		AssistantID: &assistant.ID,
+		Role:        types.ResourceRoleMember,
+	}); err != nil {
+		t.Fatalf("seed assistant binding: %v", err)
+	}
+
+	session := &types.Session{
+		PublicID:  "sess_test_add_message_touch",
+		Type:      types.SessionTypeProject,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     "项目协作",
 	}
 	if err := db.CreateSession(ctx, database, session); err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
@@ -1068,7 +1083,7 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("failed to seed worker deployment: %v", err)
 	}
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
 
 	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
@@ -1079,12 +1094,12 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 	}
 
 	err = service.FailedSessionMessage(ctx, &contract.FailedSessionMessageRequest{
-		SessionID: session.SessionID,
-		Content:   "已取消",
-		ErrorMsg:  "scan repo for reconciliation: context canceled",
-		Status:    string(types.MessageStatusCancelled),
-		CreatedAt: time.Now().UTC(),
-		RunID:     "run-abc-123",
+		SessionID:   session.SessionID,
+		Content:     "已取消",
+		ErrorMsg:    "scan repo for reconciliation: context canceled",
+		Status:      string(types.MessageStatusCancelled),
+		CreatedAt:   time.Now().UTC(),
+		RunID:       "run-abc-123",
 		AssistantID: 1,
 	})
 	if err != nil {
@@ -1114,7 +1129,7 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 
 func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
 	projectID := uint(10)
 	taskID := uint(20)
@@ -1340,7 +1355,7 @@ func TestStreamSessionEvents_MissingCaller(t *testing.T) {
 func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
-	sessionService := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	sessionService := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	session := createTestSession(t, database, sessionService, ctx)
 	reply := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
 	other := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 2)
@@ -1385,7 +1400,7 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 		mustStreamNATSMessage(t, nonMatching),
 		mustStreamNATSMessage(t, matching),
 	}}
-	service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	var emitted []string
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -1431,7 +1446,7 @@ func mustStreamNATSMessage(t *testing.T, msg messaging.RunEvent) *nats.Msg {
 func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
-	sessionService := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	sessionService := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	session := createTestSession(t, database, sessionService, ctx)
 
 	assistant100 := &types.DigitalAssistant{PublicID: "assistant-100", OrgID: 1, Name: "Assistant 100"}
@@ -1479,7 +1494,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	// assistantID=assistant-100 (PublicID) resolves to WorkerID=1000 → matches → event delivered.
 	t.Run("matching assistant receives event", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
-		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
+		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
@@ -1501,7 +1516,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	// assistantID=assistant-200 (PublicID) resolves to WorkerID=2000 ≠ 1000 → event filtered out.
 	t.Run("non-matching assistant receives no event", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
-		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
+		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
@@ -1523,7 +1538,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	// empty assistantID → event delivered regardless of WorkerID.
 	t.Run("empty assistant receives event unfiltered", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
-		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
+		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
@@ -1556,7 +1571,7 @@ func TestGetSessionForCallerAllowsProjectMemberForTaskSession(t *testing.T) {
 	if err := db.CreateSession(ctx, database, sess); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	ss := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test").(*sessionService)
+	ss := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil).(*sessionService)
 	memberCtx := auth.WithContext(ctx, &types.Caller{Uin: 2, OrgID: 1, Kind: types.CallerKindUser, State: types.AuthStateSucc}, nil)
 	if _, _, err := ss.getSessionForCaller(memberCtx, "sess_task1"); err != nil {
 		t.Fatalf("project member should access task session: %v", err)
@@ -1708,7 +1723,7 @@ func TestConvertToContractSessionMessageAlwaysIncludesNormalizedUsage(t *testing
 func TestCompleteSessionMessageDoesNotPublishAssistantEvent(t *testing.T) {
 	database := setupTestDB(t)
 	recorder := &publishRecorder{}
-	service := NewSessionService(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
 
 	assistant := &types.DigitalAssistant{PublicID: "beta-assistant", OrgID: 1, Name: "Beta"}
@@ -1728,12 +1743,12 @@ func TestCompleteSessionMessageDoesNotPublishAssistantEvent(t *testing.T) {
 	}
 
 	session := &types.Session{
-		PublicID:    "sess_complete_no_publish",
-		Type:        types.SessionTypeProject,
-		Uin:         1,
-		OrgID:       1,
-		ProjectID:   &project.ID,
-		Status:      string(types.SessionStatusActive),
+		PublicID:  "sess_complete_no_publish",
+		Type:      types.SessionTypeProject,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
 	}
 	if err := db.CreateSession(ctx, database, session); err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
@@ -1971,7 +1986,7 @@ func uintPtr(v uint) *uint {
 func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 	database := setupTestDB(t)
 	recorder := &publishRecorder{}
-	service := NewSessionService(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	service := NewSessionService(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
 	ctx := setupTestContextWithCaller(t)
 
 	// seed DigitalAssistant so AssistantName can be resolved
@@ -1996,12 +2011,12 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 	}
 
 	session := &types.Session{
-		PublicID:    "sess_run_started_publish",
-		Type:        types.SessionTypeProject,
-		Uin:         1,
-		OrgID:       1,
-		ProjectID:   &project.ID,
-		Status:      string(types.SessionStatusActive),
+		PublicID:  "sess_run_started_publish",
+		Type:      types.SessionTypeProject,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
 	}
 	if err := db.CreateSession(ctx, database, session); err != nil {
 		t.Fatalf("CreateSession failed: %v", err)

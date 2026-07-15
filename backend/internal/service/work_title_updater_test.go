@@ -9,11 +9,23 @@ import (
 	"gorm.io/gorm"
 
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
-func withMockShortTitleGenerator(t *testing.T, fn func(context.Context, *gorm.DB, workTitleGenerationInput) (generatedWorkTitles, error)) {
+// stubModelInvoker is a non-nil Invoker used in tests where the actual
+// Call() is replaced by a mock via generateShortWorkTitles.
+type stubModelInvoker struct{}
+
+func (s *stubModelInvoker) Call(ctx context.Context, orgID uint, req *llm.CallRequest, opts ...modelrouter.InvokeOption) (*llm.CallResult, error) {
+	return nil, nil
+}
+
+var _ modelrouter.Invoker = (*stubModelInvoker)(nil)
+
+func withMockShortTitleGenerator(t *testing.T, fn func(context.Context, *gorm.DB, modelrouter.Invoker, workTitleGenerationInput) (generatedWorkTitles, error)) {
 	t.Helper()
 	old := generateShortWorkTitles
 	generateShortWorkTitles = fn
@@ -99,7 +111,7 @@ func TestWorkTitleUpdater_FirstTaskUpdatesProjectTaskSession(t *testing.T) {
 	}
 	session := createTaskInProjectForTitleTest(t, database, project, "task_first_title", "sess_first_title", content, fallback)
 
-	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, input workTitleGenerationInput) (generatedWorkTitles, error) {
+	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, _ modelrouter.Invoker, input workTitleGenerationInput) (generatedWorkTitles, error) {
 		if !strings.Contains(input.AssistantMessage, "最终回复") {
 			t.Fatalf("expected assistant content in successful generation, got %q", input.AssistantMessage)
 		}
@@ -110,7 +122,7 @@ func TestWorkTitleUpdater_FirstTaskUpdatesProjectTaskSession(t *testing.T) {
 		}, nil
 	})
 
-	updater := NewWorkTitleUpdater(database, bus)
+	updater := NewWorkTitleUpdater(database, bus, &stubModelInvoker{})
 	if err := updater.UpdateAfterFirstTurn(ctx, session.PublicID, "最终回复"); err != nil {
 		t.Fatalf("UpdateAfterFirstTurn failed: %v", err)
 	}
@@ -163,7 +175,7 @@ func TestWorkTitleUpdater_SecondTaskDoesNotUpdateProject(t *testing.T) {
 	secondFallback := fallbackWorkTitle(secondContent)
 	session := createTaskInProjectForTitleTest(t, database, project, "task_second_in_project", "sess_second_in_project", secondContent, secondFallback)
 
-	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, input workTitleGenerationInput) (generatedWorkTitles, error) {
+	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, _ modelrouter.Invoker, input workTitleGenerationInput) (generatedWorkTitles, error) {
 		return generatedWorkTitles{
 			ProjectTitle: "投标整理项目",
 			TaskTitle:    "投标文件整理",
@@ -171,7 +183,7 @@ func TestWorkTitleUpdater_SecondTaskDoesNotUpdateProject(t *testing.T) {
 		}, nil
 	})
 
-	updater := NewWorkTitleUpdater(database, &mockEventBus{})
+	updater := NewWorkTitleUpdater(database, &mockEventBus{}, &stubModelInvoker{})
 	if err := updater.UpdateAfterFirstTurn(ctx, session.PublicID, "最终回复"); err != nil {
 		t.Fatalf("UpdateAfterFirstTurn failed: %v", err)
 	}
@@ -203,7 +215,7 @@ func TestWorkTitleUpdater_ProjectFallsBackWhenGeneratedProjectTitleEmpty(t *test
 	}
 	session := createTaskInProjectForTitleTest(t, database, project, "task_empty_project_title", "sess_empty_project_title", content, fallback)
 
-	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, input workTitleGenerationInput) (generatedWorkTitles, error) {
+	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, _ modelrouter.Invoker, input workTitleGenerationInput) (generatedWorkTitles, error) {
 		return generatedWorkTitles{
 			ProjectTitle: "",
 			TaskTitle:    "查询当前时间",
@@ -211,7 +223,7 @@ func TestWorkTitleUpdater_ProjectFallsBackWhenGeneratedProjectTitleEmpty(t *test
 		}, nil
 	})
 
-	updater := NewWorkTitleUpdater(database, &mockEventBus{})
+	updater := NewWorkTitleUpdater(database, &mockEventBus{}, &stubModelInvoker{})
 	if err := updater.UpdateAfterFirstTurn(ctx, session.PublicID, "当前时间是下午四点"); err != nil {
 		t.Fatalf("UpdateAfterFirstTurn failed: %v", err)
 	}
@@ -238,14 +250,14 @@ func TestWorkTitleUpdater_FailedTurnDoesNotUseAssistantResult(t *testing.T) {
 	}
 	session := createTaskInProjectForTitleTest(t, database, project, "task_failed_title", "sess_failed_title", content, fallback)
 
-	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, input workTitleGenerationInput) (generatedWorkTitles, error) {
+	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, _ modelrouter.Invoker, input workTitleGenerationInput) (generatedWorkTitles, error) {
 		if input.AssistantMessage != "" {
 			t.Fatalf("failed turn should not pass assistant result, got %q", input.AssistantMessage)
 		}
 		return generatedWorkTitles{ProjectTitle: "登录排查", TaskTitle: "登录异常排查", SessionTitle: "登录异常排查"}, nil
 	})
 
-	updater := NewWorkTitleUpdater(database, &mockEventBus{})
+	updater := NewWorkTitleUpdater(database, &mockEventBus{}, &stubModelInvoker{})
 	if err := updater.UpdateAfterFirstTurn(ctx, session.PublicID, ""); err != nil {
 		t.Fatalf("UpdateAfterFirstTurn failed: %v", err)
 	}
@@ -272,7 +284,7 @@ func TestWorkTitleUpdater_MissingLLMIsBestEffortAndMarksAttempt(t *testing.T) {
 	}
 	session := createTaskInProjectForTitleTest(t, database, project, "task_missing_llm_title", "sess_missing_llm_title", content, fallback)
 
-	updater := NewWorkTitleUpdater(database, &mockEventBus{})
+	updater := NewWorkTitleUpdater(database, &mockEventBus{}, &stubModelInvoker{})
 	if err := updater.UpdateAfterFirstTurn(ctx, session.PublicID, "最终回复"); err == nil {
 		t.Fatal("expected missing llm error from direct updater call")
 	}

@@ -229,11 +229,11 @@ type newMessageOrchestrator struct {
 	req    *contract.NewMessageRequest
 	caller *types.Caller
 
-	project       *types.Project
-	task          *types.Task
-	taskSession   *types.Session
-	assistantIDs  []uint
-	taskRoute     *MessageRoutingOverride
+	project      *types.Project
+	task         *types.Task
+	taskSession  *types.Session
+	assistantIDs []uint
+	taskRoute    *MessageRoutingOverride
 }
 
 func (o *newMessageOrchestrator) resolveOrCreateProject() error {
@@ -472,9 +472,9 @@ func (o *newMessageOrchestrator) createTaskSession() error {
 	o.taskRoute = &MessageRoutingOverride{AssistantID: assistantID, WorkerID: workerID}
 	taskSessionID := fmt.Sprintf("sess_%s", snowflake.GenerateIDBase58())
 	o.taskSession = &types.Session{
-		PublicID: taskSessionID,
-		Type:     types.SessionTypeTask,
-		Uin:      o.caller.Uin,
+		PublicID:  taskSessionID,
+		Type:      types.SessionTypeTask,
+		Uin:       o.caller.Uin,
 		OrgID:     o.caller.OrgID,
 		ProjectID: &o.project.ID,
 		TaskID:    &o.task.ID,

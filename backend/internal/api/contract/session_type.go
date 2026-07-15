@@ -3,7 +3,6 @@ package contract
 import (
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -26,10 +25,10 @@ type UpdateSessionRequest struct {
 
 // ListSessionsRequest queries sessions.
 type ListSessionsRequest struct {
-	Type          *string `json:"type,omitempty"`
-	Status        *string `json:"status,omitempty"`
-	AssistantID   *string `json:"assistant_id,omitempty"`
-	Keyword       *string `json:"keyword,omitempty"`
+	Type        *string `json:"type,omitempty"`
+	Status      *string `json:"status,omitempty"`
+	AssistantID *string `json:"assistant_id,omitempty"`
+	Keyword     *string `json:"keyword,omitempty"`
 	types.Pagination
 }
 
@@ -37,8 +36,8 @@ type ListSessionsRequest struct {
 type AddMessageRequest struct {
 	Role          string                    `json:"role" binding:"required"`
 	Content       string                    `json:"content" binding:"required"`
-	ExecutionMode agent.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
-	AssistantIDs  []string                 `json:"assistant_ids,omitempty"`
+	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
+	AssistantIDs  []string                  `json:"assistant_ids,omitempty"`
 	MessageType   string                    `json:"message_type,omitempty"`
 	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
@@ -67,22 +66,21 @@ type SubmitQuestionAnswerRequest struct {
 	AssistantID string     `json:"assistant_id" binding:"required"`
 }
 
-
 type Session struct {
-	SessionID            string                       `json:"session_id"`
-	Type                 string                       `json:"type"`
-	Uin                  uint                         `json:"uin"`
-	OrgID                uint                         `json:"org_id"`
-	Status               string                       `json:"status"`
-	RuntimeStatus        string                       `json:"runtime_status"`
-	Title                string                       `json:"title"`
-	TitleManuallySet     bool                         `json:"title_manually_set,omitempty"`
-	Metadata             *types.ObjectMetadata        `json:"metadata,omitempty"`
-	MessageCount         int                          `json:"message_count"`
-	LastMessageAt        *time.Time                   `json:"last_message_at,omitempty"`
-	ExpiredAt            *time.Time                   `json:"expired_at,omitempty"`
-	CreatedAt            time.Time                    `json:"created_at"`
-	UpdatedAt            time.Time                    `json:"updated_at"`
+	SessionID        string                `json:"session_id"`
+	Type             string                `json:"type"`
+	Uin              uint                  `json:"uin"`
+	OrgID            uint                  `json:"org_id"`
+	Status           string                `json:"status"`
+	RuntimeStatus    string                `json:"runtime_status"`
+	Title            string                `json:"title"`
+	TitleManuallySet bool                  `json:"title_manually_set,omitempty"`
+	Metadata         *types.ObjectMetadata `json:"metadata,omitempty"`
+	MessageCount     int                   `json:"message_count"`
+	LastMessageAt    *time.Time            `json:"last_message_at,omitempty"`
+	ExpiredAt        *time.Time            `json:"expired_at,omitempty"`
+	CreatedAt        time.Time             `json:"created_at"`
+	UpdatedAt        time.Time             `json:"updated_at"`
 }
 
 // SessionMessage is the API response shape for a persisted conversation message.

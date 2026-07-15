@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/agent"
@@ -387,9 +388,20 @@ func (p *preparer) resolveModelRouting(req *agentrundomain.RunRequest) error {
 	}
 	if p.modelStore != nil {
 		p.modelStore.Put(upstreamCfg)
+		p.modelStore.PutBiz(modelrouter.BusinessIDs{
+			ProjectID:   parseStrUint(req.Workspace.ProjectID),
+			SessionID:   parseStrUint(req.Conversation.ID),
+			AssistantID: parseStrUint(req.Assistant.ID),
+			Uin:         parseStrUint(req.Actor.UserID),
+		})
 	}
 	req.Model.BaseURL = modelrouter.ProxyBaseURL(identity.WorkerAddr())
 	return nil
+}
+
+func parseStrUint(s string) uint {
+	v, _ := strconv.ParseUint(strings.TrimSpace(s), 10, 64)
+	return uint(v)
 }
 
 func (p *preparer) prepareWorkspace(ctx context.Context, req *agentrundomain.RunRequest) (WorkspacePreparation, error) {
