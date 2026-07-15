@@ -14,6 +14,7 @@ import (
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	agentruncontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -387,7 +388,7 @@ func (p *preparer) resolveModelRouting(req *agentrundomain.RunRequest) error {
 	if p.modelStore != nil {
 		p.modelStore.Put(upstreamCfg)
 	}
-	req.Model.BaseURL = modelrouter.WorkerProxyBaseURL()
+	req.Model.BaseURL = modelrouter.ProxyBaseURL(identity.WorkerAddr())
 	return nil
 }
 

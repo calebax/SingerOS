@@ -52,7 +52,7 @@ func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {
 		t.Fatalf("default deployment id = %d, want %d", defaultDeploymentAgain.ID, defaultDeployment.ID)
 	}
 	var defaultAssistantCount int64
-	if err := database.Model(&types.DigitalAssistant{}).Where("org_id = ? AND code = ?", 12, "default_o12").Count(&defaultAssistantCount).Error; err != nil {
+	if err := database.Model(&types.DigitalAssistant{}).Where("org_id = ? AND public_id = ?", 12, "assistant_default_o12").Count(&defaultAssistantCount).Error; err != nil {
 		t.Fatalf("count default assistants: %v", err)
 	}
 	if defaultAssistantCount != 1 {

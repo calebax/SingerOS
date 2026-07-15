@@ -394,8 +394,6 @@ func TestCoordinatorCancelDuringPendingToActiveTransition(t *testing.T) {
 	}
 }
 
-
-
 func testSubmission(runID, messageID string, sequence uint64) RunSubmission {
 	return RunSubmission{
 		Request: &agentrundomain.RunRequest{

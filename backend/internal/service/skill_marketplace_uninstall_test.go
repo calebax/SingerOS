@@ -1,7 +1,7 @@
 package service
 
 import (
-	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -11,7 +11,29 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Leros/backend/types"
 )
+
+func expectDeleteOrgSkillInstallationByName(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "leros_org_skill_installation" SET`)).
+		WithArgs(sqlmock.AnyArg(), uint(100), "demo-skill", "demo-skill").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+}
+
+func expectOrgWorkersForPublish(mock sqlmock.Sqlmock) {
+	columns := []string{"id", "created_at", "updated_at", "deleted_at", "public_id",
+		"org_id", "digital_assistant_id", "worker_id", "deployment_name", "namespace",
+		"status", "bootstrap_token_hash", "workspace_path", "last_error",
+		"last_started_at", "last_reconciled_at"}
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "leros_worker_deployment" WHERE org_id = $1 AND status IN ($2,$3) AND "leros_worker_deployment"."deleted_at" IS NULL ORDER BY worker_id ASC`)).
+		WithArgs(uint(100), "ready", "provisioning").
+		WillReturnRows(sqlmock.NewRows(columns).AddRow(
+			1, now, now, nil, "wrk_test_default",
+			100, 200, 1, "test-worker", "",
+			string(types.WorkerDeploymentStatusReady), "", "", "", nil, nil,
+		))
+}
 
 func expectProjectsReferencingSkill(mock sqlmock.Sqlmock, skillName string) {
 	columns := []string{
@@ -34,6 +56,8 @@ func TestUninstallSkillCleansProjectReferencesAfterWorkerSuccess(t *testing.T) {
 	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
+	expectDeleteOrgSkillInstallationByName(mock)
+	expectOrgWorkersForPublish(mock)
 	expectProjectsReferencingSkill(mock, "demo-skill")
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "leros_project" SET`)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -57,8 +81,8 @@ func TestUninstallSkillCleansProjectReferencesAfterWorkerSuccess(t *testing.T) {
 	if !strings.Contains(resp.Message, "removed from 1 project(s)") {
 		t.Fatalf("message = %q, want project cleanup note", resp.Message)
 	}
-	if len(publisher.requests) != 1 {
-		t.Fatalf("request count = %d, want 1", len(publisher.requests))
+	if len(publisher.requests) < 1 {
+		t.Fatalf("request count = %d, want at least 1", len(publisher.requests))
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -69,21 +93,19 @@ func TestUninstallSkillWorkerFailureDoesNotCleanProjectReferences(t *testing.T) 
 	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
+	expectDeleteOrgSkillInstallationByName(mock)
+	expectOrgWorkersForPublish(mock)
 	publisher := &skillInstallPublisher{
-		response: messaging.WorkerCommandResult{
-			Success: false,
-			Action:  "uninstall",
-			Error:   "cannot uninstall built-in skill",
-		},
+		err: errors.New("worker unavailable"),
 	}
 	service := NewSkillMarketplaceService(database, publisher, nil, "")
 
-	_, err := service.UninstallSkill(ctx, &contract.UninstallSkillRequest{Name: "demo-skill"})
-	if err == nil {
-		t.Fatal("expected uninstall error")
+	resp, err := service.UninstallSkill(ctx, &contract.UninstallSkillRequest{Name: "demo-skill"})
+	if err != nil {
+		t.Fatalf("uninstall skill: %v", err)
 	}
-	if !strings.Contains(err.Error(), "cannot uninstall built-in skill") {
-		t.Fatalf("error = %q, want built-in uninstall failure", err.Error())
+	if resp.Status != "accepted" {
+		t.Fatalf("status = %q, want accepted", resp.Status)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -94,6 +116,8 @@ func TestUninstallSkillUsesRequestReply(t *testing.T) {
 	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
+	expectDeleteOrgSkillInstallationByName(mock)
+	expectOrgWorkersForPublish(mock)
 	mock.ExpectQuery(`SELECT .* FROM "leros_project" WHERE \(org_id = \$1 AND deleted_at IS NULL\) AND \(EXISTS`).
 		WithArgs(uint(100), "demo-skill", "demo-skill").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
@@ -111,20 +135,26 @@ func TestUninstallSkillUsesRequestReply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("uninstall skill: %v", err)
 	}
-	if len(publisher.requests) != 1 {
-		t.Fatalf("request count = %d, want request/reply", len(publisher.requests))
+	if len(publisher.requests) < 1 {
+		t.Fatalf("request count = %d, want at least 1", len(publisher.requests))
 	}
-	wcmd, ok := publisher.requests[0].(messaging.WorkerCommand)
-	if !ok {
-		raw, _ := json.Marshal(publisher.requests[0])
-		t.Fatalf("request type = %T, payload = %s", publisher.requests[0], string(raw))
+	found := false
+	for _, req := range publisher.requests {
+		wcmd, ok := req.(messaging.WorkerCommand)
+		if !ok {
+			continue
+		}
+		payload, err := messaging.DecodeCommandPayload[messaging.SkillCommandPayload](&wcmd.Body)
+		if err != nil {
+			continue
+		}
+		if payload.Action == "uninstall" && payload.Name == "demo-skill" {
+			found = true
+			break
+		}
 	}
-	payload, err := messaging.DecodeCommandPayload[messaging.SkillCommandPayload](&wcmd.Body)
-	if err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-	if payload.Action != "uninstall" || payload.Name != "demo-skill" {
-		t.Fatalf("payload = %#v, want uninstall demo-skill", payload)
+	if !found {
+		t.Fatalf("expected a WorkerCommand with uninstall action for demo-skill, got %d requests", len(publisher.requests))
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)

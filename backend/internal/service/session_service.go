@@ -1538,10 +1538,11 @@ func (s *sessionService) scheduleFirstTurnWorkTitleUpdate(
 	}
 
 	logs.InfoContextf(ctx, "work title: scheduled first-turn update session=%s include_assistant=%t", sessionID, includeAssistantMessage)
-	go func() {
+		go func() {
 		titleCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		titleCtx = auth.WithContext(titleCtx, caller, nil)
+		_, trace := auth.FromContext(ctx)
+		titleCtx = auth.WithContext(titleCtx, caller, trace)
 
 		updater := NewWorkTitleUpdater(s.db, s.eventbus)
 		if err := updater.UpdateAfterFirstTurn(titleCtx, sessionID, assistantMessage); err != nil {

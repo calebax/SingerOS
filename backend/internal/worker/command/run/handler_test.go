@@ -11,9 +11,9 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/insmtx/Leros/backend/agent"
+	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker/command/run/inbox"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 )

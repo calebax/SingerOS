@@ -31,6 +31,7 @@ import (
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	builtin "github.com/insmtx/Leros/backend/internal/skill/builtin"
@@ -226,6 +227,7 @@ func runTaskWorker(defaultRuntime string) {
 		mcpToken = cfg.CLI.MCP.BearerToken
 	}
 	modelStore := modelrouter.NewModelStore()
+	modelStore.SetOrgID(cfg.OrgID)
 	httpServer, err := startWorkerHTTPServer(workerListenAddr, modelStore, mcpToken)
 	if err != nil {
 		logs.Fatalf("Failed to start worker HTTP server: %v", err)
@@ -241,6 +243,11 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create NATS client: %v", err)
 		return
 	}
+
+	usagePub := llm.NewLLMUsagePublisher(bus.Publish)
+	recorder := llm.NewRecorderNATS(usagePub, cfg.OrgID)
+	callerHTTP := llm.NewCallerHTTP(nil, recorder)
+	modelStore.SetCaller(callerHTTP)
 	ctx, cancel := context.WithCancel(context.Background())
 	var cliSkillDirs []string
 	// Bootstrap 引擎：始终同步内置 skill 到 .leros/skills（服务于 native 引擎）。

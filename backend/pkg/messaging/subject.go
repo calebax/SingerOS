@@ -83,6 +83,23 @@ func ProjectNotifyWildcard() string {
 	return "org.*.project.*.notify"
 }
 
+// LLMUsageSubject 构建 worker -> server LLM usage 上报 subject。
+//
+// 格式：org.<org_id>.usage.llm
+func LLMUsageSubject(orgID uint) (string, error) {
+	if orgID == 0 {
+		return "", fmt.Errorf("org_id is required")
+	}
+	return fmt.Sprintf("org.%d.usage.llm", orgID), nil
+}
+
+// LLMUsageWildcard 返回匹配所有 LLM usage 上报的 wildcard subject。
+//
+// 格式：org.*.usage.llm
+func LLMUsageWildcard() string {
+	return "org.*.usage.llm"
+}
+
 // ---- Consumer 名称 ----
 
 // WorkerRunConsumer 返回 cmd.run lane 的持久化消费者名称。
@@ -126,6 +143,7 @@ const (
 	StreamNameWorker       = "WORKER_CMD_STREAM"
 	StreamNameSession      = "SESSION_RUN_STREAM"
 	StreamNameGlobalNotify = "GLOBAL_NOTIFY_STREAM"
+	StreamNameLLMUsage     = "LLM_USAGE_STREAM"
 )
 
 // StreamConfigs 返回所有预配置的 JetStream stream 配置。
@@ -169,6 +187,15 @@ func StreamConfigs() map[string]nats.StreamConfig {
 			MaxAge:            24 * time.Hour,
 			MaxMsgsPerSubject: 1000,
 		},
+		StreamNameLLMUsage: {
+			Name:              StreamNameLLMUsage,
+			Subjects:          []string{LLMUsageWildcard()},
+			Storage:           nats.FileStorage,
+			Retention:         nats.LimitsPolicy,
+			Discard:           nats.DiscardOld,
+			MaxAge:            72 * time.Hour,
+			MaxMsgsPerSubject: 100000,
+		},
 	}
 }
 
@@ -187,6 +214,8 @@ func StreamNameFromSubject(subject string) string {
 		return StreamNameSession
 	case "project":
 		return StreamNameGlobalNotify
+	case "usage":
+		return StreamNameLLMUsage
 	default:
 		return ""
 	}

@@ -1,4 +1,4 @@
-package service
+package llm
 
 import (
 	"context"
@@ -8,66 +8,45 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
 	dbrepo "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 )
 
-func setupLLMModelServiceDB(t *testing.T) *gorm.DB {
-	t.Helper()
+const testOrgID uint = 1
 
+func setupTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
-
 	if err := database.AutoMigrate(&types.LLMModel{}); err != nil {
-		t.Fatalf("failed to migrate test database: %v", err)
+		t.Fatalf("failed to migrate: %v", err)
 	}
-
 	return database
 }
 
-func setupLLMModelService(t *testing.T) (contract.LLMModelService, *gorm.DB) {
+func setupManager(t *testing.T) (*ManagerDb, *gorm.DB) {
 	t.Helper()
-
-	database := setupLLMModelServiceDB(t)
-	svc := &llmModelService{
-		db:        database,
-		probeFunc: mockProbeSuccessV1,
-	}
-	return svc, database
+	m := NewManager(setupTestDB(t))
+	m.probeFunc = mockProbeSuccessV1
+	return m, m.db
 }
 
-func setupLLMModelServiceWithProbe(t *testing.T, probe func(ctx context.Context, provider, modelName, apiKey, baseURL string, preferV1 bool) *probeResult) (contract.LLMModelService, *gorm.DB) {
-	t.Helper()
-
-	database := setupLLMModelServiceDB(t)
-	svc := &llmModelService{
-		db:        database,
-		probeFunc: probe,
-	}
-	return svc, database
+func managerWithProbe(db *gorm.DB, probe func(context.Context, string, string, string, string, bool) *probeResult) *ManagerDb {
+	m := NewManager(db)
+	m.probeFunc = probe
+	return m
 }
 
-func llmModelServiceWithProbe(database *gorm.DB, probe func(ctx context.Context, provider, modelName, apiKey, baseURL string, preferV1 bool) *probeResult) contract.LLMModelService {
-	return &llmModelService{
-		db:        database,
-		probeFunc: probe,
-	}
-}
-
-// mockProbeSuccessV1 simulates successful connectivity with /v1 prefix.
 func mockProbeSuccessV1(_ context.Context, _, _, _, _ string, _ bool) *probeResult {
 	return &probeResult{v1Success: true, noV1Success: false}
 }
 
-// mockProbeSuccessNoV1 simulates successful connectivity without /v1 prefix.
 func mockProbeSuccessNoV1(_ context.Context, _, _, _, _ string, _ bool) *probeResult {
 	return &probeResult{v1Success: false, noV1Success: true}
 }
 
-// mockProbeAlwaysFail simulates connectivity failure for both candidates.
 func mockProbeAlwaysFail(_ context.Context, _, _, _, _ string, _ bool) *probeResult {
 	return &probeResult{v1Success: false, noV1Success: false}
 }
@@ -84,18 +63,20 @@ func countDefaultLLMModels(t *testing.T, database *gorm.DB, orgID uint) int64 {
 	return count
 }
 
-func TestCreateLLMModelGeneratesCodeDefaultsNameAndMasksAPIKey(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+// --- Create tests ---
 
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+func TestCreateLLMModelGeneratesCodeDefaultsNameAndMasksAPIKey(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	if !strings.HasPrefix(model.Code, "llm_") {
@@ -107,8 +88,9 @@ func TestCreateLLMModelGeneratesCodeDefaultsNameAndMasksAPIKey(t *testing.T) {
 	if model.BaseURL != "https://api.openai.com" {
 		t.Fatalf("expected normalized base_url, got %q", model.BaseURL)
 	}
-	if model.APIKey != "sk-***7890" {
-		t.Fatalf("expected masked api key, got %q", model.APIKey)
+	// ModelConfig.APIKey holds the encrypted value (raw key input), not the masked value.
+	if model.APIKey != "sk-test-1234567890" {
+		t.Fatalf("expected raw api key, got %q", model.APIKey)
 	}
 	if model.MaxTokens != 4096 || model.Temperature != 0.7 || model.TimeoutSec != 120 {
 		t.Fatalf("unexpected defaults: max_tokens=%d temperature=%v timeout_sec=%d", model.MaxTokens, model.Temperature, model.TimeoutSec)
@@ -127,10 +109,10 @@ func TestCreateLLMModelGeneratesCodeDefaultsNameAndMasksAPIKey(t *testing.T) {
 }
 
 func TestCreateLLMModelRequiresAPIKey(t *testing.T) {
-	service, _ := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+	m, _ := setupManager(t)
+	ctx := context.Background()
 
-	_, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	_, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
 		BaseURL:  "https://api.openai.com/v1",
@@ -144,10 +126,10 @@ func TestCreateLLMModelRequiresAPIKey(t *testing.T) {
 }
 
 func TestCreateLLMModelRequiresBaseURL(t *testing.T) {
-	service, _ := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+	m, _ := setupManager(t)
+	ctx := context.Background()
 
-	_, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	_, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
 		APIKey:   "sk-test-1234567890",
@@ -161,17 +143,17 @@ func TestCreateLLMModelRequiresBaseURL(t *testing.T) {
 }
 
 func TestCreateLLMModelTrimsChatCompletionsPath(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+	m, database := setupManager(t)
+	ctx := context.Background()
 
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
 		BaseURL:  "https://api.openai.com/v1/chat/completions",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 	if model.BaseURL != "https://api.openai.com" {
 		t.Fatalf("expected normalized base_url in response, got %q", model.BaseURL)
@@ -187,36 +169,36 @@ func TestCreateLLMModelTrimsChatCompletionsPath(t *testing.T) {
 }
 
 func TestCreateLLMModelForcesFirstOrgModelDefault(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+	m, database := setupManager(t)
+	ctx := context.Background()
 
-	first, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	first, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
-		t.Fatalf("first CreateLLMModel failed: %v", err)
+		t.Fatalf("first Create failed: %v", err)
 	}
 	if !first.IsDefault {
 		t.Fatal("expected first org llm model to be forced default")
 	}
 
-	second, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	second, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderDeepSeek),
 		Model:    "deepseek-chat",
 		BaseURL:  "https://api.deepseek.com/v1",
 		APIKey:   "sk-test-abcdefgh",
 	})
 	if err != nil {
-		t.Fatalf("second CreateLLMModel failed: %v", err)
+		t.Fatalf("second Create failed: %v", err)
 	}
 	if second.IsDefault {
 		t.Fatal("expected non-first org llm model to keep requested default flag")
 	}
 
-	if count := countDefaultLLMModels(t, database, 1); count != 1 {
+	if count := countDefaultLLMModels(t, database, testOrgID); count != 1 {
 		t.Fatalf("expected one default llm model, got %d", count)
 	}
 	storedFirst, err := dbrepo.GetLLMModelByID(ctx, database, first.ID)
@@ -229,10 +211,10 @@ func TestCreateLLMModelForcesFirstOrgModelDefault(t *testing.T) {
 }
 
 func TestCreateLLMModelKeepsSingleDefault(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+	m, database := setupManager(t)
+	ctx := context.Background()
 
-	first, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	first, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:  string(types.LLMProviderOpenAI),
 		Model:     "gpt-4o-mini",
 		BaseURL:   "https://api.openai.com/v1",
@@ -240,9 +222,9 @@ func TestCreateLLMModelKeepsSingleDefault(t *testing.T) {
 		IsDefault: true,
 	})
 	if err != nil {
-		t.Fatalf("first CreateLLMModel failed: %v", err)
+		t.Fatalf("first Create failed: %v", err)
 	}
-	second, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	second, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:  string(types.LLMProviderDeepSeek),
 		Model:     "deepseek-chat",
 		BaseURL:   "https://api.deepseek.com/v1",
@@ -250,10 +232,10 @@ func TestCreateLLMModelKeepsSingleDefault(t *testing.T) {
 		IsDefault: true,
 	})
 	if err != nil {
-		t.Fatalf("second CreateLLMModel failed: %v", err)
+		t.Fatalf("second Create failed: %v", err)
 	}
 
-	if count := countDefaultLLMModels(t, database, 1); count != 1 {
+	if count := countDefaultLLMModels(t, database, testOrgID); count != 1 {
 		t.Fatalf("expected one default llm model, got %d", count)
 	}
 	storedFirst, err := dbrepo.GetLLMModelByID(ctx, database, first.ID)
@@ -272,11 +254,88 @@ func TestCreateLLMModelKeepsSingleDefault(t *testing.T) {
 	}
 }
 
-func TestUpdateLLMModelKeepsAPIKeyWhenOmitted(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+func TestCreateLLMModelStoresBaseURLHasV1WhenProbeV1Succeeds(t *testing.T) {
+	database := setupTestDB(t)
+	m := managerWithProbe(database, mockProbeSuccessV1)
+	ctx := context.Background()
 
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if !model.BaseURLHasV1 {
+		t.Fatal("expected BaseURLHasV1=true when /v1 probe succeeds")
+	}
+
+	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
+	if err != nil {
+		t.Fatalf("GetLLMModelByID failed: %v", err)
+	}
+	if !stored.BaseURLHasV1 {
+		t.Fatal("expected stored BaseURLHasV1=true")
+	}
+}
+
+func TestCreateLLMModelStoresBaseURLHasV1FalseWhenNoV1Succeeds(t *testing.T) {
+	database := setupTestDB(t)
+	m := managerWithProbe(database, mockProbeSuccessNoV1)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		BaseURL:  "https://api.openai.com",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if model.BaseURLHasV1 {
+		t.Fatal("expected BaseURLHasV1=false when non-/v1 probe succeeds")
+	}
+
+	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
+	if err != nil {
+		t.Fatalf("GetLLMModelByID failed: %v", err)
+	}
+	if stored.BaseURLHasV1 {
+		t.Fatal("expected stored BaseURLHasV1=false")
+	}
+}
+
+func TestCreateLLMModelFailsWhenBothProbesFail(t *testing.T) {
+	database := setupTestDB(t)
+	m := managerWithProbe(database, mockProbeAlwaysFail)
+	ctx := context.Background()
+
+	_, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err == nil {
+		t.Fatal("expected error when both probes fail")
+	}
+	if !strings.Contains(err.Error(), "connectivity test failed") {
+		t.Fatalf("expected connectivity failure error, got %q", err.Error())
+	}
+}
+
+// --- Update/Delete tests ---
+
+func TestUpdateLLMModelKeepsAPIKeyWhenOmitted(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Name:     "主模型",
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
@@ -284,17 +343,18 @@ func TestUpdateLLMModelKeepsAPIKeyWhenOmitted(t *testing.T) {
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
-	updated, err := service.UpdateLLMModel(ctx, model.ID, &contract.UpdateLLMModelRequest{
+	updated, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
 		Name: "更新后的主模型",
 	})
 	if err != nil {
-		t.Fatalf("UpdateLLMModel failed: %v", err)
+		t.Fatalf("Update failed: %v", err)
 	}
-	if updated.APIKey != "sk-***7890" {
-		t.Fatalf("expected response to keep masked api key, got %q", updated.APIKey)
+	// ModelConfig.APIKey holds the raw encrypted key (unchanged), not the masked value.
+	if updated.APIKey != "sk-test-1234567890" {
+		t.Fatalf("expected response to keep raw api key, got %q", updated.APIKey)
 	}
 
 	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
@@ -310,10 +370,10 @@ func TestUpdateLLMModelKeepsAPIKeyWhenOmitted(t *testing.T) {
 }
 
 func TestUpdateLLMModelKeepsSingleDefault(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+	m, database := setupManager(t)
+	ctx := context.Background()
 
-	first, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	first, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:  string(types.LLMProviderOpenAI),
 		Model:     "gpt-4o-mini",
 		BaseURL:   "https://api.openai.com/v1",
@@ -321,26 +381,26 @@ func TestUpdateLLMModelKeepsSingleDefault(t *testing.T) {
 		IsDefault: true,
 	})
 	if err != nil {
-		t.Fatalf("first CreateLLMModel failed: %v", err)
+		t.Fatalf("first Create failed: %v", err)
 	}
-	second, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	second, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderDeepSeek),
 		Model:    "deepseek-chat",
 		BaseURL:  "https://api.deepseek.com/v1",
 		APIKey:   "sk-test-abcdefgh",
 	})
 	if err != nil {
-		t.Fatalf("second CreateLLMModel failed: %v", err)
+		t.Fatalf("second Create failed: %v", err)
 	}
 
 	isDefault := true
-	if _, err := service.UpdateLLMModel(ctx, second.ID, &contract.UpdateLLMModelRequest{
+	if _, err := m.Update(ctx, testOrgID, second.ID, &UpdateRequest{
 		IsDefault: &isDefault,
 	}); err != nil {
-		t.Fatalf("UpdateLLMModel failed: %v", err)
+		t.Fatalf("Update failed: %v", err)
 	}
 
-	if count := countDefaultLLMModels(t, database, 1); count != 1 {
+	if count := countDefaultLLMModels(t, database, testOrgID); count != 1 {
 		t.Fatalf("expected one default llm model, got %d", count)
 	}
 	storedFirst, err := dbrepo.GetLLMModelByID(ctx, database, first.ID)
@@ -359,49 +419,26 @@ func TestUpdateLLMModelKeepsSingleDefault(t *testing.T) {
 	}
 }
 
-func TestDeleteLLMModelDoesNotLeaveMultipleDefaults(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
-		Provider:  string(types.LLMProviderOpenAI),
-		Model:     "gpt-4o-mini",
-		BaseURL:   "https://api.openai.com/v1",
-		APIKey:    "sk-test-1234567890",
-		IsDefault: true,
-	})
-	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
-	}
-
-	if err := service.DeleteLLMModel(ctx, model.ID); err != nil {
-		t.Fatalf("DeleteLLMModel failed: %v", err)
-	}
-	if count := countDefaultLLMModels(t, database, 1); count != 0 {
-		t.Fatalf("expected no default llm model after deleting default, got %d", count)
-	}
-}
-
 func TestUpdateLLMModelTrimsChatCompletionsPath(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
+	m, database := setupManager(t)
+	ctx := context.Background()
 
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	baseURL := "https://example.com/v1/chat/completions/"
-	updated, err := service.UpdateLLMModel(ctx, model.ID, &contract.UpdateLLMModelRequest{
+	updated, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
 		BaseURL: &baseURL,
 	})
 	if err != nil {
-		t.Fatalf("UpdateLLMModel failed: %v", err)
+		t.Fatalf("Update failed: %v", err)
 	}
 	if updated.BaseURL != "https://example.com" {
 		t.Fatalf("expected normalized base_url in response, got %q", updated.BaseURL)
@@ -415,6 +452,138 @@ func TestUpdateLLMModelTrimsChatCompletionsPath(t *testing.T) {
 		t.Fatalf("expected normalized base_url in database, got %q", stored.BaseURL)
 	}
 }
+
+func TestUpdateLLMModelUpdatesMaskedAPIKeyWhenProvided(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	newAPIKey := "sk-new-abcdefgh"
+	updated, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		APIKey: &newAPIKey,
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	// ModelConfig.APIKey holds the raw encrypted key (new value), not the masked value.
+	if updated.APIKey != "sk-new-abcdefgh" {
+		t.Fatalf("expected response to use new raw api key, got %q", updated.APIKey)
+	}
+
+	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
+	if err != nil {
+		t.Fatalf("GetLLMModelByID failed: %v", err)
+	}
+	if stored.APIKeyEncrypted != "sk-new-abcdefgh" {
+		t.Fatalf("expected api key to update, got %q", stored.APIKeyEncrypted)
+	}
+	if stored.APIKeyMasked != "sk-***efgh" {
+		t.Fatalf("expected masked api key to update, got %q", stored.APIKeyMasked)
+	}
+}
+
+func TestUpdateLLMModelRedetectsBaseURLHasV1WhenBaseURLChanges(t *testing.T) {
+	database := setupTestDB(t)
+	m := managerWithProbe(database, mockProbeSuccessV1)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if !model.BaseURLHasV1 {
+		t.Fatal("expected initial BaseURLHasV1=true")
+	}
+
+	// Switch probe to no-v1 success and update base URL
+	m2 := managerWithProbe(database, mockProbeSuccessNoV1)
+	baseURL := "https://custom.api.com"
+	updated, err := m2.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		BaseURL: &baseURL,
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if updated.BaseURLHasV1 {
+		t.Fatal("expected BaseURLHasV1=false after updating base URL with non-/v1 probe success")
+	}
+
+	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
+	if err != nil {
+		t.Fatalf("GetLLMModelByID failed: %v", err)
+	}
+	if stored.BaseURLHasV1 {
+		t.Fatal("expected stored BaseURLHasV1=false after update")
+	}
+}
+
+func TestUpdateLLMModelFailsWhenProbeFailsAfterRelevantChange(t *testing.T) {
+	database := setupTestDB(t)
+	m := managerWithProbe(database, mockProbeSuccessV1)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Update with a manager that will fail the probe
+	failMgr := managerWithProbe(database, mockProbeAlwaysFail)
+	baseURL := "https://dead.endpoint.com"
+	_, err = failMgr.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		BaseURL: &baseURL,
+	})
+	if err == nil {
+		t.Fatal("expected error when re-probe fails after update")
+	}
+	if !strings.Contains(err.Error(), "connectivity test failed") {
+		t.Fatalf("expected connectivity failure error, got %q", err.Error())
+	}
+}
+
+func TestDeleteLLMModelDoesNotLeaveMultipleDefaults(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider:  string(types.LLMProviderOpenAI),
+		Model:     "gpt-4o-mini",
+		BaseURL:   "https://api.openai.com/v1",
+		APIKey:    "sk-test-1234567890",
+		IsDefault: true,
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if err := m.Delete(ctx, testOrgID, model.ID); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+	if count := countDefaultLLMModels(t, database, testOrgID); count != 0 {
+		t.Fatalf("expected no default llm model after deleting default, got %d", count)
+	}
+}
+
+// --- helper tests ---
 
 func TestNormalizeLLMBaseURLTrimsKnownEndpointSuffixes(t *testing.T) {
 	t.Parallel()
@@ -447,45 +616,6 @@ func TestNormalizeLLMBaseURLTrimsKnownEndpointSuffixes(t *testing.T) {
 		})
 	}
 }
-
-func TestUpdateLLMModelUpdatesMaskedAPIKeyWhenProvided(t *testing.T) {
-	service, database := setupLLMModelService(t)
-	ctx := setupTestContextWithCaller(t)
-
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
-		Provider: string(types.LLMProviderOpenAI),
-		Model:    "gpt-4o-mini",
-		BaseURL:  "https://api.openai.com/v1",
-		APIKey:   "sk-test-1234567890",
-	})
-	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
-	}
-
-	newAPIKey := "sk-new-abcdefgh"
-	updated, err := service.UpdateLLMModel(ctx, model.ID, &contract.UpdateLLMModelRequest{
-		APIKey: &newAPIKey,
-	})
-	if err != nil {
-		t.Fatalf("UpdateLLMModel failed: %v", err)
-	}
-	if updated.APIKey != "sk-***efgh" {
-		t.Fatalf("expected response to use new masked api key, got %q", updated.APIKey)
-	}
-
-	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
-	if err != nil {
-		t.Fatalf("GetLLMModelByID failed: %v", err)
-	}
-	if stored.APIKeyEncrypted != "sk-new-abcdefgh" {
-		t.Fatalf("expected api key to update, got %q", stored.APIKeyEncrypted)
-	}
-	if stored.APIKeyMasked != "sk-***efgh" {
-		t.Fatalf("expected masked api key to update, got %q", stored.APIKeyMasked)
-	}
-}
-
-// --- BaseURLHasV1 helper tests ---
 
 func TestDetectURLHasV1(t *testing.T) {
 	t.Parallel()
@@ -536,148 +666,9 @@ func TestBuildLLMEndpointURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := buildLLMEndpointURL(tt.baseURL, tt.hasV1); got != tt.want {
-				t.Fatalf("buildLLMEndpointURL(%q, %v) = %q, want %q", tt.baseURL, tt.hasV1, got, tt.want)
+			if got := BuildLLMEndpointURL(tt.baseURL, tt.hasV1); got != tt.want {
+				t.Fatalf("BuildLLMEndpointURL(%q, %v) = %q, want %q", tt.baseURL, tt.hasV1, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestCreateLLMModelStoresBaseURLHasV1WhenProbeV1Succeeds(t *testing.T) {
-	service, database := setupLLMModelServiceWithProbe(t, mockProbeSuccessV1)
-	ctx := setupTestContextWithCaller(t)
-
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
-		Provider: string(types.LLMProviderOpenAI),
-		Model:    "gpt-4o-mini",
-		BaseURL:  "https://api.openai.com/v1",
-		APIKey:   "sk-test-1234567890",
-	})
-	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
-	}
-
-	if !model.BaseURLHasV1 {
-		t.Fatal("expected BaseURLHasV1=true when /v1 probe succeeds")
-	}
-
-	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
-	if err != nil {
-		t.Fatalf("GetLLMModelByID failed: %v", err)
-	}
-	if !stored.BaseURLHasV1 {
-		t.Fatal("expected stored BaseURLHasV1=true")
-	}
-}
-
-func TestCreateLLMModelStoresBaseURLHasV1FalseWhenNoV1Succeeds(t *testing.T) {
-	service, database := setupLLMModelServiceWithProbe(t, mockProbeSuccessNoV1)
-	ctx := setupTestContextWithCaller(t)
-
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
-		Provider: string(types.LLMProviderOpenAI),
-		Model:    "gpt-4o-mini",
-		BaseURL:  "https://api.openai.com",
-		APIKey:   "sk-test-1234567890",
-	})
-	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
-	}
-
-	if model.BaseURLHasV1 {
-		t.Fatal("expected BaseURLHasV1=false when non-/v1 probe succeeds")
-	}
-
-	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
-	if err != nil {
-		t.Fatalf("GetLLMModelByID failed: %v", err)
-	}
-	if stored.BaseURLHasV1 {
-		t.Fatal("expected stored BaseURLHasV1=false")
-	}
-}
-
-func TestCreateLLMModelFailsWhenBothProbesFail(t *testing.T) {
-	service, _ := setupLLMModelServiceWithProbe(t, mockProbeAlwaysFail)
-	ctx := setupTestContextWithCaller(t)
-
-	_, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
-		Provider: string(types.LLMProviderOpenAI),
-		Model:    "gpt-4o-mini",
-		BaseURL:  "https://api.openai.com/v1",
-		APIKey:   "sk-test-1234567890",
-	})
-	if err == nil {
-		t.Fatal("expected error when both probes fail")
-	}
-	if !strings.Contains(err.Error(), "connectivity test failed") {
-		t.Fatalf("expected connectivity failure error, got %q", err.Error())
-	}
-}
-
-func TestUpdateLLMModelRedetectsBaseURLHasV1WhenBaseURLChanges(t *testing.T) {
-	service, database := setupLLMModelServiceWithProbe(t, mockProbeSuccessV1)
-	ctx := setupTestContextWithCaller(t)
-
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
-		Provider: string(types.LLMProviderOpenAI),
-		Model:    "gpt-4o-mini",
-		BaseURL:  "https://api.openai.com/v1",
-		APIKey:   "sk-test-1234567890",
-	})
-	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
-	}
-	if !model.BaseURLHasV1 {
-		t.Fatal("expected initial BaseURLHasV1=true")
-	}
-
-	// Switch probe to no-v1 success and update base URL
-	svc2 := llmModelServiceWithProbe(database, mockProbeSuccessNoV1)
-	baseURL := "https://custom.api.com"
-	updated, err := svc2.UpdateLLMModel(ctx, model.ID, &contract.UpdateLLMModelRequest{
-		BaseURL: &baseURL,
-	})
-	if err != nil {
-		t.Fatalf("UpdateLLMModel failed: %v", err)
-	}
-	if updated.BaseURLHasV1 {
-		t.Fatal("expected BaseURLHasV1=false after updating base URL with non-/v1 probe success")
-	}
-
-	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
-	if err != nil {
-		t.Fatalf("GetLLMModelByID failed: %v", err)
-	}
-	if stored.BaseURLHasV1 {
-		t.Fatal("expected stored BaseURLHasV1=false after update")
-	}
-}
-
-func TestUpdateLLMModelFailsWhenProbeFailsAfterRelevantChange(t *testing.T) {
-	service, database := setupLLMModelServiceWithProbe(t, mockProbeSuccessV1)
-	ctx := setupTestContextWithCaller(t)
-
-	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
-		Provider: string(types.LLMProviderOpenAI),
-		Model:    "gpt-4o-mini",
-		BaseURL:  "https://api.openai.com/v1",
-		APIKey:   "sk-test-1234567890",
-	})
-	if err != nil {
-		t.Fatalf("CreateLLMModel failed: %v", err)
-	}
-
-	// Update with a service that will fail the probe
-	failSvc := llmModelServiceWithProbe(database, mockProbeAlwaysFail)
-	baseURL := "https://dead.endpoint.com"
-	_, err = failSvc.UpdateLLMModel(ctx, model.ID, &contract.UpdateLLMModelRequest{
-		BaseURL: &baseURL,
-	})
-	if err == nil {
-		t.Fatal("expected error when re-probe fails after update")
-	}
-	if !strings.Contains(err.Error(), "connectivity test failed") {
-		t.Fatalf("expected connectivity failure error, got %q", err.Error())
 	}
 }

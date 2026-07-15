@@ -383,10 +383,6 @@ export function FilePreviewDrawer({
 								<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
 									恢复后，将基于该历史版本的内容生成一个新版本，并设为当前版本。当前版本及其他历史版本均会保留。
 								</p>
-								<p className="mt-3 text-sm font-medium text-[var(--leros-text-strong)]">
-									{restoreTarget.version_label || `第 ${restoreTarget.version_no} 版`} ·{" "}
-									{restoreTarget.name}
-								</p>
 							</div>
 							<button
 								type="button"

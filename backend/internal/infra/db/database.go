@@ -40,6 +40,12 @@ type renameColumn struct {
 	newCol string
 }
 
+// renameTable 记录需要重命名的表（从旧表名到新表名）
+type renameTable struct {
+	oldTable string
+	newTable string
+}
+
 var legacyColumns = []legacyColumn{
 	{table: types.TableNameDigitalAssistant, column: "config"},
 	{table: types.TableNameMessageResource, column: "resource_public_id"},
@@ -47,11 +53,17 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameMemberDepartment, column: "user_org_id"},
 	{table: types.TableNameAuthRefreshToken, column: "user_id"},
 	{table: types.TableNameAuthRefreshToken, column: "user_org_id"},
+	{table: types.TableNameLLMHistory, column: "caller_ref"},
 }
 
 var renamesToApply = []renameColumn{
 	{table: types.TableNameDigitalAssistant, oldCol: "code", newCol: "public_id"},
 	{table: types.TableNameFileUpload, oldCol: "storage_path", newCol: "storage_uri"},
+	{table: types.TableNameLLMHistory, oldCol: "error_message", newCol: "message"},
+}
+
+var tablesToRename = []renameTable{
+	{oldTable: types.TableNameLLMCallRecord, newTable: types.TableNameLLMHistory},
 }
 
 var legacyIndexes = []string{
@@ -118,6 +130,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.Session{},
 		&types.SessionMessage{},
 		&types.LLMModel{},
+		&types.LLMHistory{},
 		&types.Project{},
 		&types.ProjectMember{},
 		&types.ProjectActivity{},
@@ -136,6 +149,10 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	if err := renameLegacyColumns(db); err != nil {
+		return err
+	}
+
+	if err := renameLegacyTables(db); err != nil {
 		return err
 	}
 
@@ -710,6 +727,23 @@ func renameLegacyColumns(db *gorm.DB) error {
 	return nil
 }
 
+// renameLegacyTables 重命名已存在数据库中但模型表名已变更的表
+func renameLegacyTables(db *gorm.DB) error {
+	for _, rt := range tablesToRename {
+		hasOld := db.Migrator().HasTable(rt.oldTable)
+		hasNew := db.Migrator().HasTable(rt.newTable)
+		if hasOld && !hasNew {
+			logs.Infof("[migration] renaming table %s -> %s", rt.oldTable, rt.newTable)
+			if err := db.Migrator().RenameTable(rt.oldTable, rt.newTable); err != nil {
+				logs.Errorf("[migration] failed to rename table %s -> %s: %v", rt.oldTable, rt.newTable, err)
+				return err
+			}
+			logs.Infof("[migration] renamed table %s -> %s", rt.oldTable, rt.newTable)
+		}
+	}
+	return nil
+}
+
 // InitDevData 初始化开发环境数据（仅在数据为空时执行）
 // 包括：默认组织、默认用户、用户组织关联、默认 LLM 模型
 func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
@@ -880,6 +914,12 @@ func buildSystemTranslationLLMModelSpec(llmCfg *config.LLMConfig) (*types.LLMMod
 		}
 	}
 
+	baseURL = strings.TrimRight(baseURL, "/")
+	baseURLHasV1 := strings.HasSuffix(baseURL, "/v1")
+	if baseURLHasV1 {
+		baseURL = strings.TrimSuffix(baseURL, "/v1")
+	}
+
 	if apiKey == "" {
 		return nil, false
 	}
@@ -891,8 +931,8 @@ func buildSystemTranslationLLMModelSpec(llmCfg *config.LLMConfig) (*types.LLMMod
 		Description:     "用于 Skill 描述和文档翻译的快速系统模型",
 		Provider:        provider,
 		ModelName:       modelName,
-		BaseURL:         strings.TrimRight(baseURL, "/"),
-		BaseURLHasV1:    true,
+		BaseURL:         baseURL,
+		BaseURLHasV1:    baseURLHasV1,
 		APIKeyEncrypted: apiKey,
 		APIKeyMasked:    maskAPIKey(apiKey),
 		MaxTokens:       4096,

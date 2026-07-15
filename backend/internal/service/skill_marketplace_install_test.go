@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -30,7 +31,8 @@ type skillInstallPublisher struct {
 	requests []any
 }
 
-func (p *skillInstallPublisher) Publish(context.Context, string, any) error {
+func (p *skillInstallPublisher) Publish(_ context.Context, _ string, event any) error {
+	p.requests = append(p.requests, event)
 	return nil
 }
 
@@ -109,6 +111,23 @@ func expectDefaultWorkerDeployment(mock sqlmock.Sqlmock) {
 func expectNoBuiltinSkillItems(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT .* FROM "leros_builtin_skill_marketplace_item"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "skill_id", "status"}))
+}
+
+func expectOrgSkillInstallations(mock sqlmock.Sqlmock, rows ...[]interface{}) {
+	columns := []string{"id", "created_at", "updated_at", "deleted_at", "org_id",
+		"source", "action", "skill_id", "version", "name", "description", "category",
+		"tags", "package_storage_path", "status", "last_error", "installed_by"}
+	rs := sqlmock.NewRows(columns)
+	for _, row := range rows {
+		vals := make([]driver.Value, len(row))
+		for i, v := range row {
+			vals[i] = v
+		}
+		rs.AddRow(vals...)
+	}
+	mock.ExpectQuery(`SELECT .* FROM "leros_org_skill_installation" WHERE`).
+		WithArgs(uint(100), "active").
+		WillReturnRows(rs)
 }
 
 func initSkillImportTestStorage(t *testing.T) {
@@ -642,11 +661,12 @@ func TestAnnotateMarketplaceInstalledMatchesNameOrSkillID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
 			defer cleanup()
-			expectDefaultWorkerDeployment(mock)
-			expectNoBuiltinSkillItems(mock)
-			publisher := &skillInstallPublisher{
-				response: installedSkillsResponse(t, tt.skills),
-			}
+			expectOrgSkillInstallations(mock, []interface{}{
+				nil, time.Now(), time.Now(), nil, uint(100),
+				"Leros", "install", "demo-skill", "1.0.0", tt.skills[0].Name, "desc",
+				"", []byte("[]"), "", "active", "", uint(0),
+			})
+			publisher := &skillInstallPublisher{}
 			service := NewSkillMarketplaceService(database, publisher, nil, "").(*skillMarketplaceService)
 
 			service.annotateMarketplaceInstalled(ctx, tt.detail)
@@ -664,12 +684,8 @@ func TestAnnotateMarketplaceInstalledMatchesNameOrSkillID(t *testing.T) {
 func TestAnnotateMarketplaceInstalledNoMatch(t *testing.T) {
 	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
 	defer cleanup()
-	expectDefaultWorkerDeployment(mock)
-	expectNoBuiltinSkillItems(mock)
-	publisher := &skillInstallPublisher{
-		response: installedSkillsResponse(t, []contract.SkillInstalledItem{{Name: "other-skill"}}),
-	}
-	service := NewSkillMarketplaceService(database, publisher, nil, "").(*skillMarketplaceService)
+	expectOrgSkillInstallations(mock)
+	service := NewSkillMarketplaceService(database, &skillInstallPublisher{}, nil, "").(*skillMarketplaceService)
 	detail := &contract.SkillDetailResponse{
 		SkillID: "demo-skill",
 		Source:  "Leros",
@@ -689,7 +705,7 @@ func TestAnnotateMarketplaceInstalledNoMatch(t *testing.T) {
 func TestAnnotateMarketplaceInstalledListFailureDoesNotBlockDetail(t *testing.T) {
 	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
 	defer cleanup()
-	expectDefaultWorkerDeployment(mock)
+	expectOrgSkillInstallations(mock)
 	publisher := &skillInstallPublisher{err: errors.New("list unavailable")}
 	service := NewSkillMarketplaceService(database, publisher, nil, "").(*skillMarketplaceService)
 	detail := &contract.SkillDetailResponse{

@@ -58,6 +58,12 @@ const (
 	// TableNameLLMModel LLM模型配置表名
 	TableNameLLMModel = tablenamePrefix + "llm_model"
 
+	// TableNameLLMHistory LLM调用记录表名
+	TableNameLLMHistory = tablenamePrefix + "llm_history"
+
+	// TableNameLLMCallRecord 旧LLM调用记录表名（待迁移至 TableNameLLMHistory）
+	TableNameLLMCallRecord = tablenamePrefix + "llm_call_record"
+
 	// TableNameProject 项目表名
 	TableNameProject = tablenamePrefix + "project"
 	// TableNameProjectMember 项目成员表名
