@@ -135,6 +135,17 @@ func applyLogLevel(level string) {
 	}
 }
 
+func applyLoggerConfig(module string, loggerConfig config.LogsConfig) error {
+	if len(loggerConfig) == 0 {
+		return nil
+	}
+	resolvedConfig, err := loggerConfig.ToYGConfig()
+	if err != nil {
+		return err
+	}
+	return logs.ReloadConfig(module, resolvedConfig)
+}
+
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "leros",
@@ -175,7 +186,12 @@ Use "leros [command] --help" for more information about a command.`,
 			cliConfig = loadCLIConfig(path)
 			applyEnvOverrides(cliConfig)
 			applyWorkspaceRoot(cliConfig)
-			applyLogLevel(cliConfig.Log.Level)
+			if err := applyLoggerConfig("leros-worker", cliConfig.Logger); err != nil {
+				logs.Warnf("Failed to configure worker logger: %v", err)
+				applyLogLevel(cliConfig.Log.Level)
+			} else if len(cliConfig.Logger) == 0 {
+				applyLogLevel(cliConfig.Log.Level)
+			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
