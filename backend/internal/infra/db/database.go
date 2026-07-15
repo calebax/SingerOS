@@ -974,7 +974,7 @@ func seedDefaultWorkerDeployment(d *gorm.DB) error {
 	}
 
 	assistant := &types.DigitalAssistant{}
-	code := fmt.Sprintf("assistant_default_o%d", org.ID)
+	code := fmt.Sprintf("%so%d", types.DefaultDigitalAssistantPublicIDPrefix, org.ID)
 	err := d.Where("org_id = ? AND public_id = ?", org.ID, code).First(assistant).Error
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {

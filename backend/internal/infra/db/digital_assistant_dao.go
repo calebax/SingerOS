@@ -90,7 +90,13 @@ func ListDigitalAssistant(ctx context.Context, db *gorm.DB, opt *types.PageQuery
 	var entities []*types.DigitalAssistant
 	var total int64
 
-	query := db.WithContext(ctx).Model(&types.DigitalAssistant{})
+	query := db.WithContext(ctx).
+		Model(&types.DigitalAssistant{}).
+		Where(
+			"substr(public_id, 1, ?) <> ?",
+			len(types.DefaultDigitalAssistantPublicIDPrefix),
+			types.DefaultDigitalAssistantPublicIDPrefix,
+		)
 
 	if opt.OrgID > 0 {
 		query = query.Where("org_id = ?", opt.OrgID)

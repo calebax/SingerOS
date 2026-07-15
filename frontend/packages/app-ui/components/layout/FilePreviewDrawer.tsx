@@ -325,19 +325,27 @@ export function FilePreviewDrawer({
 						<button
 							type="button"
 							onClick={() => setHistoryOpen((value) => !value)}
-							className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
-							title="版本历史"
+							className="group relative rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--leros-primary)]/30"
+							aria-label="历史版本"
+							title="历史版本"
 						>
 							<History className="size-4" />
+							<span className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-md bg-[var(--leros-text-strong)] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm group-hover:opacity-100 group-focus-visible:opacity-100">
+								历史版本
+							</span>
 						</button>
 					) : null}
 					<button
 						type="button"
 						onClick={() => void handleDownload()}
-						className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
-						title="下载"
+						className="group relative rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--leros-primary)]/30"
+						aria-label="下载文件"
+						title="下载文件"
 					>
 						<Download className="size-4" />
+						<span className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-md bg-[var(--leros-text-strong)] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm group-hover:opacity-100 group-focus-visible:opacity-100">
+							下载文件
+						</span>
 					</button>
 					<button
 						type="button"
