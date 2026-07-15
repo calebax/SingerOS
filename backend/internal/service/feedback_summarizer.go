@@ -11,6 +11,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
@@ -31,9 +32,11 @@ type feedbackSummaryPayload struct {
 	Understanding string `json:"understanding"`
 }
 
-var summarizeFeedback = summarizeFeedbackWithLLM
+var summarizeFeedback func(
+	ctx context.Context, database *gorm.DB, modelInvoker modelrouter.Invoker, orgID uint, typeLabel, content string, uin uint,
+) (feedbackSummary, error) = summarizeFeedbackWithLLM
 
-func summarizeFeedbackWithLLM(ctx context.Context, database *gorm.DB, orgID uint, typeLabel, content string, uin uint) (feedbackSummary, error) {
+func summarizeFeedbackWithLLM(ctx context.Context, database *gorm.DB, modelInvoker modelrouter.Invoker, orgID uint, typeLabel, content string, uin uint) (feedbackSummary, error) {
 	model, err := db.GetDefaultLLMModel(ctx, database, orgID)
 	if err != nil {
 		return feedbackSummary{}, fmt.Errorf("get default model: %w", err)
@@ -53,9 +56,8 @@ func summarizeFeedbackWithLLM(ctx context.Context, database *gorm.DB, orgID uint
 	).Replace(template)
 
 	temperature := 0.2
-	caller := llm.NewCaller(llm.NewManager(database), llm.NewRecorder(database))
-	result, err := caller.Call(ctx, orgID, &llm.CallRequest{
-		ModelID:    model.ID,
+	result, err := modelInvoker.Call(ctx, orgID, &llm.CallRequest{
+		ModelID: model.ID,
 		Messages: []llm.Message{
 			{Role: "user", Content: prompt},
 		},
@@ -99,8 +101,8 @@ func parseFeedbackSummary(content string) (feedbackSummary, error) {
 	return summary, nil
 }
 
-func summarizeFeedbackBestEffort(ctx context.Context, database *gorm.DB, orgID uint, typeLabel, content string, uin uint) feedbackSummary {
-	summary, err := summarizeFeedback(ctx, database, orgID, typeLabel, content, uin)
+func summarizeFeedbackBestEffort(ctx context.Context, database *gorm.DB, modelInvoker modelrouter.Invoker, orgID uint, typeLabel, content string, uin uint) feedbackSummary {
+	summary, err := summarizeFeedback(ctx, database, modelInvoker, orgID, typeLabel, content, uin)
 	if err != nil {
 		logs.WarnContextf(ctx, "feedback summary llm failed, using fallback: %v", err)
 		return fallbackFeedbackSummary(content)

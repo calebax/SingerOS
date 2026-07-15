@@ -37,8 +37,8 @@ func TestCreateAndListLLMHistory(t *testing.T) {
 		OrgID: 1, Provider: "anthropic", ModelName: "claude-3",
 		CallerType: "work_title_updater", Success: false,
 		InputTokens: 200, OutputTokens: 0, TotalTokens: 200,
-		Message:    "timeout",
-		StartedAt:  time.Now(),
+		Message:   "timeout",
+		StartedAt: time.Now(),
 	}
 	if err := CreateLLMHistory(ctx, database, r1); err != nil {
 		t.Fatalf("create r1: %v", err)

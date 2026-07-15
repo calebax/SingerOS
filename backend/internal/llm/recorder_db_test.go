@@ -30,7 +30,7 @@ func TestRecorderRecordCallAndListCalls(t *testing.T) {
 
 	record := &CallRecord{
 		OrgID:         testOrgID,
-		ModelID:      10,
+		ModelID:       10,
 		Provider:      "openai",
 		ModelName:     "gpt-4o-mini",
 		EntryProtocol: "eino_chat",
@@ -40,7 +40,6 @@ func TestRecorderRecordCallAndListCalls(t *testing.T) {
 		TotalTokens:   150,
 		LatencyMS:     2000,
 		StatusCode:    200,
-		Code:          200,
 		Success:       true,
 		Status:        "success",
 		CallerType:    "worker",

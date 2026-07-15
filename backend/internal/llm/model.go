@@ -9,6 +9,9 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// SchemaMessage 是 eino schema.Message 的类型别名，供其他包在不直接 import eino 的情况下使用。
+type SchemaMessage = schema.Message
+
 // CallerType 常量定义调用方类型。
 const (
 	CallerTypeHTTPProxy = "http_proxy"
@@ -42,46 +45,44 @@ type ModelConfig struct {
 
 // CallRecord 记录一次 LLM 调用的完整信息，用于审计和用量统计。
 type CallRecord struct {
-	ID            uint
-	OrgID         uint
-	ModelID       uint
-	Provider      string
-	ModelName     string
-	ModelProvider string
-	EntryProtocol string
-	IsStream      bool
-	InputTokens   int
-	OutputTokens  int
-	TotalTokens   int
-	OutToken      int64
-	CacheHitToken int64
-	CacheMissToken int64
-	LatencyMS     int64
-	Cost          float64
-	PromptTokens  int64
-	StatusCode    int
-	Code          int64
-	Success       bool
-	Status        string
-	Message       string
-	CallerType    string
-	ReqID         string
-	TraceID       string
-	RetryTimes    int64
-	InputLen      int
-	OutputLen     int
+	ID              uint
+	OrgID           uint
+	ModelID         uint
+	Provider        string
+	ModelName       string
+	ModelProvider   string
+	EntryProtocol   string
+	IsStream        bool
+	InputTokens     int
+	OutputTokens    int
+	TotalTokens     int
+	CacheHitTokens  int64
+	CacheMissTokens int64
+	LatencyMS       int64
+	Cost            float64
+	PromptTokens    int64
+	StatusCode      int
+	Success         bool
+	Status          string
+	Message         string
+	CallerType      string
+	ReqID           string
+	TraceID         string
+	RetryTimes      int64
+	InputLen        int
+	OutputLen       int
 	InputTruncated  bool
 	OutputTruncated bool
-	ClientIP      string
-	ProjectID     uint
-	SessionID     uint
-	MessageID     uint
-	AssistantID   uint
-	Uin           uint
-	Input     string
-	Output    string
-	StartedAt     time.Time
-	FinishedAt    time.Time
+	ClientIP        string
+	ProjectID       uint
+	SessionID       uint
+	MessageID       uint
+	AssistantID     uint
+	Uin             uint
+	Input           string
+	Output          string
+	StartedAt       time.Time
+	FinishedAt      time.Time
 }
 
 // Usage 表示一次 LLM 调用的 token 用量信息。

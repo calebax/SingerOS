@@ -22,6 +22,8 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
@@ -45,24 +47,26 @@ const (
 var ErrNoReplyMessageIDs = errors.New("no reply message ids in stream event")
 
 type sessionService struct {
-	db          *gorm.DB
-	perm        *PermissionService
-	eventbus    eventbus.EventBus
-	inferrer    AssistantInferrer
-	giteaClient *gitea.Client
-	giteaCfg    *config.GiteaConfig
-	env         string
+	db           *gorm.DB
+	perm         *PermissionService
+	eventbus     eventbus.EventBus
+	inferrer     AssistantInferrer
+	giteaClient  *gitea.Client
+	giteaCfg     *config.GiteaConfig
+	env          string
+	modelInvoker modelrouter.Invoker
 }
 
-func NewSessionService(db *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.SessionService {
+func NewSessionService(db *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker) contract.SessionService {
 	return &sessionService{
-		db:          db,
-		perm:        NewPermissionService(db),
-		eventbus:    eventbus,
-		inferrer:    inferrer,
-		giteaClient: giteaClient,
-		giteaCfg:    giteaCfg,
-		env:         env,
+		db:           db,
+		perm:         NewPermissionService(db),
+		eventbus:     eventbus,
+		inferrer:     inferrer,
+		giteaClient:  giteaClient,
+		giteaCfg:     giteaCfg,
+		env:          env,
+		modelInvoker: modelInvoker,
 	}
 }
 
@@ -165,10 +169,10 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 		return nil, err
 	}
 	session := &types.Session{
-		PublicID: sessionID,
-		Type:     types.SessionType(req.Type),
-		Uin:      caller.Uin,
-		OrgID:    caller.OrgID,
+		PublicID:     sessionID,
+		Type:         types.SessionType(req.Type),
+		Uin:          caller.Uin,
+		OrgID:        caller.OrgID,
 		Status:       string(types.SessionStatusActive),
 		Title:        req.Title,
 		MessageCount: 0,
@@ -1538,13 +1542,16 @@ func (s *sessionService) scheduleFirstTurnWorkTitleUpdate(
 	}
 
 	logs.InfoContextf(ctx, "work title: scheduled first-turn update session=%s include_assistant=%t", sessionID, includeAssistantMessage)
-		go func() {
+	go func() {
 		titleCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		_, trace := auth.FromContext(ctx)
 		titleCtx = auth.WithContext(titleCtx, caller, trace)
+		if ip := llm.GetCtxString(ctx, llm.CtxClientIP); ip != "" {
+			titleCtx = llm.WithCtxString(titleCtx, llm.CtxClientIP, ip)
+		}
 
-		updater := NewWorkTitleUpdater(s.db, s.eventbus)
+		updater := NewWorkTitleUpdater(s.db, s.eventbus, s.modelInvoker)
 		if err := updater.UpdateAfterFirstTurn(titleCtx, sessionID, assistantMessage); err != nil {
 			logs.WarnContextf(titleCtx, "first-turn work title update failed for session %s: %v", sessionID, err)
 			return

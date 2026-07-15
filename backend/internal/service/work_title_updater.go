@@ -12,10 +12,11 @@ import (
 
 	"gorm.io/gorm"
 
-	infradb 	"github.com/insmtx/Leros/backend/internal/infra/db"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
+	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
+	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
@@ -29,13 +30,14 @@ const (
 
 // WorkTitleUpdater updates user-facing work titles after the first task turn.
 type WorkTitleUpdater struct {
-	db       *gorm.DB
-	eventbus eventbus.EventBus
+	db           *gorm.DB
+	eventbus     eventbus.EventBus
+	modelInvoker modelrouter.Invoker
 }
 
 // NewWorkTitleUpdater creates a best-effort work title updater.
-func NewWorkTitleUpdater(database *gorm.DB, eb eventbus.EventBus) *WorkTitleUpdater {
-	return &WorkTitleUpdater{db: database, eventbus: eb}
+func NewWorkTitleUpdater(database *gorm.DB, eb eventbus.EventBus, modelInvoker modelrouter.Invoker) *WorkTitleUpdater {
+	return &WorkTitleUpdater{db: database, eventbus: eb, modelInvoker: modelInvoker}
 }
 
 type generatedWorkTitles struct {
@@ -55,7 +57,9 @@ type workTitleGenerationInput struct {
 	Uin              uint
 }
 
-var generateShortWorkTitles = generateShortWorkTitlesWithLLM
+var generateShortWorkTitles func(
+	ctx context.Context, database *gorm.DB, modelInvoker modelrouter.Invoker, input workTitleGenerationInput,
+) (generatedWorkTitles, error) = generateShortWorkTitlesWithLLM
 
 // UpdateAfterFirstTurn updates Project/Task/Session titles after the first
 // assistant turn. It is intentionally best-effort: callers should log errors
@@ -169,17 +173,27 @@ func (u *WorkTitleUpdater) UpdateAfterFirstTurn(ctx context.Context, sessionPubl
 	}
 
 	logs.InfoContextf(ctx, "work title: generating short titles session=%s project=%s task=%s project_writable=%t include_assistant=%t", session.PublicID, project.PublicID, task.PublicID, projectWritable, strings.TrimSpace(assistantMessage) != "")
-	titles, err := generateShortWorkTitles(ctx, u.db, workTitleGenerationInput{
-		OrgID:            session.OrgID,
-		UserMessage:      firstMsg.Content,
-		AssistantMessage: assistantMessage,
-		ReqID:            reqID,
-		ProjectID:        project.ID,
-		SessionID:        session.ID,
-		MessageID:        firstMsg.ID,
-		Uin:              session.Uin,
-	})
-	if err != nil {
+
+	var titles generatedWorkTitles
+	if u.modelInvoker != nil {
+		titles, err = generateShortWorkTitles(ctx, u.db, u.modelInvoker, workTitleGenerationInput{
+			OrgID:            session.OrgID,
+			UserMessage:      firstMsg.Content,
+			AssistantMessage: assistantMessage,
+			ReqID:            reqID,
+			ProjectID:        project.ID,
+			SessionID:        session.ID,
+			MessageID:        firstMsg.ID,
+			Uin:              session.Uin,
+		})
+		if err != nil {
+			if saveErr := u.saveTitleAttemptMarkers(ctx, project, task, session, projectAttempt, taskAttempt, sessionAttempt); saveErr != nil {
+				logs.WarnContextf(ctx, "work title: save attempt markers after generation failure: %v", saveErr)
+			}
+			return err
+		}
+	} else {
+		err = fmt.Errorf("model store not configured")
 		if saveErr := u.saveTitleAttemptMarkers(ctx, project, task, session, projectAttempt, taskAttempt, sessionAttempt); saveErr != nil {
 			logs.WarnContextf(ctx, "work title: save attempt markers after generation failure: %v", saveErr)
 		}
@@ -414,7 +428,7 @@ func (u *WorkTitleUpdater) publishGlobalWorkTitleUpdated(
 	return nil
 }
 
-func generateShortWorkTitlesWithLLM(ctx context.Context, database *gorm.DB, input workTitleGenerationInput) (generatedWorkTitles, error) {
+func generateShortWorkTitlesWithLLM(ctx context.Context, database *gorm.DB, modelInvoker modelrouter.Invoker, input workTitleGenerationInput) (generatedWorkTitles, error) {
 	model, err := infradb.GetDefaultLLMModel(ctx, database, input.OrgID)
 	if err != nil {
 		return generatedWorkTitles{}, fmt.Errorf("get default model: %w", err)
@@ -430,9 +444,8 @@ func generateShortWorkTitlesWithLLM(ctx context.Context, database *gorm.DB, inpu
 	prompt := renderWorkShortTitlePrompt(template, input)
 
 	temperature := 0.1
-	caller := llm.NewCaller(llm.NewManager(database), llm.NewRecorder(database))
-	result, err := caller.Call(ctx, input.OrgID, &llm.CallRequest{
-		ModelID:    model.ID,
+	result, err := modelInvoker.Call(ctx, input.OrgID, &llm.CallRequest{
+		ModelID: model.ID,
 		Messages: []llm.Message{
 			{Role: "user", Content: prompt},
 		},
