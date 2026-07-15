@@ -284,6 +284,7 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 		DeploymentName:     "leros-worker-o1-w1",
 		Status:             string(types.WorkerDeploymentStatusProvisioning),
 		BootstrapTokenHash: "stable-token-hash",
+		LastError:          "worker is not ready",
 		LastStartedAt:      &startedAt,
 	}
 	if err := database.Create(deployment).Error; err != nil {
@@ -304,6 +305,9 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 	}
 	if got.Status != string(types.WorkerDeploymentStatusReady) {
 		t.Fatalf("status = %q, want ready", got.Status)
+	}
+	if got.LastError != "" {
+		t.Fatalf("last_error = %q, want empty", got.LastError)
 	}
 }
 

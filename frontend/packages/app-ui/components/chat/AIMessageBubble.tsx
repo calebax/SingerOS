@@ -122,6 +122,7 @@ export function AIMessageBubble({
 	const hasProcess = Boolean(message.processSteps?.length);
 	const hasArtifacts = message.artifacts && message.artifacts.length > 0;
 	const assistantName = assistantDisplay.name;
+	const assistantRoleName = assistantDisplay.roleName;
 	const replyLabel = message.replyTo?.authorName
 		? `回复了 ${message.replyTo.authorName}`
 		: undefined;
@@ -148,6 +149,9 @@ export function AIMessageBubble({
 			<div className="min-w-0 flex-1">
 				<div className="mb-1.5 flex items-center gap-2">
 					<span className="text-[13px] font-medium text-slate-500">{assistantName}</span>
+					{assistantRoleName ? (
+						<span className="text-[12px] text-slate-400">{assistantRoleName}</span>
+					) : null}
 					{replyLabel && (
 						<span className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] text-slate-500">
 							{replyLabel}

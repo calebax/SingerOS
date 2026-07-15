@@ -110,7 +110,11 @@ func MarkWorkerDeploymentStarted(ctx context.Context, database *gorm.DB, id uint
 		LastStartedAt:      &now,
 		LastReconciledAt:   &now,
 	}
-	return database.WithContext(ctx).Model(&types.WorkerDeployment{}).Where("id = ?", id).Updates(updates).Error
+	// 中文注释：GORM 的结构体 Updates 会忽略零值，显式选择字段才能清空旧 token 和错误信息。
+	return database.WithContext(ctx).Model(&types.WorkerDeployment{}).
+		Where("id = ?", id).
+		Select("Status", "BootstrapTokenHash", "LastError", "LastStartedAt", "LastReconciledAt").
+		Updates(updates).Error
 }
 
 func MarkWorkerDeploymentStatus(ctx context.Context, database *gorm.DB, id uint, status string, lastError string) error {
@@ -124,7 +128,11 @@ func MarkWorkerDeploymentStatus(ctx context.Context, database *gorm.DB, id uint,
 		LastError:        lastError,
 		LastReconciledAt: &now,
 	}
-	return database.WithContext(ctx).Model(&types.WorkerDeployment{}).Where("id = ?", id).Updates(updates).Error
+	// 中文注释：部署恢复后 lastError 需要写回空字符串，不能被 GORM 的零值过滤跳过。
+	return database.WithContext(ctx).Model(&types.WorkerDeployment{}).
+		Where("id = ?", id).
+		Select("Status", "LastError", "LastReconciledAt").
+		Updates(updates).Error
 }
 
 // GetWorkerIDByAssistantPublicID 根据 DigitalAssistant 的 public ID 反查对应的 worker_id。

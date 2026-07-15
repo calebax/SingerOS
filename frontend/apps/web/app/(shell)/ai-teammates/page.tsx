@@ -1,5 +1,5 @@
-import { AiTeammatesRoutePage } from "@/components/route-pages";
+import { redirect } from "next/navigation";
 
 export default function AiTeammatesPage() {
-	return <AiTeammatesRoutePage />;
+	redirect("/assistants");
 }

@@ -34,12 +34,14 @@ import { useAuth } from "../auth";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
+import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 
 /** 项目成员 chip 列表容器：两列换行排列 */
 export const projectMemberListClassName = "flex flex-wrap items-start gap-2";
 
 /** 单个成员 chip 宽度：与添加成员弹窗「已选择」区域一致 */
-export const projectMemberChipClassName = "w-[calc(50%-4px)]";
+// 中文注释：窄侧栏中成员卡片改为单列，避免“所有者”等角色标签挤掉姓名；宽弹窗仍可自动双列排列。
+export const projectMemberChipClassName = "min-w-[180px] flex-1";
 
 type MemberTab = "assistant" | "human";
 
@@ -56,12 +58,6 @@ type ProjectMemberPickerDialogProps = {
 	onConfirm: (members: ProjectMember[]) => void;
 };
 
-function isSummonableAssistant(assistant: DigitalAssistantItem): boolean {
-	if (assistant.status !== "active") return false;
-	const deploymentStatus = assistant.deploymentStatus?.trim();
-	return !deploymentStatus || deploymentStatus === "ready";
-}
-
 function assistantToProjectMember(assistant: DigitalAssistantItem): ProjectMember {
 	return {
 		id: `assistant-${assistant.publicId}`,
@@ -70,6 +66,7 @@ function assistantToProjectMember(assistant: DigitalAssistantItem): ProjectMembe
 		type: "assistant",
 		role: "member",
 		name: assistant.name,
+		roleName: assistant.roleName,
 		description:
 			assistant.description ||
 			(assistant.expertise.length > 0 ? assistant.expertise.join("、") : "AI 队友"),
@@ -99,7 +96,10 @@ function memberKey(member: Pick<ProjectMember, "type" | "memberId" | "publicId">
 
 function memberMatchesQuery(member: ProjectMember, query: string) {
 	if (!query) return true;
-	return [member.name, member.description, member.role].join(" ").toLowerCase().includes(query);
+	return [member.name, member.roleName, member.description, member.role]
+		.join(" ")
+		.toLowerCase()
+		.includes(query);
 }
 
 function projectMemberSortRank(member: ProjectMember): number {
@@ -233,7 +233,7 @@ export function ProjectMemberPickerDialog({
 	}, [humanSearch, open, selectedMembers]);
 
 	const assistantOptions = useMemo(
-		() => assistants.filter(isSummonableAssistant).map(assistantToProjectMember),
+		() => assistants.filter(isAssistantAvailable).map(assistantToProjectMember),
 		[assistants],
 	);
 	const identityOptions = useMemo(
@@ -603,9 +603,16 @@ function MemberCommandList({
 											<div className="truncate font-medium text-slate-700">
 												{renderHighlightedText(member.name, search)}
 											</div>
-											<div className="truncate text-xs text-slate-400">
-												{renderHighlightedText(member.description ?? "", search)}
-											</div>
+											{/* 中文注释：AI 队友候选固定两行，名称在上、角色名称在下。 */}
+											{member.type === "assistant" && member.roleName ? (
+												<div className="truncate text-xs text-slate-500">
+													{renderHighlightedText(member.roleName, search)}
+												</div>
+											) : member.type !== "assistant" ? (
+												<div className="truncate text-xs text-slate-400">
+													{renderHighlightedText(member.description ?? "", search)}
+												</div>
+											) : null}
 										</div>
 									</>
 								);
@@ -706,7 +713,7 @@ function formatProjectMemberSubtitle(member: ProjectMember): string {
 		return "默认 AI 队友";
 	}
 	if (member.type === "assistant") {
-		return "AI 队友";
+		return member.roleName?.trim() || "AI 队友";
 	}
 	return "成员";
 }
@@ -769,11 +776,17 @@ export function ProjectMemberChip({
 
 function MemberAvatar({ member }: { member: ProjectMember }) {
 	if (member.type === "assistant") {
+		// 中文注释：项目成员弹窗复用 AI 队友统一头像组件，确保无自定义头像时与首页、输入框的名称生成头像一致。
 		return <AssistantAvatar name={member.name} src={member.avatarUrl} size="sm" />;
 	}
 
 	const fallback = (
-		<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+		<div
+			className={cn(
+				"flex size-7 shrink-0 items-center justify-center rounded-lg",
+				"bg-emerald-50 text-emerald-600",
+			)}
+		>
 			<UserRound className="size-3.5" />
 		</div>
 	);

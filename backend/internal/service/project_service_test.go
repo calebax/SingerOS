@@ -699,6 +699,38 @@ func TestDetailProject_IncludesAllTasksWithoutPerTaskCan(t *testing.T) {
 	}
 }
 
+func TestDetailProject_ReturnsUserProfileByMemberUin(t *testing.T) {
+	database := setupTestDB(t)
+	// 先占用用户表主键，确保用户表 ID 与组织成员 UIN 不相等，从而覆盖真实映射关系。
+	seedTestUser(t, database, "usr_padding", 2)
+	owner := seedTestUser(t, database, "usr_owner", 17)
+	owner.Name = "项目创建者"
+	owner.AvatarURL = "file_owner_avatar"
+	if err := database.Save(owner).Error; err != nil {
+		t.Fatalf("update owner profile: %v", err)
+	}
+
+	project, _ := seedProjectWithResource(t, database, "prj_detail_member_profile")
+	seedProjectResourceBinding(t, database, 1, project.ID, 17, types.ResourceRoleOwner)
+
+	service := NewProjectService(database, nil, nil, "test")
+	detail, err := service.DetailProject(setupTestContextWithCallerUin(t, 17), project.PublicID)
+	if err != nil {
+		t.Fatalf("DetailProject: %v", err)
+	}
+	if len(detail.Members) != 1 {
+		t.Fatalf("member count = %d, want 1", len(detail.Members))
+	}
+
+	member := detail.Members[0]
+	if member.MemberID != 17 || member.PublicID != owner.PublicID {
+		t.Fatalf("member identity = (%d, %q), want (17, %q)", member.MemberID, member.PublicID, owner.PublicID)
+	}
+	if member.Name != owner.Name || member.AvatarURL != owner.AvatarURL {
+		t.Fatalf("member profile = (%q, %q), want (%q, %q)", member.Name, member.AvatarURL, owner.Name, owner.AvatarURL)
+	}
+}
+
 func TestLeaveProject_RemovesCallerBinding(t *testing.T) {
 	database := setupTestDB(t)
 	project, _ := seedProjectWithResource(t, database, "prj_leave_member")

@@ -8,6 +8,7 @@ import type { ComposerToken, Message } from "@leros/store/types/chat";
 export type AssistantMessageDisplay = {
 	useDefaultBrand: boolean;
 	name: string;
+	roleName?: string;
 	avatarUrl?: string;
 };
 
@@ -35,7 +36,7 @@ function resolveAssistantProfile(
 	token: ComposerToken,
 	assistants: DigitalAssistantItem[],
 	projectMembers?: ProjectMember[],
-): { name: string; avatarUrl?: string } {
+): { name: string; roleName?: string; avatarUrl?: string } {
 	const publicId = token.id?.trim();
 	if (publicId) {
 		const matchedAssistant = assistants.find(
@@ -47,6 +48,7 @@ function resolveAssistantProfile(
 		if (matchedAssistant) {
 			return {
 				name: matchedAssistant.name,
+				roleName: matchedAssistant.roleName,
 				avatarUrl: matchedAssistant.avatar || undefined,
 			};
 		}
@@ -61,6 +63,7 @@ function resolveAssistantProfile(
 		if (matchedMember) {
 			return {
 				name: matchedMember.name,
+				roleName: matchedMember.roleName,
 				avatarUrl: matchedMember.avatarUrl,
 			};
 		}
@@ -69,7 +72,11 @@ function resolveAssistantProfile(
 	const tokenName = normalizeAssistantNameFromToken(token);
 	const matchedByName = assistants.find((assistant) => assistant.name === tokenName);
 	if (matchedByName) {
-		return { name: matchedByName.name, avatarUrl: matchedByName.avatar || undefined };
+		return {
+			name: matchedByName.name,
+			roleName: matchedByName.roleName,
+			avatarUrl: matchedByName.avatar || undefined,
+		};
 	}
 
 	const matchedMemberByName = projectMembers?.find(
@@ -82,6 +89,7 @@ function resolveAssistantProfile(
 	if (matchedMemberByName) {
 		return {
 			name: matchedMemberByName.name,
+			roleName: matchedMemberByName.roleName,
 			avatarUrl: matchedMemberByName.avatarUrl,
 		};
 	}
@@ -93,7 +101,7 @@ function resolveInvokedAssistantProfile(
 	message: Message | undefined,
 	assistants: DigitalAssistantItem[],
 	projectMembers?: ProjectMember[],
-): { name: string; avatarUrl?: string } | undefined {
+): { name: string; roleName?: string; avatarUrl?: string } | undefined {
 	const invokedAssistant = message?.metadata?.invokedAssistant;
 	if (!invokedAssistant?.name?.trim()) return undefined;
 
@@ -106,9 +114,10 @@ function resolveInvokedAssistantProfile(
 	};
 	if (invokedAssistant.id) token.id = invokedAssistant.id;
 	const profile = resolveAssistantProfile(token, assistants, projectMembers);
-	const result: { name: string; avatarUrl?: string } = {
+	const result: { name: string; roleName?: string; avatarUrl?: string } = {
 		name: profile.name,
 	};
+	if (profile.roleName) result.roleName = profile.roleName;
 	const avatarUrl = profile.avatarUrl ?? invokedAssistant.avatarUrl;
 	if (avatarUrl) result.avatarUrl = avatarUrl;
 	return result;
@@ -146,6 +155,7 @@ export function resolveAssistantMessageDisplay(params: {
 			return {
 				useDefaultBrand: false,
 				name: invokedProfile.name,
+				roleName: invokedProfile.roleName,
 				avatarUrl: invokedProfile.avatarUrl,
 			};
 		}
@@ -156,6 +166,7 @@ export function resolveAssistantMessageDisplay(params: {
 	return {
 		useDefaultBrand: false,
 		name: profile.name,
+		roleName: profile.roleName,
 		avatarUrl: profile.avatarUrl,
 	};
 }

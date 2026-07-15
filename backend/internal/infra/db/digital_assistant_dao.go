@@ -72,19 +72,6 @@ func DigitalAssistantPublicIDExists(ctx context.Context, db *gorm.DB, publicID s
 	return count > 0, nil
 }
 
-// CountDigitalAssistantsByOwner returns the active row count for one user's assistants.
-func CountDigitalAssistantsByOwner(ctx context.Context, db *gorm.DB, orgID, ownerID uint, excludedPublicIDs ...string) (int64, error) {
-	var count int64
-	query := db.WithContext(ctx).
-		Model(&types.DigitalAssistant{}).
-		Where("org_id = ? AND owner_id = ?", orgID, ownerID)
-	if len(excludedPublicIDs) > 0 {
-		query = query.Where("public_id NOT IN ?", excludedPublicIDs)
-	}
-	err := query.Count(&count).Error
-	return count, err
-}
-
 // ListDigitalAssistant 查询数字助手列表
 func ListDigitalAssistant(ctx context.Context, db *gorm.DB, opt *types.PageQuery) ([]*types.DigitalAssistant, int64, error) {
 	var entities []*types.DigitalAssistant
@@ -118,7 +105,7 @@ func ListDigitalAssistant(ctx context.Context, db *gorm.DB, opt *types.PageQuery
 		case "keyword":
 			if len(filter.Value) > 0 {
 				kw := filter.Value[0]
-				query = query.Where("name LIKE ? OR public_id LIKE ? OR description LIKE ? OR system_prompt LIKE ?", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%")
+				query = query.Where("name LIKE ? OR role_name LIKE ? OR public_id LIKE ? OR description LIKE ? OR system_prompt LIKE ?", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%")
 			}
 		case "source":
 			if len(filter.Value) > 0 {

@@ -5,6 +5,7 @@ import {
 	type ProjectMember,
 	type ProjectSkill,
 	useChatStore,
+	useDAStore,
 	useLayoutStore,
 } from "@leros/store";
 import type {
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 import type { AppNavigation } from "../layout";
 import { openPendingAttachmentPreview } from "../layout/file-preview-store";
 import {
@@ -99,6 +101,7 @@ export function ChatInput({
 		projects,
 		consumeProjectComposerPrefill,
 	} = useLayoutStore((s) => s);
+	const { assistants, assistantsLoaded } = useDAStore((s) => s);
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,9 +131,31 @@ export function ChatInput({
 						!member.isDefault &&
 						!isSystemDefaultAssistant(member.publicId),
 				)
-				.map(projectMemberToComposerAssistantOption)
+				.flatMap((member) => {
+					const assistant = assistants.find(
+						(item) =>
+							(member.publicId && item.publicId === member.publicId) ||
+							(member.memberId > 0 && item.id === member.memberId),
+					);
+					// 中文注释：项目快照可能保留已删除或已停止的队友，@ 候选只开放当前仍部署就绪的成员。
+					if (assistant && !isAssistantAvailable(assistant)) return [];
+					if (!assistant && assistantsLoaded) return [];
+					return [
+						projectMemberToComposerAssistantOption(
+							assistant
+								? {
+										...member,
+										name: assistant.name,
+										roleName: assistant.roleName,
+										description: assistant.description,
+										avatarUrl: assistant.avatar,
+									}
+								: member,
+						),
+					];
+				})
 		);
-	}, [currentProject?.members, isProjectVariant]);
+	}, [assistants, assistantsLoaded, currentProject?.members, isProjectVariant]);
 	const projectSkillLabels = useMemo(
 		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
 		[projectSkillOptions],
@@ -637,6 +662,7 @@ function projectMemberToComposerAssistantOption(member: ProjectMember): Composer
 		id,
 		code: id,
 		name: member.name,
+		roleName: member.roleName,
 		// 中文注释：DetailProject 当前可能只返回成员基础信息，这里用项目队友信息补齐输入框候选项。
 		description: member.description || (member.isDefault ? "默认 AI 队友" : "AI 队友"),
 		avatarUrl: member.avatarUrl,

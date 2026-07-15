@@ -12,6 +12,7 @@ import {
 import { ChevronRight } from "lucide-react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { AssistantAvatar } from "./AssistantAvatar";
+import { isAssistantAvailable } from "./assistantStatus";
 import { buildFeatureKeywords, buildPromptSuggestions, uniqueNonEmpty } from "./promptSuggestions";
 
 type AssistantDetailDialogProps = {
@@ -51,6 +52,9 @@ export function AssistantDetailDialog({
 							<h2 className="truncate text-xl font-semibold text-[var(--leros-text-strong)]">
 								{assistant.name}
 							</h2>
+							{assistant.roleName ? (
+								<p className="mt-1 text-sm text-[var(--leros-text-muted)]">{assistant.roleName}</p>
+							) : null}
 							<div className="mt-3 flex flex-wrap items-center gap-2">
 								{featureKeywords.map((keyword) => (
 									<span
@@ -134,7 +138,12 @@ export function AssistantDetailDialog({
 type SummonButtonState = { disabled: boolean; label: string };
 
 function resolveSummonButtonState(assistant: DigitalAssistantItem): SummonButtonState {
-	if (assistant.status !== "active") {
+	if (!isAssistantAvailable(assistant)) {
+		const deploymentStatus = assistant.deploymentStatus?.trim();
+		if (deploymentStatus === "pending") return { disabled: true, label: "初始化中…" };
+		if (deploymentStatus === "provisioning") return { disabled: true, label: "部署中…" };
+		if (deploymentStatus === "failed") return { disabled: true, label: "部署失败" };
+		if (deploymentStatus === "stopped") return { disabled: true, label: "已停止" };
 		if (assistant.status === "inactive") {
 			return { disabled: true, label: "已停用·请先启用" };
 		}
@@ -143,11 +152,5 @@ function resolveSummonButtonState(assistant: DigitalAssistantItem): SummonButton
 			label: assistant.status === "draft" ? "草稿·暂不可召唤" : "暂不可召唤",
 		};
 	}
-
-	const deploymentStatus = assistant.deploymentStatus?.trim();
-	if (deploymentStatus === "pending") return { disabled: true, label: "初始化中…" };
-	if (deploymentStatus === "provisioning") return { disabled: true, label: "部署中…" };
-	if (deploymentStatus === "failed") return { disabled: true, label: "部署失败" };
-
-	return { disabled: false, label: `召唤 ${assistant.name}` };
+	return { disabled: false, label: `召唤：${assistant.name}` };
 }

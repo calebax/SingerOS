@@ -1,7 +1,6 @@
 "use client";
 
 import {
-	type DigitalAssistantItem,
 	type Project,
 	type ProjectTask,
 	projectFileApi,
@@ -32,6 +31,7 @@ import { toast } from "sonner";
 import { WORKBENCH_HERO_OCTOPUS_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
+import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 import { AttachmentPreview } from "../input/AttachmentPreview";
 import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ComposerActionBar } from "../input/ComposerActionBar";
@@ -96,12 +96,6 @@ function buildAssistantDisplayMetadata(
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function isSummonableAssistant(assistant: DigitalAssistantItem): boolean {
-	if (assistant.status !== "active") return false;
-	const deploymentStatus = assistant.deploymentStatus?.trim();
-	return !deploymentStatus || deploymentStatus === "ready";
 }
 
 function resolveMentionedAssistant(
@@ -521,10 +515,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
 	const availableAssistantOptions = useMemo<ComposerAssistantOption[]>(
 		() =>
-			assistants.filter(isSummonableAssistant).map((assistant) => ({
+			assistants.filter(isAssistantAvailable).map((assistant) => ({
 				id: assistant.publicId,
 				code: assistant.publicId,
 				name: assistant.name,
+				roleName: assistant.roleName,
 				description:
 					assistant.description ||
 					(assistant.expertise.length > 0 ? assistant.expertise.join("、") : "AI 队友"),
