@@ -9,11 +9,12 @@ type WorkerConfig struct {
 	BootstrapToken string `yaml:"bootstrap_token,omitempty" json:"bootstrap_token,omitempty"`
 	WorkspaceRoot  string `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
 
-	Env   string            `yaml:"env,omitempty" json:"env,omitempty"`
-	Log   LogConfig         `yaml:"log,omitempty" json:"log,omitempty"`
-	NATS  *NATSConfig       `yaml:"nats,omitempty"`
-	CLI   *CLIEnginesConfig `yaml:"cli,omitempty"`
-	Gitea *GiteaConfig      `yaml:"gitea,omitempty"`
+	Env    string            `yaml:"env,omitempty" json:"env,omitempty"`
+	Log    LogConfig         `yaml:"log,omitempty" json:"log,omitempty"`
+	Logger LogsConfig        `yaml:"logger,omitempty" json:"logger,omitempty"`
+	NATS   *NATSConfig       `yaml:"nats,omitempty"`
+	CLI    *CLIEnginesConfig `yaml:"cli,omitempty"`
+	Gitea  *GiteaConfig      `yaml:"gitea,omitempty"`
 }
 
 // CLIEnginesConfig is the configuration for external AI coding CLIs.

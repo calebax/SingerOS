@@ -132,6 +132,10 @@ func newServerCommand() *cobra.Command {
 			})
 
 			lifecycle.Std().AddCloseFunc(publisher.Close)
+			lifecycle.Std().AddCloseFunc(func() error {
+				logs.Close()
+				return nil
+			})
 			lifecycle.Std().WaitExit()
 
 			logs.Info("Server exited")
@@ -185,7 +189,12 @@ func loadConfig(configPath string) (*config.Config, error) {
 		}
 	}
 
-	applyLogLevel(cfg.Log.Level)
+	if err := applyLoggerConfig("leros-server", cfg.Logger); err != nil {
+		return nil, fmt.Errorf("failed to configure logger: %w", err)
+	}
+	if len(cfg.Logger) == 0 {
+		applyLogLevel(cfg.Log.Level)
+	}
 	logs.Info("Configuration loaded successfully")
 	return &cfg, nil
 }
