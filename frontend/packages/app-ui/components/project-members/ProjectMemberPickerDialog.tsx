@@ -28,11 +28,12 @@ import {
 } from "@leros/ui/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, LoaderCircle, UserRound, X } from "lucide-react";
+import { LoaderCircle, UserRound, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
+import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 
 /** 项目成员 chip 列表容器：两列换行排列 */
 export const projectMemberListClassName = "flex flex-wrap items-start gap-2";
@@ -767,18 +768,13 @@ export function ProjectMemberChip({
 }
 
 function MemberAvatar({ member }: { member: ProjectMember }) {
+	if (member.type === "assistant") {
+		return <AssistantAvatar name={member.name} src={member.avatarUrl} size="sm" />;
+	}
+
 	const fallback = (
-		<div
-			className={cn(
-				"flex size-7 shrink-0 items-center justify-center rounded-lg",
-				member.type === "assistant" ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600",
-			)}
-		>
-			{member.type === "assistant" ? (
-				<Bot className="size-3.5" />
-			) : (
-				<UserRound className="size-3.5" />
-			)}
+		<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+			<UserRound className="size-3.5" />
 		</div>
 	);
 

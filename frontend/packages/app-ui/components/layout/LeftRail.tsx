@@ -41,10 +41,6 @@ import {
 	ClipboardList,
 	Database,
 	ExternalLink,
-	Folder,
-	FolderKanban,
-	FolderOpen,
-	Hash,
 	Loader2,
 	LogOut,
 	MessageSquare,
@@ -78,6 +74,7 @@ import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
 import { preventRailMenuClickThrough, runRailMenuAction } from "../project/ProjectActionsMenu";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
 import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
+import { ProjectIcon } from "./project-icon";
 
 const LEFT_RAIL_COLLAPSED_WIDTH = 50;
 // 中文注释：设计稿要求项目展开后先预览 10 条任务，点“展开显示”后再展示全部任务。
@@ -110,10 +107,10 @@ export type AppNavigation = {
 const iconMap: Record<string, React.ReactNode> = {
 	IconTask: <ClipboardList className="size-5" />,
 	IconAITeammate: <Users className="size-5" />,
-	IconProjectsHub: <FolderKanban className="size-5" />,
+	IconProjectsHub: <ProjectIcon className="size-5" />,
 	IconSkill: <Zap className="size-5" />,
 	IconKnowledge: <Database className="size-5" />,
-	IconProject: <Hash className="size-4" />,
+	IconProject: <ProjectIcon className="size-4" />,
 };
 
 const navIdToView: Record<string, ViewMode> = {
@@ -1493,10 +1490,10 @@ const railHoverChevronSlotClass =
 	"flex h-6 w-0 shrink-0 items-center justify-center overflow-hidden opacity-0 transition-[width,opacity] duration-150 group-hover:w-6 group-hover:opacity-100";
 
 const railHoverMenuSlotClass =
-	"flex h-6 w-0 shrink-0 overflow-hidden opacity-0 transition-[width,opacity] duration-150 group-hover:w-6 group-hover:opacity-100 has-[button[aria-expanded=true]]:w-6 has-[button[aria-expanded=true]]:opacity-100";
+	"flex h-6 w-0 shrink-0 overflow-hidden opacity-0 transition-[width,opacity] duration-150 group-hover:w-6 group-hover:opacity-100 has-[button[data-popup-open]]:w-6 has-[button[data-popup-open]]:opacity-100";
 
 const railHoverExternalLinkSlotClass =
-	"flex h-6 w-0 shrink-0 items-center justify-center overflow-hidden opacity-0 transition-[width,opacity] duration-150 group-hover:w-6 group-hover:opacity-100 group-has-[button[aria-expanded=true]]:w-6 group-has-[button[aria-expanded=true]]:opacity-100";
+	"flex h-6 w-0 shrink-0 items-center justify-center overflow-hidden opacity-0 transition-[width,opacity] duration-150 group-hover:w-6 group-hover:opacity-100 group-has-[button[data-popup-open]]:w-6 group-has-[button[data-popup-open]]:opacity-100";
 
 function ProjectList({
 	projects,
@@ -1576,52 +1573,50 @@ function ProjectList({
 							}}
 							data-active={active}
 							className={cn(
-								"leros-nav-item group cursor-pointer text-sm",
+								"leros-nav-item group cursor-pointer gap-1 text-sm",
 								collapsed && "justify-center",
 							)}
 							title={collapsed ? project.name : undefined}
 						>
 							<span className="flex size-4 shrink-0 items-center justify-center text-[var(--leros-text-subtle)]">
-								{projectExpanded ? (
-									<FolderOpen className="size-4" />
-								) : (
-									<Folder className="size-4" />
-								)}
+								<ProjectIcon />
 							</span>
 							{!collapsed && (
 								<>
 									<span className="min-w-0 flex-1 truncate">{project.name}</span>
-									<span
-										className={cn(railHoverChevronSlotClass, "text-[var(--leros-text-subtle)]")}
-									>
-										{projectExpanded ? (
-											<ChevronDown className="size-3.5" />
-										) : (
-											<ChevronRight className="size-3.5" />
-										)}
-									</span>
-									<ProjectActionsDropdown
-										project={project}
-										onRename={onRenameProject}
-										onDelete={onDeleteProject}
-										onLeave={onLeaveProject}
-										variant="rail"
-										slotClassName={railHoverMenuSlotClass}
-									/>
-									<button
-										type="button"
-										aria-label={`进入项目 ${project.name}`}
-										className={cn(
-											railHoverExternalLinkSlotClass,
-											"rounded-md text-[var(--leros-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)]",
-										)}
-										onClick={(event) => {
-											event.stopPropagation();
-											onEnterProject(project.id);
-										}}
-									>
-										<ExternalLink className="size-3.5" />
-									</button>
+									<div className="flex shrink-0 items-center">
+										<span
+											className={cn(railHoverChevronSlotClass, "text-[var(--leros-text-subtle)]")}
+										>
+											{projectExpanded ? (
+												<ChevronDown className="size-3.5" />
+											) : (
+												<ChevronRight className="size-3.5" />
+											)}
+										</span>
+										<ProjectActionsDropdown
+											project={project}
+											onRename={onRenameProject}
+											onDelete={onDeleteProject}
+											onLeave={onLeaveProject}
+											variant="rail"
+											slotClassName={railHoverMenuSlotClass}
+										/>
+										<button
+											type="button"
+											aria-label={`进入项目 ${project.name}`}
+											className={cn(
+												railHoverExternalLinkSlotClass,
+												"rounded-md text-[var(--leros-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)]",
+											)}
+											onClick={(event) => {
+												event.stopPropagation();
+												onEnterProject(project.id);
+											}}
+										>
+											<ExternalLink className="size-3.5" />
+										</button>
+									</div>
 								</>
 							)}
 						</div>
@@ -1812,9 +1807,7 @@ function NavItemButton({
 			className={cn("leros-nav-item", collapsed && "justify-center")}
 			title={collapsed ? item.label : undefined}
 		>
-			<span className={cn("leros-nav-icon", item.icon === "IconProject" && "leros-nav-icon-text")}>
-				{icon}
-			</span>
+			<span className="leros-nav-icon">{icon}</span>
 			<span className={cn("flex-1 truncate font-medium", collapsed && "hidden")}>{item.label}</span>
 			{item.badge ? (
 				<span
