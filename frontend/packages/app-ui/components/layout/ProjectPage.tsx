@@ -2,8 +2,10 @@
 
 import {
 	Action,
+	buildProjectCapabilityItems,
 	buildTaskCapabilityItems,
 	fetchFilePreviewByStorageUri,
+	isSystemDefaultAssistant,
 	type Project,
 	type ProjectMember,
 	type ProjectSkill,
@@ -28,6 +30,7 @@ import {
 	CommandInput,
 	CommandItem,
 	CommandList,
+	CommandSeparator,
 } from "@leros/ui/components/ui/command";
 import {
 	Dialog,
@@ -40,7 +43,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import {
-	Bot,
 	Check,
 	ChevronDown,
 	ChevronRight,
@@ -58,7 +60,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { MessageTimeline } from "../chat/MessageTimeline";
+import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
 import { CanGate } from "../permission/CanGate";
@@ -124,12 +126,6 @@ export function ProjectPage({
 		activeProjectTab,
 		projectDetailLoading,
 		projectDetailError,
-		projectSessionId,
-		projectSessionProjectId,
-		activeWorkbenchProjectId,
-		activeWorkbenchTaskId,
-		activeTaskDetailProjectId,
-		activeTaskDetailSessionId,
 		fetchProjects,
 		setProjectRoute,
 		setActiveProjectTab,
@@ -144,7 +140,6 @@ export function ProjectPage({
 		pendingBootstrapSessionId,
 		setActiveSession,
 		clearLocalMessages,
-		clearPendingBootstrapSession,
 		hasSessionMessages,
 		allMessagesBelongToSession,
 		loadConversationMessages,
@@ -164,29 +159,11 @@ export function ProjectPage({
 		projects.find((item) => item.id === resolvedProjectId) ??
 		(resolvedProjectId ? undefined : projects[0]);
 
-	const selectedTaskSessionId = useMemo(() => {
-		if (!project || activeWorkbenchProjectId !== project.id || !activeWorkbenchTaskId) return null;
-		return project.tasks.find((task) => task.id === activeWorkbenchTaskId)?.sessionId ?? null;
-	}, [project, activeWorkbenchProjectId, activeWorkbenchTaskId]);
-
-	const currentTaskSessionId =
-		activeTaskDetailProjectId === resolvedProjectId ? activeTaskDetailSessionId : null;
-
-	const streamingTaskSessionId =
-		isGenerating &&
-		activeSessionId &&
-		activeTaskDetailProjectId === resolvedProjectId &&
-		activeTaskDetailSessionId === activeSessionId
-			? activeTaskDetailSessionId
-			: null;
-	const currentProjectSessionId =
-		projectSessionProjectId === resolvedProjectId ? projectSessionId : null;
-
-	const resolvedSessionId =
-		streamingTaskSessionId ??
-		currentTaskSessionId ??
-		selectedTaskSessionId ??
-		currentProjectSessionId;
+	// 中文注释：项目「新建任务」tab 始终展示空状态，不复用任务详情 / 工作台 / 项目级 session。
+	const resolvedSessionId = useMemo(() => {
+		if (resolvedTab !== "chat" || currentView !== "project") return null;
+		return pendingBootstrapSessionId;
+	}, [resolvedTab, currentView, pendingBootstrapSessionId]);
 
 	const handleOpenTask = (task: ProjectTask) => {
 		if (!resolvedProjectId) return;
@@ -311,19 +288,19 @@ export function ProjectPage({
 	useEffect(() => {
 		if (projectDetailLoading) return;
 		if (!resolvedSessionId) {
+			// 中文注释：新建任务 bootstrap 跳转任务详情时，保留等待态消息和 bootstrap 标记，避免详情页重复创建 assistant。
+			if (pendingBootstrapSessionId) return;
 			resetLocalMessages();
 			return;
 		}
 		const nextSessionId = resolvedSessionId;
 		setActiveSession(nextSessionId);
-		if (currentView === "taskDetail" && currentTaskSessionId === nextSessionId) return;
 		const bootstrapPending = pendingBootstrapSessionId === nextSessionId;
 		const sessionHasMessages = hasSessionMessages(nextSessionId);
 		// 项目消息刚创建 session 并准备开流时，跳过这次自动拉历史，避免旧数据覆盖 optimistic 消息。
 		if (bootstrapPending && sessionHasMessages) return;
-		if (bootstrapPending && !sessionHasMessages) {
-			clearPendingBootstrapSession();
-		}
+		// 中文注释：bootstrap 期间消息被误清时等待 GlobalEvents 回填，避免与 SSE resume 重复开流。
+		if (bootstrapPending && !sessionHasMessages) return;
 		if (
 			isGenerating &&
 			activeSessionId === nextSessionId &&
@@ -340,16 +317,13 @@ export function ProjectPage({
 		});
 	}, [
 		resolvedSessionId,
-		currentTaskSessionId,
 		projectDetailLoading,
-		currentView,
 		isGenerating,
 		pendingBootstrapSessionId,
 		activeSessionId,
 		setActiveSession,
 		hasSessionMessages,
 		allMessagesBelongToSession,
-		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
 		resetLocalMessages,
@@ -490,11 +464,7 @@ export function ProjectPage({
 					)}
 				>
 					{resolvedTab === "chat" && (
-						<ProjectChat
-							layoutMode={projectChatLayoutMode}
-							navigation={navigation}
-							projectId={resolvedProjectId ?? undefined}
-						/>
+						<ProjectChat layoutMode={projectChatLayoutMode} navigation={navigation} />
 					)}
 					{resolvedTab === "tasks" && (
 						<ProjectTasks tasks={project.tasks} onOpenTask={handleOpenTask} />
@@ -547,6 +517,10 @@ export function ProjectPage({
 							compact={!isWideRightSidebar}
 							onUpdateProject={async (params) => {
 								const updated = await updateProject(params);
+								// 中文注释：更新项目后权限缓存会失效，立即重拉，避免添加成员和技能入口消失。
+								await useAppStore
+									.getState()
+									.ensureCapabilities(buildProjectCapabilityItems(project.id));
 								if (params.members && project.id) {
 									await fetchProjectDetail(project.id);
 								}
@@ -587,22 +561,17 @@ export function ProjectPage({
 function ProjectChat({
 	layoutMode,
 	navigation,
-	projectId,
 }: {
 	layoutMode: ProjectChatLayoutMode;
 	navigation?: AppNavigation;
-	projectId?: string;
 }) {
 	const layout = getProjectChatLayoutClasses(layoutMode);
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<MessageTimeline
-				emptyState={<ProjectEmptyState layout={layout} />}
-				contentShellClassName={layout.shell}
-				contentClassName={layout.timelineInner}
-				projectId={projectId}
-			/>
+			<div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+				<ProjectEmptyState layout={layout} />
+			</div>
 			<ChatInput variant="project" projectLayoutMode={layoutMode} navigation={navigation} />
 		</div>
 	);
@@ -754,7 +723,11 @@ function ProjectConfigSidebar({
 			sortProjectMembers(
 				projectMembersWithLatestAssistantAvatar.filter(
 					// 中文注释：默认 AI 员工只作为系统兜底分配，不在右侧项目队友展示区占位。
-					(member) => !(member.type === "assistant" && member.isDefault),
+					(member) =>
+						!(
+							member.type === "assistant" &&
+							(member.isDefault || isSystemDefaultAssistant(member.publicId))
+						),
 				),
 			),
 		[projectMembersWithLatestAssistantAvatar],
@@ -939,7 +912,7 @@ function ProjectConfigSidebar({
 						</button>
 					</CanGate>
 				</div>
-				<div className="overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-3">
+				<div className="no-scrollbar max-h-[320px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-3">
 					{visibleProjectMembers.length === 0 ? (
 						<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
 							暂无项目队友
@@ -962,6 +935,7 @@ function ProjectConfigSidebar({
 					onOpenChange={setMemberDialogOpen}
 					selectedMembers={projectMembersWithLatestAssistantAvatar}
 					onConfirm={(members) => {
+						// 中文注释：成员弹窗提交完整草稿，确保新增、删除和身份修改都能同步到项目。
 						void updateProjectMembers(members);
 					}}
 				/>
@@ -1006,34 +980,36 @@ function ProjectConfigSidebar({
 								className="w-[340px] p-1.5"
 							>
 								<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
-									<div className="px-2 py-1 text-xs font-medium text-slate-400">选择技能</div>
+									<div className="px-2 py-1 text-sm font-semibold text-slate-800">选择技能</div>
 									<CommandInput
 										value={skillSearch}
 										onValueChange={setSkillSearch}
 										placeholder="搜索技能"
+										className="placeholder:text-slate-300"
 									/>
-									<CommandList className="max-h-64">
+									<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+									<CommandList className="max-h-64 px-1">
 										<CommandEmpty className="py-6 text-slate-400">
 											没有可继续添加的技能
 										</CommandEmpty>
 										<CommandGroup className="p-0">
 											{skillsLoading && (
-												<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>
+												<div className="px-2 py-1.5 text-xs text-slate-400">技能加载中...</div>
 											)}
 											{!skillsLoading && skillsError && (
-												<div className="px-3 py-2 text-xs text-red-400">{skillsError}</div>
+												<div className="px-2 py-1.5 text-xs text-red-400">{skillsError}</div>
 											)}
 											{filteredSkills.map((skill) => (
 												<CommandItem
 													key={skill.code}
 													value={skill.name}
 													onSelect={() => addProjectSkill(skill)}
-													className="rounded-xl px-2.5 py-2"
+													className="rounded-lg px-2 py-1.5"
 												>
 													<SkillPickerIcon />
 													<div className="min-w-0 flex-1">
 														<div className="truncate font-medium">
-															/{renderHighlightedText(skill.name, skillSearch)}
+															{renderHighlightedText(skill.name, skillSearch)}
 														</div>
 														<div className="truncate text-xs text-slate-400">
 															{renderHighlightedText(
@@ -1052,7 +1028,7 @@ function ProjectConfigSidebar({
 						</Popover>
 					</CanGate>
 				</div>
-				<div className="max-h-[280px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
+				<div className="no-scrollbar max-h-[280px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
 					{project.skills.length === 0 ? (
 						<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
 							暂无技能
@@ -1064,18 +1040,25 @@ function ProjectConfigSidebar({
 									key={skill.code}
 									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
 								>
-									<button
-										type="button"
-										className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
-										aria-label={`移除技能 ${skill.name}`}
-										onClick={() => removeProjectSkill(skill.code)}
-										disabled={savingSkills}
+									<CanGate
+										action={Action.ProjectUpdate}
+										resource={{ type: "project", publicId: project.id }}
+										// 中文注释：成员无权更新项目技能时，仅展示图标，避免暴露点击后必然失败的移除入口。
+										fallback={<SkillPickerIcon />}
 									>
-										<Sparkles className="size-3.5 transition-opacity group-hover:opacity-0" />
-										<span className="absolute inline-flex items-center justify-center rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100">
-											<X className="size-3" />
-										</span>
-									</button>
+										<button
+											type="button"
+											className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+											aria-label={`移除技能 ${skill.name}`}
+											onClick={() => removeProjectSkill(skill.code)}
+											disabled={savingSkills}
+										>
+											<Sparkles className="size-3.5 transition-opacity group-hover:opacity-0" />
+											<span className="absolute inline-flex items-center justify-center rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100">
+												<X className="size-3" />
+											</span>
+										</button>
+									</CanGate>
 									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--leros-text)]">
 										{skill.name}
 									</span>
@@ -1177,17 +1160,23 @@ function stringFromValue(value: unknown): string {
 function ProjectEmptyState({ layout }: { layout: ReturnType<typeof getProjectChatLayoutClasses> }) {
 	return (
 		<div className={cn("flex h-full", layout.shell)}>
-			<div className={cn(layout.inner, "flex h-full items-center justify-center")}>
-				<div className="flex max-w-[320px] flex-col items-center text-center">
-					<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-						<Bot className="size-6" />
+			<div className={cn(layout.inner, "flex h-full flex-col justify-center py-16")}>
+				<div className="flex items-center gap-5 text-left md:gap-6">
+					<div className="leros-workbench-hero-icon shrink-0">
+						<img
+							src={PROJECT_NEW_TASK_HERO_OCTOPUS_SRC}
+							alt=""
+							className="size-50 object-contain"
+						/>
 					</div>
-					<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">
-						开始项目会话
-					</h2>
-					<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
-						把需求、问题或上下文发给 AI，后续讨论会沉淀在当前项目中。
-					</p>
+					<div className="flex min-w-0 flex-col gap-8">
+						<h2 className="text-4xl tracking-tight text-[var(--leros-primary)] md:text-5xl">
+							开始新任务
+						</h2>
+						<p className="text-lg text-[var(--leros-text-muted)]">
+							描述需求或目标，Lework 将自动规划、执行、交付，并将产物归档到项目中
+						</p>
+					</div>
 				</div>
 			</div>
 		</div>
