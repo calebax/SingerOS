@@ -649,7 +649,7 @@ func TestWaitCompletionProgressIdleTimeout(t *testing.T) {
 	for range st.evtChan {
 	}
 	result := <-st.resultChan
-	if result.Err == nil || !strings.Contains(result.Err.Error(), "opencode progress idle timeout") {
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "长时间未操作") {
 		t.Fatalf("result error = %v, want progress idle timeout", result.Err)
 	}
 	if result.ProviderSessionID != "ses_timeout" {
