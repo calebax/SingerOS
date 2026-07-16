@@ -40,6 +40,8 @@ vi.mock("@leros/store", () => ({
 	LEFT_RAIL_MAX_WIDTH: 360,
 	LEFT_RAIL_MIN_WIDTH: 220,
 	projectFileApi: {},
+	useProjectMenuCapabilities: () => ({ loading: false, hasAny: false }),
+	useProjectsMenuCapabilities: vi.fn(),
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			navGroups: [],

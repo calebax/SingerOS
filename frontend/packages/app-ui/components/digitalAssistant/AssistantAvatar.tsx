@@ -61,6 +61,10 @@ export function AssistantAvatar({
 					alt={name}
 					className={cn("rounded-full object-cover", sizeClass)}
 					fallback={fallback}
+					loadingFallback={
+						// 中文注释：受保护头像首次加载时展示中性占位，避免短暂闪现名称生成的默认头像。
+						<span aria-hidden="true" className="size-full animate-pulse bg-slate-100" />
+					}
 				/>
 			) : (
 				fallback

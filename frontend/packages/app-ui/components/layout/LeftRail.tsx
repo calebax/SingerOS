@@ -1587,7 +1587,10 @@ function ProjectList({
 							</span>
 							{!collapsed && (
 								<>
-									<span className="min-w-0 flex-1 truncate">{project.name}</span>
+									{/* 原生省略号存在字形留白，向右补偿其可见终点以平衡侧栏左右视觉间距。 */}
+									<span className="-mr-4 min-w-0 flex-1 truncate transition-[margin] duration-150 group-hover:mr-0 group-has-[button[data-popup-open]]:mr-0">
+										{project.name}
+									</span>
 									<div className="flex shrink-0 items-center">
 										<span
 											className={cn(railHoverChevronSlotClass, "text-[var(--leros-text-subtle)]")}

@@ -129,7 +129,7 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 
 			{/* 中文注释：允许列表区域在固定高度的应用壳内收缩，超出内容由滚动容器承接。 */}
 			<ScrollArea className="min-h-0 flex-1">
-				<div className="grid grid-cols-1 gap-3 p-6 lg:grid-cols-2 xl:grid-cols-3">
+				<div className="grid grid-cols-1 gap-3 p-6 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
 					{filteredAssistants.length === 0 && (
 						<div className="col-span-full flex min-h-[calc(100vh-11rem)] flex-col items-center justify-center text-center">
 							{assistants.length === 0 ? (
@@ -144,7 +144,7 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 									</p>
 								</>
 							) : (
-								<p className="text-sm text-slate-400">暂无符合当前条件的队友</p>
+								<p className="text-sm text-slate-400">未找到相关 AI 队友</p>
 							)}
 						</div>
 					)}
@@ -201,14 +201,14 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 				open={!!createdAssistantReady}
 				onOpenChange={(open) => !open && setCreatedAssistantReady(null)}
 			>
-				<DialogContent className="sm:max-w-md">
-					<DialogHeader className="items-center text-center">
+				<DialogContent className="gap-0 p-8 sm:max-w-md">
+					<DialogHeader className="items-center gap-3 pb-6 text-center">
 						<CheckCircle2 className="size-12 text-emerald-500" />
-						<DialogTitle>AI 队友已可用</DialogTitle>
-						<DialogDescription>部署已经完成，现在可以开始对话。</DialogDescription>
+						<DialogTitle className="pt-1">AI队友部署完成</DialogTitle>
+						<DialogDescription>现在可以在Lework上与它对话。</DialogDescription>
 					</DialogHeader>
 					{createdAssistantReady ? (
-						<div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+						<div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
 							<AssistantAvatar
 								name={createdAssistantReady.name}
 								src={createdAssistantReady.avatar}
@@ -223,9 +223,9 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 							</div>
 						</div>
 					) : null}
-					<DialogFooter>
+					<DialogFooter className="mt-4">
 						<Button
-							className="w-full"
+							className="h-10 w-full"
 							onClick={() => {
 								if (createdAssistantReady) handleSummonAssistant(createdAssistantReady);
 								setCreatedAssistantReady(null);

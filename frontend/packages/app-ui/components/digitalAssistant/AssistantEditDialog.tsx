@@ -8,6 +8,7 @@ import {
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
+	DialogHeader,
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
 import { ImagePlus } from "lucide-react";
@@ -15,7 +16,7 @@ import { type ChangeEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { blobToDataURL, cacheProtectedImageDataURL } from "../avatar/ProtectedImage";
 import { AssistantAvatar } from "./AssistantAvatar";
-import { getAssistantDisplayStatus } from "./assistantStatus";
+import { ASSISTANT_FORM_LIMITS } from "./assistantFormLimits";
 
 export type AssistantEditDialogProps = {
 	assistant: DigitalAssistantItem;
@@ -25,6 +26,7 @@ export type AssistantEditDialogProps = {
 
 export function AssistantEditDialog({ assistant, open, onOpenChange }: AssistantEditDialogProps) {
 	const { updateAssistant } = useDAStore((s) => s);
+	const isTemplateAssistant = assistant.source === "template";
 	const [name, setName] = useState(assistant.name);
 	const [roleName, setRoleName] = useState(assistant.roleName || assistant.name);
 	const [avatar, setAvatar] = useState(assistant.avatar);
@@ -45,8 +47,6 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 		setPreviewAvatar(undefined);
 	}, [assistant, open]);
 
-	const statusInfo = getAssistantDisplayStatus(assistant);
-
 	const handleSubmit = async () => {
 		if (!name.trim() || !roleName.trim() || !description.trim() || submitting || uploadingAvatar)
 			return;
@@ -54,10 +54,15 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 		const updated = await updateAssistant({
 			id: assistant.id,
 			name: name.trim(),
-			role_name: roleName.trim(),
 			avatar: avatar.trim(),
 			description: description.trim(),
-			system_prompt: systemPrompt.trim(),
+			// 中文注释：模板实例只允许编辑名称、简介与头像，角色名称和角色设定始终沿用模板配置。
+			...(isTemplateAssistant
+				? {}
+				: {
+						role_name: roleName.trim(),
+						system_prompt: systemPrompt.trim(),
+					}),
 		});
 		setSubmitting(false);
 		if (!updated) {
@@ -83,9 +88,10 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 			const response = await projectFileApi.uploadLoose({ file, purpose: "avatar" });
 			const publicID = response.data.public_id;
 			if (!publicID) throw new Error("头像上传失败");
-			// 中文注释：AI 队友头像字段保存文件 public_id，展示时统一通过 preview 接口读取。
+			// 中文注释：先写入本地缓存再移除 blob 预览，避免受保护图片异步加载时短暂回退为默认头像。
+			const dataURL = await blobToDataURL(file);
+			cacheProtectedImageDataURL(publicID, dataURL);
 			setAvatar(publicID);
-			void blobToDataURL(file).then((dataURL) => cacheProtectedImageDataURL(publicID, dataURL));
 			setPreviewAvatar(undefined);
 			toast.success("头像已上传");
 		} catch (err) {
@@ -105,30 +111,17 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 				if (!nextOpen && !submitting && !uploadingAvatar) onOpenChange(false);
 			}}
 		>
-			<DialogContent className="max-h-[min(88dvh,640px)] max-w-[min(92vw,520px)] gap-0 overflow-y-auto p-0 sm:rounded-2xl">
-				<DialogTitle className="sr-only">编辑 {assistant.name}</DialogTitle>
+			<DialogContent className="flex max-h-[min(88dvh,640px)] max-w-[min(92vw,560px)] flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
+				<DialogHeader className="shrink-0 border-b border-slate-200 px-6 py-5 sm:px-8">
+					<DialogTitle>编辑AI队友</DialogTitle>
+					<span className="mt-1 w-fit rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-1 text-xs font-medium text-[var(--leros-text-muted)]">
+						{isTemplateAssistant ? "模板创建" : "自定义创建"}
+					</span>
+				</DialogHeader>
 				<DialogDescription className="sr-only">编辑 AI 队友基础信息和能力简介</DialogDescription>
 
-				<div className="px-6 pb-6 pt-7 sm:px-8">
-					<div className="flex items-start pr-8">
-						<div className="min-w-0 flex-1">
-							<h2 className="truncate text-xl font-semibold text-[var(--leros-text-strong)] sm:text-2xl">
-								{name || assistant.name}
-							</h2>
-							<div className="mt-3 flex flex-wrap items-center gap-2">
-								<span className="rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-1 text-xs font-medium text-[var(--leros-text-muted)]">
-									{statusInfo.label}
-								</span>
-								{assistant.source && (
-									<span className="rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-1 text-xs font-medium text-[var(--leros-text-muted)]">
-										{assistant.source === "template" ? "模板创建" : "自定义"}
-									</span>
-								)}
-							</div>
-						</div>
-					</div>
-
-					<div className="mt-8 space-y-5">
+				<div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-8">
+					<div className="space-y-5">
 						<div className="space-y-1.5">
 							<span className="text-xs font-medium text-slate-700">头像</span>
 							<div className="flex items-center gap-3">
@@ -147,52 +140,83 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 							</div>
 						</div>
 						<div className="space-y-1.5">
-							<span className="text-xs font-medium text-slate-700">自定义名称 *</span>
-							<input
-								type="text"
-								value={name}
-								onChange={(e) => setName(e.target.value)}
-								placeholder="例如：小投、法务小周"
-								className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
-							/>
+							<span className="text-xs font-medium text-slate-700">
+								自定义名称 <span className="text-red-500">*</span>
+							</span>
+							<div className="relative">
+								<input
+									type="text"
+									value={name}
+									onChange={(e) => setName(e.target.value)}
+									placeholder="例如：小智、阿乐"
+									maxLength={ASSISTANT_FORM_LIMITS.name}
+									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+								/>
+								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+									{name.length}/{ASSISTANT_FORM_LIMITS.name}
+								</span>
+							</div>
 						</div>
 						<div className="space-y-1.5">
-							<span className="text-xs font-medium text-slate-700">角色名称 *</span>
-							<input
-								type="text"
-								value={roleName}
-								onChange={(e) => setRoleName(e.target.value)}
-								placeholder="例如：投标经理"
-								className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
-							/>
+							<span className="text-xs font-medium text-slate-700">
+								角色名称 <span className="text-red-500">*</span>
+							</span>
+							<div className="relative">
+								<input
+									type="text"
+									value={roleName}
+									onChange={(e) => setRoleName(e.target.value)}
+									placeholder="例如：投标经理"
+									maxLength={ASSISTANT_FORM_LIMITS.roleName}
+									readOnly={isTemplateAssistant}
+									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors read-only:bg-slate-50 focus:border-blue-300 focus:outline-none"
+								/>
+								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+									{roleName.length}/{ASSISTANT_FORM_LIMITS.roleName}
+								</span>
+							</div>
 						</div>
 						<div className="space-y-1.5">
-							<span className="text-xs font-medium text-slate-700">简介 *</span>
-							<input
-								type="text"
-								value={description}
-								onChange={(e) => setDescription(e.target.value)}
-								placeholder="简要说明这个队友能做什么"
-								className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
-							/>
+							<span className="text-xs font-medium text-slate-700">
+								简介 <span className="text-red-500">*</span>
+							</span>
+							<div className="relative">
+								<input
+									type="text"
+									value={description}
+									onChange={(e) => setDescription(e.target.value)}
+									placeholder="简要说明这个队友能做什么"
+									maxLength={ASSISTANT_FORM_LIMITS.description}
+									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-16 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+								/>
+								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+									{description.length}/{ASSISTANT_FORM_LIMITS.description}
+								</span>
+							</div>
 						</div>
 						<div className="space-y-1.5">
 							<span className="text-xs font-medium text-slate-700">角色设定</span>
-							<textarea
-								value={systemPrompt}
-								onChange={(e) => setSystemPrompt(e.target.value)}
-								placeholder="能力边界、执行方式和输出要求"
-								rows={5}
-								className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
-							/>
+							<div className="relative">
+								<textarea
+									value={systemPrompt}
+									onChange={(e) => setSystemPrompt(e.target.value)}
+									placeholder="能力边界、执行方式和输出要求"
+									maxLength={ASSISTANT_FORM_LIMITS.systemPrompt}
+									readOnly={isTemplateAssistant}
+									rows={5}
+									className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 pb-6 text-sm text-slate-800 placeholder:text-slate-400 transition-colors read-only:bg-slate-50 focus:border-blue-300 focus:outline-none"
+								/>
+								<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-slate-400">
+									{systemPrompt.length}/{ASSISTANT_FORM_LIMITS.systemPrompt}
+								</span>
+							</div>
 						</div>
 					</div>
 				</div>
 
-				<DialogFooter className="border-t border-[var(--leros-control-border)] bg-white px-6 py-4 sm:px-8">
+				<DialogFooter className="shrink-0 border-t border-[var(--leros-control-border)] bg-white px-6 py-4 sm:px-8">
 					<Button
 						variant="outline"
-						className="h-11 rounded-lg px-6"
 						onClick={() => onOpenChange(false)}
 						disabled={submitting || uploadingAvatar}
 					>
@@ -208,7 +232,6 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 							submitting ||
 							uploadingAvatar
 						}
-						className="h-11 rounded-lg bg-[var(--leros-text-strong)] px-8 text-sm font-semibold text-white hover:bg-[var(--leros-text)]"
 					>
 						{submitting ? "保存中…" : "保存"}
 					</Button>

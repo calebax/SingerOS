@@ -27,6 +27,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Wait-DevPostgresReady -DockerExe $dockerExe
+Wait-DevNatsReady -DockerExe $dockerExe
 if (Test-DevDatabaseHasDuplicateUserOrgUin -DockerExe $dockerExe) {
     Write-Host '[Leros] Detected duplicate user-org UINs in the local development database.' -ForegroundColor Yellow
     Write-Host '[Leros] The current backend migration requires UIN to be unique.' -ForegroundColor Yellow
@@ -43,6 +44,7 @@ if (Test-DevDatabaseHasDuplicateUserOrgUin -DockerExe $dockerExe) {
         }
 
         Wait-DevPostgresReady -DockerExe $dockerExe
+        Wait-DevNatsReady -DockerExe $dockerExe
         Write-Host '[Leros] Local development data reset completed.' -ForegroundColor Green
     }
     else {
@@ -53,15 +55,15 @@ if (Test-DevDatabaseHasDuplicateUserOrgUin -DockerExe $dockerExe) {
 Ensure-LatestBackendBinary -RepoRoot $root
 
 Write-Host "[Leros] Using API server port $($runtimeState.serverPort) and worker port $($runtimeState.workerPort)." -ForegroundColor Cyan
+Prepare-DevRuntimeConfigs -RepoRoot $root -RuntimeState $runtimeState
 
-Write-Host '[Leros] Opening server, worker and frontend windows...' -ForegroundColor Cyan
-Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-server-dev.ps1" | Out-Null
-Start-Sleep -Seconds 2
-Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-worker-dev.ps1" | Out-Null
-Start-Sleep -Seconds 2
-Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-frontend-dev.ps1" | Out-Null
+Start-DevBackendWindows -RuntimeState $runtimeState
+Start-DevFrontendWindow
 
 Write-Host ''
 Write-Host '[Leros] Dev environment is ready.' -ForegroundColor Green
+Write-Host "[Leros] Frontend: http://localhost:3005" -ForegroundColor Green
+Write-Host "[Leros] API server: http://localhost:$($runtimeState.serverPort)" -ForegroundColor Green
+Write-Host "[Leros] Worker: http://localhost:$($runtimeState.workerPort)" -ForegroundColor Green
 Write-Host '[Leros] Frontend auto refreshes. For backend changes, run deployments\dev\restart-backend.cmd' -ForegroundColor Green
 Read-Host 'Press Enter to exit'

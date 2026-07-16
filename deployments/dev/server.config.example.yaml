@@ -19,7 +19,7 @@ database:
   debug: true
 
 nats:
-  url: "nats://localhost:4223/"
+  url: "nats://localhost:14223/"
 
 log:
   level: debug

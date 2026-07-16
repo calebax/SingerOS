@@ -156,38 +156,59 @@ func TestListDigitalAssistantExcludesSystemDefaultAssistant(t *testing.T) {
 	}
 }
 
-func TestUpdateDigitalAssistantRejectsTemplateCreatedAssistant(t *testing.T) {
+func TestUpdateDigitalAssistantAllowsTemplateUserFields(t *testing.T) {
 	database := setupDigitalAssistantDB(t)
 	ctx := setupTestContextWithCaller(t)
 	service := NewDigitalAssistantService(database, nil)
 
 	assistant := &types.DigitalAssistant{
-		PublicID:    "template-assistant",
-		OrgID:       1,
-		OwnerID:     1,
-		Name:        "Template Assistant",
-		Description: "Original description",
-		Status:      string(contract.DigitalAssistantStatusActive),
-		Source:      "template",
+		PublicID:     "template-assistant",
+		OrgID:        1,
+		OwnerID:      1,
+		Name:         "Template Assistant",
+		RoleName:     "投标策略师",
+		Description:  "Original description",
+		Avatar:       "file_original",
+		SystemPrompt: "Template system prompt",
+		Status:       string(contract.DigitalAssistantStatusActive),
+		Source:       "template",
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create template assistant: %v", err)
 	}
 
-	_, err := service.UpdateDigitalAssistant(ctx, assistant.ID, &contract.UpdateDigitalAssistantRequest{Name: "Modified Template Assistant"})
-	if err == nil {
-		t.Fatal("expected template-created assistant update to be rejected")
+	updated, err := service.UpdateDigitalAssistant(ctx, assistant.ID, &contract.UpdateDigitalAssistantRequest{
+		Name:        "Modified Template Assistant",
+		Description: "Modified description",
+		Avatar:      "file_updated",
+	})
+	if err != nil {
+		t.Fatalf("template user-field update failed: %v", err)
 	}
-	if err.Error() != "template-created digital assistant cannot be modified" {
-		t.Fatalf("error = %q, want template modification rejection", err.Error())
+	if updated.Name != "Modified Template Assistant" || updated.Description != "Modified description" || updated.Avatar != "file_updated" {
+		t.Fatalf("template user fields were not updated: %+v", updated)
 	}
 
 	var stored types.DigitalAssistant
 	if err := database.First(&stored, assistant.ID).Error; err != nil {
 		t.Fatalf("reload template assistant: %v", err)
 	}
-	if stored.Name != assistant.Name {
-		t.Fatalf("name = %q, want %q", stored.Name, assistant.Name)
+	if stored.RoleName != "投标策略师" || stored.SystemPrompt != "Template system prompt" {
+		t.Fatalf("template configuration changed: %+v", stored)
+	}
+
+	_, err = service.UpdateDigitalAssistant(ctx, assistant.ID, &contract.UpdateDigitalAssistantRequest{
+		RoleName: "自定义角色",
+	})
+	if err == nil || err.Error() != "template-created digital assistant role name cannot be modified" {
+		t.Fatalf("template role update error = %v", err)
+	}
+	customSystemPrompt := "自定义角色设定"
+	_, err = service.UpdateDigitalAssistant(ctx, assistant.ID, &contract.UpdateDigitalAssistantRequest{
+		SystemPrompt: &customSystemPrompt,
+	})
+	if err == nil || err.Error() != "template-created digital assistant system prompt cannot be modified" {
+		t.Fatalf("template system prompt update error = %v", err)
 	}
 }
 

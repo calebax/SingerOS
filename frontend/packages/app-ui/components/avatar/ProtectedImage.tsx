@@ -131,6 +131,7 @@ type ProtectedImageProps = {
 	alt: string;
 	className: string;
 	fallback: ReactNode;
+	loadingFallback?: ReactNode;
 	onProtectedSrcNotFound?: () => void;
 	onProtectedSrcLoaded?: () => void;
 };
@@ -141,6 +142,7 @@ export function ProtectedImage({
 	alt,
 	className,
 	fallback,
+	loadingFallback,
 	onProtectedSrcNotFound,
 	onProtectedSrcLoaded,
 }: ProtectedImageProps) {
@@ -198,7 +200,7 @@ export function ProtectedImage({
 
 	if (!src || failed) return <>{fallback}</>;
 	const imageSrc = imageURL || src;
-	if (isProtectedImageSource(src) && !imageURL) return <>{fallback}</>;
+	if (isProtectedImageSource(src) && !imageURL) return <>{loadingFallback ?? fallback}</>;
 
 	return (
 		<img

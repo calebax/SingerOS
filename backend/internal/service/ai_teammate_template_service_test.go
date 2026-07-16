@@ -83,7 +83,12 @@ func TestCreateDigitalAssistantFromTemplateIncrementsUseCount(t *testing.T) {
 
 	service := NewDigitalAssistantService(database, nil)
 	result, err := service.CreateDigitalAssistantFromTemplate(setupTestContextWithCaller(t), &contract.CreateDigitalAssistantFromTemplateRequest{
-		TemplateID: template.ID,
+		TemplateID:   template.ID,
+		Name:         "品牌内容助手",
+		Description:  "负责日常品牌内容。",
+		RoleName:     "请求覆盖的角色",
+		SystemPrompt: "请求覆盖的角色设定",
+		Expertise:    []string{"请求覆盖的能力"},
 	})
 	if err != nil {
 		t.Fatalf("create assistant from template: %v", err)
@@ -94,8 +99,14 @@ func TestCreateDigitalAssistantFromTemplateIncrementsUseCount(t *testing.T) {
 	if result.Source != "template" {
 		t.Fatalf("source = %q, want template", result.Source)
 	}
-	if len(result.Expertise) != 2 {
-		t.Fatalf("expertise length = %d, want 2", len(result.Expertise))
+	if result.Name != "品牌内容助手" || result.Description != "负责日常品牌内容。" {
+		t.Fatalf("template user fields = %q/%q, want request values", result.Name, result.Description)
+	}
+	if result.RoleName != template.Name || result.SystemPrompt != template.SystemPrompt {
+		t.Fatalf("template protected fields = %q/%q, want template values", result.RoleName, result.SystemPrompt)
+	}
+	if len(result.Expertise) != 2 || result.Expertise[0] != "内容策划" || result.Expertise[1] != "品牌传播" {
+		t.Fatalf("expertise = %#v, want template expertise", result.Expertise)
 	}
 
 	var stored types.AITeammateTemplate

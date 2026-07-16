@@ -37,6 +37,7 @@ import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { blobToDataURL, cacheProtectedImageDataURL } from "../avatar/ProtectedImage";
 import { AssistantAvatar } from "./AssistantAvatar";
+import { ASSISTANT_FORM_LIMITS } from "./assistantFormLimits";
 
 export type AssistantCreateDialogProps = {
 	open: boolean;
@@ -53,6 +54,56 @@ const PRESET_TEMPLATE_CODES = [
 	"recruiting-expert",
 	"stock-investment-expert",
 ] as const;
+
+const TEMPLATE_EXPERTISE_DESCRIPTIONS: Record<string, string[]> = {
+	"bid-strategist": [
+		"快速梳理招标范围、资格条件、交付要求和关键时间节点。",
+		"定位显性与隐性评分标准，形成逐项响应和得分提升建议。",
+		"结合竞争环境与自身优势，制定差异化投标路径和重点。",
+		"按规范组织章节与内容，辅助产出清晰、完整且可落地的标书。",
+	],
+	"contract-review-expert": [
+		"系统核对权责、履约、付款、违约和终止等关键条款。",
+		"识别责任失衡、表述歧义与潜在争议，提示风险优先级。",
+		"针对问题条款提供清晰、可协商的修改方向和参考表述。",
+		"结合业务场景检查合规边界，并给出后续专业咨询建议。",
+	],
+	"data-analysis-expert": [
+		"把业务目标拆成可衡量指标，明确口径、维度和分析路径。",
+		"识别趋势、波动和异常变化，解释背后的可能原因。",
+		"通过分组与对比定位经营问题，提炼可执行的业务结论。",
+		"建议合适的图表和信息层级，让分析结果更易理解。",
+	],
+	"document-generation-expert": [
+		"将零散材料整理成结构完整、重点清晰的正式报告。",
+		"围绕目标搭建方案框架，补齐步骤、资源、风险和交付物。",
+		"提炼会议讨论、决议与待办，形成便于跟进的纪要。",
+		"按管理场景编写规范、清晰且方便执行的制度文档。",
+	],
+	"ai-ppt-expert": [
+		"围绕汇报目标设计开场、展开与结论，建立清晰演示逻辑。",
+		"把复杂材料拆成逐页大纲，明确每页核心信息与表达方式。",
+		"优化标题和正文文案，让重点更突出、表达更有说服力。",
+		"串联页面叙事与转场节奏，帮助汇报自然推进。",
+	],
+	"recruiting-expert": [
+		"提炼岗位目标、职责与胜任特征，形成清晰的人才画像。",
+		"优化职位描述的结构和表达，提升信息准确性与吸引力。",
+		"按岗位要求提取简历证据，辅助完成候选人初步筛选。",
+		"设计结构化问题与评价维度，支持更一致的面试判断。",
+	],
+	"stock-investment-expert": [
+		"整理商业模式、财务表现与竞争优势，建立公司研究基础。",
+		"梳理产业链、竞争格局和周期变化，判断行业发展脉络。",
+		"识别经营、财务与市场风险，提示关键假设和不确定性。",
+		"组织研究问题、证据与结论，形成可持续更新的分析框架。",
+	],
+};
+
+function createCustomAvatarSeed(): string {
+	// 中文注释：头像种子只用于视觉随机化，不依赖安全上下文，确保桌面端 file 协议下也能生成。
+	return `custom-ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 export function AssistantCreateDialog({
 	open,
@@ -73,6 +124,7 @@ export function AssistantCreateDialog({
 	const [avatar, setAvatar] = useState("");
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
 	const [previewAvatar, setPreviewAvatar] = useState<string | undefined>();
+	const [customAvatarSeed, setCustomAvatarSeed] = useState("custom-ai");
 	const [submitting, setSubmitting] = useState(false);
 	const selectionTouchedRef = useRef(false);
 
@@ -81,6 +133,8 @@ export function AssistantCreateDialog({
 		if (!open) return;
 		let cancelled = false;
 		selectionTouchedRef.current = false;
+		// 中文注释：默认头像仅在每次打开创建弹窗时刷新一次，弹窗内的名称输入和模式切换均保持头像稳定。
+		setCustomAvatarSeed(createCustomAvatarSeed());
 		setTemplatesLoading(true);
 		void digitalAssistantApi
 			.listTemplates({ status: "active", list_all: true, limit: 100 })
@@ -151,6 +205,7 @@ export function AssistantCreateDialog({
 					template_id: selectedTemplate.id,
 					name: name.trim(),
 					role_name: roleName.trim(),
+					description: introduction.trim(),
 				});
 			} else {
 				assistant = await createAssistant({
@@ -211,9 +266,10 @@ export function AssistantCreateDialog({
 			const response = await projectFileApi.uploadLoose({ file, purpose: "avatar" });
 			const publicId = response.data?.public_id;
 			if (!publicId) throw new Error("头像上传失败");
-			// 中文注释：AI 队友头像字段保存文件 public_id，展示时统一通过 preview 接口读取。
+			// 中文注释：先写入本地缓存再移除 blob 预览，避免受保护图片异步加载时短暂回退为默认头像。
+			const dataURL = await blobToDataURL(file);
+			cacheProtectedImageDataURL(publicId, dataURL);
 			setAvatar(publicId);
-			void blobToDataURL(file).then((dataURL) => cacheProtectedImageDataURL(publicId, dataURL));
 			setPreviewAvatar(undefined);
 			toast.success("头像已上传");
 		} catch (error) {
@@ -242,7 +298,7 @@ export function AssistantCreateDialog({
 					<div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
 						<div className="flex items-center justify-between">
 							<h3 className="text-sm font-semibold text-slate-900">选择角色</h3>
-							<Button type="button" variant="ghost" size="sm" onClick={switchToCustom}>
+							<Button type="button" size="sm" onClick={switchToCustom}>
 								自定义 AI 队友
 							</Button>
 						</div>
@@ -302,7 +358,7 @@ export function AssistantCreateDialog({
 							<div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr_1fr]">
 								<div className="flex items-center gap-3 md:row-span-2 md:flex-col md:items-start">
 									<AssistantAvatar
-										name={name || roleName || "AI"}
+										name={customAvatarSeed}
 										src={previewAvatar || avatar}
 										size="lg"
 									/>
@@ -324,26 +380,34 @@ export function AssistantCreateDialog({
 									label="自定义名称"
 									value={name}
 									onChange={setName}
-									placeholder="例如：小投、法务小周"
+									placeholder="例如：小智、阿乐"
+									maxLength={ASSISTANT_FORM_LIMITS.name}
 								/>
 								<Field
 									label="角色名称"
 									value={roleName}
 									onChange={setRoleName}
 									placeholder="例如：投标经理"
+									maxLength={ASSISTANT_FORM_LIMITS.roleName}
 									readOnly={!customMode}
 								/>
 								<label className="space-y-1.5 md:col-span-2">
 									<span className="text-xs font-medium text-slate-700">
 										简介 <span className="text-red-500">*</span>
 									</span>
-									<textarea
-										value={introduction}
-										onChange={(event) => setIntroduction(event.target.value)}
-										rows={3}
-										readOnly={!customMode}
-										className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 read-only:bg-slate-50 focus:border-blue-300 focus:outline-none"
-									/>
+									<span className="relative block">
+										<textarea
+											value={introduction}
+											onChange={(event) => setIntroduction(event.target.value)}
+											placeholder="简要说明这位 AI 队友擅长什么、可以提供哪些帮助"
+											maxLength={ASSISTANT_FORM_LIMITS.description}
+											rows={3}
+											className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 pb-6 text-sm text-slate-800 focus:border-blue-300 focus:outline-none"
+										/>
+										<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-slate-400">
+											{introduction.length}/{ASSISTANT_FORM_LIMITS.description}
+										</span>
+									</span>
 								</label>
 							</div>
 						</div>
@@ -380,12 +444,14 @@ function Field({
 	value,
 	placeholder,
 	readOnly,
+	maxLength,
 	onChange,
 }: {
 	label: string;
 	value: string;
 	placeholder: string;
 	readOnly?: boolean;
+	maxLength: number;
 	onChange: (value: string) => void;
 }) {
 	return (
@@ -393,14 +459,20 @@ function Field({
 			<span className="text-xs font-medium text-slate-700">
 				{label} <span className="text-red-500">*</span>
 			</span>
-			<input
-				type="text"
-				value={value}
-				onChange={(event) => onChange(event.target.value)}
-				placeholder={placeholder}
-				readOnly={readOnly}
-				className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 read-only:bg-slate-50 focus:border-blue-300 focus:outline-none"
-			/>
+			<span className="relative block">
+				<input
+					type="text"
+					value={value}
+					onChange={(event) => onChange(event.target.value)}
+					placeholder={placeholder}
+					readOnly={readOnly}
+					maxLength={maxLength}
+					className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 read-only:bg-slate-50 focus:border-blue-300 focus:outline-none"
+				/>
+				<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+					{value.length}/{maxLength}
+				</span>
+			</span>
 		</label>
 	);
 }
@@ -442,10 +514,19 @@ function TemplateDetailSheet({
 									return (
 										<div
 											key={item}
-											className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4"
+											className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4"
 										>
-											<ExpertiseIcon className="size-5 shrink-0 text-blue-500" aria-hidden="true" />
-											<span className="text-sm font-medium text-slate-800">{item}</span>
+											<ExpertiseIcon
+												className="mt-0.5 size-5 shrink-0 text-blue-500"
+												aria-hidden="true"
+											/>
+											<span className="min-w-0">
+												<span className="block text-sm font-medium text-slate-800">{item}</span>
+												<span className="mt-1 block text-sm leading-5 text-slate-500">
+													{TEMPLATE_EXPERTISE_DESCRIPTIONS[template.code]?.[index] ??
+														`围绕${item}提供清晰、可执行的分析与建议。`}
+												</span>
+											</span>
 										</div>
 									);
 								})}
