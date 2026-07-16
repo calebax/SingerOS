@@ -518,6 +518,9 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 	if relativePath == "" {
 		relativePath = "artifacts/" + filepath.Base(originalName)
 	}
+	if !strings.HasPrefix(relativePath, "artifacts/") {
+		relativePath = "artifacts/" + strings.TrimPrefix(relativePath, "/")
+	}
 	relativePath, err = workspace.NormalizeRelativePath(relativePath)
 	if err != nil {
 		return fmt.Errorf("normalize artifact relative path: %w", err)

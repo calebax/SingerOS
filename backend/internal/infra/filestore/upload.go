@@ -26,6 +26,11 @@ const (
 	PurposePlan       = "plan"
 )
 
+// GenerateFilePublicID generates a unique public ID for a FileUpload record.
+func GenerateFilePublicID() string {
+	return fmt.Sprintf("file_%s", snowflake.GenerateIDBase58())
+}
+
 // UploadParams 文件上传参数
 type UploadParams struct {
 	Data         []byte
@@ -69,7 +74,7 @@ func Upload(ctx context.Context, db *gorm.DB, params UploadParams) (*types.FileU
 		return nil, fmt.Errorf("put object: %w", err)
 	}
 
-	publicID := fmt.Sprintf("file_%s", snowflake.GenerateIDBase58())
+	publicID := GenerateFilePublicID()
 	originalName := params.OriginalName
 	if originalName == "" {
 		originalName = params.Filename
@@ -213,7 +218,7 @@ func RecordUpload(ctx context.Context, db *gorm.DB, params RecordUploadParams) (
 
 	publicID := strings.TrimSpace(params.PublicID)
 	if publicID == "" {
-		publicID = fmt.Sprintf("file_%s", snowflake.GenerateIDBase58())
+		publicID = GenerateFilePublicID()
 	}
 	originalName := params.OriginalName
 	if originalName == "" {

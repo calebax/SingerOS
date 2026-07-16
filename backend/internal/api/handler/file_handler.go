@@ -25,7 +25,7 @@ func NewFileHandler(service contract.FileService) *FileHandler {
 
 func (h *FileHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/files/upload", h.UploadFile)
-	r.GET("/files/:id/download", h.DownloadFile)
+	r.GET("/files/download", h.DownloadFile)
 	r.GET("/files/preview", h.PresignDownloadURL)
 }
 
@@ -89,19 +89,21 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 }
 
 // @Summary 下载文件
-// @Description 流式返回文件内容
+// @Description 通过 publicID 或 storageURI 流式返回文件内容
 // @Tags File
 // @Produce octet-stream
-// @Param id path string true "文件ID"
+// @Param public_id query string false "文件公共ID"
+// @Param storage_uri query string false "文件存储URI（格式 {schema}://{bucket}/{key}）"
 // @Success 200 {file} binary "文件内容"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"
 // @Failure 404 {object} dto.ErrorResponse "文件不存在"
-// @Router /files/{id}/download [get]
+// @Router /files/download [get]
 func (h *FileHandler) DownloadFile(ctx *gin.Context) {
-	fileID := strings.TrimSpace(ctx.Param("id"))
-	if fileID == "" {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "file id is required"))
+	fileID := strings.TrimSpace(ctx.Query("public_id"))
+	storageURI := strings.TrimSpace(ctx.Query("storage_uri"))
+	if fileID == "" && storageURI == "" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "public_id or storage_uri is required"))
 		return
 	}
 
@@ -111,7 +113,15 @@ func (h *FileHandler) DownloadFile(ctx *gin.Context) {
 		return
 	}
 
-	reader, info, err := h.service.DownloadFile(ctx, caller.OrgID, fileID)
+	var reader io.ReadCloser
+	var info *contract.FileDownloadInfo
+	var err error
+
+	if fileID != "" {
+		reader, info, err = h.service.DownloadFile(ctx, caller.OrgID, fileID)
+	} else {
+		reader, info, err = h.service.DownloadFileByURI(ctx, caller.OrgID, storageURI)
+	}
 	if err != nil {
 		if err.Error() == "get file download failed" {
 			ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, "file not found"))

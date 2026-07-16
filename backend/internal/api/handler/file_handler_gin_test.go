@@ -22,9 +22,10 @@ import (
 )
 
 type mockFileService struct {
-	uploadFn   func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error)
-	downloadFn func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error)
-	presignFn  func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error)
+	uploadFn        func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error)
+	downloadFn      func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error)
+	downloadByURIFn func(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error)
+	presignFn       func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error)
 }
 
 func (m *mockFileService) UploadFile(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
@@ -33,6 +34,10 @@ func (m *mockFileService) UploadFile(ctx context.Context, req *contract.UploadFi
 
 func (m *mockFileService) DownloadFile(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
 	return m.downloadFn(ctx, orgID, fileID)
+}
+
+func (m *mockFileService) DownloadFileByURI(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+	return m.downloadByURIFn(ctx, orgID, storageURI)
 }
 
 func (m *mockFileService) PresignDownloadURL(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
@@ -215,10 +220,14 @@ func TestDownloadFile_NoFileID(t *testing.T) {
 			t.Error("download should not be called with empty id")
 			return nil, nil, nil
 		},
+		downloadByURIFn: func(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+			t.Error("download by URI should not be called with empty storage_uri")
+			return nil, nil, nil
+		},
 	}
 	router := setupFileRouter(t, svc, authenticatedCaller())
 
-	req := httptest.NewRequest("GET", "/v1/files//download", nil)
+	req := httptest.NewRequest("GET", "/v1/files/download", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -233,10 +242,14 @@ func TestDownloadFile_Unauthenticated(t *testing.T) {
 			t.Error("download should not be called when not authenticated")
 			return nil, nil, nil
 		},
+		downloadByURIFn: func(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+			t.Error("download by URI should not be called when not authenticated")
+			return nil, nil, nil
+		},
 	}
 	router := setupFileRouter(t, svc, unauthenticatedCaller())
 
-	req := httptest.NewRequest("GET", "/v1/files/test-id/download", nil)
+	req := httptest.NewRequest("GET", "/v1/files/download?public_id=test-id", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -250,10 +263,13 @@ func TestDownloadFile_NotFound(t *testing.T) {
 		downloadFn: func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
 			return nil, nil, errors.New("get file download failed")
 		},
+		downloadByURIFn: func(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+			return nil, nil, nil
+		},
 	}
 	router := setupFileRouter(t, svc, authenticatedCaller())
 
-	req := httptest.NewRequest("GET", "/v1/files/nonexistent/download", nil)
+	req := httptest.NewRequest("GET", "/v1/files/download?public_id=nonexistent", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -271,10 +287,13 @@ func TestDownloadFile_Success(t *testing.T) {
 				Size:     11,
 			}, nil
 		},
+		downloadByURIFn: func(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+			return nil, nil, nil
+		},
 	}
 	router := setupFileRouter(t, svc, authenticatedCaller())
 
-	req := httptest.NewRequest("GET", "/v1/files/test-id/download", nil)
+	req := httptest.NewRequest("GET", "/v1/files/download?public_id=test-id", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
