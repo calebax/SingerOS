@@ -34,7 +34,6 @@ import { useAuth } from "../auth";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
-import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 
 /** 项目成员 chip 列表容器：两列换行排列 */
 export const projectMemberListClassName = "flex flex-wrap items-start gap-2";
@@ -778,17 +777,11 @@ export function ProjectMemberChip({
 
 function MemberAvatar({ member }: { member: ProjectMember }) {
 	if (member.type === "assistant") {
-		// 中文注释：项目成员弹窗复用 AI 队友统一头像组件，确保无自定义头像时与首页、输入框的名称生成头像一致。
 		return <AssistantAvatar name={member.name} src={member.avatarUrl} size="sm" />;
 	}
 
 	const fallback = (
-		<div
-			className={cn(
-				"flex size-7 shrink-0 items-center justify-center rounded-lg",
-				"bg-emerald-50 text-emerald-600",
-			)}
-		>
+		<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
 			<UserRound className="size-3.5" />
 		</div>
 	);
