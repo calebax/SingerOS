@@ -7,7 +7,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -15,7 +14,6 @@ import (
 type ProjectFileListFilter struct {
 	ResourceType string
 	TaskID       uint
-	NodeType     string
 	FileExt      string
 }
 
@@ -29,7 +27,7 @@ func ValidProjectFileExtFilter(fileExt string) bool {
 	}
 }
 
-// ListProjectFilesFiltered returns project files and folders for one filter scope.
+// ListProjectFilesFiltered returns project files for one filter scope.
 func ListProjectFilesFiltered(
 	ctx context.Context,
 	db *gorm.DB,
@@ -37,21 +35,7 @@ func ListProjectFilesFiltered(
 	projectID uint,
 	filter ProjectFileListFilter,
 ) ([]types.ProjectFile, error) {
-	nodeType := strings.TrimSpace(filter.NodeType)
 	fileExt := strings.TrimSpace(filter.FileExt)
-
-	if nodeType == string(types.ProjectFileNodeTypeFolder) {
-		folders, err := ListProjectFolderNodes(ctx, db, orgID, projectID, filter.TaskID, filter.ResourceType)
-		if err != nil {
-			return nil, err
-		}
-		files, err := listLatestProjectFileRecords(ctx, db, orgID, projectID, filter.TaskID, filter.ResourceType)
-		if err != nil {
-			return nil, err
-		}
-		files = filterFilesUnderFolderPaths(files, folders)
-		return append(folders, files...), nil
-	}
 
 	files, err := listLatestProjectFileRecords(ctx, db, orgID, projectID, filter.TaskID, filter.ResourceType)
 	if err != nil {
@@ -60,18 +44,7 @@ func ListProjectFilesFiltered(
 	if fileExt != "" {
 		files = filterProjectFilesByExtGroup(files, fileExt)
 	}
-	if nodeType == string(types.ProjectFileNodeTypeFile) {
-		return files, nil
-	}
-
-	folders, err := ListProjectFolderNodes(ctx, db, orgID, projectID, filter.TaskID, filter.ResourceType)
-	if err != nil {
-		return nil, err
-	}
-	if fileExt != "" {
-		folders = filterFoldersForFiles(folders, files)
-	}
-	return append(folders, files...), nil
+	return files, nil
 }
 
 func listLatestProjectFileRecords(
@@ -84,8 +57,7 @@ func listLatestProjectFileRecords(
 ) ([]types.ProjectFile, error) {
 	var files []types.ProjectFile
 	base := db.WithContext(ctx).Model(&types.ProjectFile{}).
-		Where("org_id = ? AND project_id = ?", orgID, projectID).
-		Where("node_type = ? OR node_type = ''", types.ProjectFileNodeTypeFile)
+		Where("org_id = ? AND project_id = ?", orgID, projectID)
 	if taskID != 0 {
 		base = base.Where("task_id = ?", taskID)
 	}
@@ -142,100 +114,4 @@ func matchesProjectFileExtGroup(relativePath, fileExt string) bool {
 	default:
 		return true
 	}
-}
-
-func folderPathsForFile(relativePath string) []string {
-	normalized, err := workspace.NormalizeRelativePath(relativePath)
-	if err != nil || normalized == "" {
-		return nil
-	}
-	parts := strings.Split(normalized, "/")
-	if len(parts) <= 1 {
-		return nil
-	}
-	paths := make([]string, 0, len(parts)-1)
-	for i := 1; i < len(parts); i++ {
-		paths = append(paths, strings.Join(parts[:i], "/")+"/")
-	}
-	return paths
-}
-
-func filterFoldersForFiles(folders []types.ProjectFile, files []types.ProjectFile) []types.ProjectFile {
-	if len(files) == 0 {
-		return nil
-	}
-
-	needed := make(map[string]struct{})
-	for _, file := range files {
-		for _, folderPath := range folderPathsForFile(file.RelativePath) {
-			needed[folderPath] = struct{}{}
-		}
-	}
-
-	filtered := make([]types.ProjectFile, 0, len(folders))
-	for _, folder := range folders {
-		normalized, err := normalizeFolderRelativePath(folder.RelativePath)
-		if err != nil {
-			continue
-		}
-		if _, ok := needed[normalized]; ok {
-			filtered = append(filtered, folder)
-		}
-	}
-	return filtered
-}
-
-func filterFilesUnderFolderPaths(files []types.ProjectFile, folders []types.ProjectFile) []types.ProjectFile {
-	if len(folders) == 0 {
-		return nil
-	}
-
-	prefixes := make([]string, 0, len(folders))
-	for _, folder := range folders {
-		normalized, err := normalizeFolderRelativePath(folder.RelativePath)
-		if err != nil || normalized == "" {
-			continue
-		}
-		prefixes = append(prefixes, strings.TrimSuffix(normalized, "/"))
-	}
-	if len(prefixes) == 0 {
-		return nil
-	}
-
-	filtered := make([]types.ProjectFile, 0, len(files))
-	for _, file := range files {
-		normalized, err := workspace.NormalizeRelativePath(file.RelativePath)
-		if err != nil || normalized == "" {
-			continue
-		}
-		for _, prefix := range prefixes {
-			if filePathUnderFolderPrefix(normalized, prefix) {
-				filtered = append(filtered, file)
-				break
-			}
-		}
-	}
-	return filtered
-}
-
-func filePathUnderFolderPrefix(filePath, folderPrefix string) bool {
-	folderPrefix = strings.TrimSuffix(strings.TrimSpace(folderPrefix), "/")
-	if folderPrefix == "" {
-		return false
-	}
-	return filePath == folderPrefix || strings.HasPrefix(filePath, folderPrefix+"/")
-}
-
-func normalizeFolderRelativePath(relativePath string) (string, error) {
-	normalized, err := workspace.NormalizeRelativePath(relativePath)
-	if err != nil {
-		return "", err
-	}
-	if normalized == "" {
-		return "", nil
-	}
-	if !strings.HasSuffix(normalized, "/") {
-		normalized += "/"
-	}
-	return normalized, nil
 }

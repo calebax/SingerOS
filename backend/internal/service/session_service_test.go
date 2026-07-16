@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Leros/backend/internal/consts"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"gorm.io/driver/sqlite"
@@ -2183,6 +2184,7 @@ func TestCreateInitialMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 				Name:         "spec.pdf",
 				MimeType:     "application/pdf",
 				Size:         1024,
+				RelativePath: "spec.pdf",
 			},
 		},
 	}
@@ -2253,8 +2255,8 @@ func TestCreateInitialMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 	if projectFile.TaskID != task.ID {
 		t.Fatalf("expected project file task_id %d, got %d", task.ID, projectFile.TaskID)
 	}
-	if !strings.Contains(projectFile.RelativePath, "/_task/"+resp.TaskID+"/") {
-		t.Fatalf("expected task-scoped relative path, got %q", projectFile.RelativePath)
+	if projectFile.RelativePath != consts.RepoDirUploads+"/spec.pdf" {
+		t.Fatalf("expected relative path spec.pdf, got %q", projectFile.RelativePath)
 	}
 }
 

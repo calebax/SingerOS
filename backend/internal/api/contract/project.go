@@ -37,7 +37,5 @@ type ProjectService interface {
 
 	DownloadProjectFileByPublicID(ctx context.Context, publicID string, filePublicID string) (io.ReadCloser, string, int64, error)
 
-	DownloadProjectFolder(ctx context.Context, publicID string, folderPublicID string) (io.ReadCloser, string, int64, error)
-
 	RestoreProjectFileVersion(ctx context.Context, publicID string, filePublicID string) (*FileTreeNode, error)
 }

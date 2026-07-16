@@ -17,9 +17,9 @@ import (
 
 // Usage describes model token usage.
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
-	TotalTokens  int
+	InputTokens     int
+	OutputTokens    int
+	TotalTokens     int
 	PromptTokens    int64
 	CacheHitTokens  int64
 	CacheMissTokens int64
@@ -243,12 +243,12 @@ func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink Strea
 }
 
 type usageAccumulator struct {
-	inputTokens      int
-	outputTokens     int
-	totalTokens      int
-	promptTokens     int64
-	cacheHitTokens   int64
-	cacheMissTokens  int64
+	inputTokens     int
+	outputTokens    int
+	totalTokens     int
+	promptTokens    int64
+	cacheHitTokens  int64
+	cacheMissTokens int64
 }
 
 func (u *usageAccumulator) AddMessage(message *einoschema.Message) {

@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/consts"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -60,6 +61,9 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameLLMHistory, column: "cache_hit_token"},
 	{table: types.TableNameLLMHistory, column: "cache_miss_token"},
 	{table: types.TableNameLLMHistory, column: "model_config_id"},
+	{table: types.TableNameProjectFile, column: "node_type"},
+	{table: types.TableNameProjectFile, column: "parent_id"},
+	{table: types.TableNameProjectFile, column: "parent_ids"},
 }
 
 var renamesToApply = []renameColumn{
@@ -77,6 +81,8 @@ var tablesToRename = []renameTable{
 var legacyIndexes = []string{
 	"idx_leros_user_org_uin",
 	"idx_user_org_uin",
+	"idx_leros_project_file_node_type",
+	"idx_leros_project_file_parent_id",
 }
 
 // dbName 是数据库名称常量
@@ -1116,11 +1122,11 @@ func backfillProjectFileVersions(db *gorm.DB) error {
 func projectFileBackfillPrefix(resourceType types.ProjectFileResourceType) string {
 	switch resourceType {
 	case types.ProjectFileResourceTypeArtifact:
-		return "artifacts/"
+		return consts.RepoDirArtifacts + "/"
 	case types.ProjectFileResourceTypeUserUpload:
-		return "uploads/"
+		return consts.RepoDirUploads + "/"
 	case types.ProjectFileResourceTypePlan:
-		return "plans/"
+		return consts.RepoDirPlans + "/"
 	default:
 		return "files/"
 	}

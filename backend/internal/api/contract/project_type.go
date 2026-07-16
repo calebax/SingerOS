@@ -161,32 +161,27 @@ type ProjectMemory struct {
 
 // FileTreeNode 文件树节点。列表接口以平铺结构返回，前端按 parent_id 组装树。
 type FileTreeNode struct {
-	Name                string          `json:"name"`                  // 文件/目录名
-	Path                string          `json:"path"`                  // 相对路径，兼做节点标识
-	Type                string          `json:"type"`                  // "file" | "directory"
-	NodeType            string          `json:"node_type,omitempty"`   // "file" | "folder"
-	ParentID            string          `json:"parent_id,omitempty"`   // 父节点 public_id，根节点为空
-	ParentIDs           []string        `json:"parent_ids,omitempty"`  // 祖先 public_id 链
-	Children            []*FileTreeNode `json:"children,omitempty"`    // 列表接口不填充，前端本地建树时使用
-	Size                int64           `json:"size,omitempty"`        // 仅文件有
-	MimeType            string          `json:"mime_type,omitempty"`   // 仅文件有
-	ModTime             int64           `json:"mod_time,omitempty"`    // 最后修改时间，Unix 时间戳（秒）
-	CreatedAt           int64           `json:"created_at,omitempty"`  // 文件首次 commit 时间，Unix 秒；未找到则为 0
-	PublicID            string          `json:"public_id,omitempty"`   // 上传文件关联的 public_id，仓库文件为空
-	StorageURI          string          `json:"storage_uri,omitempty"` // 对象存储 URI，用于文件预览
-	Sha256              string          `json:"sha256,omitempty"`      // 文件 SHA256 校验值
-	InitialFilePublicID string          `json:"initial_file_public_id,omitempty"`
-	VersionNo           int             `json:"version_no,omitempty"`
-	VersionLabel        string          `json:"version_label,omitempty"`
-	VersionCount        int             `json:"version_count,omitempty"`
-	ResourceType        string          `json:"resource_type,omitempty"` // user_upload | artifact | plan
+	Name                string `json:"name"`
+	Path                string `json:"path"`
+	Type                string `json:"type"`
+	Size                int64  `json:"size,omitempty"`
+	MimeType            string `json:"mime_type,omitempty"`
+	ModTime             int64  `json:"mod_time,omitempty"`
+	CreatedAt           int64  `json:"created_at,omitempty"`
+	PublicID            string `json:"public_id,omitempty"`
+	StorageURI          string `json:"storage_uri,omitempty"`
+	Sha256              string `json:"sha256,omitempty"`
+	InitialFilePublicID string `json:"initial_file_public_id,omitempty"`
+	VersionNo           int    `json:"version_no,omitempty"`
+	VersionLabel        string `json:"version_label,omitempty"`
+	VersionCount        int    `json:"version_count,omitempty"`
+	ResourceType        string `json:"resource_type,omitempty"`
 }
 
 // ProjectFileTreeQuery scopes project file tree list requests.
 type ProjectFileTreeQuery struct {
 	ResourceType string
 	TaskPublicID string
-	NodeType     string
 	FileExt      string
 }
 
