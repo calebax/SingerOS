@@ -96,8 +96,6 @@ func (s *fileService) DownloadFile(ctx context.Context, orgID uint, fileID strin
 		return nil, nil, fmt.Errorf("get file download failed")
 	}
 
-	// TODO: 当存储层支持 HTTP 请求时，直接使用 PublicURL 作为绝对路径或重定向地址，
-	//       当前本地磁盘模式下 PublicURL() 返回的是本地绝对路径，无法通过 HTTP 访问。
 	publicURL := ""
 	fileUpload.StorageURI = strings.TrimSpace(fileUpload.StorageURI)
 	if fileUpload.StorageURI != "" {
@@ -109,6 +107,27 @@ func (s *fileService) DownloadFile(ctx context.Context, orgID uint, fileID strin
 		MimeType:  fileUpload.MimeType,
 		Size:      fileUpload.FileSize,
 		PublicURL: publicURL,
+	}, nil
+}
+
+func (s *fileService) DownloadFileByURI(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+	_, bucket, key, err := storage.ParseURI(strings.TrimSpace(storageURI))
+	if err != nil {
+		logs.ErrorContextf(ctx, "parse storage URI failed: %v", err)
+		return nil, nil, fmt.Errorf("get file download failed")
+	}
+
+	obj, err := filestore.GetStorage().GetObject(ctx, bucket, key)
+	if err != nil {
+		logs.ErrorContextf(ctx, "get object failed: %v", err)
+		return nil, nil, fmt.Errorf("get file download failed")
+	}
+
+	return obj.Body, &contract.FileDownloadInfo{
+		FileName: key[strings.LastIndex(key, "/")+1:],
+		MimeType: "",
+		Size:     obj.Size,
+		PublicURL: "",
 	}, nil
 }
 

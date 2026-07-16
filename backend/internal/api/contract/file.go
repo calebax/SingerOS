@@ -8,6 +8,7 @@ import (
 type FileService interface {
 	UploadFile(ctx context.Context, req *UploadFileRequest) (*UploadFileResult, error)
 	DownloadFile(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *FileDownloadInfo, error)
+	DownloadFileByURI(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *FileDownloadInfo, error)
 	PresignDownloadURL(ctx context.Context, orgID uint, publicID, storageURI string) (string, error)
 }
 

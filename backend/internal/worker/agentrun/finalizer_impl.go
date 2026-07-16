@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/ygpkg/storage-go"
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/internal/cli"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
@@ -421,7 +421,7 @@ func artifactPayloadFromRecord(record agentworkspace.ArtifactRecord) messaging.A
 }
 
 func newArtifactID() string {
-	return "file_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	return filestore.GenerateFilePublicID()
 }
 
 func artifactTitle(record agentworkspace.ArtifactRecord) string {

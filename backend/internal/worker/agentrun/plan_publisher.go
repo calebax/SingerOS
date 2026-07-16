@@ -16,9 +16,9 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/internal/cli"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/ygpkg/storage-go"
-	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -92,7 +92,7 @@ func (p *planPublisher) Publish(ctx context.Context, event agent.NodeEvent) (*me
 	}
 	summaryContent := strings.Join(lines[:summaryEnd], "\n")
 
-	fileID := "file_" + snowflake.GenerateIDBase58()
+	fileID := filestore.GenerateFilePublicID()
 	filename := filepath.Base(payload.Path)
 	if filename == "" || filename == "." {
 		filename = "plan.md"
