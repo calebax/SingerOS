@@ -881,7 +881,7 @@ function TaskFileList({
 						</div>
 						<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
 							{[
-								file.versionLabel,
+								file.versionNo > 0 ? `V${file.versionNo}` : file.versionLabel,
 								file.size > 0 ? formatBytes(file.size) : "",
 								file.createdAt ? formatArtifactTime(file.createdAt) : "",
 							]
