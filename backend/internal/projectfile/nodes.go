@@ -70,7 +70,7 @@ func BindUserUploadToProject(ctx context.Context, db *gorm.DB, params BindUserUp
 	if params.TaskID != nil {
 		pf.TaskID = *params.TaskID
 	}
-	if err := infradb.CreateProjectFileVersion(ctx, db, pf); err != nil {
+	if err := infradb.CreateProjectFile(ctx, db, pf); err != nil {
 		return nil, err
 	}
 	return pf, nil
