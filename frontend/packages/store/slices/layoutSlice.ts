@@ -21,6 +21,7 @@ import {
 	writeStoredLeftRailCollapsed,
 	writeStoredLeftRailWidth,
 } from "../utils/leftRailStorage";
+import { mapOutgoingAttachments } from "../utils/messageAttachments";
 import { isSystemDefaultAssistant } from "./digitalAssistantSlice";
 
 export {
@@ -531,7 +532,8 @@ export class LayoutActionImpl {
 		metadata?: MessageMetadata,
 	) => {
 		const trimmed = content.trim();
-		if (!sessionId || !trimmed) return;
+		const hasAttachments = Boolean(attachments?.length);
+		if (!sessionId || (!trimmed && !hasAttachments)) return;
 		const store = this.#get() as LayoutStore & {
 			bootstrapNewTaskSession?: (
 				sessionId: string,
@@ -702,8 +704,8 @@ export class LayoutActionImpl {
 		assistantIds?: string[],
 	) => {
 		const trimmed = content.trim();
-		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，仅创建任务会话不发送首条消息。
-		if (!trimmed && !assistantIds?.length) return;
+		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，或仅附件提问。
+		if (!trimmed && !assistantIds?.length && !attachments?.length) return;
 		const mode = executionMode ?? "default";
 
 		const state = this.#get();
@@ -762,17 +764,7 @@ export class LayoutActionImpl {
 						execution_mode: mode,
 						message_type: "text",
 						metadata: buildBackendMessageMetadata(_metadata),
-						attachments: attachments
-							?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
-								Boolean(attachment.fileUploadId?.trim()),
-							)
-							.map((attachment) => ({
-								file_upload_id: attachment.fileUploadId.trim(),
-								name: attachment.name,
-								mime_type:
-									attachment.mimeType || attachment.file?.type || "application/octet-stream",
-								size: attachment.size,
-							})),
+						attachments: mapOutgoingAttachments(attachments),
 					});
 					const data = {
 						project_id: workbenchProjectId,
@@ -818,16 +810,7 @@ export class LayoutActionImpl {
 			params.metadata = backendMetadata;
 		}
 		if (attachments?.length) {
-			params.attachments = attachments
-				.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
-					Boolean(attachment.fileUploadId?.trim()),
-				)
-				.map((attachment) => ({
-					file_upload_id: attachment.fileUploadId.trim(),
-					name: attachment.name,
-					mime_type: attachment.mimeType || attachment.file?.type || "application/octet-stream",
-					size: attachment.size,
-				}));
+			params.attachments = mapOutgoingAttachments(attachments);
 		}
 
 		try {

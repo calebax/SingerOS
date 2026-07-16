@@ -15,6 +15,7 @@ import (
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/projectfile"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
@@ -555,7 +556,24 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 			ResourceID:   fileUpload.ID,
 			ResourceType: types.ProjectFileResourceTypeArtifact,
 			Uin:          session.Uin,
+			NodeType:     types.ProjectFileNodeTypeFile,
 			RelativePath: relativePath,
+		}
+		parentFolder, folderErr := projectfile.EnsureArtifactFolderChain(
+			ctx,
+			tx,
+			session.OrgID,
+			*session.ProjectID,
+			session.TaskID,
+			session.Uin,
+			relativePath,
+		)
+		if folderErr != nil {
+			return fmt.Errorf("ensure artifact folder chain: %w", folderErr)
+		}
+		if parentFolder != nil {
+			projectFile.ParentID = parentFolder.ID
+			projectFile.ParentIDs = append(append([]uint(nil), parentFolder.ParentIDs...), parentFolder.ID)
 		}
 		if err := infradb.CreateProjectFileVersionFromPreviousPath(ctx, tx, projectFile, previousRelativePath); err != nil {
 			return fmt.Errorf("create artifact project file: %w", err)

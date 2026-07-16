@@ -27,6 +27,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/git"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
+	"github.com/insmtx/Leros/backend/internal/projectfile"
 	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
@@ -1781,7 +1782,7 @@ func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) 
 	}, nil
 }
 
-func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, resourceType string, taskPublicID string) ([]*contract.FileTreeNode, error) {
+func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, query contract.ProjectFileTreeQuery) ([]*contract.FileTreeNode, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
@@ -1798,7 +1799,12 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 		return nil, errors.New("project not found")
 	}
 
-	var files []types.ProjectFile
+	filter := db.ProjectFileListFilter{
+		ResourceType: strings.TrimSpace(query.ResourceType),
+		NodeType:     strings.TrimSpace(query.NodeType),
+		FileExt:      strings.TrimSpace(query.FileExt),
+	}
+	taskPublicID := strings.TrimSpace(query.TaskPublicID)
 	if taskPublicID != "" {
 		task, err := db.GetTaskByPublicID(ctx, s.db, caller.OrgID, taskPublicID)
 		if err != nil {
@@ -1810,15 +1816,12 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 		if task.ProjectID != project.ID {
 			return nil, errors.New("task does not belong to this project")
 		}
-		files, err = db.ListProjectFilesByTask(ctx, s.db, caller.OrgID, project.ID, task.ID, resourceType)
-		if err != nil {
-			return nil, fmt.Errorf("list project files by task: %w", err)
-		}
-	} else {
-		files, err = db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, resourceType)
-		if err != nil {
-			return nil, fmt.Errorf("list project files: %w", err)
-		}
+		filter.TaskID = task.ID
+	}
+
+	files, err := db.ListProjectFilesFiltered(ctx, s.db, caller.OrgID, project.ID, filter)
+	if err != nil {
+		return nil, fmt.Errorf("list project files: %w", err)
 	}
 
 	authorized := s.perm.FilterProjectFilesByAction(ctx, FromTypeCaller(caller), files, projectFileViewAction)
@@ -2285,50 +2288,99 @@ func mimeTypeByExt(filename string) string {
 	return ""
 }
 
-// buildFileTreeFromProjectFiles 将扁平的 ProjectFile 列表转换为 FileTreeNode 树结构
+// buildFileTreeFromProjectFiles 将 ProjectFile 列表转换为平铺的 FileTreeNode 列表。
 func buildFileTreeFromProjectFiles(ctx context.Context, dbParam *gorm.DB, files []types.ProjectFile) []*contract.FileTreeNode {
-	var roots []*contract.FileTreeNode
-
+	idToPublicID := make(map[uint]string, len(files))
 	for _, pf := range files {
-		fileUpload, err := db.GetFileUploadByPublicID(ctx, dbParam, pf.OrgID, pf.FilePublicID)
-		if err != nil || fileUpload == nil {
-			continue
-		}
-
-		fullPath := strings.TrimSpace(pf.RelativePath)
-		if fullPath == "" {
-			prefix := "uploads/"
-			if pf.ResourceType == types.ProjectFileResourceTypeArtifact {
-				prefix = "artifacts/"
-			}
-			fullPath = prefix + filepath.Base(fileUpload.OriginalName)
-		}
-		fileName := filepath.Base(fullPath)
-		initialID := pf.InitialFilePublicID
-		if initialID == "" {
-			initialID = pf.FilePublicID
-		}
-
-		node := &contract.FileTreeNode{
-			Name:                fileName,
-			Path:                fullPath,
-			Type:                "file",
-			Size:                fileUpload.FileSize,
-			MimeType:            fileUpload.MimeType,
-			ModTime:             pf.UpdatedAt.Unix(),
-			CreatedAt:           pf.CreatedAt.Unix(),
-			PublicID:            pf.FilePublicID,
-			StorageURI:          fileUpload.StorageURI,
-			Sha256:              fileUpload.Sha256,
-			InitialFilePublicID: initialID,
-			VersionNo:           pf.VersionNo,
-			VersionLabel:        fmt.Sprintf("第 %d 版", pf.VersionNo),
-			VersionCount:        pf.VersionNo,
-		}
-		roots = append(roots, node)
+		idToPublicID[pf.ID] = pf.FilePublicID
 	}
 
-	return roots
+	var nodes []*contract.FileTreeNode
+	for _, pf := range files {
+		node := projectFileToTreeNode(ctx, dbParam, pf, idToPublicID)
+		if node != nil {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
+}
+
+func projectFileToTreeNode(
+	ctx context.Context,
+	dbParam *gorm.DB,
+	pf types.ProjectFile,
+	idToPublicID map[uint]string,
+) *contract.FileTreeNode {
+	fullPath := strings.TrimSpace(pf.RelativePath)
+	if fullPath == "" {
+		return nil
+	}
+
+	nodeType := string(pf.NodeType)
+	if nodeType == "" {
+		nodeType = string(types.ProjectFileNodeTypeFile)
+	}
+
+	name := filepath.Base(strings.TrimSuffix(fullPath, "/"))
+	if name == "" || name == "." {
+		name = strings.TrimSuffix(fullPath, "/")
+	}
+
+	initialID := pf.InitialFilePublicID
+	if initialID == "" {
+		initialID = pf.FilePublicID
+	}
+
+	node := &contract.FileTreeNode{
+		Name:                name,
+		Path:                fullPath,
+		NodeType:            nodeType,
+		ParentID:            idToPublicID[pf.ParentID],
+		ParentIDs:           parentPublicIDs(pf.ParentIDs, idToPublicID),
+		ModTime:             pf.UpdatedAt.Unix(),
+		CreatedAt:           pf.CreatedAt.Unix(),
+		PublicID:            pf.FilePublicID,
+		InitialFilePublicID: initialID,
+		VersionNo:           pf.VersionNo,
+		VersionLabel:        fmt.Sprintf("第 %d 版", pf.VersionNo),
+		VersionCount:        pf.VersionNo,
+		ResourceType:        string(pf.ResourceType),
+	}
+
+	if pf.NodeType == types.ProjectFileNodeTypeFolder {
+		node.Type = "directory"
+		if folderPath, err := projectfile.NormalizeFolderRelativePath(fullPath); err == nil {
+			node.Path = folderPath
+		}
+		return node
+	}
+
+	node.Type = "file"
+	fileUpload, err := db.GetFileUploadByPublicID(ctx, dbParam, pf.OrgID, pf.FilePublicID)
+	if err != nil || fileUpload == nil {
+		return node
+	}
+	node.Size = fileUpload.FileSize
+	node.MimeType = fileUpload.MimeType
+	node.StorageURI = fileUpload.StorageURI
+	node.Sha256 = fileUpload.Sha256
+	if node.Name == "" || node.Name == "." {
+		node.Name = filepath.Base(fileUpload.OriginalName)
+	}
+	return node
+}
+
+func parentPublicIDs(parentIDs []uint, idToPublicID map[uint]string) []string {
+	if len(parentIDs) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(parentIDs))
+	for _, id := range parentIDs {
+		if publicID := idToPublicID[id]; publicID != "" {
+			result = append(result, publicID)
+		}
+	}
+	return result
 }
 
 func storageKeyFromFilestoreURI(uri string) (string, error) {

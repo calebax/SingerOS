@@ -33,6 +33,7 @@ vi.mock("@leros/store", () => ({
 			cancelGeneration: vi.fn(),
 			addAttachment: vi.fn(),
 			addUploadedAttachment: vi.fn(),
+			addUploadedFolderAttachment: vi.fn(),
 			removeAttachment: vi.fn(),
 			setInputFocused: mockSetInputFocused,
 			setSelectedModel: vi.fn(),

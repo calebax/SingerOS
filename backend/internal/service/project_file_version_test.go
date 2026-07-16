@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
@@ -140,7 +141,9 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 		db: database, perm: NewPermissionService(database), inferrer: NewDefaultAssistantInferrer(1), publisher: restorePublisher,
 	}
 	ctx := setupTestContextWithCaller(t)
-	tree, err := service.GetProjectFileTree(ctx, project.PublicID, string(types.ProjectFileResourceTypeArtifact), "")
+	tree, err := service.GetProjectFileTree(ctx, project.PublicID, contract.ProjectFileTreeQuery{
+		ResourceType: string(types.ProjectFileResourceTypeArtifact),
+	})
 	if err != nil {
 		t.Fatalf("get project file tree: %v", err)
 	}

@@ -147,6 +147,7 @@ export type MessageAttachment = {
 	createdAt?: number;
 	url?: string;
 	storageUri?: string;
+	attachmentType?: "file" | "image" | "folder";
 };
 
 export type Message = {
@@ -177,9 +178,16 @@ export type Message = {
 	usage?: MessageUsage;
 };
 
+export type AttachmentFileRef = {
+	fileUploadId: string;
+	name: string;
+	mimeType: string;
+	size: number;
+};
+
 export type Attachment = {
 	id: string;
-	type: "image" | "file";
+	type: "image" | "file" | "folder";
 	name: string;
 	size: number;
 	url?: string;
@@ -188,6 +196,7 @@ export type Attachment = {
 	fileUploadId?: string;
 	mimeType?: string;
 	storageUri?: string;
+	folderFiles?: AttachmentFileRef[];
 };
 
 export type ModelOption = {

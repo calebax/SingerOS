@@ -52,6 +52,7 @@ import {
 	StructuredComposer,
 	type StructuredComposerHandle,
 } from "./StructuredComposer";
+import { FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE, isFolderUploadSizeExceeded } from "./upload-folder";
 
 // 中文注释：统一维护项目文件上传入口的格式白名单，覆盖旧版 Office 和 HTML 文件。
 export const PROJECT_ATTACHMENT_ACCEPT =
@@ -86,6 +87,7 @@ export function ChatInput({
 		cancelGeneration,
 		addAttachment,
 		addUploadedAttachment,
+		addUploadedFolderAttachment,
 		removeAttachment,
 		setInputFocused,
 		setSelectedModel,
@@ -105,6 +107,7 @@ export function ChatInput({
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const folderInputRef = useRef<HTMLInputElement>(null);
 	const previousProjectSkillLabelsRef = useRef<string[] | null>(null);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
 
@@ -316,6 +319,34 @@ export function ChatInput({
 		[addAttachment, uploadProjectAttachment],
 	);
 
+	const handleFolderSelect = useCallback(
+		async (e: React.ChangeEvent<HTMLInputElement>) => {
+			const files = Array.from(e.target.files ?? []);
+			e.target.value = "";
+			if (!files.length) return;
+
+			if (isFolderUploadSizeExceeded(files)) {
+				toast.error(FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE, { position: "bottom-right" });
+				return;
+			}
+
+			if (!isProjectVariant || !currentProjectId) {
+				toast.error("请在项目对话中上传文件夹");
+				return;
+			}
+
+			try {
+				const { message } = await addUploadedFolderAttachment(currentProjectId, files);
+				toast.success(message || "文件夹上传成功");
+			} catch (err) {
+				const message = err instanceof Error ? err.message : "文件夹上传失败";
+				console.error("ChatInput upload folder error:", err);
+				toast.error(message, { position: "bottom-right" });
+			}
+		},
+		[addUploadedFolderAttachment, currentProjectId, isProjectVariant],
+	);
+
 	const handleSend = useCallback(() => {
 		submitMessage();
 	}, [submitMessage]);
@@ -389,6 +420,17 @@ export function ChatInput({
 						multiple
 						onChange={handleFileSelect}
 					/>
+					<input
+						ref={folderInputRef}
+						type="file"
+						className="hidden"
+						multiple
+						onChange={handleFolderSelect}
+						{...({
+							webkitdirectory: "",
+							directory: "",
+						} as React.InputHTMLAttributes<HTMLInputElement>)}
+					/>
 					<div className="min-w-0">
 						<StructuredComposer
 							ref={composerRef}
@@ -425,6 +467,7 @@ export function ChatInput({
 									inputValue={inputText}
 									composerRef={composerRef}
 									onUpload={() => fileInputRef.current?.click()}
+									onUploadFolder={() => folderInputRef.current?.click()}
 									assistantOptions={projectAssistantOptions}
 									projectSkillOptions={projectSkillOptions}
 									assistantSelectionMode="single"

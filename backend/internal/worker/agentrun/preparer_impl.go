@@ -149,7 +149,13 @@ func (ai *attachmentIngestor) IngestAttachments(ctx context.Context, req *agentr
 		if strings.TrimSpace(att.URL) == "" || strings.TrimSpace(att.Name) == "" {
 			continue
 		}
-		if err := downloadAttachment(ctx, att.URL, filepath.Join(targetDir, att.Name)); err != nil {
+		relativeName := filepath.ToSlash(strings.TrimSpace(att.Name))
+		destPath := filepath.Join(targetDir, filepath.FromSlash(relativeName))
+		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+			logs.WarnContextf(ctx, "ingest attachment mkdir %q: %v", att.Name, err)
+			continue
+		}
+		if err := downloadAttachment(ctx, att.URL, destPath); err != nil {
 			logs.WarnContextf(ctx, "ingest attachment %q: %v", att.Name, err)
 			continue
 		}

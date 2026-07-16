@@ -12,6 +12,8 @@ export type GetProjectFilesParams = {
 	projectId: string;
 	resourceType?: "user_upload" | "artifact";
 	taskId?: string;
+	nodeType?: "folder" | "file";
+	fileExt?: string;
 };
 
 export type UploadProjectFileParams = {
@@ -24,6 +26,7 @@ export type UploadLooseFileParams = {
 	file: File;
 	purpose?: string;
 	source_id?: string;
+	relative_path?: string;
 };
 
 type BackendUploadFilePayload = {
@@ -55,7 +58,13 @@ const listProjectFilesInflight = new Map<
 >();
 
 function getListProjectFilesKey(params: GetProjectFilesParams): string {
-	return [params.projectId, params.resourceType ?? "", params.taskId ?? ""].join(":");
+	return [
+		params.projectId,
+		params.resourceType ?? "",
+		params.taskId ?? "",
+		params.nodeType ?? "",
+		params.fileExt ?? "",
+	].join(":");
 }
 
 function assertBackendSuccess<T>(
@@ -71,20 +80,30 @@ function assertBackendSuccess<T>(
 async function uploadFile(
 	file: File,
 	projectPublicId: string,
+	relativePath?: string,
 ): Promise<BackendDataResponse<BackendUploadFilePayload>> {
-	return uploadLooseFile({ file, purpose: "projects", source_id: projectPublicId });
+	return uploadLooseFile({
+		file,
+		purpose: "projects",
+		source_id: projectPublicId,
+		relative_path: relativePath,
+	});
 }
 
 async function uploadLooseFile({
 	file,
 	purpose = "attachment",
 	source_id,
+	relative_path,
 }: UploadLooseFileParams): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	const formData = new FormData();
 	formData.append("file", file);
 	formData.append("purpose", purpose);
 	if (source_id) {
 		formData.append("source_id", source_id);
+	}
+	if (relative_path) {
+		formData.append("relative_path", relative_path);
 	}
 
 	const response = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
@@ -108,6 +127,8 @@ export const projectFileApi = {
 		const queryParams: Record<string, string> = {};
 		if (params.resourceType) queryParams.resource_type = params.resourceType;
 		if (params.taskId) queryParams.task_id = params.taskId;
+		if (params.nodeType) queryParams.node_type = params.nodeType;
+		if (params.fileExt) queryParams.file_ext = params.fileExt;
 
 		const promise = apiClient
 			.get<BackendDataResponse<BackendProjectFileNode[]>>(
@@ -128,6 +149,25 @@ export const projectFileApi = {
 
 	downloadVersion: (projectId: string, filePublicId: string): string =>
 		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/download`,
+
+	folderDownload: (projectId: string, folderPublicId: string): string =>
+		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/folders/${encodeURIComponent(folderPublicId)}/download`,
+
+	async fetchFolderDownload(
+		projectId: string,
+		folderPublicId: string,
+		options?: { signal?: AbortSignal },
+	): Promise<Response> {
+		const url = projectFileApi.folderDownload(projectId, folderPublicId);
+		const response = await authenticatedFetch(url, {
+			method: "GET",
+			signal: options?.signal,
+		});
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}`);
+		}
+		return response;
+	},
 
 	async fetchDownload(
 		projectId: string,
@@ -174,8 +214,9 @@ export const projectFileApi = {
 		),
 
 	upload: async ({ file, projectPublicId }: UploadProjectFileParams) => {
+		const relativePath = getUploadRelativePath(file);
 		const uploadResponse = assertBackendSuccess(
-			await uploadFile(file, projectPublicId),
+			await uploadFile(file, projectPublicId, relativePath),
 			"文件上传失败",
 		);
 		const uploaded = uploadResponse.data;
@@ -200,9 +241,13 @@ export const projectFileApi = {
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
 
-	uploadLoose: async ({ file, purpose = "attachment" }: UploadLooseFileParams) => {
+	uploadLoose: async ({ file, purpose = "attachment", relative_path }: UploadLooseFileParams) => {
 		const uploadResponse = assertBackendSuccess(
-			await uploadLooseFile({ file, purpose }),
+			await uploadLooseFile({
+				file,
+				purpose,
+				relative_path: relative_path ?? getUploadRelativePath(file),
+			}),
 			"文件上传失败",
 		);
 		const uploaded = uploadResponse.data;
@@ -227,3 +272,8 @@ export const projectFileApi = {
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
 };
+
+function getUploadRelativePath(file: File): string | undefined {
+	const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim();
+	return relativePath || undefined;
+}

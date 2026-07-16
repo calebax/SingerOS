@@ -1,7 +1,12 @@
+import type { ProjectFileTypeFilter } from "./project-file-filters";
+
 export type BackendProjectFileNodeLike = {
 	name?: string;
 	path?: string;
 	type?: string;
+	node_type?: string;
+	parent_id?: string;
+	parent_ids?: string[];
 	children?: BackendProjectFileNodeLike[];
 	size?: number;
 	mime_type?: string;
@@ -13,12 +18,16 @@ export type BackendProjectFileNodeLike = {
 	version_no?: number;
 	version_label?: string;
 	version_count?: number;
+	resource_type?: string;
 };
 
 export type ProjectFileNode = {
 	name: string;
 	path: string;
 	type: "file" | "directory";
+	nodeType: "file" | "folder";
+	parentId: string;
+	parentIds: string[];
 	children: ProjectFileNode[];
 	size: number;
 	mimeType: string;
@@ -30,18 +39,20 @@ export type ProjectFileNode = {
 	versionNo: number;
 	versionLabel: string;
 	versionCount: number;
+	resourceType: string;
 };
 
-// 统一清洗后端文件树结构，避免页面层到处处理空值和字段名差异。
-export function normalizeProjectFileTree(
-	nodes: BackendProjectFileNodeLike[] | null | undefined,
-): ProjectFileNode[] {
-	if (!Array.isArray(nodes)) return [];
-
-	return nodes.map((node) => ({
+function normalizeFlatProjectFileNode(node: BackendProjectFileNodeLike): ProjectFileNode {
+	const nodeType = node.node_type === "folder" || node.type === "directory" ? "folder" : "file";
+	return {
 		name: String(node.name ?? ""),
 		path: normalizeFilePath(node.path),
-		type: node.type === "directory" ? "directory" : "file",
+		type: nodeType === "folder" ? "directory" : "file",
+		nodeType,
+		parentId: typeof node.parent_id === "string" ? node.parent_id : "",
+		parentIds: Array.isArray(node.parent_ids)
+			? node.parent_ids.filter((id): id is string => typeof id === "string")
+			: [],
 		size: typeof node.size === "number" ? node.size : 0,
 		mimeType: typeof node.mime_type === "string" ? node.mime_type : "",
 		modTime: typeof node.mod_time === "number" ? node.mod_time : 0,
@@ -58,8 +69,285 @@ export function normalizeProjectFileTree(
 					? `第 ${node.version_no} 版`
 					: "",
 		versionCount: typeof node.version_count === "number" ? node.version_count : 0,
-		children: normalizeProjectFileTree(node.children),
-	}));
+		resourceType: typeof node.resource_type === "string" ? node.resource_type : "",
+		children: [],
+	};
+}
+
+// 后端以平铺结构返回时，先归一化再按 parent_id / path 组装树。
+export function parseProjectFileList(
+	nodes: BackendProjectFileNodeLike[] | null | undefined,
+): ProjectFileNode[] {
+	if (!Array.isArray(nodes)) return [];
+	const flat = flattenProjectFileList(nodes);
+	return unwrapProjectFileStorageRoots(buildProjectFileTreeWithPaths(flat));
+}
+
+// 兼容仍返回嵌套 children 的旧响应。
+export function normalizeProjectFileTree(
+	nodes: BackendProjectFileNodeLike[] | null | undefined,
+): ProjectFileNode[] {
+	if (!Array.isArray(nodes)) return [];
+
+	return nodes.map((node) => {
+		const normalized = normalizeFlatProjectFileNode(node);
+		normalized.children = normalizeProjectFileTree(node.children);
+		return normalized;
+	});
+}
+
+export function buildProjectFileTree(flatNodes: ProjectFileNode[]): ProjectFileNode[] {
+	const byId = new Map<string, ProjectFileNode>();
+	for (const node of flatNodes) {
+		byId.set(node.publicId, { ...node, children: [] });
+	}
+
+	const roots: ProjectFileNode[] = [];
+	for (const node of byId.values()) {
+		if (node.parentId && byId.has(node.parentId)) {
+			byId.get(node.parentId)?.children.push(node);
+			continue;
+		}
+		roots.push(node);
+	}
+
+	sortProjectFileTreeNodes(roots);
+	return roots;
+}
+
+function flattenProjectFileList(nodes: BackendProjectFileNodeLike[]): ProjectFileNode[] {
+	const flat: ProjectFileNode[] = [];
+	const seen = new Set<string>();
+
+	const walk = (items: BackendProjectFileNodeLike[]) => {
+		for (const item of items) {
+			const normalized = normalizeFlatProjectFileNode(item);
+			const dedupeKey = normalized.publicId || normalized.path;
+			if (!seen.has(dedupeKey)) {
+				seen.add(dedupeKey);
+				flat.push(normalized);
+			}
+			if (Array.isArray(item.children) && item.children.length > 0) {
+				walk(item.children);
+			}
+		}
+	};
+
+	walk(nodes);
+	return flat;
+}
+
+function resolveParentDirectoryNode(
+	node: ProjectFileNode,
+	byId: Map<string, ProjectFileNode>,
+): ProjectFileNode | undefined {
+	if (node.parentId) {
+		const directParent = byId.get(node.parentId);
+		if (directParent?.type === "directory") {
+			return directParent;
+		}
+	}
+
+	for (let index = node.parentIds.length - 1; index >= 0; index -= 1) {
+		const ancestor = byId.get(node.parentIds[index] ?? "");
+		if (ancestor?.type === "directory") {
+			return ancestor;
+		}
+	}
+
+	return undefined;
+}
+
+function attachChildNode(
+	parent: ProjectFileNode,
+	child: ProjectFileNode,
+	attachedAsChild: Set<ProjectFileNode>,
+) {
+	if (
+		parent.children.some((item) => item.publicId === child.publicId && item.path === child.path)
+	) {
+		return;
+	}
+	parent.children.push(child);
+	attachedAsChild.add(child);
+}
+
+export function buildProjectFileTreeWithPaths(flatNodes: ProjectFileNode[]): ProjectFileNode[] {
+	const nodes = flatNodes.map((node) => ({ ...node, children: [] as ProjectFileNode[] }));
+	const byId = new Map<string, ProjectFileNode>();
+	for (const node of nodes) {
+		if (node.publicId) {
+			byId.set(node.publicId, node);
+		}
+	}
+
+	const byPath = new Map<string, ProjectFileNode>();
+	for (const node of nodes) {
+		if (node.type === "directory") {
+			byPath.set(normalizeDirPath(node.path), node);
+		}
+	}
+
+	const attachedAsChild = new Set<ProjectFileNode>();
+
+	for (const node of nodes) {
+		if (node.type !== "directory") continue;
+		const parent = resolveParentDirectoryNode(node, byId);
+		if (!parent) continue;
+		attachChildNode(parent, node, attachedAsChild);
+	}
+
+	for (const node of nodes) {
+		if (node.type !== "file") continue;
+
+		const parent = resolveParentDirectoryNode(node, byId);
+		if (parent) {
+			attachChildNode(parent, node, attachedAsChild);
+			continue;
+		}
+
+		const segments = normalizeFilePath(node.path).split("/").filter(Boolean);
+		if (segments.length <= 1) continue;
+
+		const fileName = segments[segments.length - 1] ?? node.name;
+		const parentDir = ensureDirectoryChain(byPath, nodes, attachedAsChild, segments.slice(0, -1));
+		const fileNode: ProjectFileNode = { ...node, name: fileName, children: [] };
+		attachChildNode(parentDir, fileNode, attachedAsChild);
+		attachedAsChild.add(node);
+	}
+
+	const roots = nodes.filter((node) => !attachedAsChild.has(node));
+	sortProjectFileTreeNodes(roots);
+	return roots;
+}
+
+const PROJECT_FILE_STORAGE_ROOTS = new Set(["uploads", "artifacts"]);
+const PROJECT_FILE_TASK_SCOPE_SEGMENT = "_task";
+
+function isStorageRootNode(node: ProjectFileNode): boolean {
+	if (node.type !== "directory") return false;
+	const normalizedPath = normalizeFilePath(node.path).replace(/\/+$/, "");
+	return (
+		PROJECT_FILE_STORAGE_ROOTS.has(node.name) || PROJECT_FILE_STORAGE_ROOTS.has(normalizedPath)
+	);
+}
+
+// 隐藏 uploads/、artifacts/ 以及 uploads/_task/{taskId}/ 这类内部路径，直接展示用户文件夹。
+export function unwrapProjectFileStorageRoots(nodes: ProjectFileNode[]): ProjectFileNode[] {
+	if (nodes.length === 0) return nodes;
+
+	const storageRoots = nodes.filter((node) => isStorageRootNode(node));
+	let result =
+		storageRoots.length > 0
+			? [
+					...nodes.filter((node) => !isStorageRootNode(node)),
+					...storageRoots.flatMap((node) => node.children),
+				]
+			: [...nodes];
+
+	result = unwrapTaskScopeRoots(result);
+	sortProjectFileTreeNodes(result);
+	return result;
+}
+
+function unwrapTaskScopeRoots(nodes: ProjectFileNode[]): ProjectFileNode[] {
+	const result: ProjectFileNode[] = [];
+	for (const node of nodes) {
+		if (node.type === "directory" && node.name === PROJECT_FILE_TASK_SCOPE_SEGMENT) {
+			for (const taskNode of node.children) {
+				result.push(...unwrapTaskScopeRoots(taskNode.children));
+			}
+			continue;
+		}
+		result.push({
+			...node,
+			children: unwrapTaskScopeRoots(node.children),
+		});
+	}
+	return result;
+}
+
+function ensureDirectoryChain(
+	byPath: Map<string, ProjectFileNode>,
+	nodes: ProjectFileNode[],
+	attachedAsChild: Set<ProjectFileNode>,
+	dirSegments: string[],
+): ProjectFileNode {
+	let currentPath = "";
+	let currentNode: ProjectFileNode | null = null;
+
+	for (const segment of dirSegments) {
+		currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+		const dirPath = `${currentPath}/`;
+		let dirNode = byPath.get(dirPath);
+		if (!dirNode) {
+			const virtualDir: ProjectFileNode = {
+				name: segment,
+				path: dirPath,
+				type: "directory",
+				nodeType: "folder",
+				parentId: currentNode ? currentNode.publicId : "",
+				parentIds: [],
+				children: [],
+				size: 0,
+				mimeType: "",
+				modTime: 0,
+				createdAt: 0,
+				publicId: `virtual:${dirPath}`,
+				storageUri: "",
+				initialFilePublicId: "",
+				versionNo: 0,
+				versionLabel: "",
+				versionCount: 0,
+				resourceType: "",
+			};
+			dirNode = virtualDir;
+			byPath.set(dirPath, dirNode);
+			nodes.push(dirNode);
+		}
+
+		if (currentNode && !currentNode.children.includes(dirNode)) {
+			currentNode.children.push(dirNode);
+			attachedAsChild.add(dirNode);
+		}
+		currentNode = dirNode;
+	}
+
+	if (!currentNode) {
+		throw new Error("failed to resolve directory chain");
+	}
+
+	return currentNode;
+}
+
+function normalizeDirPath(path: string): string {
+	const normalized = normalizeFilePath(path);
+	if (!normalized) return "";
+	const withoutTrailingSlash = normalized.replace(/\/+$/, "");
+	if (PROJECT_FILE_STORAGE_ROOTS.has(withoutTrailingSlash)) {
+		return `${withoutTrailingSlash}/`;
+	}
+	return normalized.endsWith("/") ? normalized : `${normalized}/`;
+}
+
+function sortProjectFileTreeNodes(nodes: ProjectFileNode[]) {
+	nodes.sort(compareProjectFileNodes);
+	for (const node of nodes) {
+		if (node.children.length > 0) {
+			sortProjectFileTreeNodes(node.children);
+		}
+	}
+}
+
+function compareProjectFileNodes(left: ProjectFileNode, right: ProjectFileNode) {
+	const timeDiff = (right.createdAt ?? 0) - (left.createdAt ?? 0);
+	if (timeDiff !== 0) {
+		return timeDiff;
+	}
+	if (left.type !== right.type) {
+		return left.type === "directory" ? -1 : 1;
+	}
+	return left.name.localeCompare(right.name, "zh-CN");
 }
 
 // 文件页默认要预览第一个文件，所以这里直接给出可选文件的稳定顺序。
@@ -77,6 +365,183 @@ export function collectSelectableFiles(nodes: ProjectFileNode[]): ProjectFileNod
 	return result;
 }
 
+export function collectProjectFolderNodes(nodes: ProjectFileNode[]): ProjectFileNode[] {
+	const result: ProjectFileNode[] = [];
+
+	const walk = (items: ProjectFileNode[]) => {
+		for (const node of items) {
+			if (node.type !== "directory") {
+				continue;
+			}
+			const stats = getProjectFolderStats(node);
+			result.push({
+				...node,
+				children: [],
+				size: stats.size,
+				createdAt: stats.createdAt || node.createdAt,
+			});
+			walk(node.children);
+		}
+	};
+
+	walk(nodes);
+	return result;
+}
+
+export function getProjectFileSearchSourceNodes(
+	nodes: ProjectFileNode[],
+	typeFilter: ProjectFileTypeFilter,
+): ProjectFileNode[] {
+	if (typeFilter === "folder") {
+		return collectProjectFolderNodes(nodes);
+	}
+	if (typeFilter === "all") {
+		return collectAllProjectFileNodes(nodes);
+	}
+	return collectSelectableFiles(nodes);
+}
+
+export function collectAllProjectFileNodes(nodes: ProjectFileNode[]): ProjectFileNode[] {
+	const result: ProjectFileNode[] = [];
+
+	const walk = (items: ProjectFileNode[]) => {
+		for (const node of items) {
+			if (node.type === "directory") {
+				const stats = getProjectFolderStats(node);
+				result.push({
+					...node,
+					children: [],
+					size: stats.size,
+					createdAt: stats.createdAt || node.createdAt,
+				});
+				walk(node.children);
+				continue;
+			}
+			result.push({ ...node, children: [] });
+		}
+	};
+
+	walk(nodes);
+	return result;
+}
+
+export function collectProjectFileNodes(nodes: ProjectFileNode[]): ProjectFileNode[] {
+	const result: ProjectFileNode[] = [];
+
+	const walk = (items: ProjectFileNode[]) => {
+		for (const node of items) {
+			result.push({ ...node, children: [] });
+			if (node.children.length > 0) {
+				walk(node.children);
+			}
+		}
+	};
+
+	walk(nodes);
+	return result;
+}
+
+export function getProjectFileFlatPathLabel(node: Pick<ProjectFileNode, "path">): string {
+	return unwrapProjectFileDisplayPath(node.path).replace(/\//g, "\\");
+}
+
+export function matchesProjectFilePathSearch(node: ProjectFileNode, keyword: string): boolean {
+	const normalizedKeyword = keyword.trim().toLowerCase();
+	if (!normalizedKeyword) {
+		return true;
+	}
+	return getProjectFileFullDisplayPath(node).toLowerCase().includes(normalizedKeyword);
+}
+
+export function filterProjectFileNodesBySearch(
+	nodes: ProjectFileNode[],
+	searchKeyword: string,
+): ProjectFileNode[] {
+	const keyword = searchKeyword.trim().toLowerCase();
+	const allNodes = collectProjectFileNodes(nodes);
+	if (!keyword) {
+		return allNodes;
+	}
+	return allNodes.filter((node) => matchesProjectFilePathSearch(node, keyword));
+}
+
+export function findProjectFileNode(
+	nodes: ProjectFileNode[],
+	publicId: string,
+	path: string,
+): ProjectFileNode | undefined {
+	for (const node of nodes) {
+		if (publicId && node.publicId === publicId) {
+			return node;
+		}
+		if (path && node.path === path) {
+			return node;
+		}
+		const matched = findProjectFileNode(node.children, publicId, path);
+		if (matched) {
+			return matched;
+		}
+	}
+	return undefined;
+}
+
+export function countProjectFiles(nodes: ProjectFileNode[]): number {
+	return collectSelectableFiles(nodes).length;
+}
+
+export function getProjectFileLocationLabel(node: Pick<ProjectFileNode, "path">): string {
+	const displayPath = unwrapProjectFileDisplayPath(node.path);
+	const segments = displayPath.split("/").filter(Boolean);
+	if (segments.length <= 1) {
+		return "";
+	}
+	return segments.slice(0, -1).join("\\");
+}
+
+export function getProjectFileFullDisplayPath(
+	node: Pick<ProjectFileNode, "path" | "type" | "name">,
+): string {
+	const displayPath = unwrapProjectFileDisplayPath(node.path).replace(/\/+$/, "");
+	if (!displayPath) {
+		return node.type === "directory" ? node.name : "";
+	}
+	return displayPath.replace(/\//g, "\\");
+}
+
+export function filterProjectFileSearchResults(
+	nodes: ProjectFileNode[],
+	searchKeyword: string,
+): ProjectFileNode[] {
+	const keyword = searchKeyword.trim();
+	if (!keyword) {
+		return nodes;
+	}
+	return nodes.filter((node) => matchesProjectFilePathSearch(node, keyword));
+}
+
+// 将 uploads/、artifacts/、uploads/_task/{taskId}/ 等内部前缀转为用户可见路径。
+export function unwrapProjectFileDisplayPath(path: string): string {
+	const segments = unwrapProjectFileDisplaySegments(path);
+	return segments.join("/");
+}
+
+function unwrapProjectFileDisplaySegments(path: string): string[] {
+	let segments = normalizeFilePath(path).split("/").filter(Boolean);
+	if (segments.length === 0) {
+		return segments;
+	}
+
+	if (PROJECT_FILE_STORAGE_ROOTS.has(segments[0] ?? "")) {
+		segments = segments.slice(1);
+	}
+
+	if (segments[0] === PROJECT_FILE_TASK_SCOPE_SEGMENT) {
+		segments = segments.slice(2);
+	}
+
+	return segments;
+}
+
 export type FileSource = "task" | "upload";
 
 export function getFileSource(path: string): FileSource {
@@ -84,8 +549,52 @@ export function getFileSource(path: string): FileSource {
 	return normalized.startsWith("artifacts") ? "task" : "upload";
 }
 
-// 中文注释：优先展示文件扩展名，保证未知 MIME 时仍能识别文件格式。
-export function getProjectFileTypeLabel(file: Pick<ProjectFileNode, "name" | "mimeType">): string {
+export function getProjectFileSourceLabel(
+	node: Pick<ProjectFileNode, "path" | "resourceType">,
+): string {
+	if (node.resourceType === "artifact") {
+		return "任务文件";
+	}
+	if (node.resourceType === "user_upload") {
+		return "上传文件";
+	}
+	return getFileSource(node.path) === "task" ? "任务文件" : "上传文件";
+}
+
+export function getProjectFolderStats(node: ProjectFileNode): { size: number; createdAt: number } {
+	let totalSize = 0;
+	let latestChildCreatedAt = 0;
+
+	const walk = (current: ProjectFileNode) => {
+		if (current.type === "file") {
+			totalSize += current.size;
+			if (current.createdAt > latestChildCreatedAt) {
+				latestChildCreatedAt = current.createdAt;
+			}
+			return;
+		}
+		for (const child of current.children) {
+			walk(child);
+		}
+	};
+
+	for (const child of node.children) {
+		walk(child);
+	}
+
+	return {
+		size: totalSize,
+		createdAt: node.createdAt || latestChildCreatedAt,
+	};
+}
+
+export function getProjectFileTypeLabel(
+	file: Pick<ProjectFileNode, "name" | "mimeType" | "type" | "nodeType">,
+): string {
+	if (file.type === "directory" || file.nodeType === "folder") {
+		return "文件夹";
+	}
+
 	const extension = file.name.match(/\.([^.]+)$/)?.[1];
 	if (extension) return extension.toUpperCase();
 
@@ -95,6 +604,23 @@ export function getProjectFileTypeLabel(file: Pick<ProjectFileNode, "name" | "mi
 
 export function sortProjectFilesByUploadedTimeDesc(files: ProjectFileNode[]): ProjectFileNode[] {
 	return [...files].sort((left, right) => right.createdAt - left.createdAt);
+}
+
+export function filterProjectFileTree(
+	nodes: ProjectFileNode[],
+	predicate: (node: ProjectFileNode) => boolean,
+): ProjectFileNode[] {
+	const result: ProjectFileNode[] = [];
+	for (const node of nodes) {
+		const filteredChildren = filterProjectFileTree(node.children, predicate);
+		if (predicate(node) || filteredChildren.length > 0) {
+			result.push({
+				...node,
+				children: filteredChildren,
+			});
+		}
+	}
+	return result;
 }
 
 function normalizeFilePath(path: string | undefined): string {

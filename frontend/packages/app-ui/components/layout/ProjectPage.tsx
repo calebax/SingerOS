@@ -48,8 +48,6 @@ import {
 	ChevronRight,
 	ChevronsLeft,
 	ChevronsRight,
-	Download,
-	Eye,
 	LoaderCircle,
 	Pencil,
 	Plus,
@@ -58,7 +56,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
 import { renderHighlightedText } from "../common/searchText";
@@ -75,20 +73,22 @@ import { openProjectFilePreview } from "./file-preview-store";
 import { PROJECT_FILE_RESTORED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
+import { ProjectFileTree } from "./ProjectFileTree";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import {
-	ProjectFileTypeIcon,
-	SIDEBAR_COMPACT_LIST_CLASS,
-	TaskCardIcon,
-} from "./project-file-type-icon";
+	buildProjectFileListParams,
+	isProjectFileFlatDisplay,
+	PROJECT_FILE_TYPE_FILTER_OPTIONS,
+	type ProjectFileSourceFilter,
+	type ProjectFileTypeFilter,
+} from "./project-file-filters";
+import { SIDEBAR_COMPACT_LIST_CLASS, TaskCardIcon } from "./project-file-type-icon";
 import {
 	collectSelectableFiles,
-	type FileSource,
-	getFileSource,
-	getProjectFileTypeLabel,
-	normalizeProjectFileTree,
+	filterProjectFileSearchResults,
+	getProjectFileSearchSourceNodes,
 	type ProjectFileNode,
-	sortProjectFilesByUploadedTimeDesc,
+	parseProjectFileList,
 } from "./project-files";
 import { TaskDeleteDialog } from "./TaskDeleteDialog";
 
@@ -146,7 +146,6 @@ export function ProjectPage({
 		resetLocalMessages,
 	} = useChatStore((s) => s);
 
-	const [projectFiles, setProjectFiles] = useState<ProjectFileNode[]>([]);
 	const [activityRefreshKey, setActivityRefreshKey] = useState(0);
 	const [projectDetailInitialized, setProjectDetailInitialized] = useState(false);
 	const [rightSidebarWidth, setRightSidebarWidth] = useState(PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH);
@@ -203,54 +202,6 @@ export function ProjectPage({
 			setProjectDetailInitialized(true);
 		}
 	}, [projectDetailLoading, project]);
-
-	const refreshProjectFiles = async () => {
-		if (!resolvedProjectId) return;
-		const response = await projectFileApi.list({
-			projectId: resolvedProjectId,
-		});
-		setProjectFiles(normalizeProjectFileTree(response.data.data));
-	};
-
-	useEffect(() => {
-		if (!resolvedProjectId) return;
-		const handleRestored = (event: Event) => {
-			const detail = (event as CustomEvent<{ projectId?: string }>).detail;
-			if (detail?.projectId && detail.projectId !== resolvedProjectId) return;
-			void refreshProjectFiles();
-		};
-		window.addEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
-		return () => window.removeEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
-	}, [resolvedProjectId]);
-
-	useEffect(() => {
-		if (!resolvedProjectId || resolvedTab !== "files") {
-			setProjectFiles([]);
-			return;
-		}
-
-		const currentProjectId = resolvedProjectId;
-		let cancelled = false;
-
-		async function fetchFiles() {
-			try {
-				const response = await projectFileApi.list({
-					projectId: currentProjectId,
-				});
-				if (cancelled) return;
-				setProjectFiles(normalizeProjectFileTree(response.data.data));
-			} catch (err) {
-				if (cancelled) return;
-				console.error("ProjectPage fetch project files error:", err);
-				setProjectFiles([]);
-			}
-		}
-
-		fetchFiles();
-		return () => {
-			cancelled = true;
-		};
-	}, [resolvedProjectId, resolvedTab]);
 
 	useEffect(() => {
 		if (typeof window === "undefined" || hasLoadedRightSidebarPreferenceRef.current) return;
@@ -470,11 +421,7 @@ export function ProjectPage({
 						<ProjectTasks tasks={project.tasks} onOpenTask={handleOpenTask} />
 					)}
 					{resolvedTab === "files" && resolvedProjectId && (
-						<ProjectFiles
-							projectId={resolvedProjectId}
-							files={projectFiles}
-							onRefresh={refreshProjectFiles}
-						/>
+						<ProjectFiles projectId={resolvedProjectId} />
 					)}
 					{resolvedTab === "activity" && resolvedProjectId && (
 						<ProjectActivityPanel
@@ -1411,31 +1358,98 @@ function ProjectTaskList({
 	);
 }
 
-function ProjectFiles({
-	projectId,
-	files,
-}: {
-	projectId: string;
-	files: ProjectFileNode[];
-	onRefresh: () => Promise<void>;
-}) {
+type ProjectFileQueryFilters = {
+	source: ProjectFileSourceFilter;
+	type: ProjectFileTypeFilter;
+};
+
+function ProjectFiles({ projectId }: { projectId: string }) {
 	const [uploading] = useState(false);
 	const [uploadError] = useState<string | null>(null);
+	const [files, setFiles] = useState<ProjectFileNode[]>([]);
+	const [filesLoading, setFilesLoading] = useState(true);
 	const [searchKeyword, setSearchKeyword] = useState("");
-	const [fileSourceFilter, setFileSourceFilter] = useState<"all" | FileSource>("all");
+	const [fileSourceFilter, setFileSourceFilter] = useState<ProjectFileSourceFilter>("all");
+	const [fileTypeFilter, setFileTypeFilter] = useState<ProjectFileTypeFilter>("all");
+	const [syncedFilters, setSyncedFilters] = useState<ProjectFileQueryFilters>({
+		source: "all",
+		type: "all",
+	});
+	const deferredSearchKeyword = useDeferredValue(searchKeyword);
 
-	const allFlatFiles = useMemo(() => {
-		const allFiles = collectSelectableFiles(files);
-		const keyword = searchKeyword.trim().toLowerCase();
-		let filtered = allFiles;
-		if (fileSourceFilter !== "all") {
-			filtered = filtered.filter((f) => getFileSource(f.path) === fileSourceFilter);
+	const fetchFiles = useCallback(async () => {
+		const requestProjectId = projectId;
+		const requestFilters: ProjectFileQueryFilters = {
+			source: fileSourceFilter,
+			type: fileTypeFilter,
+		};
+		setFilesLoading(true);
+		try {
+			const response = await projectFileApi.list(
+				buildProjectFileListParams(requestProjectId, requestFilters.source, requestFilters.type),
+			);
+			if (
+				requestProjectId !== projectId ||
+				requestFilters.source !== fileSourceFilter ||
+				requestFilters.type !== fileTypeFilter
+			) {
+				return;
+			}
+			setFiles(parseProjectFileList(response.data.data));
+			setSyncedFilters(requestFilters);
+		} catch (err) {
+			console.error("ProjectFiles fetch error:", err);
+			if (
+				requestProjectId === projectId &&
+				requestFilters.source === fileSourceFilter &&
+				requestFilters.type === fileTypeFilter
+			) {
+				setFiles([]);
+				setSyncedFilters(requestFilters);
+			}
+		} finally {
+			if (
+				requestProjectId === projectId &&
+				requestFilters.source === fileSourceFilter &&
+				requestFilters.type === fileTypeFilter
+			) {
+				setFilesLoading(false);
+			}
 		}
-		if (keyword) {
-			filtered = filtered.filter((file) => file.name.toLowerCase().includes(keyword));
+	}, [projectId, fileSourceFilter, fileTypeFilter]);
+
+	useEffect(() => {
+		void fetchFiles();
+	}, [fetchFiles]);
+
+	useEffect(() => {
+		const handleRestored = (event: Event) => {
+			const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+			if (detail?.projectId && detail.projectId !== projectId) return;
+			void fetchFiles();
+		};
+		window.addEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+		return () => window.removeEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+	}, [projectId, fetchFiles]);
+
+	const pendingFilterFetch =
+		syncedFilters.source !== fileSourceFilter || syncedFilters.type !== fileTypeFilter;
+	const showFilesLoading = filesLoading || pendingFilterFetch;
+	const hasSearch = deferredSearchKeyword.trim().length > 0;
+	const isFlatDisplay = hasSearch || isProjectFileFlatDisplay(syncedFilters.type);
+	const flatSourceNodes = useMemo(() => {
+		if (hasSearch) {
+			return getProjectFileSearchSourceNodes(files, syncedFilters.type);
 		}
-		return sortProjectFilesByUploadedTimeDesc(filtered);
-	}, [files, searchKeyword, fileSourceFilter]);
+		return collectSelectableFiles(files);
+	}, [files, syncedFilters.type, hasSearch]);
+	const displayNodes = useMemo(() => {
+		if (!isFlatDisplay) {
+			return files;
+		}
+		return filterProjectFileSearchResults(flatSourceNodes, deferredSearchKeyword);
+	}, [files, flatSourceNodes, deferredSearchKeyword, isFlatDisplay]);
+	const hasVisibleNodes = displayNodes.length > 0;
 
 	// 中文注释：当前 files 页签的上传入口仍处于注释停用状态，先保留实现并显式标记未启用，避免误恢复旧交互。
 	// const _handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -1458,14 +1472,17 @@ function ProjectFiles({
 
 	const handleDownload = async (file: ProjectFileNode) => {
 		try {
-			const response = file.storageUri
-				? await fetchFilePreviewByStorageUri(file.storageUri)
-				: await projectFileApi.fetchDownload(projectId, file.path);
+			const response =
+				file.type === "directory" && file.publicId
+					? await projectFileApi.fetchFolderDownload(projectId, file.publicId)
+					: file.storageUri
+						? await fetchFilePreviewByStorageUri(file.storageUri)
+						: await projectFileApi.fetchDownload(projectId, file.path);
 			const blob = await response.blob();
 			const objectUrl = URL.createObjectURL(blob);
 			const link = document.createElement("a");
 			link.href = objectUrl;
-			link.download = file.name;
+			link.download = file.type === "directory" ? `${file.name}.zip` : file.name;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
@@ -1488,27 +1505,54 @@ function ProjectFiles({
 						</p>
 					</div>
 					{/* 中文注释：项目文件页顶部筛选条整体收一档，保持结构不变，只降低高度和横向占比，让桌面端视觉更紧凑。 */}
-					<div className="flex flex-wrap items-center gap-2.5">
-						<div className="relative">
-							<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
-							<input
-								value={searchKeyword}
-								onChange={(event) => setSearchKeyword(event.target.value)}
-								placeholder="搜索文件..."
-								className="h-9 w-60 rounded-xl border border-[var(--leros-control-border)] bg-white pl-9 pr-3.5 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
-							/>
+					<div className="flex flex-wrap items-end gap-2.5">
+						<div className="flex flex-col gap-1">
+							<span className="text-[12px] text-[var(--leros-text-muted)]">搜索</span>
+							<div className="relative">
+								<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+								<input
+									value={searchKeyword}
+									onChange={(event) => setSearchKeyword(event.target.value)}
+									placeholder="搜索文件..."
+									className="h-9 w-60 rounded-xl border border-[var(--leros-control-border)] bg-white pl-9 pr-3.5 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
+								/>
+							</div>
 						</div>
-						<div className="relative">
-							<select
-								value={fileSourceFilter}
-								onChange={(event) => setFileSourceFilter(event.target.value as "all" | FileSource)}
-								className="h-9 min-w-[132px] cursor-pointer appearance-none rounded-xl border border-[var(--leros-control-border)] bg-white py-0 pl-3.5 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
-							>
-								<option value="all">全部</option>
-								<option value="task">任务文件</option>
-								<option value="upload">上传文件</option>
-							</select>
-							<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+						<div className="flex flex-col gap-1">
+							<span className="text-[12px] text-[var(--leros-text-muted)]">来源</span>
+							<div className="relative">
+								<select
+									value={fileSourceFilter}
+									onChange={(event) =>
+										setFileSourceFilter(event.target.value as ProjectFileSourceFilter)
+									}
+									className="h-9 min-w-[132px] cursor-pointer appearance-none rounded-xl border border-[var(--leros-control-border)] bg-white py-0 pl-3.5 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
+								>
+									<option value="all">全部</option>
+									<option value="task">任务文件</option>
+									<option value="upload">上传文件</option>
+								</select>
+								<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+							</div>
+						</div>
+						<div className="flex flex-col gap-1">
+							<span className="text-[12px] text-[var(--leros-text-muted)]">类型</span>
+							<div className="relative">
+								<select
+									value={fileTypeFilter}
+									onChange={(event) =>
+										setFileTypeFilter(event.target.value as ProjectFileTypeFilter)
+									}
+									className="h-9 min-w-[132px] cursor-pointer appearance-none rounded-xl border border-[var(--leros-control-border)] bg-white py-0 pl-3.5 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
+								>
+									{PROJECT_FILE_TYPE_FILTER_OPTIONS.map((option) => (
+										<option key={option.value} value={option.value}>
+											{option.label}
+										</option>
+									))}
+								</select>
+								<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+							</div>
 						</div>
 						{/* 中文注释：当前只隐藏上传按钮入口，保留上传逻辑和状态处理，后续需要恢复展示时可直接取消注释。 */}
 						{/* <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--leros-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90">
@@ -1536,7 +1580,12 @@ function ProjectFiles({
 					</div>
 				)}
 
-				{allFlatFiles.length === 0 ? (
+				{showFilesLoading ? (
+					<div className="flex items-center justify-center gap-2 px-6 py-16 text-sm text-[var(--leros-text-muted)]">
+						<LoaderCircle className="size-5 animate-spin" />
+						<span>加载文件中...</span>
+					</div>
+				) : !hasVisibleNodes ? (
 					<div className="px-6 py-16 text-center text-sm text-[var(--leros-text-muted)]">
 						暂无文件
 					</div>
@@ -1546,70 +1595,25 @@ function ProjectFiles({
 							<div className="grid grid-cols-[minmax(0,1fr)_90px_90px_120px_180px_220px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
 								<div>名称</div>
 								<div>来源</div>
-								<div>文件类型</div>
+								<div>类型</div>
 								<div>大小</div>
 								<div>创建时间</div>
 								<div className="text-right">操作</div>
 							</div>
 							<div className="divide-y divide-[var(--leros-control-border)]/60">
-								{allFlatFiles.map((file) => (
-									<div
-										key={file.path}
-										className="grid grid-cols-[minmax(0,1fr)_90px_90px_120px_180px_220px] items-center px-5 py-4 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
-									>
-										<button
-											type="button"
-											data-file-preview-trigger
-											onClick={() => openProjectFilePreview(projectId, file)}
-											className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-[var(--leros-primary-softer)]/50"
-											title="查看"
-										>
-											<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-												<ProjectFileTypeIcon fileName={file.name} />
-											</div>
-											<div className="min-w-0">
-												<p className="truncate text-[15px] font-semibold text-[var(--leros-text-strong)]">
-													{file.name}
-												</p>
-											</div>
-										</button>
-										<div className="text-[13px]">
-											<span className="inline-block rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
-												{getFileSource(file.path) === "task" ? "任务文件" : "上传文件"}
-											</span>
-										</div>
-										<div className="text-[13px] text-[var(--leros-text-muted)]">
-											{getProjectFileTypeLabel(file)}
-										</div>
-										<div className="text-[13px] text-[var(--leros-text-muted)]">
-											{formatBytes(file.size)}
-										</div>
-										<div className="text-[13px] text-[var(--leros-text-muted)]">
-											{formatTime(file.createdAt)}
-										</div>
-										<div className="flex items-center justify-end gap-1.5">
-											<button
-												type="button"
-												data-file-preview-trigger
-												onClick={() => openProjectFilePreview(projectId, file)}
-												className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-												title="查看"
-											>
-												<Eye className="size-4" />
-												查看
-											</button>
-											<button
-												type="button"
-												onClick={() => handleDownload(file)}
-												className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-												title="下载"
-											>
-												<Download className="size-4" />
-												下载
-											</button>
-										</div>
-									</div>
-								))}
+								<ProjectFileTree
+									nodes={displayNodes}
+									variant="table"
+									layout={isFlatDisplay ? "flat" : "tree"}
+									showFullPath={hasSearch}
+									searchKeyword={hasSearch ? deferredSearchKeyword : ""}
+									fullTree={files}
+									projectId={projectId}
+									onPreview={(file) => openProjectFilePreview(projectId, file)}
+									onDownload={handleDownload}
+									formatBytes={formatBytes}
+									formatTime={formatTime}
+								/>
 							</div>
 						</div>
 					</div>
@@ -1629,7 +1633,7 @@ function formatBytes(size: number): string {
 
 function formatTime(timestamp: number): string {
 	if (!timestamp) return "-";
-	// 中文注释：项目文件列表里的 createdAt 已在 normalizeProjectFileTree 中从秒转成毫秒，这里直接按毫秒格式化，避免重复乘 1000 导致年份异常。
+	// 中文注释：项目文件列表里的 createdAt 已在 parseProjectFileList 中从秒转成毫秒，这里直接按毫秒格式化，避免重复乘 1000 导致年份异常。
 	return new Intl.DateTimeFormat("zh-CN", {
 		year: "numeric",
 		month: "2-digit",

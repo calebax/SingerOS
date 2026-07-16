@@ -23,6 +23,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/git"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/projectfile"
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
@@ -151,8 +152,6 @@ func (p *MessagePoster) RunNewMessage(
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
 		return nil, err
 	}
-	// 无项目预上传的附件，需要在项目创建完成后回填项目归属，确保后续文件树可见。
-	attachFilesToProject(ctx, p.db, caller.OrgID, caller.Uin, nil, o.project, req.Attachments)
 	if err := o.ensureProjectSession(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage ensureProjectSession failed: %v", err)
 		return nil, err
@@ -164,6 +163,10 @@ func (p *MessagePoster) RunNewMessage(
 	if err := o.createTaskSession(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage createTaskSession failed: %v", err)
 		return nil, err
+	}
+	// 中文注释：附件必须在 Task 创建后再绑定，才能写入 uploads/_task/{taskPublicID}/ 隔离路径，避免跨任务同名文件夹冲突。
+	if len(req.Attachments) > 0 {
+		attachFilesToProject(ctx, p.db, caller.OrgID, caller.Uin, &o.task.ID, o.project, req.Attachments)
 	}
 
 	// 先补齐附件的可访问 URL，再把附件写入用户消息，避免前端回显和后续上下文拿不到附件信息。
@@ -994,6 +997,17 @@ func attachFilesToProject(
 	if project == nil || project.ID == 0 || len(attachments) == 0 {
 		return
 	}
+
+	var taskPublicID string
+	if taskID != nil && *taskID != 0 {
+		task, taskErr := infradb.GetTaskByID(ctx, db, orgID, *taskID)
+		if taskErr != nil {
+			logs.WarnContextf(ctx, "attach files resolve task %d failed: %v", *taskID, taskErr)
+		} else if task != nil {
+			taskPublicID = task.PublicID
+		}
+	}
+
 	for i := range attachments {
 		if attachments[i].FileUploadID == "" {
 			continue
@@ -1009,46 +1023,38 @@ func attachFilesToProject(
 
 		exists, _ := infradb.GetProjectFileByFilePublicID(ctx, db, orgID, fileUpload.PublicID)
 		if exists == nil {
-			fileName := strings.TrimSpace(fileUpload.OriginalName)
-			if fileName == "" {
-				fileName = strings.TrimSpace(fileUpload.Filename)
-			}
-			if fileName == "" {
-				fileName = fileUpload.PublicID
-			}
-			pf := &types.ProjectFile{
-				FilePublicID: fileUpload.PublicID,
-				OrgID:        orgID,
-				ProjectID:    project.ID,
-				ResourceID:   fileUpload.ID,
-				ResourceType: types.ProjectFileResourceTypeUserUpload,
-				Uin:          uin,
-				RelativePath: "uploads/" + filepath.Base(fileName),
-			}
-			if taskID != nil {
-				pf.TaskID = *taskID
-			}
+			displayName := strings.TrimSpace(attachments[i].Name)
 			if err := db.Transaction(func(tx *gorm.DB) error {
-				return infradb.CreateProjectFileVersion(ctx, tx, pf)
+				pf, bindErr := projectfile.BindUserUploadToProject(ctx, tx, projectfile.BindUserUploadParams{
+					OrgID:        orgID,
+					ProjectID:    project.ID,
+					TaskID:       taskID,
+					TaskPublicID: taskPublicID,
+					Uin:          uin,
+					FileUpload:   fileUpload,
+					DisplayName:  displayName,
+				})
+				if bindErr != nil {
+					return bindErr
+				}
+				projResource, rerr := infradb.GetResourceByBizID(ctx, tx, orgID, types.ResourceTypeProject, project.ID)
+				if rerr != nil {
+					return rerr
+				}
+				if projResource == nil {
+					return nil
+				}
+				fr := &types.Resource{
+					OrgID:                 orgID,
+					Uin:                   uin,
+					Type:                  types.ResourceTypeFile,
+					BizID:                 pf.ID,
+					ParentResourceID:      &projResource.ID,
+					ParentResourcePathIDs: types.ResourcePathIDs{projResource.ID},
+				}
+				return infradb.CreateResource(ctx, tx, fr)
 			}); err != nil {
 				logs.WarnContextf(ctx, "create project_file record for attachment %s: %v", attachments[i].FileUploadID, err)
-			} else {
-				projResource, rerr := infradb.GetResourceByBizID(ctx, db, orgID, types.ResourceTypeProject, project.ID)
-				if rerr != nil {
-					logs.WarnContextf(ctx, "get project resource for file attachment: %v", rerr)
-				} else if projResource != nil {
-					fr := &types.Resource{
-						OrgID:                 orgID,
-						Uin:                   uin,
-						Type:                  types.ResourceTypeFile,
-						BizID:                 pf.ID,
-						ParentResourceID:      &projResource.ID,
-						ParentResourcePathIDs: types.ResourcePathIDs{projResource.ID},
-					}
-					if ferr := infradb.CreateResource(ctx, db, fr); ferr != nil {
-						logs.WarnContextf(ctx, "sync file resource for attachment: %v", ferr)
-					}
-				}
 			}
 		}
 	}
