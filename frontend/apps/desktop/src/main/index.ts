@@ -73,10 +73,9 @@ function createWindow(): void {
 
 	mainWindow.webContents.on("before-input-event", (event, input) => {
 		const isDevToolsShortcut =
-			input.key === "F12" ||
-			(input.key.toLowerCase() === "i" &&
-				((process.platform === "darwin" && input.meta && input.alt) ||
-					(process.platform !== "darwin" && input.control && input.shift)));
+			input.key.toLowerCase() === "d" &&
+			((process.platform === "darwin" && input.meta && input.shift) ||
+				(process.platform !== "darwin" && input.control && input.alt));
 
 		if (!isDevToolsShortcut) return;
 
