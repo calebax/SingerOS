@@ -207,7 +207,7 @@ export function ComposerActionBar({
 							side="top"
 							sideOffset={10}
 							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
-							className="w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-md"
+							className="w-44 p-1.5"
 						>
 							<button
 								type="button"
@@ -216,7 +216,7 @@ export function ComposerActionBar({
 									setUploadMenuOpen(false);
 									onUpload();
 								}}
-								className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
+								className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
 							>
 								<FileText className="size-4 shrink-0 text-slate-500" />
 								<span>选择文件</span>
@@ -228,7 +228,7 @@ export function ComposerActionBar({
 									setUploadMenuOpen(false);
 									onUploadFolder();
 								}}
-								className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
+								className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
 							>
 								<Folder className="size-4 shrink-0 text-slate-500" />
 								<span>选择文件夹</span>

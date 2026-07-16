@@ -10,11 +10,14 @@ export function isFolderUploadSizeExceeded(files: File[]): boolean {
 	return getFolderUploadTotalSize(files) > FOLDER_UPLOAD_MAX_BYTES;
 }
 
+export function getFileRelativePath(file: File): string | undefined {
+	const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim();
+	return relativePath || undefined;
+}
+
 export function getFolderNameFromFiles(files: File[]): string {
 	for (const file of files) {
-		const relativePath = (
-			file as File & { webkitRelativePath?: string }
-		).webkitRelativePath?.trim();
+		const relativePath = getFileRelativePath(file);
 		if (!relativePath) continue;
 		const root = relativePath.split("/")[0]?.trim();
 		if (root) return root;

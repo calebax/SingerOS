@@ -91,9 +91,14 @@ import {
 	collectSelectableFiles,
 	filterProjectFileSearchResults,
 	getProjectFileSearchSourceNodes,
+	PROJECT_FILE_TABLE_ACTIONS_HEADER_CLASS,
+	PROJECT_FILE_TABLE_GRID_CLASS,
+	PROJECT_FILE_TABLE_LEADING_CELL_CLASS,
+	PROJECT_FILE_TABLE_MIN_WIDTH_CLASS,
 	type ProjectFileNode,
 	parseProjectFileList,
 } from "./project-files";
+import { downloadProjectFolderAsZip, triggerBlobDownload } from "./project-folder-download";
 import { TaskDeleteDialog } from "./TaskDeleteDialog";
 
 const projectTabs = [
@@ -1518,23 +1523,21 @@ function ProjectFiles({ projectId }: { projectId: string }) {
 
 	const handleDownload = async (file: ProjectFileNode) => {
 		try {
-			const response =
-				file.type === "directory" && file.publicId
-					? await projectFileApi.fetchFolderDownload(projectId, file.publicId)
-					: file.storageUri
-						? await fetchFilePreviewByStorageUri(file.storageUri)
-						: await projectFileApi.fetchDownload(projectId, file.path);
+			if (file.type === "directory") {
+				const blob = await downloadProjectFolderAsZip(projectId, file, files);
+				triggerBlobDownload(blob, `${file.name}.zip`);
+				return;
+			}
+
+			const response = file.storageUri
+				? await fetchFilePreviewByStorageUri(file.storageUri)
+				: await projectFileApi.fetchDownload(projectId, file.path);
 			const blob = await response.blob();
-			const objectUrl = URL.createObjectURL(blob);
-			const link = document.createElement("a");
-			link.href = objectUrl;
-			link.download = file.type === "directory" ? `${file.name}.zip` : file.name;
-			document.body.appendChild(link);
-			link.click();
-			link.remove();
-			window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+			triggerBlobDownload(blob, file.name);
 		} catch (err) {
+			const message = err instanceof Error ? err.message : "下载失败";
 			console.error("ProjectFiles download error:", err);
+			toast.error(message, { position: "bottom-right" });
 		}
 	};
 
@@ -1637,21 +1640,28 @@ function ProjectFiles({ projectId }: { projectId: string }) {
 					</div>
 				) : (
 					<div className="overflow-x-auto rounded-2xl border border-[var(--leros-control-border)] bg-white">
-						<div className="min-w-[640px]">
-							<div className="grid grid-cols-[minmax(0,1fr)_90px_90px_120px_180px_220px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
-								<div>名称</div>
-								<div>来源</div>
-								<div>类型</div>
-								<div>大小</div>
-								<div>创建时间</div>
-								<div className="text-right">操作</div>
+						<div className={PROJECT_FILE_TABLE_MIN_WIDTH_CLASS}>
+							<div
+								className={cn(
+									PROJECT_FILE_TABLE_GRID_CLASS,
+									"border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]",
+								)}
+							>
+								<div className={cn("min-w-0 truncate", PROJECT_FILE_TABLE_LEADING_CELL_CLASS)}>
+									名称
+								</div>
+								<div className="truncate whitespace-nowrap">来源</div>
+								<div className="truncate whitespace-nowrap">类型</div>
+								<div className="truncate whitespace-nowrap">大小</div>
+								<div className="truncate whitespace-nowrap">创建时间</div>
+								<div className={PROJECT_FILE_TABLE_ACTIONS_HEADER_CLASS}>操作</div>
 							</div>
-							<div className="divide-y divide-[var(--leros-control-border)]/60">
+							<div>
 								<ProjectFileTree
 									nodes={displayNodes}
 									variant="table"
 									layout={isFlatDisplay ? "flat" : "tree"}
-									showFullPath={hasSearch}
+									showFullPath={isFlatDisplay}
 									searchKeyword={hasSearch ? deferredSearchKeyword : ""}
 									fullTree={files}
 									projectId={projectId}

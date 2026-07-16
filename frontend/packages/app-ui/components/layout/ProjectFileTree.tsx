@@ -8,11 +8,15 @@ import { renderHighlightedText } from "../common/searchText";
 import { ProjectFileTypeIcon } from "./project-file-type-icon";
 import {
 	findProjectFileNode,
-	getProjectFileFullDisplayPath,
+	getProjectFileFlatDisplayPathLabel,
 	getProjectFileLocationLabel,
 	getProjectFileSourceLabel,
 	getProjectFileTypeLabel,
 	getProjectFolderStats,
+	PROJECT_FILE_TABLE_ACTIONS_CELL_CLASS,
+	PROJECT_FILE_TABLE_GRID_CLASS,
+	PROJECT_FILE_TABLE_LEADING_CELL_CLASS,
+	PROJECT_FILE_TABLE_ROW_CLASS,
 	type ProjectFileNode,
 } from "./project-files";
 
@@ -129,7 +133,7 @@ function ProjectFileTreeTableRow({
 		isDirectory && treeChildren.length > 0 && (layout === "tree" || showFullPath);
 	const expandChildrenAsTree = layout === "flat" && showFullPath;
 
-	const paddingLeft = layout === "flat" ? 12 : 12 + depth * 20;
+	const treeIndent = layout === "flat" ? 0 : depth * 20;
 	const folderStats = isDirectory && layout === "tree" ? getProjectFolderStats(node) : null;
 	const displaySize = isDirectory ? (folderStats?.size ?? node.size ?? 0) : node.size;
 	const displayCreatedAt = isDirectory
@@ -138,14 +142,20 @@ function ProjectFileTreeTableRow({
 	const pathLabel =
 		layout === "flat"
 			? showFullPath
-				? getProjectFileFullDisplayPath(node)
+				? getProjectFileFlatDisplayPathLabel(node)
 				: getProjectFileLocationLabel(node)
 			: "";
 
 	return (
 		<>
-			<div className="grid grid-cols-[minmax(0,1fr)_90px_90px_120px_180px_220px] items-center px-5 py-4 transition-colors hover:bg-[var(--leros-primary-softer)]/25">
-				<div className="flex min-w-0 items-center gap-1" style={{ paddingLeft }}>
+			<div className={cn(PROJECT_FILE_TABLE_GRID_CLASS, PROJECT_FILE_TABLE_ROW_CLASS)}>
+				<div
+					className={cn(
+						"flex min-w-0 items-center gap-1 overflow-hidden",
+						PROJECT_FILE_TABLE_LEADING_CELL_CLASS,
+					)}
+					style={treeIndent > 0 ? { paddingLeft: 20 + treeIndent } : undefined}
+				>
 					{canExpandFolder ? (
 						<button
 							type="button"
@@ -200,21 +210,21 @@ function ProjectFileTreeTableRow({
 						</button>
 					)}
 				</div>
-				<div className="text-[13px]">
-					<span className="inline-block rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
+				<div className="min-w-0 truncate text-[13px]">
+					<span className="inline-block max-w-full truncate rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
 						{getProjectFileSourceLabel(node)}
 					</span>
 				</div>
-				<div className="text-[13px] text-[var(--leros-text-muted)]">
+				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--leros-text-muted)]">
 					{getProjectFileTypeLabel(node)}
 				</div>
-				<div className="text-[13px] text-[var(--leros-text-muted)]">
+				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--leros-text-muted)]">
 					{displaySize > 0 ? formatBytes(displaySize) : "-"}
 				</div>
-				<div className="text-[13px] text-[var(--leros-text-muted)]">
+				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--leros-text-muted)]">
 					{displayCreatedAt ? formatTime(displayCreatedAt) : "-"}
 				</div>
-				<div className="flex items-center justify-end gap-1.5">
+				<div className={PROJECT_FILE_TABLE_ACTIONS_CELL_CLASS}>
 					{isDirectory ? (
 						<button
 							type="button"

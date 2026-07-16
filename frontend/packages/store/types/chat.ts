@@ -144,6 +144,7 @@ export type MessageAttachment = {
 	name: string;
 	mimeType: string;
 	size: number;
+	relativePath?: string;
 	createdAt?: number;
 	url?: string;
 	storageUri?: string;
@@ -183,6 +184,7 @@ export type AttachmentFileRef = {
 	name: string;
 	mimeType: string;
 	size: number;
+	relativePath?: string;
 };
 
 export type Attachment = {

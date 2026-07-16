@@ -72,6 +72,7 @@ export type BackendMessageAttachment = {
 	name?: string;
 	mime_type?: string;
 	size?: number;
+	relative_path?: string;
 	purpose?: string;
 	PublicURL?: string;
 	public_url?: string;
@@ -410,8 +411,9 @@ export type BackendWorkbenchRecentContext = {
 
 export type BackendProjectFileNode = {
 	name: string;
-	path: string;
-	type: "file" | "directory" | string;
+	path?: string;
+	relative_path?: string;
+	type?: "file" | "directory" | string;
 	node_type?: "file" | "folder" | string;
 	parent_id?: string;
 	parent_ids?: string[];

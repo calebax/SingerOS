@@ -20,6 +20,7 @@ import type {
 } from "../api/types";
 import {
 	FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE,
+	getFileRelativePath,
 	getFolderNameFromFiles,
 	isFolderUploadSizeExceeded,
 } from "../constants/upload";
@@ -174,6 +175,7 @@ function mapBackendAttachment(
 		name: attachment.name?.trim() || fileUploadId,
 		mimeType: attachment.mime_type?.trim() || "application/octet-stream",
 		size: attachment.size ?? 0,
+		relativePath: attachment.relative_path?.trim() || undefined,
 		createdAt: messageCreatedAt,
 		url: attachment.PublicURL?.trim() || attachment.public_url?.trim() || undefined,
 	};
@@ -2864,13 +2866,10 @@ export class ChatActionImpl {
 		const attachmentId = `att-${Date.now()}`;
 		const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
 
-		const relativePath = (
-			file as File & { webkitRelativePath?: string }
-		).webkitRelativePath?.trim();
 		const attachment: Attachment = {
 			id: attachmentId,
 			type: file.type.startsWith("image/") ? "image" : "file",
-			name: relativePath || payload.original_name || payload.filename || file.name,
+			name: payload.original_name || payload.filename || file.name,
 			size: payload.file_size ?? payload.size ?? file.size,
 			url: previewUrl,
 			file,
@@ -2911,16 +2910,14 @@ export class ChatActionImpl {
 				throw new Error("上传接口未返回 public_id");
 			}
 
-			const relativePath =
-				(file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim() ||
-				payload.original_name ||
-				payload.filename ||
-				file.name;
+			const relativePath = getFileRelativePath(file);
+			const displayName = payload.original_name || payload.filename || file.name;
 			const fileSize = payload.file_size ?? payload.size ?? file.size;
 
 			folderFiles.push({
 				fileUploadId: payload.public_id,
-				name: relativePath,
+				name: displayName,
+				relativePath,
 				mimeType: payload.mime_type || file.type || "application/octet-stream",
 				size: fileSize,
 			});

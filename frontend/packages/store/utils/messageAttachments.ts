@@ -5,6 +5,7 @@ export type OutgoingMessageAttachment = {
 	name: string;
 	mime_type: string;
 	size: number;
+	relative_path: string;
 };
 
 export function mapComposerAttachments(
@@ -41,6 +42,7 @@ function mapComposerAttachment(attachment: Attachment): MessageAttachment[] {
 			name: attachment.name,
 			mimeType: attachment.mimeType || attachment.file?.type || "application/octet-stream",
 			size: attachment.size,
+			relativePath: attachment.name.trim(),
 			createdAt: Date.now(),
 			url: attachment.url,
 			storageUri: attachment.storageUri,
@@ -58,11 +60,13 @@ export function mapOutgoingAttachments(
 			for (const file of attachment.folderFiles) {
 				const fileUploadId = file.fileUploadId.trim();
 				if (!fileUploadId) continue;
+				const fileName = file.name.trim();
 				mapped.push({
 					file_upload_id: fileUploadId,
-					name: file.name,
+					name: fileName,
 					mime_type: file.mimeType || "application/octet-stream",
 					size: file.size,
+					relative_path: file.relativePath?.trim() || fileName,
 				});
 			}
 			continue;
@@ -70,11 +74,13 @@ export function mapOutgoingAttachments(
 
 		const fileUploadId = attachment.fileUploadId?.trim();
 		if (!fileUploadId) continue;
+		const fileName = attachment.name.trim();
 		mapped.push({
 			file_upload_id: fileUploadId,
-			name: attachment.name,
+			name: fileName,
 			mime_type: attachment.mimeType || attachment.file?.type || "application/octet-stream",
 			size: attachment.size,
+			relative_path: fileName,
 		});
 	}
 
