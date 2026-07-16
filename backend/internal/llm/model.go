@@ -45,32 +45,31 @@ type ModelConfig struct {
 
 // CallRecord 记录一次 LLM 调用的完整信息，用于审计和用量统计。
 type CallRecord struct {
-	ID              uint
-	OrgID           uint
-	ModelID         uint
-	Provider        string
-	ModelName       string
-	ModelProvider   string
-	EntryProtocol   string
-	IsStream        bool
-	InputTokens     int
-	OutputTokens    int
-	TotalTokens     int
+	ID            uint
+	OrgID         uint
+	ModelID       uint
+	Provider      string
+	ModelName     string
+	ModelProvider string
+	EntryProtocol string
+	IsStream      bool
+	InputTokens   int
+	OutputTokens  int
+	TotalTokens   int
+	LatencyMS     int64
+	PromptTokens  int64
 	CacheHitTokens  int64
 	CacheMissTokens int64
-	LatencyMS       int64
-	Cost            float64
-	PromptTokens    int64
-	StatusCode      int
-	Success         bool
-	Status          string
-	Message         string
-	CallerType      string
-	ReqID           string
-	TraceID         string
-	RetryTimes      int64
-	InputLen        int
-	OutputLen       int
+	StatusCode    int
+	Success       bool
+	Status        string
+	Message       string
+	CallerType    string
+	ReqID         string
+	TraceID       string
+	RetryTimes    int64
+	InputLen      int
+	OutputLen     int
 	InputTruncated  bool
 	OutputTruncated bool
 	ClientIP        string
@@ -90,6 +89,9 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
+	PromptTokens    int64
+	CacheHitTokens  int64
+	CacheMissTokens int64
 }
 
 // Message 表示调用 LLM 时的单条消息。

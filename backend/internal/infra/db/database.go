@@ -54,9 +54,12 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameAuthRefreshToken, column: "user_id"},
 	{table: types.TableNameAuthRefreshToken, column: "user_org_id"},
 	{table: types.TableNameLLMHistory, column: "caller_ref"},
-	{table: types.TableNameLLMHistory, column: "model_config_id"},
-	{table: types.TableNameLLMHistory, column: "out_token"},
+	{table: types.TableNameLLMHistory, column: "cost"},
 	{table: types.TableNameLLMHistory, column: "code"},
+	{table: types.TableNameLLMHistory, column: "out_token"},
+	{table: types.TableNameLLMHistory, column: "cache_hit_token"},
+	{table: types.TableNameLLMHistory, column: "cache_miss_token"},
+	{table: types.TableNameLLMHistory, column: "model_config_id"},
 }
 
 var renamesToApply = []renameColumn{

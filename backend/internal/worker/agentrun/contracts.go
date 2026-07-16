@@ -10,8 +10,10 @@ import (
 )
 
 // Preparer converts a business run request into an immutable prepared run.
+// The returned cleanup function releases per‑run resources (e.g. model‑store
+// business identifiers). Callers MUST invoke it when the run finishes.
 type Preparer interface {
-	Prepare(ctx context.Context, req *agentrundomain.RunRequest) (*PreparedRun, error)
+	Prepare(ctx context.Context, req *agentrundomain.RunRequest) (*PreparedRun, func(), error)
 }
 
 // ToolProvider resolves business tools into the neutral execution contract.
@@ -64,6 +66,7 @@ type EventContext struct {
 	RunID             string
 	ParentID          string
 	ReplyToMessageIDs []string
+	ClientIP          string
 }
 
 // RunEventPublisher publishes a fully constructed Worker/Server business event.

@@ -15,6 +15,7 @@ import (
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
@@ -70,6 +71,10 @@ func handleRunStateMessage(ctx context.Context, service contract.SessionService,
 
 	logs.InfoContextf(ctx, "received run state event: type=%s session_id=%s run_id=%s seq=%d",
 		runEvent.Body.Event, runEvent.Route.SessionID, runEvent.Trace.RunID, runEvent.Body.Seq)
+
+	if runEvent.Route.ClientIP != "" {
+		ctx = llm.WithCtxString(ctx, llm.CtxClientIP, runEvent.Route.ClientIP)
+	}
 
 	switch runEvent.Body.Event {
 	case messaging.RunEventRunStarted:

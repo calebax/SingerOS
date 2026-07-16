@@ -54,6 +54,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			WorkDir: task.Runtime.WorkDir,
 		},
 		Model: agentrundomain.ModelOptions{
+			ModelID:      task.Model.ModelID,
 			Provider:     task.Model.Provider,
 			Model:        task.Model.Model,
 			APIKey:       task.Model.APIKey,
@@ -66,6 +67,13 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 		Policy: agentrundomain.PolicyContext{
 			RequireApproval: task.Policy.RequireApproval,
 			PermissionMode:  task.Policy.PermissionMode,
+		},
+		BusinessKeys: agentrundomain.BusinessKeys{
+			ProjectPKID:   task.ProjectID,
+			SessionPKID:   task.SessionID,
+			MessagePKID:   task.MessageID,
+			AssistantPKID: task.AssistantID,
+			UinPK:         task.Uin,
 		},
 	}
 }

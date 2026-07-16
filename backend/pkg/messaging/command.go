@@ -100,6 +100,20 @@ type RunCommandPayload struct {
 	Model   ModelOptions   `json:"model,omitempty"`
 	Runtime RuntimeOptions `json:"runtime,omitempty"`
 	Policy  TaskPolicy     `json:"policy,omitempty"`
+
+	// 业务主键 ID，用于 llm_history 等调用记录关联。
+	// 以下均为对应表的自增主键（int），区别于其它字段中的 public_id（string）。
+	//
+	//   ProjectID   leros_project.id          -> 区别于 Workspace.ProjectID（project public_id）
+	//   SessionID   leros_session.id          -> 区别于 RouteContext.SessionID（session public_id）
+	//   MessageID   leros_session_message.id  -> 当前触发 run 的消息主键
+	//   AssistantID leros_assistant.id        -> 区别于 RouteContext.AssistantID（assistant public_id）
+	//   Uin         leros_user.id             -> 区别于 ActorContext.UserID（fmt.Sprintf("%d", uin)）
+	ProjectID   uint `json:"project_id"`
+	SessionID   uint `json:"session_id"`
+	MessageID   uint `json:"message_id"`
+	AssistantID uint `json:"assistant_id"`
+	Uin         uint `json:"uin"`
 }
 
 // CancelRunCommandPayload 是 run.cancel 命令的 payload。
@@ -389,6 +403,7 @@ type Attachment struct {
 }
 
 type ModelOptions struct {
+	ModelID      uint   `json:"model_id,omitempty"`
 	Provider     string `json:"provider,omitempty"`
 	Model        string `json:"model,omitempty"`
 	BaseURL      string `json:"base_url,omitempty"`

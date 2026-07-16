@@ -20,6 +20,9 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
+	PromptTokens    int64
+	CacheHitTokens  int64
+	CacheMissTokens int64
 }
 
 // StreamSink receives text deltas emitted during streaming.
@@ -240,9 +243,12 @@ func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink Strea
 }
 
 type usageAccumulator struct {
-	inputTokens  int
-	outputTokens int
-	totalTokens  int
+	inputTokens      int
+	outputTokens     int
+	totalTokens      int
+	promptTokens     int64
+	cacheHitTokens   int64
+	cacheMissTokens  int64
 }
 
 func (u *usageAccumulator) AddMessage(message *einoschema.Message) {
@@ -259,6 +265,8 @@ func (u *usageAccumulator) AddResponseMeta(meta *einoschema.ResponseMeta) {
 	u.inputTokens += meta.Usage.PromptTokens
 	u.outputTokens += meta.Usage.CompletionTokens
 	u.totalTokens += meta.Usage.TotalTokens
+	u.promptTokens += int64(meta.Usage.PromptTokens)
+	u.cacheHitTokens += int64(meta.Usage.PromptTokenDetails.CachedTokens)
 }
 
 func (u *usageAccumulator) Payload() *Usage {
@@ -270,8 +278,11 @@ func (u *usageAccumulator) Payload() *Usage {
 		totalTokens = u.inputTokens + u.outputTokens
 	}
 	return &Usage{
-		InputTokens:  u.inputTokens,
-		OutputTokens: u.outputTokens,
-		TotalTokens:  totalTokens,
+		InputTokens:     u.inputTokens,
+		OutputTokens:    u.outputTokens,
+		TotalTokens:     totalTokens,
+		PromptTokens:    u.promptTokens,
+		CacheHitTokens:  u.cacheHitTokens,
+		CacheMissTokens: u.cacheMissTokens,
 	}
 }

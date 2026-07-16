@@ -141,6 +141,7 @@ func (j *runJournal) envelopeLocked(
 			WorkerID:    j.eventContext.WorkerID,
 			SessionID:   j.eventContext.SessionID,
 			AssistantID: j.eventContext.AssistantID,
+			ClientIP:    j.eventContext.ClientIP,
 		},
 		Body: body,
 	}

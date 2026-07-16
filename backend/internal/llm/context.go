@@ -16,6 +16,7 @@ const (
 	CtxClientIP    CtxKey = "llm_client_ip"
 	CtxCallerType  CtxKey = "llm_caller_type"
 	CtxReqID       CtxKey = "llm_req_id"
+	CtxRunID       CtxKey = "llm_run_id"
 )
 
 // WithCtxUint 将业务 ID 注入 context，val 为 0 时不做注入。
@@ -35,7 +36,7 @@ func GetCtxUint(ctx context.Context, key CtxKey) uint {
 	return v
 }
 
-// WithCtxString 将字符串值注入 context，val 为空时不做注入。
+// WithCtxString 将字符串值注入 context，值为空时不注入。
 func WithCtxString(ctx context.Context, key CtxKey, val string) context.Context {
 	if val == "" {
 		return ctx
@@ -43,7 +44,7 @@ func WithCtxString(ctx context.Context, key CtxKey, val string) context.Context 
 	return context.WithValue(ctx, key, val)
 }
 
-// GetCtxString 从 context 中提取字符串值，未设置时返回空字符串。
+// GetCtxString 从 context 中提取字符串值，未设置时返回空。
 func GetCtxString(ctx context.Context, key CtxKey) string {
 	if ctx == nil {
 		return ""

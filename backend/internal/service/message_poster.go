@@ -18,6 +18,7 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/git"
@@ -853,6 +854,7 @@ func (p *MessagePoster) publishWorkerTask(
 			OrgID:     orgID,
 			SessionID: session.PublicID,
 			WorkerID:  effectiveWorkerID,
+			ClientIP:  llm.GetCtxString(ctx, llm.CtxClientIP),
 		},
 		messaging.TraceContext{
 			TraceID:   session.PublicID,
@@ -880,6 +882,11 @@ func (p *MessagePoster) publishWorkerTask(
 			Model:     modelOptions,
 			Execution: executionTarget,
 			Project:   projectContext,
+			ProjectID:   coalesceUintPtr(session.ProjectID),
+			SessionID:   session.ID,
+			MessageID:   message.ID,
+			AssistantID: routing.AssistantID,
+			Uin:         session.Uin,
 		},
 		&messaging.RunCommandMetadata{
 			SessionID:   session.PublicID,
@@ -919,6 +926,7 @@ func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) 
 		return messaging.ModelOptions{}, errors.New("default llm model config is incomplete")
 	}
 	return messaging.ModelOptions{
+		ModelID:      model.ID,
 		Provider:     model.Provider,
 		Model:        model.ModelName,
 		BaseURL:      model.BaseURL,
@@ -1296,4 +1304,11 @@ func publishMessageCreatedEvent(
 	if err := eb.Publish(ctx, subject, payload); err != nil {
 		logs.WarnContextf(ctx, "publishMessageCreatedEvent: publish to %s: %v", subject, err)
 	}
+}
+
+func coalesceUintPtr(p *uint) uint {
+	if p == nil {
+		return 0
+	}
+	return *p
 }

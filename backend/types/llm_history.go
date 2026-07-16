@@ -33,16 +33,14 @@ type LLMHistory struct {
 	OutputTokens int `gorm:"column:output_tokens;type:integer;default:0"`
 	// 总Token数量
 	TotalTokens int `gorm:"column:total_tokens;type:integer;default:0"`
+	// 调用耗时，单位毫秒
+	LatencyMS int64 `gorm:"column:latency_ms;type:bigint;default:0"`
+	// Prompt Token 用量（大整型）
+	PromptTokens int64 `gorm:"column:prompt_tokens;type:bigint;default:0"`
 	// 缓存命中 Token 数
 	CacheHitTokens int64 `gorm:"column:cache_hit_tokens;type:bigint;default:0"`
 	// 缓存未命中 Token 数
 	CacheMissTokens int64 `gorm:"column:cache_miss_tokens;type:bigint;default:0"`
-	// 调用耗时，单位毫秒
-	LatencyMS int64 `gorm:"column:latency_ms;type:bigint;default:0"`
-	// 调用费用
-	Cost float64 `gorm:"column:cost;type:double precision;default:0"`
-	// Prompt Token 用量（大整型）
-	PromptTokens int64 `gorm:"column:prompt_tokens;type:bigint;default:0"`
 	// HTTP状态码或供应商返回的业务状态码
 	StatusCode int `gorm:"column:status_code;type:integer;default:0"`
 	// 调用是否成功

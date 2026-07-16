@@ -788,3 +788,36 @@ func TestExtractGeminiModelFromPath(t *testing.T) {
 		}
 	}
 }
+
+func TestModelStore_PutBizAndGetBiz(t *testing.T) {
+	store := NewModelStore()
+	biz := BusinessKeys{ProjectID: 1, SessionID: 2, AssistantID: 3, Uin: 4}
+	store.PutBiz("gpt-4o:run-1", biz)
+
+	got := store.GetBiz("gpt-4o:run-1")
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if got.ProjectID != 1 || got.SessionID != 2 || got.AssistantID != 3 || got.Uin != 4 {
+		t.Errorf("got %+v, want ProjectID=1 SessionID=2 AssistantID=3 Uin=4", got)
+	}
+}
+
+func TestModelStore_RemoveBiz(t *testing.T) {
+	store := NewModelStore()
+	biz := BusinessKeys{ProjectID: 1}
+	store.PutBiz("gpt-4o:run-1", biz)
+
+	store.RemoveBiz("gpt-4o:run-1")
+
+	if got := store.GetBiz("gpt-4o:run-1"); got != nil {
+		t.Errorf("expected nil after RemoveBiz, got %+v", got)
+	}
+}
+
+func TestModelStore_GetBizNotFound(t *testing.T) {
+	store := NewModelStore()
+	if got := store.GetBiz("nonexistent"); got != nil {
+		t.Errorf("expected nil for nonexistent key, got %+v", got)
+	}
+}

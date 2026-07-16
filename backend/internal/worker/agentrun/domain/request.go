@@ -25,6 +25,15 @@ const (
 	ExecutionModePlan ExecutionMode = "plan"
 )
 
+// BusinessKeys carries the business primary key IDs used for LLM call record association.
+type BusinessKeys struct {
+	ProjectPKID   uint `json:"project_pk_id"`
+	SessionPKID   uint `json:"session_pk_id"`
+	MessagePKID   uint `json:"message_pk_id"`
+	AssistantPKID uint `json:"assistant_pk_id"`
+	UinPK         uint `json:"uin_pk"`
+}
+
 // RunRequest is the normalized execution snapshot consumed by runtime.
 type RunRequest struct {
 	RunID         string              `json:"run_id"`
@@ -41,6 +50,7 @@ type RunRequest struct {
 	Model         ModelOptions        `json:"model,omitempty"`
 	Capability    CapabilityContext   `json:"capability,omitempty"`
 	Policy        PolicyContext       `json:"policy,omitempty"`
+	BusinessKeys  BusinessKeys        `json:"business_keys"`
 }
 
 // AssistantContext is the assistant snapshot used for one run.
@@ -127,6 +137,7 @@ type RuntimeOptions struct {
 
 // ModelOptions lets callers override model behavior when supported.
 type ModelOptions struct {
+	ModelID      uint    `json:"model_id,omitempty"`
 	Provider     string  `json:"provider,omitempty"`
 	Model        string  `json:"model,omitempty"`
 	APIKey       string  `json:"-"`

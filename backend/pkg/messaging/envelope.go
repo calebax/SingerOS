@@ -47,6 +47,7 @@ type RouteContext struct {
 	SessionID   string `json:"session_id,omitempty"`
 	WorkerID    uint   `json:"worker_id,omitempty"`
 	AssistantID string `json:"assistant_id,omitempty"`
+	ClientIP    string `json:"client_ip,omitempty"`
 }
 
 // Envelope 是通用消息信封，用于所有 MQ topic 上的消息传输。

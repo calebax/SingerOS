@@ -243,12 +243,13 @@ func NewPreparerWithSessionStore(
 
 // Prepare validates and builds a PreparedRun from the original Request.
 // The original Request is NOT modified by this method.
-func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) (*PreparedRun, error) {
+func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) (*PreparedRun, func(), error) {
+	noop := func() {}
 	if req == nil {
-		return nil, fmt.Errorf("request context is required")
+		return nil, noop, fmt.Errorf("request context is required")
 	}
 	if p.builder == nil {
-		return nil, fmt.Errorf("context builder is required")
+		return nil, noop, fmt.Errorf("context builder is required")
 	}
 
 	// Clone so we don't modify the original request.
@@ -256,18 +257,22 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 
 	// 1. Validate model config.
 	if err := validateModelConfig(cloned); err != nil {
-		return nil, err
+		return nil, noop, err
 	}
 
 	// 2. Resolve model routing (write upstream config, set proxy base URL).
-	if err := p.resolveModelRouting(cloned); err != nil {
-		return nil, err
+	proxyModel := p.resolveModelRouting(cloned)
+
+	cleanup := func() {
+		if p.modelStore != nil && proxyModel != "" {
+			p.modelStore.RemoveBiz(proxyModel)
+		}
 	}
 
 	// 3. Prepare the workspace before building any prompt that references it.
 	workspace, err := p.prepareWorkspace(ctx, cloned)
 	if err != nil {
-		return nil, fmt.Errorf("prepare workspace: %w", err)
+		return nil, cleanup, fmt.Errorf("prepare workspace: %w", err)
 	}
 	cloned.Runtime.WorkDir = workspace.WorkDir
 	cloned.Workspace.RepoDir = workspace.RepoDir
@@ -280,17 +285,17 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 	// 4. Prepare session context and skills.
 	if p.builder.SessionMessages != nil {
 		if err := p.builder.SessionMessages.Prepare(ctx, cloned); err != nil {
-			return nil, fmt.Errorf("prepare session context: %w", err)
+			return nil, cleanup, fmt.Errorf("prepare session context: %w", err)
 		}
 	}
 	if err := agentruncontext.ApplyInvokedSkills(ctx, cloned); err != nil {
-		return nil, fmt.Errorf("apply invoked skills: %w", err)
+		return nil, cleanup, fmt.Errorf("apply invoked skills: %w", err)
 	}
 
 	// 5. Build system prompt.
 	systemPrompt, err := p.builder.BuildSystemPrompt(ctx, cloned)
 	if err != nil {
-		return nil, fmt.Errorf("build system prompt: %w", err)
+		return nil, cleanup, fmt.Errorf("build system prompt: %w", err)
 	}
 
 	// 6. Ingest attachments after the final workspace is known.
@@ -329,7 +334,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 	if p.toolProvider != nil {
 		runtimeTools, err = p.toolProvider.ToolsFor(cloned, workspace)
 		if err != nil {
-			return nil, fmt.Errorf("prepare runtime tools: %w", err)
+			return nil, cleanup, fmt.Errorf("prepare runtime tools: %w", err)
 		}
 	}
 
@@ -359,7 +364,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			},
 		},
 		Workspace: workspace,
-	}, nil
+	}, cleanup, nil
 }
 
 // validateModelConfig validates the required model fields.
@@ -377,26 +382,34 @@ func validateModelConfig(req *agentrundomain.RunRequest) error {
 }
 
 // resolveModelRouting writes upstream config to model store and sets proxy base URL.
-func (p *preparer) resolveModelRouting(req *agentrundomain.RunRequest) error {
+// It returns the proxy model key used for later cleanup.
+func (p *preparer) resolveModelRouting(req *agentrundomain.RunRequest) string {
+	realModelName := strings.TrimSpace(req.Model.Model)
 	upstreamCfg := modelrouter.UpstreamConfig{
-		ModelName:    strings.TrimSpace(req.Model.Model),
+		ModelID:      req.Model.ModelID,
+		ModelName:    realModelName,
 		Provider:     strings.TrimSpace(req.Model.Provider),
 		BaseURL:      strings.TrimSpace(req.Model.BaseURL),
 		BaseURLHasV1: req.Model.BaseURLHasV1,
 		APIKey:       strings.TrimSpace(req.Model.APIKey),
 		Temperature:  req.Model.Temperature,
 	}
+	var proxyModel string
 	if p.modelStore != nil {
+		proxyModel = realModelName + ":" + req.RunID
+		upstreamCfg.ModelName = proxyModel
 		p.modelStore.Put(upstreamCfg)
-		p.modelStore.PutBiz(modelrouter.BusinessIDs{
-			ProjectID:   parseStrUint(req.Workspace.ProjectID),
-			SessionID:   parseStrUint(req.Conversation.ID),
-			AssistantID: parseStrUint(req.Assistant.ID),
-			Uin:         parseStrUint(req.Actor.UserID),
+		p.modelStore.PutBiz(proxyModel, modelrouter.BusinessKeys{
+			ProjectID:   req.BusinessKeys.ProjectPKID,
+			SessionID:   req.BusinessKeys.SessionPKID,
+			MessageID:   req.BusinessKeys.MessagePKID,
+			AssistantID: req.BusinessKeys.AssistantPKID,
+			Uin:         req.BusinessKeys.UinPK,
 		})
+		req.Model.Model = proxyModel
 	}
 	req.Model.BaseURL = modelrouter.ProxyBaseURL(identity.WorkerAddr())
-	return nil
+	return proxyModel
 }
 
 func parseStrUint(s string) uint {
