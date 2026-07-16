@@ -16,7 +16,7 @@ const (
 // ProjectFile 项目文件关联表，记录项目/任务/资源之间的映射关系
 type ProjectFile struct {
 	gorm.Model
-	FilePublicID string                  `gorm:"column:file_public_id;type:varchar(255);not null;uniqueIndex"`
+	FilePublicID string                  `gorm:"column:file_public_id;type:varchar(255);not null;index"`
 	OrgID        uint                    `gorm:"column:org_id;type:integer;not null;index;index:idx_project_file_path,priority:1;index:idx_project_file_version_lookup,priority:1"`
 	ProjectID    uint                    `gorm:"column:project_id;type:bigint;not null;index;index:idx_project_file_path,priority:2;index:idx_project_file_version_lookup,priority:2"`
 	TaskID       uint                    `gorm:"column:task_id;type:bigint;index"`

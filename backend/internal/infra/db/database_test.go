@@ -131,9 +131,9 @@ func TestBackfillProjectFileVersionsGroupsExistingPaths(t *testing.T) {
 		}
 	}
 	if !database.Migrator().HasIndex(&types.ProjectFile{}, "idx_project_file_version") {
-		t.Fatal("project file version unique index was not created")
+		t.Fatal("project file version index was not created")
 	}
 	if !database.Migrator().HasIndex(&types.ProjectFile{}, "idx_project_file_path_version") {
-		t.Fatal("project file path version unique index was not created")
+		t.Fatal("project file path version index was not created")
 	}
 }

@@ -312,9 +312,13 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 	if session.ProjectID != nil && *session.ProjectID != 0 && len(req.Attachments) > 0 {
 		project, err := db.GetProjectByID(ctx, s.db, *session.ProjectID)
 		if err != nil {
-			logs.WarnContextf(ctx, "addMessage get project %d: %v", *session.ProjectID, err)
-		} else if project != nil {
-			attachFilesToProject(ctx, s.db, session.OrgID, session.Uin, session.TaskID, project, req.Attachments)
+			return nil, fmt.Errorf("get project %d: %w", *session.ProjectID, err)
+		}
+		if project == nil {
+			return nil, fmt.Errorf("project %d not found", *session.ProjectID)
+		}
+		if err := attachFilesToProject(ctx, s.db, session.OrgID, session.Uin, session.TaskID, project, req.Attachments); err != nil {
+			return nil, fmt.Errorf("attach files to project: %w", err)
 		}
 	}
 
