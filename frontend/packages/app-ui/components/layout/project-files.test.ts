@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildProjectFileTree,
 	buildProjectFileTreeWithPaths,
+	getProjectFileFlatDisplayPathLabel,
 	getProjectFileFullDisplayPath,
 	getProjectFileLocationLabel,
 	getProjectFileSourceLabel,
@@ -423,6 +424,23 @@ describe("unwrapProjectFileDisplayPath", () => {
 				path: "uploads/demo/report.pdf",
 			}),
 		).toBe("demo");
+	});
+
+	it("shows flat path label only for nested files", () => {
+		expect(
+			getProjectFileFlatDisplayPathLabel({
+				name: "report.pdf",
+				path: "uploads/report.pdf",
+				type: "file",
+			}),
+		).toBe("");
+		expect(
+			getProjectFileFlatDisplayPathLabel({
+				name: "登录后-首页.png",
+				path: "登录后截图/登录后-首页.png",
+				type: "file",
+			}),
+		).toBe("登录后截图\\登录后-首页.png");
 	});
 });
 

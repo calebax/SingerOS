@@ -46,6 +46,7 @@
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@leros/tsconfig": "workspace:*",
+    "@rolldown/binding-win32-x64-msvc": "1.0.3",
     "@tailwindcss/typography": "catalog:",
     "@tailwindcss/vite": "^4",
     "@types/react": "catalog:",

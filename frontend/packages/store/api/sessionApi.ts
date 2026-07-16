@@ -1,3 +1,4 @@
+import type { OutgoingMessageAttachment } from "../utils/messageAttachments";
 import { apiClient } from "./client";
 import { API_BASE_URL } from "./config";
 import type {
@@ -59,12 +60,7 @@ export type AddMessageParams = {
 	execution_mode?: "default" | "plan";
 	assistant_ids?: string[];
 	message_type?: string;
-	attachments?: {
-		file_upload_id: string;
-		name: string;
-		mime_type: string;
-		size?: number;
-	}[];
+	attachments?: OutgoingMessageAttachment[];
 	thinking?: string;
 	metadata?: {
 		source?: string;
@@ -119,12 +115,7 @@ export type CreateInitialMessageParams = {
 	message_type?: string;
 	assistant_ids?: string[];
 	metadata?: BackendMessageMetadata;
-	attachments?: {
-		file_upload_id: string;
-		name: string;
-		mime_type: string;
-		size?: number;
-	}[];
+	attachments?: OutgoingMessageAttachment[];
 };
 
 const SESSION_ENDPOINTS = {

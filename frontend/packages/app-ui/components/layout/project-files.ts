@@ -1,8 +1,31 @@
 import type { ProjectFileTypeFilter } from "./project-file-filters";
 
+/** 项目文件表格列宽：名称列可伸缩，其余列固定宽度不压缩。 */
+export const PROJECT_FILE_TABLE_GRID_CLASS =
+	"grid grid-cols-[minmax(200px,1fr)_90px_90px_120px_180px_220px] items-center";
+
+/** 表格最小宽度 = 名称列最小宽度 + 固定列宽之和 + 左右内边距。 */
+export const PROJECT_FILE_TABLE_MIN_WIDTH_CLASS = "min-w-[960px]";
+
+/** 表格行容器（不在行级加横向 padding，避免 sticky 列在滚动末端位移）。 */
+export const PROJECT_FILE_TABLE_ROW_CLASS =
+	"group/row border-b border-[var(--leros-control-border)]/60 py-4 transition-[background-color] hover:bg-[var(--leros-primary-softer)]/25";
+
+/** 首列左侧留白，替代原 grid 上的 pl 方向 padding。 */
+export const PROJECT_FILE_TABLE_LEADING_CELL_CLASS = "pl-5";
+
+/** 横向滚动时固定在右侧的操作列表头。 */
+export const PROJECT_FILE_TABLE_ACTIONS_HEADER_CLASS =
+	"sticky right-0 z-30 shrink-0 border-l border-[var(--leros-control-border)]/60 bg-[var(--leros-surface-soft)] pl-3 pr-5 text-right shadow-[-6px_0_10px_-8px_rgba(15,23,42,0.14)]";
+
+/** 横向滚动时固定在右侧的操作列单元格。 */
+export const PROJECT_FILE_TABLE_ACTIONS_CELL_CLASS =
+	"sticky right-0 z-20 flex shrink-0 items-center justify-end gap-1.5 border-l border-[var(--leros-control-border)]/60 bg-[var(--leros-surface)] pl-3 pr-5 shadow-[-6px_0_10px_-8px_rgba(15,23,42,0.14)] transition-[background-color] group-hover/row:bg-[var(--leros-surface-soft)]";
+
 export type BackendProjectFileNodeLike = {
 	name?: string;
 	path?: string;
+	relative_path?: string;
 	type?: string;
 	node_type?: string;
 	parent_id?: string;
@@ -42,17 +65,24 @@ export type ProjectFileNode = {
 	resourceType: string;
 };
 
+function resolveProjectFilePath(node: BackendProjectFileNodeLike): string {
+	return normalizeFilePath(node.relative_path ?? node.path);
+}
+
 function normalizeFlatProjectFileNode(node: BackendProjectFileNodeLike): ProjectFileNode {
-	const nodeType = node.node_type === "folder" || node.type === "directory" ? "folder" : "file";
+	const path = resolveProjectFilePath(node);
+	const isDirectory =
+		node.node_type === "folder" || node.type === "directory" || path.endsWith("/");
+	const nodeType = isDirectory ? "folder" : "file";
+	const pathSegments = path.replace(/\/+$/, "").split("/").filter(Boolean);
+	const fallbackName = pathSegments[pathSegments.length - 1] ?? "";
 	return {
-		name: String(node.name ?? ""),
-		path: normalizeFilePath(node.path),
+		name: String(node.name ?? fallbackName),
+		path,
 		type: nodeType === "folder" ? "directory" : "file",
 		nodeType,
-		parentId: typeof node.parent_id === "string" ? node.parent_id : "",
-		parentIds: Array.isArray(node.parent_ids)
-			? node.parent_ids.filter((id): id is string => typeof id === "string")
-			: [],
+		parentId: "",
+		parentIds: [],
 		size: typeof node.size === "number" ? node.size : 0,
 		mimeType: typeof node.mime_type === "string" ? node.mime_type : "",
 		modTime: typeof node.mod_time === "number" ? node.mod_time : 0,
@@ -74,7 +104,7 @@ function normalizeFlatProjectFileNode(node: BackendProjectFileNodeLike): Project
 	};
 }
 
-// 后端以平铺结构返回时，先归一化再按 parent_id / path 组装树。
+// 后端以平铺结构返回时，先归一化再按 relative_path 组装树。
 export function parseProjectFileList(
 	nodes: BackendProjectFileNodeLike[] | null | undefined,
 ): ProjectFileNode[] {
@@ -122,7 +152,7 @@ function flattenProjectFileList(nodes: BackendProjectFileNodeLike[]): ProjectFil
 	const walk = (items: BackendProjectFileNodeLike[]) => {
 		for (const item of items) {
 			const normalized = normalizeFlatProjectFileNode(item);
-			const dedupeKey = normalized.publicId || normalized.path;
+			const dedupeKey = normalized.publicId || `${normalized.path}:${normalized.publicId}`;
 			if (!seen.has(dedupeKey)) {
 				seen.add(dedupeKey);
 				flat.push(normalized);
@@ -135,27 +165,6 @@ function flattenProjectFileList(nodes: BackendProjectFileNodeLike[]): ProjectFil
 
 	walk(nodes);
 	return flat;
-}
-
-function resolveParentDirectoryNode(
-	node: ProjectFileNode,
-	byId: Map<string, ProjectFileNode>,
-): ProjectFileNode | undefined {
-	if (node.parentId) {
-		const directParent = byId.get(node.parentId);
-		if (directParent?.type === "directory") {
-			return directParent;
-		}
-	}
-
-	for (let index = node.parentIds.length - 1; index >= 0; index -= 1) {
-		const ancestor = byId.get(node.parentIds[index] ?? "");
-		if (ancestor?.type === "directory") {
-			return ancestor;
-		}
-	}
-
-	return undefined;
 }
 
 function attachChildNode(
@@ -174,13 +183,6 @@ function attachChildNode(
 
 export function buildProjectFileTreeWithPaths(flatNodes: ProjectFileNode[]): ProjectFileNode[] {
 	const nodes = flatNodes.map((node) => ({ ...node, children: [] as ProjectFileNode[] }));
-	const byId = new Map<string, ProjectFileNode>();
-	for (const node of nodes) {
-		if (node.publicId) {
-			byId.set(node.publicId, node);
-		}
-	}
-
 	const byPath = new Map<string, ProjectFileNode>();
 	for (const node of nodes) {
 		if (node.type === "directory") {
@@ -191,23 +193,17 @@ export function buildProjectFileTreeWithPaths(flatNodes: ProjectFileNode[]): Pro
 	const attachedAsChild = new Set<ProjectFileNode>();
 
 	for (const node of nodes) {
-		if (node.type !== "directory") continue;
-		const parent = resolveParentDirectoryNode(node, byId);
-		if (!parent) continue;
-		attachChildNode(parent, node, attachedAsChild);
-	}
-
-	for (const node of nodes) {
-		if (node.type !== "file") continue;
-
-		const parent = resolveParentDirectoryNode(node, byId);
-		if (parent) {
-			attachChildNode(parent, node, attachedAsChild);
+		const segments = normalizeFilePath(node.path).split("/").filter(Boolean);
+		if (segments.length <= 1) {
 			continue;
 		}
 
-		const segments = normalizeFilePath(node.path).split("/").filter(Boolean);
-		if (segments.length <= 1) continue;
+		if (node.type === "directory") {
+			const parentDir = ensureDirectoryChain(byPath, nodes, attachedAsChild, segments.slice(0, -1));
+			attachChildNode(parentDir, node, attachedAsChild);
+			attachedAsChild.add(node);
+			continue;
+		}
 
 		const fileName = segments[segments.length - 1] ?? node.name;
 		const parentDir = ensureDirectoryChain(byPath, nodes, attachedAsChild, segments.slice(0, -1));
@@ -504,6 +500,18 @@ export function getProjectFileFullDisplayPath(
 	const displayPath = unwrapProjectFileDisplayPath(node.path).replace(/\/+$/, "");
 	if (!displayPath) {
 		return node.type === "directory" ? node.name : "";
+	}
+	return displayPath.replace(/\//g, "\\");
+}
+
+/** 扁平列表副标题：根目录单文件不展示路径，仅文件夹内文件展示完整相对路径。 */
+export function getProjectFileFlatDisplayPathLabel(
+	node: Pick<ProjectFileNode, "path" | "type" | "name">,
+): string {
+	const displayPath = unwrapProjectFileDisplayPath(node.path).replace(/\/+$/, "");
+	const segments = displayPath.split("/").filter(Boolean);
+	if (segments.length <= 1) {
+		return "";
 	}
 	return displayPath.replace(/\//g, "\\");
 }

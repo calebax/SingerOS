@@ -44,6 +44,7 @@ import {
 } from "../input/StructuredComposer";
 import {
 	FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE,
+	getFileRelativePath,
 	getFolderNameFromFiles,
 	isFolderUploadSizeExceeded,
 } from "../input/upload-folder";
@@ -512,23 +513,18 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					: await projectFileApi.uploadLoose({
 							file,
 							purpose: "attachment",
-							relative_path:
-								(file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim() ||
-								undefined,
 						});
 				const payload = response.data;
 				if (!payload?.public_id) {
 					throw new Error("上传接口未返回 public_id");
 				}
-				const relativePath =
-					(file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim() ||
-					payload.original_name ||
-					payload.filename ||
-					file.name;
+				const relativePath = getFileRelativePath(file);
+				const displayName = payload.original_name || payload.filename || file.name;
 				const fileSize = payload.file_size ?? payload.size ?? file.size;
 				folderFiles.push({
 					fileUploadId: payload.public_id,
-					name: relativePath,
+					name: displayName,
+					relativePath,
 					mimeType: payload.mime_type || file.type || "application/octet-stream",
 					size: fileSize,
 				});

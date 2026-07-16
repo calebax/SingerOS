@@ -162,6 +162,10 @@ type DisplayMessageAttachment =
 	| { type: "folder"; id: string; name: string; size: number; createdAt?: number }
 	| { type: "file"; attachment: MessageAttachment };
 
+function getAttachmentRelativePath(attachment: MessageAttachment): string {
+	return attachment.relativePath?.trim() || "";
+}
+
 function groupMessageAttachmentsForDisplay(
 	attachments: MessageAttachment[],
 ): DisplayMessageAttachment[] {
@@ -180,13 +184,14 @@ function groupMessageAttachmentsForDisplay(
 			continue;
 		}
 
-		const slashIndex = attachment.name.indexOf("/");
+		const relativePath = getAttachmentRelativePath(attachment);
+		const slashIndex = relativePath.indexOf("/");
 		if (slashIndex <= 0) {
 			result.push({ type: "file", attachment });
 			continue;
 		}
 
-		const folderName = attachment.name.slice(0, slashIndex);
+		const folderName = relativePath.slice(0, slashIndex);
 		const grouped = folderGroups.get(folderName) ?? [];
 		grouped.push(attachment);
 		folderGroups.set(folderName, grouped);
@@ -206,13 +211,7 @@ function groupMessageAttachmentsForDisplay(
 			continue;
 		}
 		for (const attachment of grouped) {
-			result.push({
-				type: "file",
-				attachment: {
-					...attachment,
-					name: attachment.name.slice(attachment.name.lastIndexOf("/") + 1),
-				},
-			});
+			result.push({ type: "file", attachment });
 		}
 	}
 

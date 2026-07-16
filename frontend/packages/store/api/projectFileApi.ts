@@ -26,7 +26,6 @@ export type UploadLooseFileParams = {
 	file: File;
 	purpose?: string;
 	source_id?: string;
-	relative_path?: string;
 };
 
 type BackendUploadFilePayload = {
@@ -80,13 +79,11 @@ function assertBackendSuccess<T>(
 async function uploadFile(
 	file: File,
 	projectPublicId: string,
-	relativePath?: string,
 ): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	return uploadLooseFile({
 		file,
 		purpose: "projects",
 		source_id: projectPublicId,
-		relative_path: relativePath,
 	});
 }
 
@@ -94,16 +91,12 @@ async function uploadLooseFile({
 	file,
 	purpose = "attachment",
 	source_id,
-	relative_path,
 }: UploadLooseFileParams): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	const formData = new FormData();
 	formData.append("file", file);
 	formData.append("purpose", purpose);
 	if (source_id) {
 		formData.append("source_id", source_id);
-	}
-	if (relative_path) {
-		formData.append("relative_path", relative_path);
 	}
 
 	const response = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
@@ -214,9 +207,8 @@ export const projectFileApi = {
 		),
 
 	upload: async ({ file, projectPublicId }: UploadProjectFileParams) => {
-		const relativePath = getUploadRelativePath(file);
 		const uploadResponse = assertBackendSuccess(
-			await uploadFile(file, projectPublicId, relativePath),
+			await uploadFile(file, projectPublicId),
 			"文件上传失败",
 		);
 		const uploaded = uploadResponse.data;
@@ -241,12 +233,11 @@ export const projectFileApi = {
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
 
-	uploadLoose: async ({ file, purpose = "attachment", relative_path }: UploadLooseFileParams) => {
+	uploadLoose: async ({ file, purpose = "attachment" }: UploadLooseFileParams) => {
 		const uploadResponse = assertBackendSuccess(
 			await uploadLooseFile({
 				file,
 				purpose,
-				relative_path: relative_path ?? getUploadRelativePath(file),
 			}),
 			"文件上传失败",
 		);
@@ -272,8 +263,3 @@ export const projectFileApi = {
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
 };
-
-function getUploadRelativePath(file: File): string | undefined {
-	const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim();
-	return relativePath || undefined;
-}
