@@ -150,7 +150,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 									onChange={(e) => setName(e.target.value)}
 									placeholder="例如：小智、阿乐"
 									maxLength={ASSISTANT_FORM_LIMITS.name}
-									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-[#4f46e5] focus:outline-none"
 								/>
 								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
 									{name.length}/{ASSISTANT_FORM_LIMITS.name}
@@ -169,7 +169,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 									placeholder="例如：投标经理"
 									maxLength={ASSISTANT_FORM_LIMITS.roleName}
 									readOnly={isTemplateAssistant}
-									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors read-only:bg-slate-50 focus:border-blue-300 focus:outline-none"
+									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors read-only:bg-slate-50 focus:border-[#4f46e5] focus:outline-none"
 								/>
 								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
 									{roleName.length}/{ASSISTANT_FORM_LIMITS.roleName}
@@ -187,7 +187,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 									onChange={(e) => setDescription(e.target.value)}
 									placeholder="简要说明这个队友能做什么"
 									maxLength={ASSISTANT_FORM_LIMITS.description}
-									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-16 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-16 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-[#4f46e5] focus:outline-none"
 								/>
 								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
 									{description.length}/{ASSISTANT_FORM_LIMITS.description}
@@ -204,7 +204,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 									maxLength={ASSISTANT_FORM_LIMITS.systemPrompt}
 									readOnly={isTemplateAssistant}
 									rows={5}
-									className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 pb-6 text-sm text-slate-800 placeholder:text-slate-400 transition-colors read-only:bg-slate-50 focus:border-blue-300 focus:outline-none"
+									className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 pb-6 text-sm text-slate-800 placeholder:text-slate-400 transition-colors read-only:bg-slate-50 focus:border-[#4f46e5] focus:outline-none"
 								/>
 								<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-slate-400">
 									{systemPrompt.length}/{ASSISTANT_FORM_LIMITS.systemPrompt}
