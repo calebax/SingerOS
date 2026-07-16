@@ -83,6 +83,9 @@ var legacyIndexes = []string{
 	"idx_user_org_uin",
 	"idx_leros_project_file_node_type",
 	"idx_leros_project_file_parent_id",
+	"idx_leros_project_file_file_public_id",
+	"idx_project_file_version",
+	"idx_project_file_path_version",
 }
 
 // dbName 是数据库名称常量
@@ -1064,7 +1067,7 @@ func backfillProjectFileVersions(db *gorm.DB) error {
 		return fmt.Errorf("list project files for version backfill: %w", err)
 	}
 	if len(projectFiles) == 0 {
-		return createProjectFileVersionUniqueIndex(db)
+		return createProjectFileVersionIndex(db)
 	}
 
 	var uploads []types.FileUpload
@@ -1116,7 +1119,7 @@ func backfillProjectFileVersions(db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
-	return createProjectFileVersionUniqueIndex(db)
+	return createProjectFileVersionIndex(db)
 }
 
 func projectFileBackfillPrefix(resourceType types.ProjectFileResourceType) string {
@@ -1132,20 +1135,20 @@ func projectFileBackfillPrefix(resourceType types.ProjectFileResourceType) strin
 	}
 }
 
-func createProjectFileVersionUniqueIndex(db *gorm.DB) error {
+func createProjectFileVersionIndex(db *gorm.DB) error {
 	statements := []string{
 		fmt.Sprintf(
-			"CREATE UNIQUE INDEX IF NOT EXISTS idx_project_file_version ON %s (org_id, project_id, initial_file_public_id, version_no)",
+			"CREATE INDEX IF NOT EXISTS idx_project_file_version ON %s (org_id, project_id, initial_file_public_id, version_no)",
 			types.TableNameProjectFile,
 		),
 		fmt.Sprintf(
-			"CREATE UNIQUE INDEX IF NOT EXISTS idx_project_file_path_version ON %s (org_id, project_id, resource_type, relative_path, version_no)",
+			"CREATE INDEX IF NOT EXISTS idx_project_file_path_version ON %s (org_id, project_id, resource_type, relative_path, version_no)",
 			types.TableNameProjectFile,
 		),
 	}
 	for _, statement := range statements {
 		if err := db.Exec(statement).Error; err != nil {
-			return fmt.Errorf("create project file version unique index: %w", err)
+			return fmt.Errorf("create project file version index: %w", err)
 		}
 	}
 	return nil

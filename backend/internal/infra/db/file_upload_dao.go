@@ -12,6 +12,18 @@ func CreateFileUpload(ctx context.Context, db *gorm.DB, file *types.FileUpload) 
 	return db.WithContext(ctx).Create(file).Error
 }
 
+func GetFileUploadsByPublicIDs(ctx context.Context, db *gorm.DB, orgID uint, publicIDs []string) ([]types.FileUpload, error) {
+	if len(publicIDs) == 0 {
+		return nil, nil
+	}
+	var files []types.FileUpload
+	err := db.WithContext(ctx).Where("public_id IN ? AND org_id = ?", publicIDs, orgID).Find(&files).Error
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
 func GetFileUploadByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publicID string) (*types.FileUpload, error) {
 	var file types.FileUpload
 	err := db.WithContext(ctx).Where("public_id = ? AND org_id = ?", publicID, orgID).First(&file).Error

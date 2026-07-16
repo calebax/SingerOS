@@ -166,7 +166,9 @@ func (p *MessagePoster) RunNewMessage(
 	}
 	// 中文注释：附件必须在 Task 创建后再绑定，才能写入 uploads/_task/{taskPublicID}/ 隔离路径，避免跨任务同名文件夹冲突。
 	if len(req.Attachments) > 0 {
-		attachFilesToProject(ctx, p.db, caller.OrgID, caller.Uin, &o.task.ID, o.project, req.Attachments)
+		if err := attachFilesToProject(ctx, p.db, caller.OrgID, caller.Uin, &o.task.ID, o.project, req.Attachments); err != nil {
+			return nil, fmt.Errorf("attach files to project: %w", err)
+		}
 	}
 
 	// 先补齐附件的可访问 URL，再把附件写入用户消息，避免前端回显和后续上下文拿不到附件信息。
@@ -987,20 +989,20 @@ func resolveAttachmentURLs(
 
 func attachFilesToProject(
 	ctx context.Context,
-	db *gorm.DB,
+	dbParam *gorm.DB,
 	orgID uint,
 	uin uint,
 	taskID *uint,
 	project *types.Project,
 	attachments []types.MessageAttachment,
-) {
+) error {
 	if project == nil || project.ID == 0 || len(attachments) == 0 {
-		return
+		return nil
 	}
 
 	var taskPublicID string
 	if taskID != nil && *taskID != 0 {
-		task, taskErr := infradb.GetTaskByID(ctx, db, orgID, *taskID)
+		task, taskErr := infradb.GetTaskByID(ctx, dbParam, orgID, *taskID)
 		if taskErr != nil {
 			logs.WarnContextf(ctx, "attach files resolve task %d failed: %v", *taskID, taskErr)
 		} else if task != nil {
@@ -1008,56 +1010,74 @@ func attachFilesToProject(
 		}
 	}
 
-	for i := range attachments {
-		if attachments[i].FileUploadID == "" {
-			continue
-		}
-		fileUpload, err := infradb.GetFileUploadByPublicID(ctx, db, orgID, attachments[i].FileUploadID)
-		if err != nil {
-			logs.WarnContextf(ctx, "attach file %s to project %s failed: %v", attachments[i].FileUploadID, project.PublicID, err)
-			continue
-		}
-		if fileUpload == nil {
-			continue
-		}
-
-		exists, _ := infradb.GetProjectFileByFilePublicID(ctx, db, orgID, fileUpload.PublicID)
-		if exists == nil {
-			if err := db.Transaction(func(tx *gorm.DB) error {
-				pf, bindErr := projectfile.BindUserUploadToProject(ctx, tx, projectfile.BindUserUploadParams{
-					OrgID:        orgID,
-					ProjectID:    project.ID,
-					TaskID:       taskID,
-					TaskPublicID: taskPublicID,
-					Uin:          uin,
-					FileUpload:   fileUpload,
-					DisplayName:  attachments[i].Name,
-					RelativePath: attachments[i].RelativePath,
-				})
-				if bindErr != nil {
-					return bindErr
-				}
-				projResource, rerr := infradb.GetResourceByBizID(ctx, tx, orgID, types.ResourceTypeProject, project.ID)
-				if rerr != nil {
-					return rerr
-				}
-				if projResource == nil {
-					return nil
-				}
-				fr := &types.Resource{
-					OrgID:                 orgID,
-					Uin:                   uin,
-					Type:                  types.ResourceTypeFile,
-					BizID:                 pf.ID,
-					ParentResourceID:      &projResource.ID,
-					ParentResourcePathIDs: types.ResourcePathIDs{projResource.ID},
-				}
-				return infradb.CreateResource(ctx, tx, fr)
-			}); err != nil {
-				logs.WarnContextf(ctx, "create project_file record for attachment %s: %v", attachments[i].FileUploadID, err)
-			}
+	publicIDs := make([]string, 0, len(attachments))
+	for _, a := range attachments {
+		if a.FileUploadID != "" {
+			publicIDs = append(publicIDs, a.FileUploadID)
 		}
 	}
+	if len(publicIDs) == 0 {
+		return nil
+	}
+
+	uploads, err := infradb.GetFileUploadsByPublicIDs(ctx, dbParam, orgID, publicIDs)
+	if err != nil {
+		return fmt.Errorf("batch get file uploads: %w", err)
+	}
+	uploadByPublicID := make(map[string]*types.FileUpload, len(uploads))
+	for i := range uploads {
+		uploadByPublicID[uploads[i].PublicID] = &uploads[i]
+	}
+
+	projResource, rerr := infradb.GetResourceByBizID(ctx, dbParam, orgID, types.ResourceTypeProject, project.ID)
+	if rerr != nil {
+		return fmt.Errorf("get project resource: %w", rerr)
+	}
+
+	if err := dbParam.Transaction(func(tx *gorm.DB) error {
+		var params []projectfile.BindUserUploadParams
+		for i := range attachments {
+			upload, ok := uploadByPublicID[attachments[i].FileUploadID]
+			if !ok || upload == nil {
+				continue
+			}
+			params = append(params, projectfile.BindUserUploadParams{
+				OrgID:        orgID,
+				ProjectID:    project.ID,
+				TaskID:       taskID,
+				TaskPublicID: taskPublicID,
+				Uin:          uin,
+				FileUpload:   upload,
+				DisplayName:  attachments[i].Name,
+				RelativePath: attachments[i].RelativePath,
+			})
+		}
+		pfs, bindErr := projectfile.BindUserUploadsToProject(ctx, tx, params)
+		if bindErr != nil {
+			return bindErr
+		}
+		if projResource == nil {
+			return nil
+		}
+		for _, pf := range pfs {
+			fr := &types.Resource{
+				OrgID:                 orgID,
+				Uin:                   uin,
+				Type:                  types.ResourceTypeFile,
+				BizID:                 pf.ID,
+				ParentResourceID:      &projResource.ID,
+				ParentResourcePathIDs: types.ResourcePathIDs{projResource.ID},
+			}
+			if err := infradb.CreateResource(ctx, tx, fr); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("batch create project_file records (org=%d project=%d files=%d): %w",
+			orgID, project.ID, len(publicIDs), err)
+	}
+	return nil
 }
 
 func (p *MessagePoster) resolveWorkspaceIDs(ctx context.Context, session *types.Session) (string, string, error) {
