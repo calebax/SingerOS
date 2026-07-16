@@ -1,6 +1,11 @@
 "use client";
 
-import { type BackendProjectFileVersion, projectFileApi } from "@leros/store";
+import {
+	type BackendProjectFileVersion,
+	projectFileApi,
+	useChatStore,
+	useLayoutStore,
+} from "@leros/store";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	ChevronsLeftRightEllipsis,
@@ -15,6 +20,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import { DocxSelectionToolbar } from "./DocxSelectionToolbar";
+import {
+	buildDocxSelectionEditRequest,
+	DOCX_SELECTION_TEXT_LIMIT,
+	type DocxSelectionInstruction,
+} from "./docx-selection-edit";
 import { filePreviewActions } from "./file-preview-store";
 import {
 	detectFilePreviewKind,
@@ -26,12 +37,27 @@ import {
 	type FilePreviewKind,
 	type FilePreviewState,
 	fetchFilePreviewContent,
-	PROJECT_FILE_RESTORED_EVENT,
+	PROJECT_FILE_VERSION_CHANGED_EVENT,
 } from "./file-preview-utils";
-import { OfficePreview } from "./OfficePreview";
+import { OfficePreview, type OfficeTextSelection } from "./OfficePreview";
+import { PdfPreview, type PdfTextSelection } from "./PdfPreview";
+import {
+	getLatestProjectFileVersion,
+	waitForProjectFileVersionChange,
+} from "./project-file-version-sync";
 import { SpreadsheetPreview } from "./SpreadsheetPreview";
 
 export type { FilePreviewItem } from "./file-preview-utils";
+
+type PendingSelectionVersionSync = {
+	projectId: string;
+	taskId?: string;
+	chainFilePublicId: string;
+	expectedPreviewPublicId: string;
+	baselinePublicId: string;
+	baselineVersionNo: number;
+	selectedVersionPublicId: string;
+};
 
 export function FilePreviewDrawer({
 	file,
@@ -52,7 +78,23 @@ export function FilePreviewDrawer({
 	const [selectedVersionPublicId, setSelectedVersionPublicId] = useState("");
 	const [restoreTarget, setRestoreTarget] = useState<BackendProjectFileVersion | null>(null);
 	const [restoring, setRestoring] = useState(false);
+	const [officeSelection, setOfficeSelection] = useState<OfficeTextSelection | null>(null);
+	const [selectionSubmitting, setSelectionSubmitting] = useState(false);
+	const [pendingVersionSync, setPendingVersionSync] = useState<PendingSelectionVersionSync | null>(
+		null,
+	);
 	const drawerRef = useRef<HTMLDivElement>(null);
+	const selectedVersionPublicIdRef = useRef(selectedVersionPublicId);
+	const { isGenerating, sendMessage, sendProjectMessage, sendTaskRoomMessage } = useChatStore(
+		(state) => state,
+	);
+	const {
+		activeProjectId,
+		activeTaskDetailProjectId,
+		activeTaskDetailTaskId,
+		activeTaskDetailSessionId,
+		currentView,
+	} = useLayoutStore((state) => state);
 	const selectedVersion = useMemo(
 		() => versions.find((version) => version.public_id === selectedVersionPublicId) ?? null,
 		[versions, selectedVersionPublicId],
@@ -62,7 +104,7 @@ export function FilePreviewDrawer({
 		return {
 			...file,
 			name: selectedVersion.name || file.name,
-			title: `${selectedVersion.name || file.name} ${selectedVersion.version_label || `第 ${selectedVersion.version_no} 版`}`,
+			title: selectedVersion.name || file.name,
 			mimeType: selectedVersion.mime_type || file.mimeType,
 			storageUri: selectedVersion.storage_uri || undefined,
 			versionPublicId: selectedVersion.public_id,
@@ -72,13 +114,27 @@ export function FilePreviewDrawer({
 	}, [file, selectedVersion]);
 	const previewKind = useMemo(() => detectFilePreviewKind(previewFile), [previewFile]);
 	const canShowHistory = Boolean(file?.projectId && file.publicId);
+	const displayedVersionNo = previewFile?.versionNo ?? file?.versionNo;
+	const isHistoricalVersion = Boolean(
+		previewFile?.versionPublicId && file?.publicId && previewFile.versionPublicId !== file.publicId,
+	);
 
 	const closePreview = () => {
 		onOpenChange(false);
 	};
 
 	useEffect(() => {
+		selectedVersionPublicIdRef.current = selectedVersionPublicId;
+	}, [selectedVersionPublicId]);
+
+	useEffect(() => {
+		if (!open || !file) return;
+		setSelectedVersionPublicId(file.versionPublicId ?? "");
+	}, [open, file?.publicId, file?.versionPublicId]);
+
+	useEffect(() => {
 		setHtmlView("preview");
+		setOfficeSelection(null);
 	}, [file?.publicId, file?.name, selectedVersionPublicId]);
 
 	useEffect(() => {
@@ -133,6 +189,7 @@ export function FilePreviewDrawer({
 					previewKind === "docx" ||
 					previewKind === "xlsx" ||
 					previewKind === "pptx" ||
+					previewKind === "pdf" ||
 					previewKind === "spreadsheet"
 				) {
 					const buffer = await response.arrayBuffer();
@@ -166,7 +223,9 @@ export function FilePreviewDrawer({
 	}, [open, file]);
 
 	useEffect(() => {
-		if (!open || !file?.projectId || !file.publicId || !historyOpen) return;
+		if (!open || !file?.projectId || !file.publicId || (!historyOpen && !file.versionPublicId)) {
+			return;
+		}
 		const projectId = file.projectId;
 		const filePublicId = file.publicId;
 
@@ -198,7 +257,76 @@ export function FilePreviewDrawer({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, file?.projectId, file?.publicId, historyOpen, selectedVersionPublicId]);
+	}, [
+		open,
+		file?.projectId,
+		file?.publicId,
+		file?.versionPublicId,
+		historyOpen,
+		selectedVersionPublicId,
+	]);
+
+	useEffect(() => {
+		if (!pendingVersionSync || isGenerating) return;
+		const pending = pendingVersionSync;
+		const controller = new AbortController();
+
+		async function syncLatestVersion() {
+			try {
+				const change = await waitForProjectFileVersionChange({
+					baselinePublicId: pending.baselinePublicId,
+					baselineVersionNo: pending.baselineVersionNo,
+					signal: controller.signal,
+					loadVersions: async () => {
+						const response = await projectFileApi.versions(
+							pending.projectId,
+							pending.chainFilePublicId,
+						);
+						if (response.data.code !== 0) {
+							throw new Error(response.data.message || "最新文件版本加载失败");
+						}
+						return response.data.data;
+					},
+				});
+				if (controller.signal.aborted) return;
+				setPendingVersionSync(null);
+				if (!change) {
+					toast.warning("未检测到新的文件版本，预览保持当前版本");
+					return;
+				}
+
+				window.dispatchEvent(
+					new CustomEvent(PROJECT_FILE_VERSION_CHANGED_EVENT, {
+						detail: { projectId: pending.projectId, taskId: pending.taskId },
+					}),
+				);
+				const historySelectionUnchanged =
+					selectedVersionPublicIdRef.current === pending.selectedVersionPublicId;
+				const previewUpdated =
+					historySelectionUnchanged &&
+					filePreviewActions.applyLatestProjectFileVersion({
+						projectId: pending.projectId,
+						expectedPublicId: pending.expectedPreviewPublicId,
+						version: change.latest,
+						versionCount: change.versionCount,
+					});
+				if (previewUpdated) {
+					setSelectedVersionPublicId("");
+					toast.success(`已生成 V${change.latest.version_no}，预览已切换到最新版本`);
+					return;
+				}
+				toast.success(`已生成 V${change.latest.version_no}`);
+			} catch (error) {
+				if (controller.signal.aborted) return;
+				setPendingVersionSync(null);
+				console.error("Sync DOCX version error:", error);
+				toast.error("新版本已生成，但自动刷新预览失败");
+			}
+		}
+
+		void syncLatestVersion();
+		return () => controller.abort();
+	}, [isGenerating, pendingVersionSync]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -208,6 +336,7 @@ export function FilePreviewDrawer({
 			if (!(target instanceof Element)) return;
 			if (drawerRef.current?.contains(target)) return;
 			if (target.closest("[data-file-preview-trigger]")) return;
+			if (target.closest("[data-docx-selection-toolbar]")) return;
 			onOpenChange(false);
 		};
 
@@ -256,7 +385,7 @@ export function FilePreviewDrawer({
 			setRestoreTarget(null);
 			setSelectedVersionPublicId("");
 			window.dispatchEvent(
-				new CustomEvent(PROJECT_FILE_RESTORED_EVENT, {
+				new CustomEvent(PROJECT_FILE_VERSION_CHANGED_EVENT, {
 					detail: { projectId: file.projectId, taskId: file.taskId },
 				}),
 			);
@@ -291,11 +420,108 @@ export function FilePreviewDrawer({
 		window.addEventListener("pointerup", handlePointerUp);
 	};
 
+	const handleSelectionInstruction = async (instruction: DocxSelectionInstruction) => {
+		if (!officeSelection || !previewFile || !file || selectionSubmitting) return;
+		if (isGenerating) {
+			toast.info("当前任务正在执行，请完成后再编辑选区");
+			return;
+		}
+		if (officeSelection.text.length > DOCX_SELECTION_TEXT_LIMIT) {
+			toast.info("选区内容过长，请缩小选区后重试");
+			return;
+		}
+
+		const request = buildDocxSelectionEditRequest({
+			instruction,
+			file: previewFile,
+			selection: officeSelection,
+		});
+		if (!request.attachment && !previewFile.projectPath) {
+			toast.error("当前文件缺少可编辑的文件标识");
+			return;
+		}
+
+		const attachments = request.attachment ? [request.attachment] : [];
+		const metadata = { displayContent: request.displayContent };
+		setSelectionSubmitting(true);
+		try {
+			const chainFilePublicId = file.publicId || previewFile.versionPublicId;
+			let versionSync: PendingSelectionVersionSync | null = null;
+			if (previewFile.projectId && chainFilePublicId && file.publicId) {
+				let baselinePublicId = file.publicId;
+				let baselineVersionNo = file.versionNo ?? 0;
+				try {
+					const response = await projectFileApi.versions(previewFile.projectId, chainFilePublicId);
+					if (response.data.code === 0) {
+						const latest = getLatestProjectFileVersion(response.data.data);
+						if (latest) {
+							baselinePublicId = latest.public_id;
+							baselineVersionNo = latest.version_no;
+						}
+					}
+				} catch (error) {
+					console.warn("Resolve DOCX version baseline error:", error);
+				}
+				versionSync = {
+					projectId: previewFile.projectId,
+					taskId: file.taskId,
+					chainFilePublicId,
+					expectedPreviewPublicId: file.publicId,
+					baselinePublicId,
+					baselineVersionNo,
+					selectedVersionPublicId,
+				};
+			}
+
+			let submitted: unknown;
+			if (
+				currentView === "taskDetail" &&
+				activeTaskDetailProjectId &&
+				activeTaskDetailTaskId &&
+				activeTaskDetailSessionId
+			) {
+				submitted = await sendTaskRoomMessage(
+					request.content,
+					{
+						projectId: activeTaskDetailProjectId,
+						taskId: activeTaskDetailTaskId,
+						sessionId: activeTaskDetailSessionId,
+						metadata,
+					},
+					attachments,
+				);
+			} else if (currentView === "project" && activeProjectId) {
+				submitted = await sendProjectMessage(
+					request.content,
+					activeProjectId,
+					attachments,
+					metadata,
+				);
+			} else {
+				submitted = await sendMessage(request.content, attachments, metadata);
+			}
+			if (!submitted) {
+				throw new Error("selection edit message was not submitted");
+			}
+			setPendingVersionSync(versionSync);
+			setOfficeSelection(null);
+			window.getSelection()?.removeAllRanges();
+			toast.success(instruction === "expand" ? "已提交扩写" : "已提交缩写");
+		} catch (error) {
+			console.error("Submit DOCX selection edit error:", error);
+			toast.error("选区编辑提交失败，请稍后重试");
+		} finally {
+			setSelectionSubmitting(false);
+		}
+	};
+
 	if (!open || !file) {
 		return null;
 	}
 
 	const displayTitle = previewFile?.title || file.title || file.name;
+	const selectionToolbarContainer =
+		drawerRef.current?.querySelector<HTMLElement>("[data-office-scroll-viewport]") ?? undefined;
 
 	return (
 		<div
@@ -315,10 +541,29 @@ export function FilePreviewDrawer({
 				</div>
 			</button>
 			<div className="flex items-center justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
-				<div className="min-w-0">
+				<div className="flex min-w-0 items-center gap-2">
 					<div className="truncate text-lg font-medium text-[var(--leros-text-strong)]">
 						{displayTitle}
 					</div>
+					{displayedVersionNo && displayedVersionNo > 0 ? (
+						<span className="shrink-0 rounded-md bg-[var(--leros-primary-softer)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
+							V{displayedVersionNo}
+						</span>
+					) : null}
+					{displayedVersionNo && displayedVersionNo > 0 ? (
+						<span className="shrink-0 text-xs text-[var(--leros-text-muted)]">
+							{isHistoricalVersion ? "历史版本" : "最新"}
+						</span>
+					) : null}
+					{isHistoricalVersion && file.publicId ? (
+						<button
+							type="button"
+							onClick={() => setSelectedVersionPublicId(file.publicId ?? "")}
+							className="shrink-0 text-xs font-medium text-[var(--leros-primary)] hover:underline"
+						>
+							切换到最新
+						</button>
+					) : null}
 				</div>
 				<div className="flex items-center gap-2">
 					{canShowHistory ? (
@@ -327,7 +572,7 @@ export function FilePreviewDrawer({
 							onClick={() => setHistoryOpen((value) => !value)}
 							className="group relative rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--leros-primary)]/30"
 							aria-label="历史版本"
-							title="历史版本"
+							title={file.versionCount ? `版本历史（${file.versionCount}）` : "版本历史"}
 						>
 							<History className="size-4" />
 							<span className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-md bg-[var(--leros-text-strong)] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm group-hover:opacity-100 group-focus-visible:opacity-100">
@@ -366,6 +611,9 @@ export function FilePreviewDrawer({
 						preview={preview}
 						htmlView={htmlView}
 						onHtmlViewChange={setHtmlView}
+						onOfficeSelectionChange={(selection) =>
+							setOfficeSelection(selection?.format === "docx" ? selection : null)
+						}
 					/>
 				</div>
 				{historyOpen && canShowHistory ? (
@@ -380,6 +628,14 @@ export function FilePreviewDrawer({
 					/>
 				) : null}
 			</div>
+			{officeSelection?.boundingRect && previewKind === "docx" ? (
+				<DocxSelectionToolbar
+					anchor={officeSelection.boundingRect}
+					portalContainer={selectionToolbarContainer}
+					busy={selectionSubmitting}
+					onInstruction={(instruction) => void handleSelectionInstruction(instruction)}
+				/>
+			) : null}
 			{restoreTarget ? (
 				<div className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 px-8">
 					<div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
@@ -482,7 +738,7 @@ function FileVersionPanel({
 										)}
 									>
 										<span className="block truncate text-xs font-semibold">
-											{version.version_label || `第 ${version.version_no} 版`}
+											V{version.version_no}
 										</span>
 										<span className="mt-0.5 block truncate text-[10px] text-[var(--leros-text-muted)]">
 											{formatVersionTime(version.created_at)}
@@ -530,6 +786,7 @@ function FilePreviewContent({
 	preview,
 	htmlView,
 	onHtmlViewChange,
+	onOfficeSelectionChange,
 }: {
 	fileName: string;
 	displayTitle: string;
@@ -537,6 +794,7 @@ function FilePreviewContent({
 	preview: FilePreviewState;
 	htmlView: "preview" | "source";
 	onHtmlViewChange: (view: "preview" | "source") => void;
+	onOfficeSelectionChange: (selection: OfficeTextSelection | null) => void;
 }) {
 	if (preview.status === "loading" || preview.status === "idle") {
 		return (
@@ -568,7 +826,12 @@ function FilePreviewContent({
 	) {
 		return (
 			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
-				<OfficePreview buffer={preview.buffer} fileName={fileName} format={previewKind} />
+				<OfficePreview
+					buffer={preview.buffer}
+					fileName={fileName}
+					format={previewKind}
+					onTextSelectionChange={onOfficeSelectionChange}
+				/>
 			</div>
 		);
 	}
@@ -660,13 +923,13 @@ function FilePreviewContent({
 		);
 	}
 
-	if (previewKind === "pdf" && preview.objectUrl) {
+	if (previewKind === "pdf" && preview.buffer) {
 		return (
 			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
-				<iframe
-					title={displayTitle}
-					src={preview.objectUrl}
-					className="h-full w-full border-0 bg-white"
+				<PdfPreview
+					buffer={preview.buffer}
+					fileName={fileName}
+					onTextSelectionChange={printPdfTextSelection}
 				/>
 			</div>
 		);
@@ -681,4 +944,18 @@ function FilePreviewContent({
 			</div>
 		</div>
 	);
+}
+
+function printPdfTextSelection(selection: PdfTextSelection | null): void {
+	if (!selection) return;
+	console.info("[PdfPreview] 选区文本与位置", {
+		text: selection.text,
+		surface: {
+			kind: selection.surfaceKind,
+			index: selection.surfaceIndex,
+		},
+		boundingRect: selection.boundingRect,
+		rects: selection.rects,
+		segments: selection.segments,
+	});
 }

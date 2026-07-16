@@ -8,7 +8,7 @@ import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat } from "./OfficePrevie
 export const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
 export const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
 export const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
-export const PROJECT_FILE_RESTORED_EVENT = "leros:project-file-restored";
+export const PROJECT_FILE_VERSION_CHANGED_EVENT = "leros:project-file-version-changed";
 
 export type FilePreviewKind =
 	| OfficeOpenXmlFormat
@@ -26,6 +26,7 @@ export type FilePreviewItem = {
 	mimeType?: string;
 	storageUri?: string;
 	publicId?: string;
+	initialFilePublicId?: string;
 	versionPublicId?: string;
 	projectId?: string;
 	projectPath?: string;
@@ -93,11 +94,14 @@ export async function fetchFilePreviewContent(
 	item: FilePreviewItem,
 	options?: { signal?: AbortSignal },
 ): Promise<Response> {
-	if (item.storageUri) {
-		return fetchFilePreviewByStorageUri(item.storageUri, options);
-	}
 	if (item.projectId && item.versionPublicId) {
 		return projectFileApi.fetchDownloadVersion(item.projectId, item.versionPublicId, options);
+	}
+	if (item.projectId && item.publicId) {
+		return projectFileApi.fetchDownloadVersion(item.projectId, item.publicId, options);
+	}
+	if (item.storageUri) {
+		return fetchFilePreviewByStorageUri(item.storageUri, options);
 	}
 	if (item.projectId && item.projectPath) {
 		return projectFileApi.fetchDownload(item.projectId, item.projectPath, options);

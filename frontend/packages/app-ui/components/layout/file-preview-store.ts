@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectArtifact } from "@leros/store";
+import type { BackendProjectFileVersion, ProjectArtifact } from "@leros/store";
 import type { Attachment, MessageAttachment } from "@leros/store/types/chat";
 import { useSyncExternalStore } from "react";
 import {
@@ -35,6 +35,39 @@ export const filePreviewActions = {
 	close() {
 		setSnapshot({ file: null });
 	},
+	applyLatestProjectFileVersion({
+		projectId,
+		expectedPublicId,
+		version,
+		versionCount,
+	}: {
+		projectId: string;
+		expectedPublicId: string;
+		version: BackendProjectFileVersion;
+		versionCount: number;
+	}) {
+		const file = snapshot.file;
+		if (!file || file.projectId !== projectId || file.publicId !== expectedPublicId) {
+			return false;
+		}
+		setSnapshot({
+			file: {
+				...file,
+				name: version.name || file.name,
+				title: version.name || file.name,
+				mimeType: version.mime_type || file.mimeType,
+				storageUri: version.storage_uri || undefined,
+				publicId: version.public_id,
+				initialFilePublicId: version.initial_file_public_id,
+				versionPublicId: undefined,
+				projectPath: version.relative_path || file.projectPath,
+				versionLabel: version.version_label,
+				versionNo: version.version_no,
+				versionCount,
+			},
+		});
+		return true;
+	},
 };
 
 export function useFilePreviewStore() {
@@ -58,18 +91,25 @@ export function useFilePreviewStore() {
 export function openProjectFilePreview(
 	projectId: string,
 	file: ProjectFileNode,
-	options?: { openHistory?: boolean; taskId?: string },
+	options?: {
+		openHistory?: boolean;
+		taskId?: string;
+		version?: BackendProjectFileVersion;
+	},
 ) {
+	const version = options?.version;
 	filePreviewActions.open({
-		name: file.name,
-		title: file.name,
-		mimeType: file.mimeType,
-		storageUri: file.storageUri,
+		name: version?.name || file.name,
+		title: version?.name || file.name,
+		mimeType: version?.mime_type || file.mimeType,
+		storageUri: version?.storage_uri || file.storageUri,
 		publicId: file.publicId,
+		initialFilePublicId: version?.initial_file_public_id || file.initialFilePublicId,
+		versionPublicId: version?.public_id,
 		projectId,
-		projectPath: file.path,
-		versionLabel: file.versionLabel,
-		versionNo: file.versionNo,
+		projectPath: version?.relative_path || file.path,
+		versionLabel: version?.version_label || file.versionLabel,
+		versionNo: version?.version_no ?? file.versionNo,
 		versionCount: file.versionCount,
 		openHistory: options?.openHistory,
 		...(options?.taskId ? { taskId: options.taskId } : {}),
