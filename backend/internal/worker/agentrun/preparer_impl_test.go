@@ -121,7 +121,7 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 		},
 	}
 
-	prepared, err := preparer.Prepare(context.Background(), request)
+	prepared, _, err := preparer.Prepare(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}
@@ -195,7 +195,7 @@ func TestPreparerResolvesProviderSessionForRuntimeResume(t *testing.T) {
 		},
 	}
 
-	prepared, err := preparer.Prepare(context.Background(), request)
+	prepared, _, err := preparer.Prepare(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}

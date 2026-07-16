@@ -8,6 +8,7 @@ import (
 )
 
 type UpstreamConfig struct {
+	ModelID      uint
 	ModelName    string
 	Provider     string
 	BaseURL      string
@@ -21,6 +22,7 @@ type UpstreamConfig struct {
 
 func (c UpstreamConfig) ToModelConfig() *llm.ModelConfig {
 	return &llm.ModelConfig{
+		ID:           c.ModelID,
 		Provider:     c.Provider,
 		ModelName:    c.ModelName,
 		BaseURL:      c.BaseURL,

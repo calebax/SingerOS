@@ -144,6 +144,9 @@ func (c *CallerHTTP) CallRaw(ctx context.Context, orgID uint, cfg *ModelConfig, 
 		record.InputTokens = usage.InputTokens
 		record.OutputTokens = usage.OutputTokens
 		record.TotalTokens = usage.TotalTokens
+		record.PromptTokens = usage.PromptTokens
+		record.CacheHitTokens = usage.CacheHitTokens
+		record.CacheMissTokens = usage.CacheMissTokens
 	}
 
 	c.recordCall(ctx, record)
@@ -290,6 +293,9 @@ func (c *CallerHTTP) StreamRaw(ctx context.Context, orgID uint, cfg *ModelConfig
 		record.InputTokens = lastUsage.InputTokens
 		record.OutputTokens = lastUsage.OutputTokens
 		record.TotalTokens = lastUsage.TotalTokens
+		record.PromptTokens = lastUsage.PromptTokens
+		record.CacheHitTokens = lastUsage.CacheHitTokens
+		record.CacheMissTokens = lastUsage.CacheMissTokens
 	}
 
 	c.recordCall(ctx, record)
@@ -387,11 +393,7 @@ func extractUsageFromResponse(body []byte) *Usage {
 	if usageMap == nil {
 		return nil
 	}
-	return &Usage{
-		InputTokens:  getIntFromMap(usageMap, "prompt_tokens"),
-		OutputTokens: getIntFromMap(usageMap, "completion_tokens"),
-		TotalTokens:  getIntFromMap(usageMap, "total_tokens"),
-	}
+	return buildUsageFromMap(usageMap)
 }
 
 func extractUsageFromSSEData(data string) *Usage {
@@ -403,10 +405,25 @@ func extractUsageFromSSEData(data string) *Usage {
 	if usageMap == nil {
 		return nil
 	}
+	return buildUsageFromMap(usageMap)
+}
+
+func buildUsageFromMap(usageMap map[string]interface{}) *Usage {
+	promptTokens := getIntFromMap(usageMap, "prompt_tokens")
+	completionTokens := getIntFromMap(usageMap, "completion_tokens")
+	totalTokens := getIntFromMap(usageMap, "total_tokens")
+
+	var cachedTokens int
+	if details, ok := usageMap["prompt_tokens_details"].(map[string]interface{}); ok {
+		cachedTokens = getIntFromMap(details, "cached_tokens")
+	}
+
 	return &Usage{
-		InputTokens:  getIntFromMap(usageMap, "prompt_tokens"),
-		OutputTokens: getIntFromMap(usageMap, "completion_tokens"),
-		TotalTokens:  getIntFromMap(usageMap, "total_tokens"),
+		InputTokens:    promptTokens,
+		OutputTokens:   completionTokens,
+		TotalTokens:    totalTokens,
+		PromptTokens:   int64(promptTokens),
+		CacheHitTokens: int64(cachedTokens),
 	}
 }
 

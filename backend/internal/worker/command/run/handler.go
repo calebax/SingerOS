@@ -65,6 +65,16 @@ type runTask struct {
 	Model         messaging.ModelOptions
 	Runtime       messaging.RuntimeOptions
 	Policy        messaging.TaskPolicy
+
+	// 业务主键 ID，从 RunCommandPayload 直接透传，用于 llm_history 关联。
+	ProjectID   uint
+	SessionID   uint
+	MessageID   uint
+	AssistantID uint
+	Uin         uint
+
+	// 客户端 IP，从 RouteContext 透传，用于 llm_history 关联。
+	ClientIP string
 }
 
 // Handler receives run commands and dispatches them asynchronously to the RunCoordinator.
@@ -226,6 +236,12 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 		Model:         payload.Model,
 		Runtime:       payload.Runtime,
 		Policy:        payload.Policy,
+		ProjectID:     payload.ProjectID,
+		SessionID:     payload.SessionID,
+		MessageID:     payload.MessageID,
+		AssistantID:   payload.AssistantID,
+		Uin:           payload.Uin,
+		ClientIP:      cmd.Route.ClientIP,
 	}
 
 	if err := h.validateRouteTask(task); err != nil {
@@ -417,6 +433,7 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 			RunID:             task.Trace.RunID,
 			ParentID:          task.Trace.ParentID,
 			ReplyToMessageIDs: replyToMessageIDs(task.Input.Messages),
+			ClientIP:          task.ClientIP,
 		},
 		DeliverySeqs: task.DeliverySeqs,
 	}
@@ -568,6 +585,7 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 			RunID:             task.Trace.RunID,
 			ParentID:          task.Trace.ParentID,
 			ReplyToMessageIDs: replyToMessageIDs(task.Input.Messages),
+			ClientIP:          cmd.Route.ClientIP,
 		},
 		DeliverySeqs: task.DeliverySeqs,
 	}

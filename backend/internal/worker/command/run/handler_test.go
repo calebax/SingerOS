@@ -89,8 +89,8 @@ func (*handlerPublisher) Request(context.Context, string, any) (*nats.Msg, error
 
 type handlerPreparer struct{}
 
-func (handlerPreparer) Prepare(_ context.Context, req *agentrundomain.RunRequest) (*agentrun.PreparedRun, error) {
-	return &agentrun.PreparedRun{Request: req, Execution: agent.ExecutionRequest{ExecutionID: req.RunID, TraceID: req.TraceID, Runtime: "test"}}, nil
+func (handlerPreparer) Prepare(_ context.Context, req *agentrundomain.RunRequest) (*agentrun.PreparedRun, func(), error) {
+	return &agentrun.PreparedRun{Request: req, Execution: agent.ExecutionRequest{ExecutionID: req.RunID, TraceID: req.TraceID, Runtime: "test"}}, nil, nil
 }
 
 type handlerFinalizer struct{}

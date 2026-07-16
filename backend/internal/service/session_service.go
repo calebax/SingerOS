@@ -21,8 +21,8 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/llm"
+	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
@@ -465,6 +465,7 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 			OrgID:     req.OrgID,
 			WorkerID:  workerID,
 			SessionID: req.SessionID,
+			ClientIP:  llm.GetCtxString(ctx, llm.CtxClientIP),
 		},
 		messaging.ApprovalResolveCommandPayload{
 			Action: req.Action,
@@ -498,6 +499,7 @@ func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract
 			OrgID:     req.OrgID,
 			WorkerID:  workerID,
 			SessionID: req.SessionID,
+			ClientIP:  llm.GetCtxString(ctx, llm.CtxClientIP),
 		},
 		messaging.QuestionAnswerCommandPayload{
 			Answers: req.Answers,
@@ -1257,6 +1259,7 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 				OrgID:     caller.OrgID,
 				WorkerID:  workerID,
 				SessionID: sessionID,
+				ClientIP:  llm.GetCtxString(ctx, llm.CtxClientIP),
 			},
 			messaging.CancelRunCommandPayload{
 				RunID:  req.RunID,
@@ -1311,6 +1314,7 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 						OrgID:     caller.OrgID,
 						WorkerID:  workerID,
 						SessionID: sessionID,
+						ClientIP:  llm.GetCtxString(ctx, llm.CtxClientIP),
 					},
 					messaging.CancelRunCommandPayload{
 						RunID:  req.RunID,
