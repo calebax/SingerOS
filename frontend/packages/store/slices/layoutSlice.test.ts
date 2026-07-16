@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Project } from "./layoutSlice";
+import { projectApi } from "../api/projectApi";
+import type { Project, ProjectMember } from "./layoutSlice";
 import { LayoutActionImpl, mergeProjectsFromListResult } from "./layoutSlice";
 
 function createProject(
@@ -22,6 +23,10 @@ function createProject(
 		files: overrides.files ?? [],
 	};
 }
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 describe("mergeProjectsFromListResult", () => {
 	it("会保留本地已加载的任务和详情字段，避免列表刷新清空侧栏任务", () => {
@@ -117,5 +122,69 @@ describe("LayoutActionImpl composer draft reset", () => {
 
 		expect(clearComposerInput).toHaveBeenCalledTimes(1);
 		expect(setState).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("LayoutActionImpl.updateProjectMembers", () => {
+	it("快速删除成员只更新一次项目并直接写入本地成员快照", async () => {
+		const originalProject = createProject({
+			id: "project-1",
+			name: "测试项目",
+			updatedAt: 10,
+			members: [
+				{
+					id: "user-owner",
+					memberId: 1,
+					publicId: "owner",
+					type: "user",
+					role: "owner",
+					name: "创建者",
+				},
+				{
+					id: "user-member",
+					memberId: 2,
+					publicId: "member",
+					type: "user",
+					role: "member",
+					name: "普通成员",
+				},
+			],
+		});
+		const localMembers: ProjectMember[] = [originalProject.members[0] as ProjectMember];
+		const invalidate = vi.fn();
+		let state = { projects: [originalProject], invalidate };
+		const setState = (partial: unknown) => {
+			const update =
+				typeof partial === "function"
+					? (partial as (current: typeof state) => Partial<typeof state>)(state)
+					: (partial as Partial<typeof state>);
+			state = { ...state, ...update };
+		};
+		const update = vi.spyOn(projectApi, "update").mockResolvedValue({
+			data: {
+				code: 0,
+				message: "success",
+				data: {
+					public_id: "project-1",
+					name: "测试项目",
+					created_at: "2026-07-16T00:00:00Z",
+					updated_at: "2026-07-16T00:00:01Z",
+				},
+			},
+		} as never);
+		const actions = new LayoutActionImpl(setState as never, (() => state) as never);
+
+		const result = await actions.updateProjectMembers(
+			{
+				public_id: "project-1",
+				members: [{ type: "user", id: "owner", role: "owner" }],
+			},
+			localMembers,
+		);
+
+		expect(update).toHaveBeenCalledTimes(1);
+		expect(state.projects[0]?.members).toEqual(localMembers);
+		expect(result?.members).toEqual(localMembers);
+		expect(invalidate).not.toHaveBeenCalled();
 	});
 });
