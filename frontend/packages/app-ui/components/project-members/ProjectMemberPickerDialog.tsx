@@ -34,6 +34,7 @@ import { useAuth } from "../auth";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
+import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 
 /** 项目成员 chip 列表容器：两列换行排列 */
 export const projectMemberListClassName = "flex flex-wrap items-start gap-2";
