@@ -722,11 +722,13 @@ export function ProjectMemberChip({
 	member,
 	onRemove,
 	readonly = false,
+	canRemove = true,
 	className,
 }: {
 	member: ProjectMember;
 	onRemove?: () => void;
 	readonly?: boolean;
+	canRemove?: boolean;
 	className?: string;
 }) {
 	const userRoleLabel = member.type === "user" ? formatProjectMemberRoleLabel(member.role) : null;
@@ -759,7 +761,7 @@ export function ProjectMemberChip({
 				) : null}
 			</div>
 			<div className="flex size-4 shrink-0 items-center justify-center">
-				{!readonly && onRemove && (
+				{!readonly && canRemove && onRemove && (
 					<button
 						type="button"
 						className="rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100"

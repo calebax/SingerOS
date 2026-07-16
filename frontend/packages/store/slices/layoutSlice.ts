@@ -145,6 +145,16 @@ export type Project = {
 	files: ProjectArtifact[];
 };
 
+type UpdateProjectParams = {
+	public_id: string;
+	name?: string;
+	description?: string;
+	status?: string;
+	owner_id?: number;
+	members?: ProjectMemberInput[];
+	metadata?: Record<string, unknown>;
+};
+
 export type ProjectComposerPrefill = {
 	id: string;
 	projectId: string;
@@ -963,28 +973,24 @@ export class LayoutActionImpl {
 		}
 	};
 
-	updateProject = async (params: {
-		public_id: string;
-		name?: string;
-		description?: string;
-		status?: string;
-		owner_id?: number;
-		members?: ProjectMemberInput[];
-		metadata?: Record<string, unknown>;
-	}) => {
+	#updateProject = async (
+		params: UpdateProjectParams,
+		options?: { localMembers?: ProjectMember[]; preservePermissions?: boolean },
+	) => {
 		try {
 			const res = await projectApi.update(params);
 			const bp = res.data.data;
 			if (!bp) throw new Error("No data returned");
 			const item = mapBackendProject(bp);
+			const updatedItem = options?.localMembers ? { ...item, members: options.localMembers } : item;
 			this.#set((state) => ({
 				projects: state.projects.map((p) =>
-					p.id === item.id
+					p.id === updatedItem.id
 						? {
 								...p,
-								...item,
+								...updatedItem,
 								tasks: p.tasks,
-								members: item.members.length > 0 ? item.members : p.members,
+								members: updatedItem.members.length > 0 ? updatedItem.members : p.members,
 								messages: p.messages,
 								files: p.files,
 							}
@@ -994,13 +1000,25 @@ export class LayoutActionImpl {
 			const store = this.#get() as LayoutStore & {
 				invalidate?: (resource?: { type: "project"; publicId: string }) => void;
 			};
-			store.invalidate?.({ type: "project", publicId: params.public_id });
-			return item;
+			if (!options?.preservePermissions) {
+				store.invalidate?.({ type: "project", publicId: params.public_id });
+			}
+			return updatedItem;
 		} catch (err) {
 			if (handlePermissionDenied(err)) return null;
 			console.error("updateProject error:", err);
 			return null;
 		}
+	};
+
+	updateProject = async (params: UpdateProjectParams) => this.#updateProject(params);
+
+	updateProjectMembers = async (
+		params: UpdateProjectParams & { members: ProjectMemberInput[] },
+		localMembers: ProjectMember[],
+	) => {
+		// 中文注释：删除其他项目成员不会改变当前用户权限，成功后直接落本地成员快照，避免额外详情回拉。
+		return this.#updateProject(params, { localMembers, preservePermissions: true });
 	};
 
 	deleteProject = async (publicId: string) => {

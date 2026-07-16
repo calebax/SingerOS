@@ -16,6 +16,7 @@ import {
 	type SkillInstalledItem,
 	skillMarketplaceApi,
 	useAppStore,
+	useCan,
 	useChatStore,
 	useDAStore,
 	useEnsureCapabilities,
@@ -61,16 +62,19 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
+import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
 import { CanGate } from "../permission/CanGate";
 import {
+	isSameProjectMember,
 	ProjectMemberChip,
 	ProjectMemberPickerDialog,
 	projectMemberChipClassName,
 	projectMemberListClassName,
 	sortProjectMembers,
 } from "../project-members/ProjectMemberPickerDialog";
+import { canQuickRemoveProjectMember } from "../project-members/project-member-removal";
 import { openProjectFilePreview } from "./file-preview-store";
 import { PROJECT_FILE_RESTORED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
@@ -132,6 +136,7 @@ export function ProjectPage({
 		fetchProjectDetail,
 		openTaskDetail,
 		updateProject,
+		updateProjectMembers: updateProjectMembersStore,
 	} = useLayoutStore((s) => s);
 
 	const {
@@ -517,6 +522,7 @@ export function ProjectPage({
 							compact={!isWideRightSidebar}
 							onUpdateProject={async (params) => {
 								const updated = await updateProject(params);
+								if (!updated) return null;
 								// 中文注释：更新项目后权限缓存会失效，立即重拉，避免添加成员和技能入口消失。
 								await useAppStore
 									.getState()
@@ -525,6 +531,13 @@ export function ProjectPage({
 									await fetchProjectDetail(project.id);
 								}
 								if (params.members || params.metadata) {
+									setActivityRefreshKey((key) => key + 1);
+								}
+								return updated;
+							}}
+							onQuickUpdateProjectMembers={async (params, localMembers) => {
+								const updated = await updateProjectMembersStore(params, localMembers);
+								if (updated) {
 									setActivityRefreshKey((key) => key + 1);
 								}
 								return updated;
@@ -581,6 +594,7 @@ function ProjectConfigSidebar({
 	project,
 	compact,
 	onUpdateProject,
+	onQuickUpdateProjectMembers,
 }: {
 	project: Project;
 	compact: boolean;
@@ -593,8 +607,21 @@ function ProjectConfigSidebar({
 		members?: { type: "assistant" | "user"; id: string }[];
 		metadata?: Record<string, unknown>;
 	}) => Promise<Project | null>;
+	onQuickUpdateProjectMembers: (
+		params: {
+			public_id: string;
+			members: { type: "assistant" | "user"; id: string }[];
+		},
+		localMembers: ProjectMember[],
+	) => Promise<Project | null>;
 }) {
+	const { user } = useAuth();
 	useProjectCapabilities(project.id);
+	const { allowed: canDeleteProjectMember } = useCan(
+		Action.ProjectMemberDelete,
+		{ type: "project", publicId: project.id },
+		false,
+	);
 	const [editingDescription, setEditingDescription] = useState(false);
 	const [descriptionDraft, setDescriptionDraft] = useState(project.description);
 	const [savingDescription, setSavingDescription] = useState(false);
@@ -733,7 +760,6 @@ function ProjectConfigSidebar({
 			),
 		[projectMembersWithLatestAssistantAvatar],
 	);
-
 	const resolveProjectMembersForUpdate = async (nextMembers: ProjectMember[]) => {
 		let resolvedMembers = nextMembers.map((member) => ({ ...member }));
 		const needAssistantPublicIds = resolvedMembers.some(
@@ -795,23 +821,38 @@ function ProjectConfigSidebar({
 		return resolvedMembers;
 	};
 
-	const updateProjectMembers = async (nextMembers: ProjectMember[]) => {
+	const updateProjectMembers = async (
+		nextMembers: ProjectMember[],
+		options?: { quickRemoval?: boolean },
+	) => {
 		setSavingMembers(true);
 		try {
 			const resolvedMembers = await resolveProjectMembersForUpdate(nextMembers);
-			const updated = await onUpdateProject({
+			const params = {
 				public_id: project.id,
 				members: projectMembersToInputs(resolvedMembers),
-			});
-			if (updated) {
-				toast.success("项目队友已更新");
+			};
+			const updated = options?.quickRemoval
+				? await onQuickUpdateProjectMembers(params, resolvedMembers)
+				: await onUpdateProject(params);
+			if (!updated) {
+				throw new Error("项目队友更新失败");
 			}
+			toast.success("项目队友已更新");
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "项目队友更新失败";
 			toast.error(message);
 		} finally {
 			setSavingMembers(false);
 		}
+	};
+
+	const removeProjectMember = (memberToRemove: ProjectMember) => {
+		if (savingMembers || !canQuickRemoveProjectMember(memberToRemove, user?.publicId)) return;
+		void updateProjectMembers(
+			project.members.filter((member) => !isSameProjectMember(member, memberToRemove)),
+			{ quickRemoval: true },
+		);
 	};
 
 	return (
@@ -920,14 +961,19 @@ function ProjectConfigSidebar({
 						</p>
 					) : (
 						<div className={projectMemberListClassName}>
-							{visibleProjectMembers.map((member) => (
-								<ProjectMemberChip
-									key={`${member.type}-${member.memberId}`}
-									member={member}
-									readonly
-									className={projectMemberChipClassName}
-								/>
-							))}
+							{visibleProjectMembers.map((member) => {
+								const canQuickRemove = canQuickRemoveProjectMember(member, user?.publicId);
+								return (
+									<ProjectMemberChip
+										key={member.id}
+										member={member}
+										readonly={!canQuickRemove}
+										canRemove={canDeleteProjectMember && !savingMembers}
+										onRemove={() => removeProjectMember(member)}
+										className={projectMemberChipClassName}
+									/>
+								);
+							})}
 						</div>
 					)}
 				</div>
