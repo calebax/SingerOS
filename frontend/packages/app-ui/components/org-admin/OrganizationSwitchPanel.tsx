@@ -15,7 +15,7 @@ import { cn } from "@leros/ui/lib/utils";
 import { Check, ChevronRight, Loader2, Plus } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
+import { ORGANIZATION_DEFAULT_AVATAR_SRC } from "../../assets";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import type { AppNavigation } from "../layout/LeftRail";
 
@@ -229,17 +229,17 @@ function OrganizationList({
 							switchingOrgId !== null && !switching && "opacity-60",
 						)}
 					>
-						<span className="flex size-10 shrink-0 overflow-hidden rounded-full bg-[var(--leros-primary)]">
+						{/* 中文注释：与组织管理页共用默认头像；组织已上传的图标仍由 src 优先渲染。 */}
+						<span className="flex size-10 shrink-0 overflow-hidden rounded-full bg-[var(--leros-primary-softer)]">
 							<ProtectedImage
 								src={resolveLogoUrl(org.logo)}
 								alt={org.name}
 								className="h-full w-full object-cover"
 								fallback={
-									<DiceBearAvatar
-										seed={`org:${org.name}`}
+									<img
+										src={ORGANIZATION_DEFAULT_AVATAR_SRC}
 										alt={org.name}
-										className="h-full w-full"
-										size={40}
+										className="h-full w-full object-cover"
 									/>
 								}
 							/>

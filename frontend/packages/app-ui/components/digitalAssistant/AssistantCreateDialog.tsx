@@ -315,8 +315,8 @@ export function AssistantCreateDialog({
 										className={cn(
 											"flex items-center gap-3 rounded-xl border p-3 transition-colors",
 											selectedTemplate?.id === template.id && !customMode
-												? "border-slate-900 bg-slate-50"
-												: "border-slate-200 hover:border-slate-400",
+												? "border-[#4f46e5] bg-slate-50"
+												: "border-slate-200 hover:border-[#4f46e5]",
 										)}
 									>
 										<button
@@ -402,7 +402,7 @@ export function AssistantCreateDialog({
 											placeholder="简要说明这位 AI 队友擅长什么、可以提供哪些帮助"
 											maxLength={ASSISTANT_FORM_LIMITS.description}
 											rows={3}
-											className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 pb-6 text-sm text-slate-800 focus:border-blue-300 focus:outline-none"
+											className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 pb-6 text-sm text-slate-800 focus:border-[#4f46e5] focus:outline-none"
 										/>
 										<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-slate-400">
 											{introduction.length}/{ASSISTANT_FORM_LIMITS.description}
@@ -467,7 +467,7 @@ function Field({
 					placeholder={placeholder}
 					readOnly={readOnly}
 					maxLength={maxLength}
-					className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 read-only:bg-slate-50 focus:border-blue-300 focus:outline-none"
+					className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 read-only:bg-slate-50 focus:border-[#4f46e5] focus:outline-none"
 				/>
 				<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
 					{value.length}/{maxLength}

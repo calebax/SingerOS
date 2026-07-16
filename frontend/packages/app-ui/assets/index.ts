@@ -14,3 +14,9 @@ export const PROJECT_NEW_TASK_HERO_OCTOPUS_SRC = new URL(
 	"./project-new-task-hero.png",
 	import.meta.url,
 ).href;
+
+/** 组织未上传自定义图标时展示的默认头像。 */
+export const ORGANIZATION_DEFAULT_AVATAR_SRC = new URL(
+	"./organization-default-avatar.png",
+	import.meta.url,
+).href;

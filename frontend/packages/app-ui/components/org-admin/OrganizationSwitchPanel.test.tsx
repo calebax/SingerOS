@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OrganizationSwitchPanel } from "./OrganizationSwitchPanel";
 
@@ -62,10 +62,6 @@ vi.mock("@leros/store", () => ({
 		}),
 }));
 
-vi.mock("../avatar/DiceBearAvatar", () => ({
-	DiceBearAvatar: () => <div data-testid="org-avatar" />,
-}));
-
 vi.mock("../avatar/ProtectedImage", () => ({
 	ProtectedImage: ({ fallback }: { fallback: ReactNode }) => <>{fallback}</>,
 }));
@@ -78,6 +74,10 @@ vi.mock("sonner", () => ({
 }));
 
 describe("OrganizationSwitchPanel", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockRefreshAuthSession.mockResolvedValue(true);
@@ -119,5 +119,14 @@ describe("OrganizationSwitchPanel", () => {
 		expect(mockFetchProjects).toHaveBeenCalledTimes(1);
 		expect(mockFetchAssistants).toHaveBeenCalledTimes(1);
 		expect(mockFetchInstalledSkills).toHaveBeenCalledTimes(1);
+	});
+
+	it("未上传图标的组织使用固定默认头像", () => {
+		render(<OrganizationSwitchPanel active />);
+
+		expect(screen.getByAltText("个人组织")).toHaveAttribute(
+			"src",
+			expect.stringContaining("organization-default-avatar.png"),
+		);
 	});
 });

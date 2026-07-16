@@ -12,7 +12,7 @@ import { Input } from "@leros/ui/components/ui/input";
 import { Camera, Loader2 } from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
+import { ORGANIZATION_DEFAULT_AVATAR_SRC } from "../../assets";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 
 function isImageFile(file: File): boolean {
@@ -170,14 +170,14 @@ export function OrgProfilePanel({
 		setPendingLogoUrl(resolveLogoUrl(org?.logo));
 	};
 
-	const orgLogoFallback = user?.currentOrg ? (
-		<DiceBearAvatar
-			seed={`org:${user.currentOrg.name}`}
-			alt={user.currentOrg.name}
-			className="h-full w-full"
-			size={80}
+	// 中文注释：仅在组织尚未设置图标或原图不可用时显示固定默认头像，不影响用户上传并保存自定义图标。
+	const orgLogoFallback = (
+		<img
+			src={ORGANIZATION_DEFAULT_AVATAR_SRC}
+			alt={user?.currentOrg?.name ?? "默认组织头像"}
+			className="h-full w-full object-cover"
 		/>
-	) : null;
+	);
 
 	if (!user?.currentOrg) {
 		return (
