@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.2.12] - 2026-07-16
+
+### 项目文件体系重构、AI 队友管理与协作体验增强
+
+本版本重构项目文件与上传链路，支持文件夹上传与筛选搜索，完善 AI 队友管理与组织头像展示，并增强 LLM 历史关联、Worker 认证与桌面端调试体验。
+
+- 重构 project_file 数据模型，将 relative_path 迁移至 attachment，支持文件夹上传、筛选搜索与文件夹下载
+- 统一文件下载参数，优化 user_upload 写入逻辑并重构 attachFilesToProject 为批量写入
+- 完善 AI 队友创建与编辑流程，统一队友样式与组织默认头像展示
+- 优化项目成员快速删除体验，修复任务侧栏文件版本号显示
+- LLM 调用链路传递 business keys 与 client IP，增强 llm_history 业务关联能力
+- Worker-Server 通信由 app_key 切换为 JWT token，完善本地开发启动脚本
+- 调整桌面端正式版开发者工具快捷键
+
 ## [v0.2.11] - 2026-07-15
 
 ### 组织切换与 AI 队友列表稳定性修复
