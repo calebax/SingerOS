@@ -40,8 +40,8 @@ import {
 	ChevronsLeft,
 	ChevronsRight,
 	ClipboardList,
-	Database,
 	ExternalLink,
+	Inbox,
 	Loader2,
 	LogOut,
 	MessageSquare,
@@ -110,7 +110,7 @@ const iconMap: Record<string, React.ReactNode> = {
 	IconAITeammate: <Users className="size-5" />,
 	IconProjectsHub: <ProjectIcon className="size-5" />,
 	IconSkill: <Zap className="size-5" />,
-	IconKnowledge: <Database className="size-5" />,
+	IconKnowledge: <Inbox className="size-5" />,
 	IconProject: <ProjectIcon className="size-4" />,
 };
 
@@ -1587,10 +1587,7 @@ function ProjectList({
 							</span>
 							{!collapsed && (
 								<>
-									{/* 原生省略号存在字形留白，向右补偿其可见终点以平衡侧栏左右视觉间距。 */}
-									<span className="-mr-4 min-w-0 flex-1 truncate transition-[margin] duration-150 group-hover:mr-0 group-has-[button[data-popup-open]]:mr-0">
-										{project.name}
-									</span>
+									<span className="min-w-0 flex-1 truncate">{project.name}</span>
 									<div className="flex shrink-0 items-center">
 										<span
 											className={cn(railHoverChevronSlotClass, "text-[var(--leros-text-subtle)]")}
