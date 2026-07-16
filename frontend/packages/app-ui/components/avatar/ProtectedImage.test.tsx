@@ -47,6 +47,21 @@ describe("ProtectedImage", () => {
 		expect(storeMocks.authenticatedFetch).not.toHaveBeenCalled();
 	});
 
+	it("renders the dedicated loading fallback before a protected image is ready", () => {
+		render(
+			<ProtectedImage
+				src="file_TwxpykjQhu"
+				alt="avatar"
+				className="size-7"
+				fallback={<span>default-avatar</span>}
+				loadingFallback={<span>loading-avatar</span>}
+			/>,
+		);
+
+		expect(document.body).toHaveTextContent("loading-avatar");
+		expect(document.body).not.toHaveTextContent("default-avatar");
+	});
+
 	it("keeps legacy protected download URL compatibility", async () => {
 		const legacyURL = "http://localhost:18080/v1/files/file_TN3691n6qd/download";
 

@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $script:DevRuntimeStateFile = Join-Path $PSScriptRoot '.runtime-state.json'
 
@@ -218,6 +218,180 @@ function Wait-DevPostgresReady {
     throw 'PostgreSQL did not become healthy in time.'
 }
 
+function Wait-DevNatsReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DockerExe
+    )
+
+    for ($i = 0; $i -lt 30; $i++) {
+        $health = & $DockerExe inspect --format '{{.State.Health.Status}}' leros-dev-nats 2>$null
+        if ($LASTEXITCODE -eq 0 -and ($health | Out-String).Trim() -eq 'healthy') {
+            return
+        }
+
+        Start-Sleep -Seconds 2
+    }
+
+    throw 'NATS did not become healthy in time.'
+}
+
+function Wait-DevPortReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ServiceName,
+
+        [int]$MaxAttempts = 60,
+
+        [int]$IntervalSeconds = 2
+    )
+
+    for ($i = 0; $i -lt $MaxAttempts; $i++) {
+        if (Test-PortListening -Port $Port) {
+            return
+        }
+
+        Start-Sleep -Seconds $IntervalSeconds
+    }
+
+    throw "$ServiceName did not start listening on port $Port in time."
+}
+
+function Get-DefaultCLIConfigPath {
+    return Join-Path $env:USERPROFILE '.leros\config.yaml'
+}
+
+function Get-DevNatsUrlFromConfig {
+    $configPath = Join-Path $PSScriptRoot 'worker.config.yaml'
+    if (-not (Test-Path $configPath)) {
+        throw 'worker.config.yaml not found. Copy worker.config.example.yaml first.'
+    }
+
+    $content = Get-Content $configPath -Raw -Encoding UTF8
+    if ($content -match '(?ms)^nats:\s*\r?\n\s*url:\s*["'']?([^"''\s]+)["'']?') {
+        return $Matches[1]
+    }
+
+    throw 'NATS URL not found in worker.config.yaml.'
+}
+
+function Sync-DevCLIConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [int]$ServerPort
+    )
+
+    $resolvedWorkerConfig = New-ResolvedWorkerConfig -RepoRoot $RepoRoot -ServerPort $ServerPort
+    $natsUrl = Get-DevNatsUrlFromConfig
+    $cliConfigPath = Get-DefaultCLIConfigPath
+    $cliDir = Split-Path $cliConfigPath -Parent
+    $workspaceRoot = Join-Path $RepoRoot '.leros-workspace'
+
+    if (-not (Test-Path $cliDir)) {
+        New-Item -ItemType Directory -Path $cliDir | Out-Null
+    }
+
+    if (-not (Test-Path $cliConfigPath)) {
+        # 中文注释：首次启动时写入 CLI 默认配置，避免调度子 Worker 回退到陈旧 NATS 地址。
+        $content = Get-Content $resolvedWorkerConfig -Raw -Encoding UTF8
+        if ($content -match '(?m)^workspace_root:\s*$') {
+            $content = $content -replace '(?m)^workspace_root:\s*$', "workspace_root: $workspaceRoot"
+        }
+        Set-Content -Path $cliConfigPath -Value $content -Encoding UTF8
+        Write-Host "[Leros] Created CLI config at $cliConfigPath" -ForegroundColor Cyan
+        return
+    }
+
+    $inNatsBlock = $false
+    $updatedLines = Get-Content $cliConfigPath -Encoding UTF8 | ForEach-Object {
+        if ($_ -match '^\s*nats:\s*$') {
+            $inNatsBlock = $true
+            return $_
+        }
+
+        if ($inNatsBlock -and $_ -match '^(\s*url:\s*)') {
+            $inNatsBlock = $false
+            return $Matches[1] + $natsUrl
+        }
+
+        if ($_ -match '^\S') {
+            $inNatsBlock = $false
+        }
+
+        if ($_ -match '^(\s*server_addr:\s*)') {
+            return $Matches[1] + "127.0.0.1:$ServerPort"
+        }
+
+        return $_
+    }
+
+    Set-Content -Path $cliConfigPath -Value ($updatedLines -join [Environment]::NewLine) -Encoding UTF8
+    Write-Host "[Leros] Synced NATS/server_addr in CLI config ($cliConfigPath)." -ForegroundColor Cyan
+}
+
+function ConvertTo-DevRuntimeHashtable {
+    param(
+        [Parameter(Mandatory = $true)]
+        $State
+    )
+
+    if ($State -is [hashtable]) {
+        return $State
+    }
+
+    return @{
+        serverPort = [int]$State.serverPort
+        workerPort = [int]$State.workerPort
+        apiBaseUrl = [string]$State.apiBaseUrl
+    }
+}
+
+function Prepare-DevRuntimeConfigs {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        $RuntimeState
+    )
+
+    $state = ConvertTo-DevRuntimeHashtable -State $RuntimeState
+    $null = New-ResolvedServerConfig -RepoRoot $RepoRoot -ServerPort $state.serverPort
+    Sync-DevCLIConfig -RepoRoot $RepoRoot -ServerPort $state.serverPort
+}
+
+function Start-DevBackendWindows {
+    param(
+        [Parameter(Mandatory = $true)]
+        $RuntimeState
+    )
+
+    $state = ConvertTo-DevRuntimeHashtable -State $RuntimeState
+
+    Write-Host '[Leros] Opening server window...' -ForegroundColor Cyan
+    Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-server-dev.ps1" | Out-Null
+    Write-Host "[Leros] Waiting for server on port $($state.serverPort)..." -ForegroundColor Cyan
+    Wait-DevPortReady -Port $state.serverPort -ServiceName 'API server'
+
+    Write-Host '[Leros] Opening worker window...' -ForegroundColor Cyan
+    Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-worker-dev.ps1" | Out-Null
+    Write-Host "[Leros] Waiting for worker on port $($state.workerPort)..." -ForegroundColor Cyan
+    Wait-DevPortReady -Port $state.workerPort -ServiceName 'Worker'
+}
+
+function Start-DevFrontendWindow {
+    Write-Host '[Leros] Opening frontend window...' -ForegroundColor Cyan
+    Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-frontend-dev.ps1" | Out-Null
+    Write-Host '[Leros] Waiting for frontend on port 3005...' -ForegroundColor Cyan
+    Wait-DevPortReady -Port 3005 -ServiceName 'Frontend' -MaxAttempts 90
+}
+
 function Import-DevEnvFile {
     $envPath = Join-Path $PSScriptRoot '.env'
     if (-not (Test-Path $envPath)) {
@@ -401,11 +575,14 @@ function New-ResolvedServerConfig {
 
     $templatePath = Join-Path $PSScriptRoot 'server.config.yaml'
     $resolvedPath = Join-Path $runtimeDir 'server.config.runtime.yaml'
-    # Replace one line at a time so multiline whitespace cannot consume adjacent YAML lines.
+    # 中文注释：同步服务端口和调度地址，避免子 Worker 连接旧端口。
     $content = (
         Get-Content $templatePath -Encoding UTF8 | ForEach-Object {
             if ($_ -match '^(\s*port:\s*)\d+\s*$') {
                 return $Matches[1] + $ServerPort
+            }
+            if ($_ -match '^(\s*server_addr:\s*).*$') {
+                return $Matches[1] + "127.0.0.1:$ServerPort"
             }
             return $_
         }
@@ -430,10 +607,10 @@ function New-ResolvedWorkerConfig {
 
     $templatePath = Join-Path $PSScriptRoot 'worker.config.yaml'
     $resolvedPath = Join-Path $runtimeDir 'worker.config.runtime.yaml'
-    # Replace one line at a time to preserve blank lines and the surrounding YAML structure.
+    # 中文注释：兼容本地配置中的单引号、双引号和无引号格式。
     $content = (
         Get-Content $templatePath -Encoding UTF8 | ForEach-Object {
-            if ($_ -match '^(\s*server_addr:\s*)".*"\s*$') {
+            if ($_ -match '^(\s*server_addr:\s*).*$') {
                 return $Matches[1] + '"127.0.0.1:' + $ServerPort + '"'
             }
             return $_

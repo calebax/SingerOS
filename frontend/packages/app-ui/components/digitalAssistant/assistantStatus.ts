@@ -97,3 +97,16 @@ export function getAssistantDisplayStatus(assistant: DigitalAssistantItem): Assi
 export function isAssistantAvailable(assistant: DigitalAssistantItem): boolean {
 	return assistant.status === "active" && assistant.deploymentStatus?.trim() === "ready";
 }
+
+export function getAssistantEditability(assistant: DigitalAssistantItem): {
+	canEdit: boolean;
+	reason?: string;
+} {
+	if (!isAssistantAvailable(assistant)) {
+		return {
+			canEdit: false,
+			reason: `AI 队友${getAssistantDisplayStatus(assistant).label}，暂不可编辑`,
+		};
+	}
+	return { canEdit: true };
+}

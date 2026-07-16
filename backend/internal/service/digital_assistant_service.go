@@ -165,9 +165,17 @@ func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id
 	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
 		return nil, err
 	}
-	// 中文注释：模板创建的 AI 队友作为模板实例维护，禁止在实例层直接修改配置。
+	// 中文注释：模板实例只允许维护用户侧信息，角色名称、角色设定和能力配置必须保持模板定义。
 	if da.Source == "template" {
-		return nil, errors.New("template-created digital assistant cannot be modified")
+		if strings.TrimSpace(req.RoleName) != "" && strings.TrimSpace(req.RoleName) != da.RoleName {
+			return nil, errors.New("template-created digital assistant role name cannot be modified")
+		}
+		if req.SystemPrompt != nil && *req.SystemPrompt != da.SystemPrompt {
+			return nil, errors.New("template-created digital assistant system prompt cannot be modified")
+		}
+		if req.Expertise != nil {
+			return nil, errors.New("template-created digital assistant expertise cannot be modified")
+		}
 	}
 	if req.Name != "" {
 		da.Name = req.Name
@@ -326,18 +334,15 @@ func (s *digitalAssistantService) CreateDigitalAssistantFromTemplate(ctx context
 	}
 
 	createReq := &contract.CreateDigitalAssistantRequest{
-		Name:         firstNonEmpty(req.Name, tpl.Name),
-		RoleName:     firstNonEmpty(req.RoleName, tpl.Name),
+		Name: firstNonEmpty(req.Name, tpl.Name),
+		// 中文注释：模板实例的角色名称、角色设定和能力配置必须直接继承模板，避免创建阶段绕过后续编辑限制。
+		RoleName:     tpl.Name,
 		Description:  firstNonEmpty(req.Description, tpl.Description),
 		Avatar:       firstNonEmpty(req.Avatar, tpl.Avatar),
-		SystemPrompt: firstNonEmpty(req.SystemPrompt, tpl.SystemPrompt),
+		SystemPrompt: tpl.SystemPrompt,
+		Expertise:    []string(tpl.Expertise),
 		TemplateID:   &tpl.ID,
 		Source:       "template",
-	}
-	if len(req.Expertise) > 0 {
-		createReq.Expertise = req.Expertise
-	} else {
-		createReq.Expertise = []string(tpl.Expertise)
 	}
 
 	result, err := s.CreateDigitalAssistant(ctx, createReq)
