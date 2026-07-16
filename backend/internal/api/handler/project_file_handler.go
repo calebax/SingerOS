@@ -10,6 +10,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -29,6 +30,7 @@ func (h *ProjectFileHandler) RegisterRoutes(r gin.IRouter) {
 	viewGuard := PermGuardPath(h.permSvc, types.ResourceTypeProject, "project_id", types.ActionProjectView)
 	r.GET("/projects/:project_id/files", viewGuard, h.GetProjectFileTree)
 	r.GET("/projects/:project_id/files/download", viewGuard, h.DownloadProjectFile)
+	r.GET("/projects/:project_id/files/folders/:folder_public_id/download", viewGuard, h.DownloadProjectFolder)
 	r.GET("/projects/:project_id/files/:file_public_id/versions", viewGuard, h.GetProjectFileVersions)
 	r.GET("/projects/:project_id/files/:file_public_id/download", viewGuard, h.DownloadProjectFileByPublicID)
 	r.POST("/projects/:project_id/files/:file_public_id/restore", viewGuard, h.RestoreProjectFileVersion)
@@ -44,6 +46,8 @@ func (h *ProjectFileHandler) RegisterRoutes(r gin.IRouter) {
 // @Param project_id path string true "项目 public_id"
 // @Param resource_type query string false "资源类型：user_upload | artifact | plan；默认排除 plan"
 // @Param task_id query string false "Task public ID，传入时仅返回该任务的产物文件"
+// @Param node_type query string false "节点类型：folder | file；默认返回文件与文件夹"
+// @Param file_ext query string false "文件类型分组：pdf | docx | xlsx | pptx | md | image | text"
 // @Success 200 {object} dto.Response "成功响应"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"
@@ -59,8 +63,24 @@ func (h *ProjectFileHandler) GetProjectFileTree(ctx *gin.Context) {
 
 	resourceType := strings.TrimSpace(ctx.Query("resource_type"))
 	taskID := strings.TrimSpace(ctx.Query("task_id"))
+	nodeType := strings.TrimSpace(ctx.Query("node_type"))
+	fileExt := strings.TrimSpace(ctx.Query("file_ext"))
 
-	result, err := h.service.GetProjectFileTree(ctx, projectID, resourceType, taskID)
+	if nodeType != "" && nodeType != "folder" && nodeType != "file" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "node_type must be folder or file"))
+		return
+	}
+	if fileExt != "" && !infradb.ValidProjectFileExtFilter(fileExt) {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "file_ext is invalid"))
+		return
+	}
+
+	result, err := h.service.GetProjectFileTree(ctx, projectID, contract.ProjectFileTreeQuery{
+		ResourceType: resourceType,
+		TaskPublicID: taskID,
+		NodeType:     nodeType,
+		FileExt:      fileExt,
+	})
 	if err != nil {
 		handleProjectFileServiceError(ctx, err)
 		return
@@ -116,6 +136,32 @@ func (h *ProjectFileHandler) GetProjectFileVersions(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// DownloadProjectFolder 将项目文件夹打包为 zip 下载。
+func (h *ProjectFileHandler) DownloadProjectFolder(ctx *gin.Context) {
+	projectID := strings.TrimSpace(ctx.Param("project_id"))
+	folderPublicID := strings.TrimSpace(ctx.Param("folder_public_id"))
+	if projectID == "" || folderPublicID == "" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "project_id and folder_public_id are required"))
+		return
+	}
+
+	reader, fileName, size, err := h.service.DownloadProjectFolder(ctx, projectID, folderPublicID)
+	if err != nil {
+		handleProjectFileServiceError(ctx, err)
+		return
+	}
+	defer reader.Close()
+	ctx.Header("Content-Type", "application/zip")
+	ctx.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
+	if size > 0 {
+		ctx.Header("Content-Length", fmt.Sprintf("%d", size))
+	}
+	ctx.Status(http.StatusOK)
+	if _, err := io.Copy(ctx.Writer, reader); err != nil {
+		_ = ctx.Error(err)
+	}
 }
 
 // DownloadProjectFileByPublicID 下载一个指定的项目文件版本。

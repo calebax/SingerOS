@@ -9,7 +9,7 @@ import {
 } from "@leros/store";
 import type { Message, MessageAttachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
-import { Check, Copy, ImageIcon, LoaderCircle } from "lucide-react";
+import { Check, Copy, Folder, ImageIcon, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { openMessageAttachmentPreview } from "../layout/file-preview-store";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
@@ -70,8 +70,19 @@ export function UserMessageBubble({ message }: { message: Message }) {
 				</div>
 				{attachments.length > 0 && (
 					<div className={`mb-2 flex flex-col gap-2 ${isOwnMessage ? "items-end" : "items-start"}`}>
-						{attachments.map((attachment) =>
-							attachment.mimeType.startsWith("image/") ? (
+						{groupMessageAttachmentsForDisplay(attachments).map((item) => {
+							if (item.type === "folder") {
+								return (
+									<FolderAttachmentCard
+										key={item.id}
+										name={item.name}
+										size={item.size}
+										createdAt={item.createdAt}
+									/>
+								);
+							}
+							const attachment = item.attachment;
+							return attachment.mimeType.startsWith("image/") ? (
 								<ImageAttachmentCard
 									key={attachment.id}
 									attachment={attachment}
@@ -83,8 +94,8 @@ export function UserMessageBubble({ message }: { message: Message }) {
 									attachment={attachment}
 									onClick={() => openMessageAttachmentPreview(attachment)}
 								/>
-							),
-						)}
+							);
+						})}
 					</div>
 				)}
 				{visibleText && (
@@ -110,6 +121,102 @@ function UserAvatar({ name }: { name: string }) {
 			{initial}
 		</div>
 	);
+}
+
+function FolderAttachmentCard({
+	name,
+	size,
+	createdAt,
+}: {
+	name: string;
+	size: number;
+	createdAt?: number;
+}) {
+	const meta = [
+		size > 0 ? formatFileSize(size) : "",
+		createdAt ? formatArtifactTime(createdAt) : "",
+	]
+		.filter(Boolean)
+		.join(" · ");
+
+	return (
+		<div className="relative flex w-[260px] min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm">
+			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+				<Folder className="size-5" aria-hidden="true" />
+			</div>
+			<div className="min-w-0">
+				<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
+					{name}
+				</div>
+				{meta ? (
+					<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+						{meta}
+					</div>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
+type DisplayMessageAttachment =
+	| { type: "folder"; id: string; name: string; size: number; createdAt?: number }
+	| { type: "file"; attachment: MessageAttachment };
+
+function groupMessageAttachmentsForDisplay(
+	attachments: MessageAttachment[],
+): DisplayMessageAttachment[] {
+	const result: DisplayMessageAttachment[] = [];
+	const folderGroups = new Map<string, MessageAttachment[]>();
+
+	for (const attachment of attachments) {
+		if (attachment.attachmentType === "folder") {
+			result.push({
+				type: "folder",
+				id: attachment.id,
+				name: attachment.name,
+				size: attachment.size,
+				createdAt: attachment.createdAt,
+			});
+			continue;
+		}
+
+		const slashIndex = attachment.name.indexOf("/");
+		if (slashIndex <= 0) {
+			result.push({ type: "file", attachment });
+			continue;
+		}
+
+		const folderName = attachment.name.slice(0, slashIndex);
+		const grouped = folderGroups.get(folderName) ?? [];
+		grouped.push(attachment);
+		folderGroups.set(folderName, grouped);
+	}
+
+	for (const [folderName, grouped] of folderGroups) {
+		if (grouped.length >= 1) {
+			const totalSize = grouped.reduce((sum, item) => sum + (item.size ?? 0), 0);
+			const createdAt = grouped.reduce((latest, item) => Math.max(latest, item.createdAt ?? 0), 0);
+			result.push({
+				type: "folder",
+				id: `folder-${folderName}-${grouped[0]?.id ?? folderName}`,
+				name: folderName,
+				size: totalSize,
+				createdAt: createdAt || undefined,
+			});
+			continue;
+		}
+		for (const attachment of grouped) {
+			result.push({
+				type: "file",
+				attachment: {
+					...attachment,
+					name: attachment.name.slice(attachment.name.lastIndexOf("/") + 1),
+				},
+			});
+		}
+	}
+
+	return result;
 }
 
 function ImageAttachmentCard({

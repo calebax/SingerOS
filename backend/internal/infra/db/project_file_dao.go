@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -163,7 +164,9 @@ func getLatestProjectFileByRelativePath(
 }
 
 func ListProjectFiles(ctx context.Context, db *gorm.DB, orgID uint, projectID uint, resourceType string) ([]types.ProjectFile, error) {
-	return listLatestProjectFiles(ctx, db, orgID, projectID, 0, resourceType)
+	return ListProjectFilesFiltered(ctx, db, orgID, projectID, ProjectFileListFilter{
+		ResourceType: resourceType,
+	})
 }
 
 func DeleteProjectFile(ctx context.Context, db *gorm.DB, filePublicID string) error {
@@ -176,10 +179,67 @@ func DeleteProjectFilesByResourceID(ctx context.Context, db *gorm.DB, resourceID
 
 // ListProjectFilesByTask returns ProjectFile records filtered by task.
 func ListProjectFilesByTask(ctx context.Context, db *gorm.DB, orgID uint, projectID uint, taskID uint, resourceType string) ([]types.ProjectFile, error) {
-	return listLatestProjectFiles(ctx, db, orgID, projectID, taskID, resourceType)
+	return ListProjectFilesFiltered(ctx, db, orgID, projectID, ProjectFileListFilter{
+		ResourceType: resourceType,
+		TaskID:       taskID,
+	})
 }
 
-func listLatestProjectFiles(
+// GetProjectFolderByRelativePath returns a folder node at the given project path.
+func GetProjectFolderByRelativePath(
+	ctx context.Context,
+	db *gorm.DB,
+	orgID uint,
+	projectID uint,
+	resourceType types.ProjectFileResourceType,
+	relativePath string,
+) (*types.ProjectFile, error) {
+	candidates, err := folderPathLookupCandidates(relativePath)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, candidate := range candidates {
+		var file types.ProjectFile
+		err := db.WithContext(ctx).
+			Where(
+				"org_id = ? AND project_id = ? AND resource_type = ? AND relative_path = ? AND node_type = ?",
+				orgID,
+				projectID,
+				resourceType,
+				candidate,
+				types.ProjectFileNodeTypeFolder,
+			).
+			First(&file).Error
+		if err == nil {
+			return &file, nil
+		}
+		if err != gorm.ErrRecordNotFound {
+			return nil, err
+		}
+	}
+	return nil, nil
+}
+
+func folderPathLookupCandidates(relativePath string) ([]string, error) {
+	normalized, err := workspace.NormalizeRelativePath(relativePath)
+	if err != nil {
+		return nil, err
+	}
+	withSlash := normalized
+	if !strings.HasSuffix(withSlash, "/") {
+		withSlash += "/"
+	}
+	withoutSlash := strings.TrimSuffix(withSlash, "/")
+	candidates := []string{withSlash}
+	if withoutSlash != withSlash {
+		candidates = append(candidates, withoutSlash)
+	}
+	return candidates, nil
+}
+
+// ListProjectFolderNodes returns folder nodes for one project scope.
+func ListProjectFolderNodes(
 	ctx context.Context,
 	db *gorm.DB,
 	orgID uint,
@@ -187,29 +247,18 @@ func listLatestProjectFiles(
 	taskID uint,
 	resourceType string,
 ) ([]types.ProjectFile, error) {
-	var files []types.ProjectFile
-	base := db.WithContext(ctx).Model(&types.ProjectFile{}).
-		Where("org_id = ? AND project_id = ?", orgID, projectID)
+	query := db.WithContext(ctx).Model(&types.ProjectFile{}).
+		Where("org_id = ? AND project_id = ? AND node_type = ?", orgID, projectID, types.ProjectFileNodeTypeFolder)
 	if taskID != 0 {
-		base = base.Where("task_id = ?", taskID)
+		query = query.Where("task_id = ?", taskID)
 	}
 	if resourceType != "" {
-		base = base.Where("resource_type = ?", resourceType)
+		query = query.Where("resource_type = ?", resourceType)
 	} else {
-		base = base.Where("resource_type != ?", types.ProjectFileResourceTypePlan)
+		query = query.Where("resource_type != ?", types.ProjectFileResourceTypePlan)
 	}
-
-	latest := base.Session(&gorm.Session{}).
-		Select("initial_file_public_id, MAX(version_no) AS version_no").
-		Group("initial_file_public_id")
-	table := types.TableNameProjectFile
-	query := base.
-		Joins(
-			"JOIN (?) AS latest ON latest.initial_file_public_id = "+table+".initial_file_public_id AND latest.version_no = "+table+".version_no",
-			latest,
-		).
-		Order(table + ".created_at DESC, " + table + ".id DESC")
-	if err := query.Find(&files).Error; err != nil {
+	var files []types.ProjectFile
+	if err := query.Order("relative_path ASC, id ASC").Find(&files).Error; err != nil {
 		return nil, err
 	}
 	return files, nil

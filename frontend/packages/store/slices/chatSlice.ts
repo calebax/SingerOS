@@ -18,6 +18,11 @@ import type {
 	BackendWorkTitleUpdatedPayload,
 	SSEMessageEvent,
 } from "../api/types";
+import {
+	FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE,
+	getFolderNameFromFiles,
+	isFolderUploadSizeExceeded,
+} from "../constants/upload";
 import { mockModelOptions } from "../mocks/chatMocks";
 import type { SliceCreator } from "../types";
 import type {
@@ -43,6 +48,7 @@ import type {
 import { flattenActions } from "../utils";
 import { getValidJwtToken } from "../utils/authStorage";
 import { formatFileSize, parseOptionalTimestamp } from "../utils/format";
+import { mapComposerAttachments, mapOutgoingAttachments } from "../utils/messageAttachments";
 import {
 	buildMessageMetadata,
 	enrichAssistantMessageMetrics,
@@ -171,46 +177,6 @@ function mapBackendAttachment(
 		createdAt: messageCreatedAt,
 		url: attachment.PublicURL?.trim() || attachment.public_url?.trim() || undefined,
 	};
-}
-
-function mapComposerAttachment(attachment: Attachment): MessageAttachment | undefined {
-	const fileUploadId = attachment.fileUploadId?.trim();
-	if (!fileUploadId) return undefined;
-
-	return {
-		id: attachment.id,
-		fileUploadId,
-		name: attachment.name,
-		mimeType: attachment.mimeType || attachment.file?.type || "application/octet-stream",
-		size: attachment.size,
-		createdAt: Date.now(),
-		url: attachment.url,
-		storageUri: attachment.storageUri,
-	};
-}
-
-function mapComposerAttachments(attachments?: Attachment[]): MessageAttachment[] | undefined {
-	const mapped = attachments
-		?.map(mapComposerAttachment)
-		.filter((attachment): attachment is MessageAttachment => attachment !== undefined);
-	return mapped?.length ? mapped : undefined;
-}
-
-function mapOutgoingAttachments(
-	attachments?: Attachment[],
-): Array<{ file_upload_id: string; name: string; mime_type: string; size: number }> | undefined {
-	const mapped = attachments
-		?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
-			Boolean(attachment.fileUploadId?.trim()),
-		)
-		.map((attachment) => ({
-			file_upload_id: attachment.fileUploadId.trim(),
-			name: attachment.name,
-			mime_type: attachment.mimeType || attachment.file?.type || "application/octet-stream",
-			// 中文注释：上传接口已经返回真实大小，随消息落库后历史会话才能展示准确文件大小。
-			size: attachment.size,
-		}));
-	return mapped?.length ? mapped : undefined;
 }
 
 function escapeRegExp(value: string): string {
@@ -1729,7 +1695,7 @@ export class ChatActionImpl {
 		return allLocalMessagesBelongToSession(this.#get(), sessionId);
 	};
 
-	// 中文注释：新建任务跳转任务详情前只写入等待占位，真实用户问题与附件统一等待 GlobalEvents 回推。
+	// 中文注释：新建任务跳转任务详情前写入等待占位；若带附件则同步展示乐观用户消息（含文件夹）。
 	bootstrapNewTaskSession = (
 		sessionId: string,
 		content: string,
@@ -1739,9 +1705,23 @@ export class ChatActionImpl {
 		},
 	) => {
 		const trimmed = content.trim();
-		if (!sessionId || !trimmed) return;
+		const optimisticAttachments = mapComposerAttachments(_options?.attachments);
+		if (!sessionId || (!trimmed && !optimisticAttachments?.length)) return;
 
 		const now = Date.now();
+		const userMsg: Message | null =
+			trimmed || optimisticAttachments?.length
+				? {
+						id: `msg-user-${now}`,
+						conversationId: sessionId,
+						role: "user",
+						content: trimmed,
+						timestamp: now,
+						status: "sending",
+						attachments: optimisticAttachments,
+						metadata: _options?.metadata,
+					}
+				: null;
 		const assistantMsg: Message = {
 			id: `msg-assistant-waiting-${now}`,
 			conversationId: sessionId,
@@ -1752,18 +1732,25 @@ export class ChatActionImpl {
 			statusText: "正在提交问题并分配 AI 员工...",
 			// 中文注释：等待 GlobalEvents 回填前，先用本次输入的 @ 队友信息稳定展示头像和名称。
 			metadata: _options?.metadata,
+			replyTo: userMsg ? buildReplyToFromMessage(userMsg) : undefined,
 			author: {
 				id: "pending-assistant",
 				name: "Lework",
 				type: "assistant",
 			},
 		};
+		const messagesMap: Record<string, Message> = {
+			[assistantMsg.id]: assistantMsg,
+		};
+		const messageIds = [assistantMsg.id];
+		if (userMsg) {
+			messagesMap[userMsg.id] = userMsg;
+			messageIds.unshift(userMsg.id);
+		}
 		this.#set({
 			activeSessionId: sessionId,
-			messagesMap: {
-				[assistantMsg.id]: assistantMsg,
-			},
-			messageIds: [assistantMsg.id],
+			messagesMap,
+			messageIds,
 			streamingMessageId: assistantMsg.id,
 			isGenerating: true,
 			pendingBootstrapSessionId: sessionId,
@@ -2877,10 +2864,13 @@ export class ChatActionImpl {
 		const attachmentId = `att-${Date.now()}`;
 		const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
 
+		const relativePath = (
+			file as File & { webkitRelativePath?: string }
+		).webkitRelativePath?.trim();
 		const attachment: Attachment = {
 			id: attachmentId,
 			type: file.type.startsWith("image/") ? "image" : "file",
-			name: payload.original_name || payload.filename || file.name,
+			name: relativePath || payload.original_name || payload.filename || file.name,
 			size: payload.file_size ?? payload.size ?? file.size,
 			url: previewUrl,
 			file,
@@ -2895,6 +2885,62 @@ export class ChatActionImpl {
 		}));
 
 		return { attachment, message: response.message };
+	};
+
+	addUploadedFolderAttachment = async (projectId: string, files: File[]) => {
+		if (!files.length) {
+			throw new Error("未选择文件夹内容");
+		}
+		if (isFolderUploadSizeExceeded(files)) {
+			throw new Error(FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE);
+		}
+
+		const folderName = getFolderNameFromFiles(files);
+		const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
+		let totalSize = 0;
+		let responseMessage = "文件夹上传成功";
+
+		for (const file of files) {
+			const response = await projectFileApi.upload({
+				projectId,
+				projectPublicId: projectId,
+				file,
+			});
+			const payload = response.data;
+			if (!payload?.public_id) {
+				throw new Error("上传接口未返回 public_id");
+			}
+
+			const relativePath =
+				(file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim() ||
+				payload.original_name ||
+				payload.filename ||
+				file.name;
+			const fileSize = payload.file_size ?? payload.size ?? file.size;
+
+			folderFiles.push({
+				fileUploadId: payload.public_id,
+				name: relativePath,
+				mimeType: payload.mime_type || file.type || "application/octet-stream",
+				size: fileSize,
+			});
+			totalSize += fileSize;
+			responseMessage = response.message || responseMessage;
+		}
+
+		const attachment: Attachment = {
+			id: `att-folder-${Date.now()}`,
+			type: "folder",
+			name: folderName,
+			size: totalSize,
+			folderFiles,
+		};
+
+		this.#set((state) => ({
+			inputAttachments: [...state.inputAttachments, attachment],
+		}));
+
+		return { attachment, message: responseMessage };
 	};
 
 	removeAttachment = (id: string) => {

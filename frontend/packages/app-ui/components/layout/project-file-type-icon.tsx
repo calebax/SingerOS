@@ -1,4 +1,4 @@
-import { ClipboardList } from "lucide-react";
+import { ClipboardList, Folder } from "lucide-react";
 
 const FILE_DOCX_ICON_SRC = new URL("../../assets/icons/file-docx.svg", import.meta.url).href;
 const FILE_XLSX_ICON_SRC = new URL("../../assets/icons/file-xlsx.svg", import.meta.url).href;
@@ -54,11 +54,16 @@ export function getProjectFileIconSrc(fileName: string): string {
 /** 文件 Tab 与文件卡片共用的类型图标组件 */
 export function ProjectFileTypeIcon({
 	fileName,
+	nodeType = "file",
 	className = "size-6 object-contain",
 }: {
 	fileName: string;
+	nodeType?: "file" | "folder";
 	className?: string;
 }) {
+	if (nodeType === "folder") {
+		return <Folder className={className} aria-hidden="true" />;
+	}
 	return (
 		<img src={getProjectFileIconSrc(fileName)} alt="" className={className} aria-hidden="true" />
 	);

@@ -29,13 +29,15 @@ type ProjectService interface {
 
 	GetProjectMemory(ctx context.Context, publicID string) (*ProjectMemory, error)
 
-	GetProjectFileTree(ctx context.Context, publicID string, resourceType string, taskPublicID string) ([]*FileTreeNode, error)
+	GetProjectFileTree(ctx context.Context, publicID string, query ProjectFileTreeQuery) ([]*FileTreeNode, error)
 
 	DownloadProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
 
 	GetProjectFileVersions(ctx context.Context, publicID string, filePublicID string) (*ProjectFileVersionList, error)
 
 	DownloadProjectFileByPublicID(ctx context.Context, publicID string, filePublicID string) (io.ReadCloser, string, int64, error)
+
+	DownloadProjectFolder(ctx context.Context, publicID string, folderPublicID string) (io.ReadCloser, string, int64, error)
 
 	RestoreProjectFileVersion(ctx context.Context, publicID string, filePublicID string) (*FileTreeNode, error)
 }

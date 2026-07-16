@@ -2243,6 +2243,19 @@ func TestCreateInitialMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 			projectFile.ResourceType,
 		)
 	}
+
+	var task types.Task
+	if err := database.WithContext(context.Background()).
+		Where("public_id = ?", resp.TaskID).
+		First(&task).Error; err != nil {
+		t.Fatalf("load task failed: %v", err)
+	}
+	if projectFile.TaskID != task.ID {
+		t.Fatalf("expected project file task_id %d, got %d", task.ID, projectFile.TaskID)
+	}
+	if !strings.Contains(projectFile.RelativePath, "/_task/"+resp.TaskID+"/") {
+		t.Fatalf("expected task-scoped relative path, got %q", projectFile.RelativePath)
+	}
 }
 
 func TestCreateInitialMessage_TouchesProjectUpdatedAt(t *testing.T) {

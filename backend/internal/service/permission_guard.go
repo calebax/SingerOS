@@ -326,6 +326,10 @@ func (s *PermissionService) FilterProjectFilesByAction(ctx context.Context, call
 	authorized := make([]types.ProjectFile, 0, len(files))
 	for i := range files {
 		pf := &files[i]
+		if pf.NodeType == types.ProjectFileNodeTypeFolder || strings.HasSuffix(strings.TrimSpace(pf.RelativePath), "/") {
+			authorized = append(authorized, files[i])
+			continue
+		}
 		action := actionForFile(pf)
 		if !isProjectFileActionCompatible(pf, action) {
 			continue

@@ -13,7 +13,15 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, ClipboardPenLine, Plus, Sparkles, WandSparkles } from "lucide-react";
+import {
+	Bot,
+	ClipboardPenLine,
+	FileText,
+	Folder,
+	Plus,
+	Sparkles,
+	WandSparkles,
+} from "lucide-react";
 import { type ReactNode, type RefObject, useMemo, useState } from "react";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
@@ -27,6 +35,7 @@ type ComposerActionBarProps = {
 	inputValue: string;
 	composerRef: RefObject<StructuredComposerHandle | null>;
 	onUpload?: () => void;
+	onUploadFolder?: () => void;
 	onBeforeAction?: () => boolean;
 	children?: ReactNode;
 	className?: string;
@@ -83,6 +92,7 @@ export function ComposerActionBar({
 	inputValue,
 	composerRef,
 	onUpload,
+	onUploadFolder,
 	onBeforeAction,
 	children,
 	className,
@@ -99,6 +109,7 @@ export function ComposerActionBar({
 	const [assistantSearch, setAssistantSearch] = useState("");
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
+	const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
 
 	const skillOptions = useMemo<SkillOption[]>(() => {
 		if (projectSkillOptions) return projectSkillOptions;
@@ -176,19 +187,67 @@ export function ComposerActionBar({
 					</TooltipContent>
 				</Tooltip>
 			)}
-			{onUpload && (
-				<button
-					type="button"
-					onClick={() => {
-						if (!allowAction()) return;
-						onUpload();
-					}}
-					className="order-4 inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-				>
-					<Plus className="size-4" />
-					<span>上传文件</span>
-				</button>
-			)}
+			{onUpload &&
+				(onUploadFolder ? (
+					<Popover open={uploadMenuOpen} onOpenChange={setUploadMenuOpen}>
+						<PopoverTrigger
+							type="button"
+							onClick={(event) => {
+								if (!allowAction()) {
+									event.preventDefault();
+								}
+							}}
+							className="order-4 inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+						>
+							<Plus className="size-4" />
+							<span>上传文件</span>
+						</PopoverTrigger>
+						<PopoverContent
+							align="start"
+							side="top"
+							sideOffset={10}
+							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+							className="w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-md"
+						>
+							<button
+								type="button"
+								onClick={() => {
+									if (!allowAction()) return;
+									setUploadMenuOpen(false);
+									onUpload();
+								}}
+								className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
+							>
+								<FileText className="size-4 shrink-0 text-slate-500" />
+								<span>选择文件</span>
+							</button>
+							<button
+								type="button"
+								onClick={() => {
+									if (!allowAction()) return;
+									setUploadMenuOpen(false);
+									onUploadFolder();
+								}}
+								className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
+							>
+								<Folder className="size-4 shrink-0 text-slate-500" />
+								<span>选择文件夹</span>
+							</button>
+						</PopoverContent>
+					</Popover>
+				) : (
+					<button
+						type="button"
+						onClick={() => {
+							if (!allowAction()) return;
+							onUpload();
+						}}
+						className="order-4 inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+					>
+						<Plus className="size-4" />
+						<span>上传文件</span>
+					</button>
+				))}
 			<Popover
 				open={assistantOpen}
 				onOpenChange={(open) => {

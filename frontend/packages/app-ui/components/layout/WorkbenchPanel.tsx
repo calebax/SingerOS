@@ -42,6 +42,11 @@ import {
 	StructuredComposer,
 	type StructuredComposerHandle,
 } from "../input/StructuredComposer";
+import {
+	FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE,
+	getFolderNameFromFiles,
+	isFolderUploadSizeExceeded,
+} from "../input/upload-folder";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectIcon } from "./project-icon";
@@ -279,6 +284,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const { addUploadedAttachment, startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const folderInputRef = useRef<HTMLInputElement>(null);
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
@@ -480,6 +486,70 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		},
 		[activeWorkbenchProjectId, addUploadedAttachment, uploadWorkbenchAttachment],
 	);
+
+	const handleFolderSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(event.target.files ?? []);
+		event.target.value = "";
+		if (!files.length) return;
+
+		if (isFolderUploadSizeExceeded(files)) {
+			toast.error(FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE, { position: "bottom-right" });
+			return;
+		}
+
+		const folderName = getFolderNameFromFiles(files);
+		const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
+		let totalSize = 0;
+
+		try {
+			for (const file of files) {
+				const response = activeWorkbenchProjectId
+					? await projectFileApi.upload({
+							projectId: activeWorkbenchProjectId,
+							projectPublicId: activeWorkbenchProjectId,
+							file,
+						})
+					: await projectFileApi.uploadLoose({
+							file,
+							purpose: "attachment",
+							relative_path:
+								(file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim() ||
+								undefined,
+						});
+				const payload = response.data;
+				if (!payload?.public_id) {
+					throw new Error("上传接口未返回 public_id");
+				}
+				const relativePath =
+					(file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim() ||
+					payload.original_name ||
+					payload.filename ||
+					file.name;
+				const fileSize = payload.file_size ?? payload.size ?? file.size;
+				folderFiles.push({
+					fileUploadId: payload.public_id,
+					name: relativePath,
+					mimeType: payload.mime_type || file.type || "application/octet-stream",
+					size: fileSize,
+				});
+				totalSize += fileSize;
+			}
+
+			const attachment: Attachment = {
+				id: `att-folder-${Date.now()}`,
+				type: "folder",
+				name: folderName,
+				size: totalSize,
+				folderFiles,
+			};
+			setAttachments((prev) => [...prev, attachment]);
+			toast.success("文件夹上传成功");
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "文件夹上传失败";
+			console.error("Workbench upload folder error:", err);
+			toast.error(message, { position: "bottom-right" });
+		}
+	};
 
 	const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
 		const files = Array.from(event.target.files ?? []);
@@ -824,6 +894,17 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							multiple
 							onChange={handleAttachmentSelect}
 						/>
+						<input
+							ref={folderInputRef}
+							type="file"
+							className="hidden"
+							multiple
+							onChange={handleFolderSelect}
+							{...({
+								webkitdirectory: "",
+								directory: "",
+							} as React.InputHTMLAttributes<HTMLInputElement>)}
+						/>
 
 						{attachments.length > 0 && (
 							<AttachmentPreview
@@ -857,6 +938,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									inputValue={input}
 									composerRef={composerRef}
 									onUpload={() => fileInputRef.current?.click()}
+									onUploadFolder={() => folderInputRef.current?.click()}
 									onBeforeAction={() => {
 										if (!isAuthenticated) {
 											openAuthDialog("login");

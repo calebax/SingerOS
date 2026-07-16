@@ -412,6 +412,9 @@ export type BackendProjectFileNode = {
 	name: string;
 	path: string;
 	type: "file" | "directory" | string;
+	node_type?: "file" | "folder" | string;
+	parent_id?: string;
+	parent_ids?: string[];
 	children?: BackendProjectFileNode[];
 	size?: number;
 	mime_type?: string;
@@ -424,6 +427,7 @@ export type BackendProjectFileNode = {
 	version_no?: number;
 	version_label?: string;
 	version_count?: number;
+	resource_type?: string;
 };
 
 export type BackendProjectFileVersion = {

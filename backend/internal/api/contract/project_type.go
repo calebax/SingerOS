@@ -159,12 +159,15 @@ type ProjectMemory struct {
 	Total   int      `json:"total"`
 }
 
-// FileTreeNode 文件树节点，递归结构
+// FileTreeNode 文件树节点。列表接口以平铺结构返回，前端按 parent_id 组装树。
 type FileTreeNode struct {
 	Name                string          `json:"name"`                  // 文件/目录名
 	Path                string          `json:"path"`                  // 相对路径，兼做节点标识
 	Type                string          `json:"type"`                  // "file" | "directory"
-	Children            []*FileTreeNode `json:"children,omitempty"`    // 仅目录有
+	NodeType            string          `json:"node_type,omitempty"`   // "file" | "folder"
+	ParentID            string          `json:"parent_id,omitempty"`   // 父节点 public_id，根节点为空
+	ParentIDs           []string        `json:"parent_ids,omitempty"`  // 祖先 public_id 链
+	Children            []*FileTreeNode `json:"children,omitempty"`    // 列表接口不填充，前端本地建树时使用
 	Size                int64           `json:"size,omitempty"`        // 仅文件有
 	MimeType            string          `json:"mime_type,omitempty"`   // 仅文件有
 	ModTime             int64           `json:"mod_time,omitempty"`    // 最后修改时间，Unix 时间戳（秒）
@@ -176,6 +179,15 @@ type FileTreeNode struct {
 	VersionNo           int             `json:"version_no,omitempty"`
 	VersionLabel        string          `json:"version_label,omitempty"`
 	VersionCount        int             `json:"version_count,omitempty"`
+	ResourceType        string          `json:"resource_type,omitempty"` // user_upload | artifact | plan
+}
+
+// ProjectFileTreeQuery scopes project file tree list requests.
+type ProjectFileTreeQuery struct {
+	ResourceType string
+	TaskPublicID string
+	NodeType     string
+	FileExt      string
 }
 
 // ProjectFileVersion describes one concrete version in a logical project file chain.
