@@ -74,7 +74,7 @@ import {
 } from "../project-members/ProjectMemberPickerDialog";
 import { canQuickRemoveProjectMember } from "../project-members/project-member-removal";
 import { openProjectFilePreview } from "./file-preview-store";
-import { PROJECT_FILE_RESTORED_EVENT } from "./file-preview-utils";
+import { PROJECT_FILE_VERSION_CHANGED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectActivityPanel } from "./ProjectActivityPanel";
 import { ProjectFileTree } from "./ProjectFileTree";
@@ -1479,8 +1479,8 @@ function ProjectFiles({ projectId }: { projectId: string }) {
 			if (detail?.projectId && detail.projectId !== projectId) return;
 			void fetchFiles();
 		};
-		window.addEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
-		return () => window.removeEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+		window.addEventListener(PROJECT_FILE_VERSION_CHANGED_EVENT, handleRestored);
+		return () => window.removeEventListener(PROJECT_FILE_VERSION_CHANGED_EVENT, handleRestored);
 	}, [projectId, fetchFiles]);
 
 	const pendingFilterFetch =

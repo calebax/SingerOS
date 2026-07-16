@@ -1,6 +1,6 @@
 "use client";
 
-import type { DigitalAssistantItem, ProjectTask } from "@leros/store";
+import type { BackendProjectFileVersion, DigitalAssistantItem, ProjectTask } from "@leros/store";
 import {
 	Action,
 	formatArtifactTime,
@@ -33,6 +33,7 @@ import {
 	ChevronRight,
 	ChevronsLeft,
 	ChevronsRight,
+	LoaderCircle,
 	Pencil,
 	Zap,
 } from "lucide-react";
@@ -43,7 +44,7 @@ import { buildPromptSuggestions } from "../digitalAssistant/promptSuggestions";
 import { ChatInput } from "../input/ChatInput";
 import { CanGate } from "../permission/CanGate";
 import { openProjectFilePreview } from "./file-preview-store";
-import { PROJECT_FILE_RESTORED_EVENT } from "./file-preview-utils";
+import { PROJECT_FILE_VERSION_CHANGED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
@@ -206,8 +207,8 @@ export function TaskDetailPage({
 			if (detail?.taskId && detail.taskId !== resolvedTaskId) return;
 			void fetchTaskFiles();
 		};
-		window.addEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
-		return () => window.removeEventListener(PROJECT_FILE_RESTORED_EVENT, handleRestored);
+		window.addEventListener(PROJECT_FILE_VERSION_CHANGED_EVENT, handleRestored);
+		return () => window.removeEventListener(PROJECT_FILE_VERSION_CHANGED_EVENT, handleRestored);
 	}, [resolvedProjectId, resolvedTaskId, fetchTaskFiles]);
 
 	useEffect(() => {
@@ -599,12 +600,12 @@ export function TaskDetailPage({
 								</div>
 								<TaskFileList
 									files={flatTaskFiles}
-									onPreview={(file) =>
-										openProjectFilePreview(
-											resolvedProjectId,
-											file,
-											resolvedTaskId ? { taskId: resolvedTaskId } : undefined,
-										)
+									projectId={resolvedProjectId}
+									onPreview={(file, version) =>
+										openProjectFilePreview(resolvedProjectId, file, {
+											...(resolvedTaskId ? { taskId: resolvedTaskId } : {}),
+											...(version ? { version } : {}),
+										})
 									}
 								/>
 							</section>
@@ -843,11 +844,74 @@ function TaskChatEmptyState({
 
 function TaskFileList({
 	files,
+	projectId,
 	onPreview,
 }: {
 	files: ProjectFileNode[];
-	onPreview: (file: ProjectFileNode) => void;
+	projectId: string;
+	onPreview: (file: ProjectFileNode, version?: BackendProjectFileVersion) => void;
 }) {
+	type VersionLoadState = {
+		items: BackendProjectFileVersion[];
+		currentPublicId: string;
+		loading: boolean;
+		error: string | null;
+	};
+
+	const [versionStates, setVersionStates] = useState<Record<string, VersionLoadState>>({});
+
+	const loadVersions = useCallback(
+		async (file: ProjectFileNode) => {
+			if (!projectId || !file.publicId) return;
+			const key = file.publicId;
+			setVersionStates((current) => ({
+				...current,
+				[key]: {
+					items: current[key]?.items ?? [],
+					currentPublicId: current[key]?.currentPublicId ?? file.publicId,
+					loading: true,
+					error: null,
+				},
+			}));
+
+			try {
+				const response = await projectFileApi.versions(projectId, file.publicId);
+				if (response.data.code !== 0) {
+					throw new Error(response.data.message || "版本历史加载失败");
+				}
+				setVersionStates((current) => ({
+					...current,
+					[key]: {
+						items: response.data.data?.items ?? [],
+						currentPublicId: response.data.data?.current_file_public_id || file.publicId,
+						loading: false,
+						error: null,
+					},
+				}));
+			} catch (error) {
+				setVersionStates((current) => ({
+					...current,
+					[key]: {
+						items: current[key]?.items ?? [],
+						currentPublicId: current[key]?.currentPublicId ?? file.publicId,
+						loading: false,
+						error: error instanceof Error ? error.message : "版本历史加载失败",
+					},
+				}));
+			}
+		},
+		[projectId],
+	);
+
+	useEffect(() => {
+		for (const file of files) {
+			const hasHistory = Boolean(file.publicId) && Math.max(file.versionCount, file.versionNo) > 1;
+			if (hasHistory && !versionStates[file.publicId]) {
+				void loadVersions(file);
+			}
+		}
+	}, [files, loadVersions, versionStates]);
+
 	if (files.length === 0) {
 		return (
 			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
@@ -858,40 +922,95 @@ function TaskFileList({
 
 	return (
 		<div className={SIDEBAR_COMPACT_LIST_CLASS}>
-			{files.map((file) => (
-				<button
-					type="button"
-					key={file.path}
-					data-file-preview-trigger
-					onClick={() => onPreview(file)}
-					className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
-					title="预览文件"
-				>
-					<div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-						<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
-							点击预览
-						</span>
+			{files.map((file) => {
+				const availableVersionCount = Math.max(file.versionCount, file.versionNo);
+				const hasHistory = Boolean(file.publicId) && availableVersionCount > 1;
+				const versionState = versionStates[file.publicId];
+				const versions = versionState?.items ?? [];
+
+				return (
+					<div key={file.path} className="space-y-2">
+						{versions.length > 0 ? (
+							versions.map((version) => (
+								<TaskFileCard
+									key={version.public_id}
+									file={file}
+									version={version}
+									isCurrent={version.public_id === versionState?.currentPublicId}
+									onPreview={onPreview}
+								/>
+							))
+						) : (
+							<TaskFileCard file={file} isCurrent={!hasHistory} onPreview={onPreview} />
+						)}
+						{versionState?.loading ? (
+							<div className="flex items-center justify-center gap-2 py-1 text-[11px] text-[var(--leros-text-muted)]">
+								<LoaderCircle className="size-3 animate-spin" />
+								正在加载历史版本
+							</div>
+						) : versionState?.error ? (
+							<button
+								type="button"
+								onClick={() => void loadVersions(file)}
+								className="w-full rounded-md px-2 py-1.5 text-[11px] text-[var(--leros-danger)] hover:bg-[var(--leros-danger)]/5"
+							>
+								历史版本加载失败，点击重试
+							</button>
+						) : null}
 					</div>
-					<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
-						<ProjectFileTypeIcon fileName={file.name} />
-					</div>
-					<div className="min-w-0">
-						<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
-							{file.name}
-						</div>
-						<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
-							{[
-								file.versionLabel,
-								file.size > 0 ? formatBytes(file.size) : "",
-								file.createdAt ? formatArtifactTime(file.createdAt) : "",
-							]
-								.filter(Boolean)
-								.join(" · ")}
-						</div>
-					</div>
-				</button>
-			))}
+				);
+			})}
 		</div>
+	);
+}
+
+function TaskFileCard({
+	file,
+	version,
+	isCurrent,
+	onPreview,
+}: {
+	file: ProjectFileNode;
+	version?: BackendProjectFileVersion;
+	isCurrent: boolean;
+	onPreview: (file: ProjectFileNode, version?: BackendProjectFileVersion) => void;
+}) {
+	const name = version?.name || file.name;
+	const size = version?.size ?? file.size;
+	const createdAt = version?.created_at ? version.created_at * 1000 : file.createdAt;
+	const versionNo = version?.version_no ?? file.versionNo;
+
+	return (
+		<button
+			type="button"
+			data-file-preview-trigger
+			onClick={() => onPreview(file, version)}
+			className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
+			title={versionNo > 0 ? `预览 V${versionNo}` : "预览文件"}
+		>
+			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
+				<ProjectFileTypeIcon fileName={name} />
+			</div>
+			<div className="min-w-0 flex-1">
+				<div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
+					<span className="truncate">{name}</span>
+					{versionNo > 0 ? (
+						<span className="shrink-0 rounded bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--leros-primary)]">
+							V{versionNo}
+						</span>
+					) : null}
+				</div>
+				<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+					{[
+						size > 0 ? formatBytes(size) : "",
+						createdAt ? formatArtifactTime(createdAt) : "",
+						version ? (isCurrent ? "最新" : "历史版本") : "",
+					]
+						.filter(Boolean)
+						.join(" · ")}
+				</div>
+			</div>
+		</button>
 	);
 }
 

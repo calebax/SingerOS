@@ -198,9 +198,14 @@ function ProjectFileTreeTableRow({
 								<ProjectFileTypeIcon fileName={node.name} nodeType={node.nodeType} />
 							</div>
 							<div className="min-w-0 flex-1">
-								<p className="truncate text-[15px] font-semibold text-[var(--leros-text-strong)]">
-									{node.name}
-								</p>
+								<div className="flex min-w-0 items-center gap-1.5 text-[15px] font-semibold text-[var(--leros-text-strong)]">
+									<span className="truncate">{node.name}</span>
+									{node.versionNo > 0 ? (
+										<span className="shrink-0 rounded bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--leros-primary)]">
+											V{node.versionNo}
+										</span>
+									) : null}
+								</div>
 								{pathLabel ? (
 									<p className="truncate text-[12px] font-normal text-[var(--leros-text-muted)]">
 										{renderSearchText(pathLabel, searchKeyword)}
@@ -354,8 +359,13 @@ function ProjectFileTreeCompactRow({
 				/>
 			</div>
 			<div className="min-w-0">
-				<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
-					{node.name}
+				<div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
+					<span className="truncate">{node.name}</span>
+					{node.versionNo > 0 ? (
+						<span className="shrink-0 rounded bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--leros-primary)]">
+							V{node.versionNo}
+						</span>
+					) : null}
 				</div>
 				<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
 					{[
