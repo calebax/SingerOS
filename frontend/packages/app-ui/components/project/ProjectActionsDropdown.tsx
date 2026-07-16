@@ -35,7 +35,7 @@ export function ProjectActionsDropdown({
 	slotClassName,
 	onOpenChange,
 }: ProjectActionsDropdownProps) {
-	const { loading, hasAny } = useProjectMenuCapabilities(project.id);
+	const { loading, hasAny } = useProjectMenuCapabilities(project.id, false);
 
 	if (loading || !hasAny) {
 		return null;

@@ -401,13 +401,15 @@ function New-ResolvedServerConfig {
 
     $templatePath = Join-Path $PSScriptRoot 'server.config.yaml'
     $resolvedPath = Join-Path $runtimeDir 'server.config.runtime.yaml'
-    $content = Get-Content $templatePath -Raw
-    # Only override the generated runtime config; keep the checked-in YAML unchanged.
-    $content = [regex]::Replace(
-        $content,
-        '(?m)^(\s*port:\s*)\d+\s*$',
-        [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $match.Groups[1].Value + $ServerPort }
-    )
+    # Replace one line at a time so multiline whitespace cannot consume adjacent YAML lines.
+    $content = (
+        Get-Content $templatePath -Encoding UTF8 | ForEach-Object {
+            if ($_ -match '^(\s*port:\s*)\d+\s*$') {
+                return $Matches[1] + $ServerPort
+            }
+            return $_
+        }
+    ) -join [Environment]::NewLine
     Set-Content -Path $resolvedPath -Value $content -Encoding UTF8
     return $resolvedPath
 }
@@ -428,13 +430,15 @@ function New-ResolvedWorkerConfig {
 
     $templatePath = Join-Path $PSScriptRoot 'worker.config.yaml'
     $resolvedPath = Join-Path $runtimeDir 'worker.config.runtime.yaml'
-    $content = Get-Content $templatePath -Raw
-    # Keep the worker connected to the selected dev server port.
-    $content = [regex]::Replace(
-        $content,
-        '(?m)^(\s*server_addr:\s*)".*"\s*$',
-        [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $match.Groups[1].Value + '"127.0.0.1:' + $ServerPort + '"' }
-    )
+    # Replace one line at a time to preserve blank lines and the surrounding YAML structure.
+    $content = (
+        Get-Content $templatePath -Encoding UTF8 | ForEach-Object {
+            if ($_ -match '^(\s*server_addr:\s*)".*"\s*$') {
+                return $Matches[1] + '"127.0.0.1:' + $ServerPort + '"'
+            }
+            return $_
+        }
+    ) -join [Environment]::NewLine
     Set-Content -Path $resolvedPath -Value $content -Encoding UTF8
     return $resolvedPath
 }

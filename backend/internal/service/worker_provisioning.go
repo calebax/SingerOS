@@ -179,7 +179,7 @@ func generateWorkerDeploymentPublicID() string {
 }
 
 func defaultWorkerPublicID(orgID uint) string {
-	return fmt.Sprintf("assistant_default_o%d", orgID)
+	return fmt.Sprintf("%so%d", types.DefaultDigitalAssistantPublicIDPrefix, orgID)
 }
 
 func defaultWorkerCode(orgID uint) string {

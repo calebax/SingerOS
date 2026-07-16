@@ -195,25 +195,6 @@ func probeConnectivity(ctx context.Context, provider, modelName, apiKey, baseURL
 	return result
 }
 
-// clearOrgDefaultLLMModels 清除指定组织内其他模型配置的默认标记。
-// excludeID 大于 0 时排除该 ID 对应的记录。
-func clearOrgDefaultLLMModels(ctx context.Context, database *gorm.DB, orgID uint, excludeID uint) error {
-	query := database.WithContext(ctx).Model(&types.LLMModel{}).Where("org_id = ? AND is_default = ?", orgID, true)
-	if excludeID > 0 {
-		query = query.Where("id != ?", excludeID)
-	}
-	return query.Update("is_default", false).Error
-}
-
-// orgHasLLMModels 检查指定组织是否已有任何模型配置记录。
-func orgHasLLMModels(ctx context.Context, database *gorm.DB, orgID uint) (bool, error) {
-	var count int64
-	if err := database.WithContext(ctx).Model(&types.LLMModel{}).Where("org_id = ?", orgID).Count(&count).Error; err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
 // --- ManagerDb 实现 ---
 
 // ManagerDb 是基于 gorm 的 Manager 接口实现，
@@ -290,14 +271,14 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 
 	if err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if !model.IsDefault {
-			hasModels, err := orgHasLLMModels(ctx, tx, orgID)
+			hasModels, err := db.OrgHasLLMModels(ctx, tx, orgID)
 			if err != nil {
 				return err
 			}
 			model.IsDefault = !hasModels
 		}
 		if model.IsDefault {
-			if err := clearOrgDefaultLLMModels(ctx, tx, orgID, 0); err != nil {
+			if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, 0); err != nil {
 				return err
 			}
 		}
@@ -334,6 +315,42 @@ func (m *ManagerDb) Get(ctx context.Context, orgID uint, id uint, code string) (
 // GetDefault 获取组织默认模型配置。
 func (m *ManagerDb) GetDefault(ctx context.Context, orgID uint) (*ModelConfig, error) {
 	model, err := db.GetDefaultLLMModel(ctx, m.db, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, errors.New("llm model not found")
+	}
+	return modelConfigFromEntity(model), nil
+}
+
+// GetByModelName 按模型名称获取配置，orgID 用于校验归属。
+func (m *ManagerDb) GetByModelName(ctx context.Context, orgID uint, modelName string) (*ModelConfig, error) {
+	model, err := db.GetLLMModelByModelName(ctx, m.db, orgID, modelName)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, errors.New("llm model not found")
+	}
+	return modelConfigFromEntity(model), nil
+}
+
+// GetByModelCode 按 code 获取模型配置。
+func (m *ManagerDb) GetByModelCode(ctx context.Context, orgID uint, code string) (*ModelConfig, error) {
+	model, err := db.GetLLMModelByCode(ctx, m.db, orgID, code)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, errors.New("llm model not found")
+	}
+	return modelConfigFromEntity(model), nil
+}
+
+// GetByModelID 按主键 ID 获取模型配置。
+func (m *ManagerDb) GetByModelID(ctx context.Context, orgID uint, modelID uint) (*ModelConfig, error) {
+	model, err := db.GetLLMModelByID(ctx, m.db, modelID)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +411,7 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 		if req.IsDefault != nil {
 			model.IsDefault = *req.IsDefault
 			if model.IsDefault {
-				if err := clearOrgDefaultLLMModels(ctx, tx, orgID, model.ID); err != nil {
+				if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, model.ID); err != nil {
 					return err
 				}
 			}

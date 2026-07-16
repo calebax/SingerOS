@@ -25,7 +25,7 @@ export function useWebNavigation(): AppNavigation {
 				projectsHub: "/projects",
 				taskDetail: "/workbench",
 				digitalAssistant: "/assistants",
-				aiTeammates: "/ai-teammates",
+				aiTeammates: "/assistants",
 				knowledge: "/knowledge",
 				skills: "/skills",
 				settings: "/settings",

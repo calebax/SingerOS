@@ -2,14 +2,14 @@ import { useEffect } from "react";
 import { useAppStore } from "../appStore";
 import type { Action, BatchCheckItem, ResourceRef } from "../permission/types";
 
-export function useCan(action: Action, resource: ResourceRef | null | undefined) {
+export function useCan(action: Action, resource: ResourceRef | null | undefined, ensure = true) {
 	const allowed = useAppStore((state) => state.can(action, resource));
 	const ensureCapabilities = useAppStore((state) => state.ensureCapabilities);
 
 	useEffect(() => {
-		if (!resource?.publicId) return;
+		if (!ensure || !resource?.publicId) return;
 		void ensureCapabilities([{ action, resource }]);
-	}, [action, ensureCapabilities, resource?.publicId, resource?.type]);
+	}, [action, ensure, ensureCapabilities, resource?.publicId, resource?.type]);
 
 	return {
 		allowed: allowed === true,
@@ -51,6 +51,26 @@ export function useProjectCapabilities(projectPublicId: string | null | undefine
 	}, [ensureCapabilities, projectPublicId]);
 }
 
+const PROJECT_MENU_ACTIONS = ["project:update", "project:delete", "project:member.leave"] as const;
+
+export function useProjectsMenuCapabilities(projectPublicIds: string[]) {
+	const ensureCapabilities = useAppStore((state) => state.ensureCapabilities);
+	const projectIdsKey = projectPublicIds.join("\u0000");
+
+	useEffect(() => {
+		if (!projectIdsKey) return;
+		// 中文注释：同一页面的项目菜单权限合并为一次批量查询，避免按项目发起几十个请求。
+		void ensureCapabilities(
+			projectIdsKey.split("\u0000").flatMap((publicId) =>
+				PROJECT_MENU_ACTIONS.map((action) => ({
+					action,
+					resource: { type: "project" as const, publicId },
+				})),
+			),
+		);
+	}, [ensureCapabilities, projectIdsKey]);
+}
+
 export function useTaskCapabilities(taskPublicId: string | null | undefined) {
 	const ensureCapabilities = useAppStore((state) => state.ensureCapabilities);
 
@@ -66,22 +86,31 @@ export function useTaskCapabilities(taskPublicId: string | null | undefined) {
 }
 
 /** 项目「更多操作」菜单：预取权限并汇总是否有任一可执行项。 */
-export function useProjectMenuCapabilities(projectPublicId: string | null | undefined) {
-	useProjectCapabilities(projectPublicId);
+export function useProjectMenuCapabilities(
+	projectPublicId: string | null | undefined,
+	ensure = true,
+) {
+	const ensureCapabilities = useAppStore((state) => state.ensureCapabilities);
 	const resource = projectPublicId ? { type: "project" as const, publicId: projectPublicId } : null;
 
-	const rename = useCan("project:update", resource);
-	const del = useCan("project:delete", resource);
-	const leave = useCan("project:member.leave", resource);
+	useEffect(() => {
+		if (!ensure || !resource) return;
+		void ensureCapabilities(PROJECT_MENU_ACTIONS.map((action) => ({ action, resource })));
+	}, [ensure, ensureCapabilities, resource?.publicId, resource?.type]);
 
-	const loading = rename.loading || del.loading || leave.loading;
-	const hasAny = rename.allowed || del.allowed || leave.allowed;
+	// 中文注释：菜单权限由页面级批量请求统一加载时，这里只读取缓存结果。
+	const rename = useAppStore((state) => state.can("project:update", resource));
+	const del = useAppStore((state) => state.can("project:delete", resource));
+	const leave = useAppStore((state) => state.can("project:member.leave", resource));
+
+	const loading = rename === "unknown" || del === "unknown" || leave === "unknown";
+	const hasAny = rename === true || del === true || leave === true;
 
 	return {
 		loading,
 		hasAny,
-		canRename: rename.allowed,
-		canDelete: del.allowed,
-		canLeave: leave.allowed,
+		canRename: rename === true,
+		canDelete: del === true,
+		canLeave: leave === true,
 	};
 }

@@ -8,6 +8,7 @@ import {
 	type SkillInstalledItem,
 	skillMarketplaceApi,
 	useLayoutStore,
+	useProjectsMenuCapabilities,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -29,22 +30,13 @@ import {
 } from "@leros/ui/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
-import {
-	Bot,
-	CalendarDays,
-	Check,
-	FolderKanban,
-	MessageSquare,
-	Plus,
-	Search,
-	Sparkles,
-	X,
-} from "lucide-react";
+import { Bot, CalendarDays, Check, MessageSquare, Plus, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
 import type { AppNavigation } from "../layout/LeftRail";
+import { ProjectIcon } from "../layout/project-icon";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
 import {
 	ProjectMemberChip,
@@ -190,6 +182,7 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 		activeProjectId,
 		switchView,
 	} = useLayoutStore((s) => s);
+	useProjectsMenuCapabilities(projects.map((project) => project.id));
 	const { isAuthenticated, requireAuth } = useAuth();
 	const [keyword, setKeyword] = useState("");
 	const [createOpen, setCreateOpen] = useState(false);
@@ -327,7 +320,7 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 					{filteredProjects.length === 0 ? (
 						<div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-[var(--leros-control-border)] bg-white/70 px-6 text-center">
 							<div className="mb-3 flex size-12 items-center justify-center rounded-xl bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-								<FolderKanban className="size-6" />
+								<ProjectIcon className="size-6" />
 							</div>
 							<p className="text-sm font-semibold text-[var(--leros-text-strong)]">还没有项目</p>
 							<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
@@ -476,7 +469,7 @@ function ProjectCard({
 		>
 			<div className="mb-3 flex items-start gap-3 pr-7">
 				<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] transition-colors group-hover:bg-[var(--leros-primary-soft)] group-hover:text-[var(--leros-primary)]">
-					<FolderKanban className="size-5" />
+					<ProjectIcon className="size-5" />
 				</div>
 				<div className="min-w-0 flex-1">
 					<h3 className="truncate text-sm font-semibold text-[var(--leros-text-strong)]">

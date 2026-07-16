@@ -47,6 +47,13 @@ func NewCallerHTTP(client *http.Client, recorder Recorder) *CallerHTTP {
 
 var _ Caller = (*CallerHTTP)(nil)
 
+func (c *CallerHTTP) callerTypeFromCtx(ctx context.Context) string {
+	if ct := GetCtxString(ctx, CtxCallerType); ct != "" {
+		return ct
+	}
+	return CallerTypeHTTPProxy
+}
+
 func (c *CallerHTTP) Call(ctx context.Context, orgID uint, req *CallRequest) (*CallResult, error) {
 	return nil, fmt.Errorf("CallerHTTP does not support Call, use CallRaw")
 }
@@ -76,6 +83,9 @@ func (c *CallerHTTP) CallRaw(ctx context.Context, orgID uint, cfg *ModelConfig, 
 	setAuthHeader(req, cfg)
 
 	client := withTimeout(c.httpClient, timeout)
+
+	logs.InfoContextf(ctx, "[LLM-CALL] org=%d model=%s provider=%s url=%s timeout=%s body=%s",
+		orgID, cfg.ModelName, cfg.Provider, endpointURL, timeout, truncateForLog(string(body), 500))
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -114,7 +124,8 @@ func (c *CallerHTTP) CallRaw(ctx context.Context, orgID uint, cfg *ModelConfig, 
 		LatencyMS:     latencyMS,
 		StatusCode:    resp.StatusCode,
 		Success:       true,
-		CallerType:    CallerTypeHTTPProxy,
+		CallerType:    c.callerTypeFromCtx(ctx),
+		ReqID:         GetCtxString(ctx, CtxReqID),
 		StartedAt:     startedAt,
 		FinishedAt:    finishedAt,
 		ProjectID:     GetCtxUint(ctx, CtxProjectID),
@@ -122,10 +133,12 @@ func (c *CallerHTTP) CallRaw(ctx context.Context, orgID uint, cfg *ModelConfig, 
 		MessageID:     GetCtxUint(ctx, CtxMessageID),
 		AssistantID:   GetCtxUint(ctx, CtxAssistantID),
 		Uin:           GetCtxUint(ctx, CtxUin),
-		Input:  string(body),
-		Output: string(respBody),
-		InputLen:  len(body),
-		OutputLen: len(respBody),
+		TraceID:       GetCtxString(ctx, CtxTraceID),
+		ClientIP:      GetCtxString(ctx, CtxClientIP),
+		Input:         string(body),
+		Output:        string(respBody),
+		InputLen:      len(body),
+		OutputLen:     len(respBody),
 	}
 	if usage != nil {
 		record.InputTokens = usage.InputTokens
@@ -169,6 +182,9 @@ func (c *CallerHTTP) StreamRaw(ctx context.Context, orgID uint, cfg *ModelConfig
 	setAuthHeader(req, cfg)
 
 	client := withTimeout(c.httpClient, timeout)
+
+	logs.InfoContextf(ctx, "[LLM-STREAM] org=%d model=%s provider=%s url=%s timeout=%s body=%s",
+		orgID, cfg.ModelName, cfg.Provider, endpointURL, timeout, truncateForLog(string(streamBody), 500))
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -254,7 +270,8 @@ func (c *CallerHTTP) StreamRaw(ctx context.Context, orgID uint, cfg *ModelConfig
 		LatencyMS:     latencyMS,
 		StatusCode:    resp.StatusCode,
 		Success:       true,
-		CallerType:    CallerTypeHTTPProxy,
+		CallerType:    c.callerTypeFromCtx(ctx),
+		ReqID:         GetCtxString(ctx, CtxReqID),
 		StartedAt:     startedAt,
 		FinishedAt:    finishedAt,
 		ProjectID:     GetCtxUint(ctx, CtxProjectID),
@@ -262,10 +279,12 @@ func (c *CallerHTTP) StreamRaw(ctx context.Context, orgID uint, cfg *ModelConfig
 		MessageID:     GetCtxUint(ctx, CtxMessageID),
 		AssistantID:   GetCtxUint(ctx, CtxAssistantID),
 		Uin:           GetCtxUint(ctx, CtxUin),
-		Input:  string(streamBody),
-		Output: acc.String(),
-		InputLen:  len(streamBody),
-		OutputLen: len(acc.String()),
+		TraceID:       GetCtxString(ctx, CtxTraceID),
+		ClientIP:      GetCtxString(ctx, CtxClientIP),
+		Input:         string(streamBody),
+		Output:        acc.String(),
+		InputLen:      len(streamBody),
+		OutputLen:     len(acc.String()),
 	}
 	if lastUsage != nil {
 		record.InputTokens = lastUsage.InputTokens
@@ -309,7 +328,8 @@ func (c *CallerHTTP) recordHTTPErrorWithCode(ctx context.Context, orgID uint, cf
 		StatusCode:    statusCode,
 		Success:       false,
 		Message:       err.Error(),
-		CallerType:    CallerTypeHTTPProxy,
+		CallerType:    c.callerTypeFromCtx(ctx),
+		ReqID:         GetCtxString(ctx, CtxReqID),
 		StartedAt:     startedAt,
 		FinishedAt:    finishedAt,
 		ProjectID:     GetCtxUint(ctx, CtxProjectID),
@@ -317,10 +337,12 @@ func (c *CallerHTTP) recordHTTPErrorWithCode(ctx context.Context, orgID uint, cf
 		MessageID:     GetCtxUint(ctx, CtxMessageID),
 		AssistantID:   GetCtxUint(ctx, CtxAssistantID),
 		Uin:           GetCtxUint(ctx, CtxUin),
-		Input:     input,
-		Output:    output,
-		InputLen:  len(input),
-		OutputLen: len(output),
+		TraceID:       GetCtxString(ctx, CtxTraceID),
+		ClientIP:      GetCtxString(ctx, CtxClientIP),
+		Input:         input,
+		Output:        output,
+		InputLen:      len(input),
+		OutputLen:     len(output),
 	}
 	c.recordCall(ctx, record)
 	return nil, err
@@ -619,4 +641,11 @@ func extractAnthropicTextDelta(raw map[string]interface{}) string {
 		}
 	}
 	return ""
+}
+
+func truncateForLog(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }

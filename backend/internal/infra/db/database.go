@@ -54,12 +54,17 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameAuthRefreshToken, column: "user_id"},
 	{table: types.TableNameAuthRefreshToken, column: "user_org_id"},
 	{table: types.TableNameLLMHistory, column: "caller_ref"},
+	{table: types.TableNameLLMHistory, column: "model_config_id"},
+	{table: types.TableNameLLMHistory, column: "out_token"},
+	{table: types.TableNameLLMHistory, column: "code"},
 }
 
 var renamesToApply = []renameColumn{
 	{table: types.TableNameDigitalAssistant, oldCol: "code", newCol: "public_id"},
 	{table: types.TableNameFileUpload, oldCol: "storage_path", newCol: "storage_uri"},
 	{table: types.TableNameLLMHistory, oldCol: "error_message", newCol: "message"},
+	{table: types.TableNameLLMHistory, oldCol: "cache_hit_token", newCol: "cache_hit_tokens"},
+	{table: types.TableNameLLMHistory, oldCol: "cache_miss_token", newCol: "cache_miss_tokens"},
 }
 
 var tablesToRename = []renameTable{
@@ -87,6 +92,7 @@ func InitDB(cfg config.DatabaseConfig, llmCfg *config.LLMConfig) (*gorm.DB, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
+	db.Logger = logs.GetGorm("gorm")
 
 	if cfg.Debug {
 		db = db.Debug()
@@ -969,7 +975,7 @@ func seedDefaultWorkerDeployment(d *gorm.DB) error {
 	}
 
 	assistant := &types.DigitalAssistant{}
-	code := fmt.Sprintf("assistant_default_o%d", org.ID)
+	code := fmt.Sprintf("%so%d", types.DefaultDigitalAssistantPublicIDPrefix, org.ID)
 	err := d.Where("org_id = ? AND public_id = ?", org.ID, code).First(assistant).Error
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {

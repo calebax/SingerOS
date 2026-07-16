@@ -12,31 +12,29 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )
 
 const (
-	translateBatchSize  = 25 // 每批最多 25 条，避免 prompt 过长
-	translateMaxWorkers = 4  // 最多 4 个并发翻译
+	translateBatchSize  = 25
+	translateMaxWorkers = 4
 )
 
-// defaultSkillDescriptionTranslator 使用组织默认 LLM 翻译 Skill 市场文案。
 type defaultSkillDescriptionTranslator struct {
-	db     *gorm.DB
-	caller llm.Caller
+	db           *gorm.DB
+	modelInvoker modelrouter.Invoker
 }
 
-// NewDefaultSkillDescriptionTranslator 创建默认翻译器。
-func NewDefaultSkillDescriptionTranslator(db *gorm.DB) SkillDescriptionTranslator {
+func NewDefaultSkillDescriptionTranslator(db *gorm.DB, modelInvoker modelrouter.Invoker) SkillDescriptionTranslator {
 	return &defaultSkillDescriptionTranslator{
-		db:     db,
-		caller: llm.NewCaller(llm.NewManager(db), llm.NewRecorder(db)),
+		db:           db,
+		modelInvoker: modelInvoker,
 	}
 }
 
-// translationRequest 发送给模型的翻译请求项。
 type translationRequest struct {
 	SkillID     string `json:"skill_id"`
 	Name        string `json:"name"`
@@ -73,11 +71,11 @@ func (t *defaultSkillDescriptionTranslator) Translate(ctx context.Context, items
 		return map[string]TranslatedSkillText{}, nil
 	}
 
-	return t.translateBatches(ctx, caller.OrgID, model.ID, items, caller.Uin)
+	return t.translateBatches(ctx, caller.OrgID, model.ID, model.Code, items, caller.Uin)
 }
 
 // translateBatches 将 items 按 batchSize 分组后并发翻译，合并结果。
-func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context, orgID, modelID uint, items []TranslateItem, uin uint) (map[string]TranslatedSkillText, error) {
+func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context, orgID, modelID uint, modelCode string, items []TranslateItem, uin uint) (map[string]TranslatedSkillText, error) {
 	var batches [][]TranslateItem
 	for i := 0; i < len(items); i += translateBatchSize {
 		end := i + translateBatchSize
@@ -88,7 +86,7 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 	}
 
 	if len(batches) == 1 {
-		return t.doTranslate(ctx, orgID, modelID, batches[0], uin)
+		return t.doTranslate(ctx, orgID, modelID, modelCode, batches[0], uin)
 	}
 
 	type batchResult struct {
@@ -108,7 +106,7 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			tMap, err := t.doTranslate(ctx, orgID, modelID, batch, uin)
+			tMap, err := t.doTranslate(ctx, orgID, modelID, modelCode, batch, uin)
 			select {
 			case resultCh <- batchResult{translations: tMap, err: err}:
 			case <-ctx.Done():
@@ -133,7 +131,7 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 }
 
 // doTranslate 对一批 items 调用 LLM 翻译，返回 skill_id → 中文展示文案的映射。
-func (t *defaultSkillDescriptionTranslator) doTranslate(ctx context.Context, orgID, modelID uint, items []TranslateItem, uin uint) (map[string]TranslatedSkillText, error) {
+func (t *defaultSkillDescriptionTranslator) doTranslate(ctx context.Context, orgID, modelID uint, modelCode string, items []TranslateItem, uin uint) (map[string]TranslatedSkillText, error) {
 	reqItems := make([]translationRequest, len(items))
 	for i, item := range items {
 		reqItems[i] = translationRequest{SkillID: item.SkillID, Name: item.Name, Description: item.Description}
@@ -158,17 +156,17 @@ Input:
 %s`, len(items), string(reqJSON))
 
 	temperature := 0.1
-	result, err := t.caller.Call(ctx, orgID, &llm.CallRequest{
-		ModelID:    modelID,
-		Messages:      []llm.Message{{Role: "user", Content: prompt}},
-		Temperature:   &temperature,
+	result, err := t.modelInvoker.Call(ctx, orgID, &llm.CallRequest{
+		ModelID:     modelID,
+		Messages:    []llm.Message{{Role: "user", Content: prompt}},
+		Temperature: &temperature,
 		ResponseFormat: &einoopenai.ChatCompletionResponseFormat{
 			Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
 		},
 		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
 		CallerType:      "skill_translator",
 		Uin:             uin,
-	})
+	}, modelrouter.WithModelCode(modelCode))
 	if err != nil {
 		return nil, fmt.Errorf("LLM generate: %w", err)
 	}
@@ -224,11 +222,11 @@ func (t *defaultSkillDescriptionTranslator) TranslateDocument(ctx context.Contex
 		return map[string]string{}, nil
 	}
 
-	return t.translateDocumentBatches(ctx, caller.OrgID, model.ID, items, caller.Uin)
+	return t.translateDocumentBatches(ctx, caller.OrgID, model.ID, model.Code, items, caller.Uin)
 }
 
 // translateDocumentBatches 将全篇 SKILL.md 按批分组并发翻译。
-func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context.Context, orgID, modelID uint, items []TranslateDocumentItem, uin uint) (map[string]string, error) {
+func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context.Context, orgID, modelID uint, modelCode string, items []TranslateDocumentItem, uin uint) (map[string]string, error) {
 	var batches [][]TranslateDocumentItem
 	for i := 0; i < len(items); i += translateBatchSize {
 		end := i + translateBatchSize
@@ -239,7 +237,7 @@ func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context
 	}
 
 	if len(batches) == 1 {
-		return t.doTranslateDocument(ctx, orgID, modelID, batches[0], uin)
+		return t.doTranslateDocument(ctx, orgID, modelID, modelCode, batches[0], uin)
 	}
 
 	type batchResult struct {
@@ -259,7 +257,7 @@ func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			tMap, err := t.doTranslateDocument(ctx, orgID, modelID, batch, uin)
+			tMap, err := t.doTranslateDocument(ctx, orgID, modelID, modelCode, batch, uin)
 			select {
 			case resultCh <- batchResult{translations: tMap, err: err}:
 			case <-ctx.Done():
@@ -286,7 +284,7 @@ func (t *defaultSkillDescriptionTranslator) translateDocumentBatches(ctx context
 // doTranslateDocument 对一批整篇 SKILL.md 调用 LLM 翻译，只翻译自然语言为简体中文。
 // 保留 YAML frontmatter、标题层级、列表、代码块、链接、表格等 Markdown 结构。
 // 翻译结果需要能被 catalog.ParseDocument 解析，否则丢弃并记录 warning。
-func (t *defaultSkillDescriptionTranslator) doTranslateDocument(ctx context.Context, orgID, modelID uint, items []TranslateDocumentItem, uin uint) (map[string]string, error) {
+func (t *defaultSkillDescriptionTranslator) doTranslateDocument(ctx context.Context, orgID, modelID uint, modelCode string, items []TranslateDocumentItem, uin uint) (map[string]string, error) {
 	// 构造请求，每篇之间用分隔线隔开
 	var inputBuilder strings.Builder
 	inputBuilder.WriteString(fmt.Sprintf("Translate %d skill document(s) below.\n\n", len(items)))
@@ -316,17 +314,17 @@ Documents to translate:
 %s`, inputBuilder.String())
 
 	temperature := 0.1
-	result, err := t.caller.Call(ctx, orgID, &llm.CallRequest{
-		ModelID:    modelID,
-		Messages:      []llm.Message{{Role: "user", Content: prompt}},
-		Temperature:   &temperature,
+	result, err := t.modelInvoker.Call(ctx, orgID, &llm.CallRequest{
+		ModelID:     modelID,
+		Messages:    []llm.Message{{Role: "user", Content: prompt}},
+		Temperature: &temperature,
 		ResponseFormat: &einoopenai.ChatCompletionResponseFormat{
 			Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject,
 		},
 		ReasoningEffort: einoopenai.ReasoningEffortLevelLow,
 		CallerType:      "skill_translator",
 		Uin:             uin,
-	})
+	}, modelrouter.WithModelCode(modelCode))
 	if err != nil {
 		return nil, fmt.Errorf("LLM generate: %w", err)
 	}

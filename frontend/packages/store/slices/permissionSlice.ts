@@ -78,7 +78,8 @@ export class PermissionActionImpl {
 
 		for (const item of deduped) {
 			const key = buildPermissionCacheKey(orgId, item.resource, item.action);
-			if (state.decisions[key] && state.decisions[key] !== "pending") {
+			// 中文注释：pending 表示同一权限已在请求中，必须与已完成结果一样复用，避免并发重复查询。
+			if (state.decisions[key]) {
 				continue;
 			}
 			pendingKeys.push(key);

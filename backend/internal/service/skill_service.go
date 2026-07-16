@@ -13,20 +13,22 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
 const defaultRecentSkillLimit = 10
 
 type skillService struct {
-	db        *gorm.DB
-	publisher mq.Publisher
-	inferrer  AssistantInferrer
+	db           *gorm.DB
+	publisher    mq.Publisher
+	inferrer     AssistantInferrer
+	modelInvoker modelrouter.Invoker
 }
 
 // NewSkillService creates a new SkillService.
-func NewSkillService(db *gorm.DB, publisher mq.Publisher, inferrer AssistantInferrer) contract.SkillService {
-	return &skillService{db: db, publisher: publisher, inferrer: inferrer}
+func NewSkillService(db *gorm.DB, publisher mq.Publisher, inferrer AssistantInferrer, modelInvoker modelrouter.Invoker) contract.SkillService {
+	return &skillService{db: db, publisher: publisher, inferrer: inferrer, modelInvoker: modelInvoker}
 }
 
 func (s *skillService) ListRecentUsedSkills(ctx context.Context, orgID, uin uint, limit int) ([]contract.SkillInstalledItem, error) {
@@ -133,7 +135,7 @@ func (s *skillService) fetchInstalledSkills(ctx context.Context, orgID uint) ([]
 	result = filterUserVisibleInstalledSkills(result)
 	(&skillMarketplaceService{
 		db:         s.db,
-		translator: NewDefaultSkillDescriptionTranslator(s.db),
+		translator: NewDefaultSkillDescriptionTranslator(s.db, s.modelInvoker),
 	}).enrichInstalledSystemSkills(ctx, result)
 
 	return result, nil

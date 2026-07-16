@@ -12,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/integration/feishu"
+	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )
@@ -60,24 +61,25 @@ type SubmitFeedbackResult struct {
 }
 
 type feedbackJob struct {
-	orgID         uint
-	userID        uint
-	typeLabel     string
-	content       string
-	attachmentIDs []string
-	version       string
-	submitterName string
+	orgID          uint
+	userID         uint
+	typeLabel      string
+	content        string
+	attachmentIDs  []string
+	version        string
+	submitterName  string
 	submitterPhone string
 }
 
 type FeedbackService struct {
-	db     *gorm.DB
-	files  contract.FileService
-	feishu *feishu.Client
+	db           *gorm.DB
+	files        contract.FileService
+	feishu       *feishu.Client
+	modelInvoker modelrouter.Invoker
 }
 
-func NewFeedbackService(db *gorm.DB, files contract.FileService, cfg *config.FeishuConfig) *FeedbackService {
-	svc := &FeedbackService{db: db, files: files}
+func NewFeedbackService(db *gorm.DB, files contract.FileService, cfg *config.FeishuConfig, modelInvoker modelrouter.Invoker) *FeedbackService {
+	svc := &FeedbackService{db: db, files: files, modelInvoker: modelInvoker}
 	if cfg != nil && cfg.Enabled {
 		svc.feishu = feishu.NewClient(cfg.AppID, cfg.AppSecret, cfg.AppToken, cfg.TableID)
 	}
@@ -158,7 +160,7 @@ func (s *FeedbackService) processFeedbackAsync(ctx context.Context, job *feedbac
 		return
 	}
 
-	summary := summarizeFeedbackBestEffort(ctx, s.db, job.orgID, job.typeLabel, job.content, job.userID)
+	summary := summarizeFeedbackBestEffort(ctx, s.db, s.modelInvoker, job.orgID, job.typeLabel, job.content, job.userID)
 
 	attachmentTokens, err := s.uploadAttachments(ctx, job.orgID, job.attachmentIDs)
 	if err != nil {

@@ -13,7 +13,7 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-const defaultProgressIdleTimeout = 5 * time.Minute
+const defaultProgressIdleTimeout = 10 * time.Minute
 
 // ============================================================================
 // ServerInvoker — opencode serve 模式的调用器
@@ -342,7 +342,7 @@ func (st *runState) waitCompletion(ctx context.Context, cancelMessage, cancelSSE
 			}
 			goto complete
 		case <-progressTimer.C:
-			err := fmt.Errorf("opencode progress idle timeout after %s", progressTimeout)
+			err := fmt.Errorf("长时间未操作，任务已暂停，如需继续请输入\"继续\"。")
 			logs.Warnf("%v: execution_id=%s session_id=%s elapsed=%s", err, st.executionID, st.sessionID, time.Since(st.startedAt).Truncate(time.Millisecond))
 			cancelMessage()
 			cancelSSE()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -131,6 +132,7 @@ func DeleteLLMModel(ctx context.Context, db *gorm.DB, id uint) error {
 
 // CloneSystemLLMModelsByOrg 将初始化组织的系统模型复制到新组织。
 func CloneSystemLLMModelsByOrg(ctx context.Context, d *gorm.DB, fromOrgID, toOrgID uint) error {
+	now := time.Now()
 	return d.WithContext(ctx).Exec(`
 		INSERT INTO `+types.TableNameLLMModel+` (
 			org_id, code, name, description, provider, model, base_url,
@@ -141,11 +143,11 @@ func CloneSystemLLMModelsByOrg(ctx context.Context, d *gorm.DB, fromOrgID, toOrg
 		SELECT ?, code, name, description, provider, model, base_url,
 		       base_url_has_v1, api_key_encrypted, api_key_masked,
 		       max_tokens, temperature, timeout_sec, status, is_default, is_system, config,
-		       NOW(), NOW()
+		       ?, ?
 		FROM `+types.TableNameLLMModel+`
 		WHERE org_id = ? AND is_system = true AND deleted_at IS NULL
 		ON CONFLICT (org_id, code) DO NOTHING
-	`, toOrgID, fromOrgID).Error
+	`, toOrgID, now, now, fromOrgID).Error
 }
 
 // ListLLMModels 查询LLM模型配置列表
@@ -213,6 +215,40 @@ func LLMModelCodeExists(ctx context.Context, db *gorm.DB, orgID uint, code strin
 	}
 	err := query.Count(&count).Error
 	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// GetLLMModelByModelName 按组织ID和模型名称查询 active 状态的模型
+func GetLLMModelByModelName(ctx context.Context, db *gorm.DB, orgID uint, modelName string) (*types.LLMModel, error) {
+	var entity types.LLMModel
+	err := db.WithContext(ctx).
+		Where("org_id = ? AND model_name = ? AND status = ?", orgID, modelName, string(types.LLMModelStatusActive)).
+		First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
+}
+
+// ClearOrgDefaultLLMModels 清除指定组织内其他模型配置的默认标记。
+// excludeID 大于 0 时排除该 ID 对应的记录。
+func ClearOrgDefaultLLMModels(ctx context.Context, db *gorm.DB, orgID uint, excludeID uint) error {
+	query := db.WithContext(ctx).Model(&types.LLMModel{}).Where("org_id = ? AND is_default = ?", orgID, true)
+	if excludeID > 0 {
+		query = query.Where("id != ?", excludeID)
+	}
+	return query.Update("is_default", false).Error
+}
+
+// OrgHasLLMModels 检查指定组织是否已有任何模型配置记录。
+func OrgHasLLMModels(ctx context.Context, db *gorm.DB, orgID uint) (bool, error) {
+	var count int64
+	if err := db.WithContext(ctx).Model(&types.LLMModel{}).Where("org_id = ?", orgID).Count(&count).Error; err != nil {
 		return false, err
 	}
 	return count > 0, nil

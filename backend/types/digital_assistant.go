@@ -4,6 +4,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// DefaultDigitalAssistantPublicIDPrefix identifies organization-level system assistants.
+const DefaultDigitalAssistantPublicIDPrefix = "assistant_default_"
+
 // DigitalAssistant 数字助手结构体定义了AI数字助手的基本信息与配置
 type DigitalAssistant struct {
 	gorm.Model
@@ -17,6 +20,8 @@ type DigitalAssistant struct {
 
 	// digital_assistant - 数字助手名称，VARCHAR(255)，NOT NULL
 	Name string `gorm:"column:name;type:varchar(255);not null"`
+	// digital_assistant - 对外展示的角色名称，VARCHAR(255)，允许为空以兼容历史数据
+	RoleName string `gorm:"column:role_name;type:varchar(255)"`
 
 	// digital_assistant - 描述信息，TEXT，允许为空
 	Description string `gorm:"column:description;type:text"`

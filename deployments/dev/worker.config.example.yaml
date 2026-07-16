@@ -12,6 +12,19 @@ nats:
 log:
   level: debug
 
+logger:
+  default:
+    - writer: console
+      level: debug
+    - writer: cls
+      level: info
+      tencent_cls:
+        topic_id: ${TENCENT_CLS_TOPIC_ID}
+        secret_id: ${TENCENT_CLS_SECRET_ID}
+        secret_key: ${TENCENT_CLS_SECRET_KEY}
+        region: ap-beijing
+        endpoint: ap-beijing.cls.tencentcs.com
+
 cli:
   default: "leros"
 

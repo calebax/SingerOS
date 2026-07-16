@@ -1,7 +1,6 @@
 "use client";
 
 import {
-	type DigitalAssistantItem,
 	type Project,
 	type ProjectTask,
 	projectFileApi,
@@ -16,12 +15,11 @@ import { Command, CommandInput } from "@leros/ui/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import {
+	BookOpenText,
 	Check,
 	ChevronDown,
 	ChevronRight,
 	FileText,
-	Folder,
-	Layers,
 	ListTodo,
 	type LucideIcon,
 	Plus,
@@ -33,6 +31,7 @@ import { toast } from "sonner";
 import { WORKBENCH_HERO_OCTOPUS_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
+import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 import { AttachmentPreview } from "../input/AttachmentPreview";
 import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ComposerActionBar } from "../input/ComposerActionBar";
@@ -45,6 +44,7 @@ import {
 } from "../input/StructuredComposer";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
+import { ProjectIcon } from "./project-icon";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
 	// 中文注释：选择已有项目后不再支持临时召唤队友/技能，需要同步移除输入框中已插入的指令 token。
@@ -96,12 +96,6 @@ function buildAssistantDisplayMetadata(
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function isSummonableAssistant(assistant: DigitalAssistantItem): boolean {
-	if (assistant.status !== "active") return false;
-	const deploymentStatus = assistant.deploymentStatus?.trim();
-	return !deploymentStatus || deploymentStatus === "ready";
 }
 
 function resolveMentionedAssistant(
@@ -192,7 +186,7 @@ const WORKBENCH_FEATURE_CARDS: Array<{
 	{
 		title: "知识沉淀",
 		description: "沉淀过程成果，形成项目资产。",
-		icon: Layers,
+		icon: BookOpenText,
 		iconClassName: "bg-orange-100 text-orange-600",
 	},
 ];
@@ -521,10 +515,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
 	const availableAssistantOptions = useMemo<ComposerAssistantOption[]>(
 		() =>
-			assistants.filter(isSummonableAssistant).map((assistant) => ({
+			assistants.filter(isAssistantAvailable).map((assistant) => ({
 				id: assistant.publicId,
 				code: assistant.publicId,
 				name: assistant.name,
+				roleName: assistant.roleName,
 				description:
 					assistant.description ||
 					(assistant.expertise.length > 0 ? assistant.expertise.join("、") : "AI 队友"),
@@ -906,7 +901,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								aria-label="选择项目任务"
 								title={projectTaskSelectorLabel}
 							>
-								<Folder className="size-4 shrink-0" />
+								<ProjectIcon className="size-4 shrink-0" />
 								<span className="truncate">{projectTaskSelectorLabel}</span>
 								<ChevronDown className="size-3.5 shrink-0 text-slate-400" />
 							</PopoverTrigger>
@@ -943,7 +938,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 													onClick={() => handleSelectProject(project)}
 													className={projectPickerRowClass(projectSelected)}
 												>
-													<Folder className="size-4 shrink-0" />
+													<ProjectIcon className="size-4 shrink-0" />
 													<span className="min-w-0 flex-1 truncate">
 														{renderHighlightedText(project.name, projectSearch)}
 													</span>

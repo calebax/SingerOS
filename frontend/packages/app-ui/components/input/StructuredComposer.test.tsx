@@ -123,6 +123,15 @@ function MentionRemoveHarness({ onValueChange }: { onValueChange?: (value: strin
 				onBlur={vi.fn()}
 				placeholder="请输入"
 				isProjectVariant
+				assistantOptions={[
+					{
+						id: "assistant-code",
+						code: "code-assistant",
+						name: "代码助手",
+						description: "代码开发",
+						avatarUrl: "https://example.com/code-assistant.png",
+					},
+				]}
 				projectSkillOptions={[]}
 			/>
 		</div>
@@ -428,6 +437,12 @@ describe("StructuredComposer", () => {
 		const textbox = screen.getByRole("textbox", { name: "请输入" });
 		const removeButton = textbox.querySelector('[data-mention-remove="true"]');
 		expect(removeButton).toBeInstanceOf(HTMLElement);
+		await waitFor(() => {
+			expect(removeButton?.querySelector("img")).toHaveAttribute(
+				"src",
+				"https://example.com/code-assistant.png",
+			);
+		});
 
 		await user.click(removeButton as HTMLElement);
 

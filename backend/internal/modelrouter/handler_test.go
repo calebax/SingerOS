@@ -707,6 +707,13 @@ func TestModelStore_ResolveNotFound(t *testing.T) {
 	}
 }
 
+func getContent(result *llm.CallResult) string {
+	if result == nil || result.Message == nil {
+		return ""
+	}
+	return result.Message.Content
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Format test
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

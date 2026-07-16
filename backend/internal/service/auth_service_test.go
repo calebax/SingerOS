@@ -32,8 +32,24 @@ func setupAuthServiceTest(t *testing.T) (contract.AuthService, *gorm.DB) {
 		&types.AuthPhoneVerificationCode{},
 		&types.DigitalAssistant{},
 		&types.WorkerDeployment{},
+		&types.LLMModel{},
 	); err != nil {
 		t.Fatalf("failed to migrate test database: %v", err)
+	}
+	if err := database.Create(&types.LLMModel{
+		OrgID:           1,
+		Code:            "default",
+		Name:            "Default",
+		Provider:        "openai",
+		ModelName:       "gpt-test",
+		BaseURL:         "https://api.openai.com",
+		BaseURLHasV1:    true,
+		APIKeyEncrypted: "sk-test",
+		Status:          string(types.LLMModelStatusActive),
+		IsDefault:       true,
+		IsSystem:        true,
+	}).Error; err != nil {
+		t.Fatalf("failed to seed default llm model: %v", err)
 	}
 	if err := database.Create(&types.Organization{
 		PublicID: "org_default",

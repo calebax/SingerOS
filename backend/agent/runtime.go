@@ -1,6 +1,10 @@
 package agent
 
-import "context"
+import (
+	"context"
+
+	"github.com/insmtx/Leros/backend/types"
+)
 
 const (
 	// RuntimeKindLeros is the built-in Leros agent runtime.
@@ -13,14 +17,14 @@ const (
 	RuntimeKindOpenCode = "opencode"
 )
 
-// ExecutionMode describes how a runtime should handle one request.
-type ExecutionMode string
+// ExecutionMode is an alias of types.ExecutionMode for backward compatibility.
+type ExecutionMode = types.ExecutionMode
 
 const (
 	// ExecutionModeDefault keeps the runtime's normal execution behavior.
-	ExecutionModeDefault ExecutionMode = "default"
+	ExecutionModeDefault = types.ExecutionModeDefault
 	// ExecutionModePlan requests planning behavior when the runtime supports it.
-	ExecutionModePlan ExecutionMode = "plan"
+	ExecutionModePlan = types.ExecutionModePlan
 )
 
 // Message is a business-neutral conversation message supplied to a Runtime.

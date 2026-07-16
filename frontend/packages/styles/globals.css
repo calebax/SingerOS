@@ -147,11 +147,18 @@
 	}
 
 	.leros-brand-version {
-		margin-top: 2px;
+		display: inline-flex;
+		width: fit-content;
+		margin-top: 4px;
+		border: 1px solid color-mix(in srgb, var(--leros-primary) 18%, transparent);
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--leros-primary-softer) 72%, transparent);
+		padding: 2px 6px;
 		font-size: 10px;
-		line-height: 1;
-		font-weight: 500;
-		color: color-mix(in srgb, var(--leros-text) 70%, transparent);
+		line-height: 1.1;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: color-mix(in srgb, var(--leros-primary) 78%, var(--leros-text-strong));
 	}
 
 	.leros-sidebar-toggle {

@@ -99,6 +99,7 @@ export {
 	useEnsureCapabilities,
 	useProjectCapabilities,
 	useProjectMenuCapabilities,
+	useProjectsMenuCapabilities,
 	useTaskCapabilities,
 } from "./hooks/useCan";
 export {

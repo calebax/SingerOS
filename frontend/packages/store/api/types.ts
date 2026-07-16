@@ -187,6 +187,7 @@ export type BackendDigitalAssistant = {
 	public_id?: string;
 	code?: string;
 	name: string;
+	role_name?: string;
 	description?: string;
 	avatar?: string;
 	org_id: number;

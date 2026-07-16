@@ -105,6 +105,7 @@ export type ProjectMember = {
 	type: ProjectMemberType;
 	role: string;
 	name: string;
+	roleName?: string;
 	description?: string;
 	avatarUrl?: string;
 	joinedAt?: string;

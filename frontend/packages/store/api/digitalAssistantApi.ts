@@ -9,6 +9,7 @@ import type {
 export type CreateDAParams = {
 	public_id?: string;
 	name: string;
+	role_name?: string;
 	description?: string;
 	avatar?: string;
 	system_prompt?: string;
@@ -20,6 +21,7 @@ export type CreateDAParams = {
 export type UpdateDAParams = {
 	id: number;
 	name?: string;
+	role_name?: string;
 	description?: string;
 	avatar?: string;
 	system_prompt?: string;
@@ -50,6 +52,7 @@ export type CreateDAFromTemplateParams = {
 	template_id: number;
 	public_id?: string;
 	name?: string;
+	role_name?: string;
 	description?: string;
 	avatar?: string;
 	system_prompt?: string;

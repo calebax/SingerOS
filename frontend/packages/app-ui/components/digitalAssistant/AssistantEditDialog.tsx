@@ -26,36 +26,44 @@ export type AssistantEditDialogProps = {
 export function AssistantEditDialog({ assistant, open, onOpenChange }: AssistantEditDialogProps) {
 	const { updateAssistant } = useDAStore((s) => s);
 	const [name, setName] = useState(assistant.name);
+	const [roleName, setRoleName] = useState(assistant.roleName || assistant.name);
 	const [avatar, setAvatar] = useState(assistant.avatar);
 	const [description, setDescription] = useState(assistant.description);
 	const [systemPrompt, setSystemPrompt] = useState(assistant.systemPrompt);
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
+	const [submitting, setSubmitting] = useState(false);
 	const [previewAvatar, setPreviewAvatar] = useState<string | undefined>();
 
 	useEffect(() => {
 		if (!open) return;
 		setName(assistant.name);
+		setRoleName(assistant.roleName || assistant.name);
 		setAvatar(assistant.avatar);
 		setDescription(assistant.description);
 		setSystemPrompt(assistant.systemPrompt);
+		setSubmitting(false);
 		setPreviewAvatar(undefined);
 	}, [assistant, open]);
 
 	const statusInfo = getAssistantDisplayStatus(assistant);
 
 	const handleSubmit = async () => {
-		if (assistant.source === "template") {
-			toast.error("模板创建的队友不允许修改");
+		if (!name.trim() || !roleName.trim() || !description.trim() || submitting || uploadingAvatar)
 			return;
-		}
-		if (!name.trim()) return;
-		await updateAssistant({
+		setSubmitting(true);
+		const updated = await updateAssistant({
 			id: assistant.id,
 			name: name.trim(),
+			role_name: roleName.trim(),
 			avatar: avatar.trim(),
 			description: description.trim(),
 			system_prompt: systemPrompt.trim(),
 		});
+		setSubmitting(false);
+		if (!updated) {
+			toast.error("AI 队友保存失败，请稍后重试");
+			return;
+		}
 		onOpenChange(false);
 	};
 
@@ -91,7 +99,12 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				if (!nextOpen && !submitting && !uploadingAvatar) onOpenChange(false);
+			}}
+		>
 			<DialogContent className="max-h-[min(88dvh,640px)] max-w-[min(92vw,520px)] gap-0 overflow-y-auto p-0 sm:rounded-2xl">
 				<DialogTitle className="sr-only">编辑 {assistant.name}</DialogTitle>
 				<DialogDescription className="sr-only">编辑 AI 队友基础信息和能力简介</DialogDescription>
@@ -134,27 +147,37 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 							</div>
 						</div>
 						<div className="space-y-1.5">
-							<span className="text-xs font-medium text-slate-700">名称 *</span>
+							<span className="text-xs font-medium text-slate-700">自定义名称 *</span>
 							<input
 								type="text"
 								value={name}
 								onChange={(e) => setName(e.target.value)}
-								placeholder="队友名称"
+								placeholder="例如：小投、法务小周"
 								className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
 							/>
 						</div>
 						<div className="space-y-1.5">
-							<span className="text-xs font-medium text-slate-700">描述</span>
+							<span className="text-xs font-medium text-slate-700">角色名称 *</span>
+							<input
+								type="text"
+								value={roleName}
+								onChange={(e) => setRoleName(e.target.value)}
+								placeholder="例如：投标经理"
+								className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+							/>
+						</div>
+						<div className="space-y-1.5">
+							<span className="text-xs font-medium text-slate-700">简介 *</span>
 							<input
 								type="text"
 								value={description}
 								onChange={(e) => setDescription(e.target.value)}
-								placeholder="简短描述"
+								placeholder="简要说明这个队友能做什么"
 								className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
 							/>
 						</div>
 						<div className="space-y-1.5">
-							<span className="text-xs font-medium text-slate-700">简介</span>
+							<span className="text-xs font-medium text-slate-700">角色设定</span>
 							<textarea
 								value={systemPrompt}
 								onChange={(e) => setSystemPrompt(e.target.value)}
@@ -171,16 +194,23 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 						variant="outline"
 						className="h-11 rounded-lg px-6"
 						onClick={() => onOpenChange(false)}
+						disabled={submitting || uploadingAvatar}
 					>
 						取消
 					</Button>
 					<Button
 						type="button"
 						onClick={handleSubmit}
-						disabled={!name.trim()}
+						disabled={
+							!name.trim() ||
+							!roleName.trim() ||
+							!description.trim() ||
+							submitting ||
+							uploadingAvatar
+						}
 						className="h-11 rounded-lg bg-[var(--leros-text-strong)] px-8 text-sm font-semibold text-white hover:bg-[var(--leros-text)]"
 					>
-						保存
+						{submitting ? "保存中…" : "保存"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

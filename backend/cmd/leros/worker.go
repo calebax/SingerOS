@@ -417,6 +417,10 @@ func runTaskWorker(defaultRuntime string) {
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)
 	})
+	lifecycle.Std().AddCloseFunc(func() error {
+		logs.Close()
+		return nil
+	})
 	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, runHandler.RunSubject())
 	lifecycle.Std().WaitExit()
 	logs.Info("Agent worker exited")

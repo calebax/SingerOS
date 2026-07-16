@@ -1677,11 +1677,8 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		}
 	}
 
-	users, _ := db.GetUsersByIDs(ctx, s.db, userIDs)
-	userMap := make(map[uint]*types.User, len(users))
-	for _, u := range users {
-		userMap[u.ID] = u
-	}
+	// 中文注释：资源绑定保存的是组织成员 UIN，必须按 UIN 查询并建索引；不能把 UIN 当作用户表主键使用。
+	userMap, _ := db.GetUsersByUins(ctx, s.db, userIDs)
 
 	assistants, _ := db.GetAssistantsByIDs(ctx, s.db, assistantIDs)
 	assistantMap := make(map[uint]*types.DigitalAssistant, len(assistants))
