@@ -18,11 +18,11 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/llm"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/git"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/projectfile"
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
@@ -882,9 +882,9 @@ func (p *MessagePoster) publishWorkerTask(
 				Messages:    inputMessages,
 				Attachments: convertMessageToMessagingAttachments(message.Attachments),
 			},
-			Model:     modelOptions,
-			Execution: executionTarget,
-			Project:   projectContext,
+			Model:       modelOptions,
+			Execution:   executionTarget,
+			Project:     projectContext,
 			ProjectID:   coalesceUintPtr(session.ProjectID),
 			SessionID:   session.ID,
 			MessageID:   message.ID,
@@ -1023,7 +1023,6 @@ func attachFilesToProject(
 
 		exists, _ := infradb.GetProjectFileByFilePublicID(ctx, db, orgID, fileUpload.PublicID)
 		if exists == nil {
-			displayName := strings.TrimSpace(attachments[i].Name)
 			if err := db.Transaction(func(tx *gorm.DB) error {
 				pf, bindErr := projectfile.BindUserUploadToProject(ctx, tx, projectfile.BindUserUploadParams{
 					OrgID:        orgID,
@@ -1032,7 +1031,8 @@ func attachFilesToProject(
 					TaskPublicID: taskPublicID,
 					Uin:          uin,
 					FileUpload:   fileUpload,
-					DisplayName:  displayName,
+					DisplayName:  attachments[i].Name,
+					RelativePath: attachments[i].RelativePath,
 				})
 				if bindErr != nil {
 					return bindErr

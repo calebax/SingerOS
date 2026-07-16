@@ -71,10 +71,10 @@ func (c *CallerEino) Call(ctx context.Context, orgID uint, req *CallRequest) (*C
 		ClientIP:      GetCtxString(ctx, CtxClientIP),
 		StartedAt:     startedAt,
 		FinishedAt:    finishedAt,
-		Input:  string(inputData),
-		Output: string(outputData),
-		InputLen:  len(inputData),
-		OutputLen: len(outputData),
+		Input:         string(inputData),
+		Output:        string(outputData),
+		InputLen:      len(inputData),
+		OutputLen:     len(outputData),
 	}
 	if usage != nil {
 		record.InputTokens = usage.InputTokens
@@ -155,10 +155,10 @@ func (c *CallerEino) Stream(ctx context.Context, orgID uint, req *CallRequest, s
 		ClientIP:      GetCtxString(ctx, CtxClientIP),
 		StartedAt:     startedAt,
 		FinishedAt:    finishedAt,
-		Input:     string(inputData),
-		Output:    contentBuf.String(),
-		InputLen:  len(inputData),
-		OutputLen: contentBuf.Len(),
+		Input:         string(inputData),
+		Output:        contentBuf.String(),
+		InputLen:      len(inputData),
+		OutputLen:     contentBuf.Len(),
 	}
 	if usage != nil {
 		record.InputTokens = usage.InputTokens
@@ -275,11 +275,11 @@ func extractUsage(resp *einoschema.Message) *Usage {
 		total = u.PromptTokens + u.CompletionTokens
 	}
 	return &Usage{
-		InputTokens:     u.PromptTokens,
-		OutputTokens:    u.CompletionTokens,
-		TotalTokens:     total,
-		PromptTokens:    int64(u.PromptTokens),
-		CacheHitTokens:  int64(u.PromptTokenDetails.CachedTokens),
+		InputTokens:    u.PromptTokens,
+		OutputTokens:   u.CompletionTokens,
+		TotalTokens:    total,
+		PromptTokens:   int64(u.PromptTokens),
+		CacheHitTokens: int64(u.PromptTokenDetails.CachedTokens),
 	}
 }
 

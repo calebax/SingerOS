@@ -22,12 +22,12 @@ import (
 
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"github.com/insmtx/Leros/backend/internal/consts"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/git"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
-	"github.com/insmtx/Leros/backend/internal/projectfile"
 	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
@@ -1801,7 +1801,6 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 
 	filter := db.ProjectFileListFilter{
 		ResourceType: strings.TrimSpace(query.ResourceType),
-		NodeType:     strings.TrimSpace(query.NodeType),
 		FileExt:      strings.TrimSpace(query.FileExt),
 	}
 	taskPublicID := strings.TrimSpace(query.TaskPublicID)
@@ -1857,18 +1856,43 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	if err != nil {
 		return nil, "", 0, errors.New("file path is required")
 	}
-	resourceType := types.ProjectFileResourceTypeUserUpload
-	if strings.HasPrefix(normalizedPath, "artifacts/") {
-		resourceType = types.ProjectFileResourceTypeArtifact
-	}
 	target, err := db.GetLatestProjectFileByRelativePath(
 		ctx,
 		s.db,
 		caller.OrgID,
 		project.ID,
-		resourceType,
+		types.ProjectFileResourceTypeUserUpload,
 		normalizedPath,
 	)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("get latest project file: %w", err)
+	}
+	if target == nil {
+		target, err = db.GetLatestProjectFileByRelativePath(
+			ctx,
+			s.db,
+			caller.OrgID,
+			project.ID,
+			types.ProjectFileResourceTypeArtifact,
+			normalizedPath,
+		)
+		if err != nil {
+			return nil, "", 0, fmt.Errorf("get latest project file: %w", err)
+		}
+	}
+	if target == nil {
+		target, err = db.GetLatestProjectFileByRelativePath(
+			ctx,
+			s.db,
+			caller.OrgID,
+			project.ID,
+			types.ProjectFileResourceTypePlan,
+			normalizedPath,
+		)
+		if err != nil {
+			return nil, "", 0, fmt.Errorf("get latest project file: %w", err)
+		}
+	}
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("get latest project file: %w", err)
 	}
@@ -2260,7 +2284,7 @@ func (s *projectService) buildRepoName(orgID uint, projectPublicID string) strin
 	return fmt.Sprintf("%s-%d-%s", s.env, orgID, projectPublicID)
 }
 
-var visibleFolders = []string{"artifacts/", "uploads/"}
+var visibleFolders = []string{consts.RepoDirArtifacts + "/", consts.RepoDirUploads + "/"}
 
 var ignoredFiles = map[string]bool{".gitkeep": true}
 
@@ -2290,14 +2314,9 @@ func mimeTypeByExt(filename string) string {
 
 // buildFileTreeFromProjectFiles 将 ProjectFile 列表转换为平铺的 FileTreeNode 列表。
 func buildFileTreeFromProjectFiles(ctx context.Context, dbParam *gorm.DB, files []types.ProjectFile) []*contract.FileTreeNode {
-	idToPublicID := make(map[uint]string, len(files))
-	for _, pf := range files {
-		idToPublicID[pf.ID] = pf.FilePublicID
-	}
-
 	var nodes []*contract.FileTreeNode
 	for _, pf := range files {
-		node := projectFileToTreeNode(ctx, dbParam, pf, idToPublicID)
+		node := projectFileToTreeNode(ctx, dbParam, pf)
 		if node != nil {
 			nodes = append(nodes, node)
 		}
@@ -2309,16 +2328,10 @@ func projectFileToTreeNode(
 	ctx context.Context,
 	dbParam *gorm.DB,
 	pf types.ProjectFile,
-	idToPublicID map[uint]string,
 ) *contract.FileTreeNode {
 	fullPath := strings.TrimSpace(pf.RelativePath)
 	if fullPath == "" {
 		return nil
-	}
-
-	nodeType := string(pf.NodeType)
-	if nodeType == "" {
-		nodeType = string(types.ProjectFileNodeTypeFile)
 	}
 
 	name := filepath.Base(strings.TrimSuffix(fullPath, "/"))
@@ -2334,9 +2347,7 @@ func projectFileToTreeNode(
 	node := &contract.FileTreeNode{
 		Name:                name,
 		Path:                fullPath,
-		NodeType:            nodeType,
-		ParentID:            idToPublicID[pf.ParentID],
-		ParentIDs:           parentPublicIDs(pf.ParentIDs, idToPublicID),
+		Type:                "file",
 		ModTime:             pf.UpdatedAt.Unix(),
 		CreatedAt:           pf.CreatedAt.Unix(),
 		PublicID:            pf.FilePublicID,
@@ -2347,15 +2358,6 @@ func projectFileToTreeNode(
 		ResourceType:        string(pf.ResourceType),
 	}
 
-	if pf.NodeType == types.ProjectFileNodeTypeFolder {
-		node.Type = "directory"
-		if folderPath, err := projectfile.NormalizeFolderRelativePath(fullPath); err == nil {
-			node.Path = folderPath
-		}
-		return node
-	}
-
-	node.Type = "file"
 	fileUpload, err := db.GetFileUploadByPublicID(ctx, dbParam, pf.OrgID, pf.FilePublicID)
 	if err != nil || fileUpload == nil {
 		return node
@@ -2368,19 +2370,6 @@ func projectFileToTreeNode(
 		node.Name = filepath.Base(fileUpload.OriginalName)
 	}
 	return node
-}
-
-func parentPublicIDs(parentIDs []uint, idToPublicID map[uint]string) []string {
-	if len(parentIDs) == 0 {
-		return nil
-	}
-	result := make([]string, 0, len(parentIDs))
-	for _, id := range parentIDs {
-		if publicID := idToPublicID[id]; publicID != "" {
-			result = append(result, publicID)
-		}
-	}
-	return result
 }
 
 func storageKeyFromFilestoreURI(uri string) (string, error) {

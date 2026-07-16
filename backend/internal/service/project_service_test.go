@@ -272,16 +272,22 @@ func seedProjectFileWithResource(
 		t.Fatalf("create file upload: %v", err)
 	}
 
+	relativePath := "report.pdf"
+	if resourceType == types.ProjectFileResourceTypeUserUpload {
+		relativePath = "uploads/report.pdf"
+	}
+
 	projectFile := &types.ProjectFile{
 		FilePublicID: filePublicID,
 		OrgID:        project.OrgID,
 		ProjectID:    project.ID,
 		ResourceID:   fileUpload.ID,
 		ResourceType: resourceType,
+		RelativePath: relativePath,
 		Uin:          1,
 	}
-	if err := database.Create(projectFile).Error; err != nil {
-		t.Fatalf("create project file: %v", err)
+	if err := infradb.CreateProjectFileVersion(ctx, database, projectFile); err != nil {
+		t.Fatalf("create project file version: %v", err)
 	}
 
 	parentID := projectResourceID
@@ -768,36 +774,30 @@ func seedProjectFileRecord(
 	resourceType types.ProjectFileResourceType,
 	relativePath string,
 	originalName string,
-	nodeType types.ProjectFileNodeType,
 ) *types.ProjectFile {
 	t.Helper()
 	ctx := context.Background()
 
-	if nodeType == "" {
-		nodeType = types.ProjectFileNodeTypeFile
-	}
 	if originalName == "" {
 		originalName = filepath.Base(strings.TrimSuffix(relativePath, "/"))
 	}
 
 	var resourceID uint
-	if nodeType == types.ProjectFileNodeTypeFile {
-		fileUpload := &types.FileUpload{
-			PublicID:     filePublicID,
-			OrgID:        project.OrgID,
-			OwnerID:      1,
-			Filename:     originalName,
-			OriginalName: originalName,
-			MimeType:     "application/octet-stream",
-			FileSize:     1024,
-			StorageURI:   "filestore://default/" + relativePath,
-			Status:       "active",
-		}
-		if err := database.Create(fileUpload).Error; err != nil {
-			t.Fatalf("create file upload: %v", err)
-		}
-		resourceID = fileUpload.ID
+	fileUpload := &types.FileUpload{
+		PublicID:     filePublicID,
+		OrgID:        project.OrgID,
+		OwnerID:      1,
+		Filename:     originalName,
+		OriginalName: originalName,
+		MimeType:     "application/octet-stream",
+		FileSize:     1024,
+		StorageURI:   "filestore://default/" + relativePath,
+		Status:       "active",
 	}
+	if err := database.Create(fileUpload).Error; err != nil {
+		t.Fatalf("create file upload: %v", err)
+	}
+	resourceID = fileUpload.ID
 
 	projectFile := &types.ProjectFile{
 		FilePublicID: filePublicID,
@@ -806,33 +806,26 @@ func seedProjectFileRecord(
 		ResourceID:   resourceID,
 		ResourceType: resourceType,
 		RelativePath: relativePath,
-		NodeType:     nodeType,
 		Uin:          1,
 	}
 	if err := database.Create(projectFile).Error; err != nil {
 		t.Fatalf("create project file: %v", err)
 	}
 
-	parentID := projectResourceID
 	resourceKind := types.ResourceTypeFile
-	if nodeType == types.ProjectFileNodeTypeFolder {
-		resourceKind = types.ResourceTypeFile
-	}
 	if resourceType == types.ProjectFileResourceTypeArtifact {
 		resourceKind = types.ResourceTypeArtifact
 	}
-	if nodeType == types.ProjectFileNodeTypeFile {
-		resource := &types.Resource{
-			OrgID:                 project.OrgID,
-			Uin:                   1,
-			Type:                  resourceKind,
-			BizID:                 projectFile.ID,
-			ParentResourceID:      &parentID,
-			ParentResourcePathIDs: types.ResourcePathIDs{projectResourceID},
-		}
-		if err := infradb.CreateResource(ctx, database, resource); err != nil {
-			t.Fatalf("create file resource: %v", err)
-		}
+	resource := &types.Resource{
+		OrgID:                 project.OrgID,
+		Uin:                   1,
+		Type:                  resourceKind,
+		BizID:                 projectFile.ID,
+		ParentResourceID:      &projectResourceID,
+		ParentResourcePathIDs: types.ResourcePathIDs{projectResourceID},
+	}
+	if err := infradb.CreateResource(ctx, database, resource); err != nil {
+		t.Fatalf("create file resource: %v", err)
 	}
 
 	return projectFile
@@ -871,16 +864,14 @@ func seedProjectFileFilterTree(t *testing.T) (*gorm.DB, *types.Project) {
 		t.Fatalf("create owner binding: %v", err)
 	}
 
-	seedProjectFileRecord(t, database, project, projectResource.ID, "folder_uploads", types.ProjectFileResourceTypeUserUpload, "uploads/", "", types.ProjectFileNodeTypeFolder)
-	seedProjectFileRecord(t, database, project, projectResource.ID, "folder_demo", types.ProjectFileResourceTypeUserUpload, "uploads/demo/", "", types.ProjectFileNodeTypeFolder)
-	seedProjectFileRecord(t, database, project, projectResource.ID, "file_upload_pdf", types.ProjectFileResourceTypeUserUpload, "uploads/demo/report.pdf", "report.pdf", types.ProjectFileNodeTypeFile)
-	seedProjectFileRecord(t, database, project, projectResource.ID, "file_upload_doc", types.ProjectFileResourceTypeUserUpload, "uploads/notes.docx", "notes.docx", types.ProjectFileNodeTypeFile)
-	seedProjectFileRecord(t, database, project, projectResource.ID, "file_artifact_md", types.ProjectFileResourceTypeArtifact, "artifacts/summary.md", "summary.md", types.ProjectFileNodeTypeFile)
+	seedProjectFileRecord(t, database, project, projectResource.ID, "file_upload_pdf", types.ProjectFileResourceTypeUserUpload, "uploads/demo/report.pdf", "report.pdf")
+	seedProjectFileRecord(t, database, project, projectResource.ID, "file_upload_doc", types.ProjectFileResourceTypeUserUpload, "uploads/notes.docx", "notes.docx")
+	seedProjectFileRecord(t, database, project, projectResource.ID, "file_artifact_md", types.ProjectFileResourceTypeArtifact, "summary.md", "summary.md")
 
 	return database, project
 }
 
-func TestGetProjectFileTree_FiltersByResourceTypeNodeTypeAndFileExt(t *testing.T) {
+func TestGetProjectFileTree_FiltersByResourceTypeAndFileExt(t *testing.T) {
 	database, project := seedProjectFileFilterTree(t)
 	service := NewProjectService(database, nil, nil, "test")
 	ownerCtx := setupTestContextWithCaller(t)
@@ -891,8 +882,8 @@ func TestGetProjectFileTree_FiltersByResourceTypeNodeTypeAndFileExt(t *testing.T
 	if err != nil {
 		t.Fatalf("GetProjectFileTree upload: %v", err)
 	}
-	if len(uploadTree) != 4 {
-		t.Fatalf("upload tree len = %d, want 4", len(uploadTree))
+	if len(uploadTree) != 2 {
+		t.Fatalf("upload tree len = %d, want 2", len(uploadTree))
 	}
 
 	artifactTree, err := service.GetProjectFileTree(ownerCtx, project.PublicID, contract.ProjectFileTreeQuery{
@@ -901,18 +892,8 @@ func TestGetProjectFileTree_FiltersByResourceTypeNodeTypeAndFileExt(t *testing.T
 	if err != nil {
 		t.Fatalf("GetProjectFileTree artifact: %v", err)
 	}
-	if len(artifactTree) != 1 || artifactTree[0].Path != "artifacts/summary.md" {
+	if len(artifactTree) != 1 || artifactTree[0].Path != "summary.md" {
 		t.Fatalf("artifact tree = %#v", artifactTree)
-	}
-
-	folderTree, err := service.GetProjectFileTree(ownerCtx, project.PublicID, contract.ProjectFileTreeQuery{
-		NodeType: "folder",
-	})
-	if err != nil {
-		t.Fatalf("GetProjectFileTree folder: %v", err)
-	}
-	if len(folderTree) != 4 {
-		t.Fatalf("folder tree len = %d, want 4 (folders + descendant files)", len(folderTree))
 	}
 
 	pdfTree, err := service.GetProjectFileTree(ownerCtx, project.PublicID, contract.ProjectFileTreeQuery{
@@ -921,18 +902,7 @@ func TestGetProjectFileTree_FiltersByResourceTypeNodeTypeAndFileExt(t *testing.T
 	if err != nil {
 		t.Fatalf("GetProjectFileTree pdf: %v", err)
 	}
-	if len(pdfTree) != 3 {
-		t.Fatalf("pdf tree len = %d, want 3 (2 ancestor folders + file)", len(pdfTree))
-	}
-
-	fileOnlyTree, err := service.GetProjectFileTree(ownerCtx, project.PublicID, contract.ProjectFileTreeQuery{
-		NodeType: "file",
-		FileExt:  "pdf",
-	})
-	if err != nil {
-		t.Fatalf("GetProjectFileTree file pdf: %v", err)
-	}
-	if len(fileOnlyTree) != 1 || fileOnlyTree[0].Path != "uploads/demo/report.pdf" {
-		t.Fatalf("file-only pdf tree = %#v", fileOnlyTree)
+	if len(pdfTree) != 1 || pdfTree[0].Path != "uploads/demo/report.pdf" {
+		t.Fatalf("pdf tree = %#v", pdfTree)
 	}
 }

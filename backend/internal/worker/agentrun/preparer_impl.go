@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/internal/consts"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	agentruncontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
@@ -139,7 +140,7 @@ func (ai *attachmentIngestor) IngestAttachments(ctx context.Context, req *agentr
 	if targetRoot == "" {
 		targetRoot = req.Runtime.WorkDir
 	}
-	targetDir := filepath.Join(targetRoot, "uploads")
+	targetDir := filepath.Join(targetRoot, consts.RepoDirUploads)
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		logs.WarnContextf(ctx, "ingest attachments: create uploads dir: %v", err)
 		return

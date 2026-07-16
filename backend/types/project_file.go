@@ -13,14 +13,6 @@ const (
 	ProjectFileResourceTypePlan       ProjectFileResourceType = "plan"        // 计划文件
 )
 
-// ProjectFileNodeType distinguishes file entries from folder entries in the project tree.
-type ProjectFileNodeType string
-
-const (
-	ProjectFileNodeTypeFile   ProjectFileNodeType = "file"
-	ProjectFileNodeTypeFolder ProjectFileNodeType = "folder"
-)
-
 // ProjectFile 项目文件关联表，记录项目/任务/资源之间的映射关系
 type ProjectFile struct {
 	gorm.Model
@@ -31,9 +23,6 @@ type ProjectFile struct {
 	ResourceID   uint                    `gorm:"column:resource_id;type:bigint;not null;default:0;index"`
 	ResourceType ProjectFileResourceType `gorm:"column:resource_type;type:varchar(50);not null;index;index:idx_project_file_path,priority:3"`
 	Uin          uint                    `gorm:"column:uin;type:bigint;index"`
-	NodeType     ProjectFileNodeType     `gorm:"column:node_type;type:varchar(20);not null;default:'file';index"`
-	ParentID     uint                    `gorm:"column:parent_id;type:bigint;not null;default:0;index"`
-	ParentIDs    []uint                  `gorm:"column:parent_ids;type:jsonb;serializer:json"`
 
 	RelativePath        string `gorm:"column:relative_path;type:varchar(1000);not null;default:'';index:idx_project_file_path,priority:4"`
 	InitialFilePublicID string `gorm:"column:initial_file_public_id;type:varchar(255);not null;default:'';index;index:idx_project_file_version_lookup,priority:3"`

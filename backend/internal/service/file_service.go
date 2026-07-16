@@ -72,7 +72,6 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 		OwnerID:      caller.Uin,
 		ObjectKey:    key,
 		Purpose:      req.Purpose,
-		Metadata:     uploadMetadata(req.RelativePath),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upload file: %w", err)
@@ -124,9 +123,9 @@ func (s *fileService) DownloadFileByURI(ctx context.Context, orgID uint, storage
 	}
 
 	return obj.Body, &contract.FileDownloadInfo{
-		FileName: key[strings.LastIndex(key, "/")+1:],
-		MimeType: "",
-		Size:     obj.Size,
+		FileName:  key[strings.LastIndex(key, "/")+1:],
+		MimeType:  "",
+		Size:      obj.Size,
 		PublicURL: "",
 	}, nil
 }
@@ -164,14 +163,4 @@ func (s *fileService) PresignDownloadURL(ctx context.Context, orgID uint, public
 		return "", fmt.Errorf("get presign download url failed")
 	}
 	return url, nil
-}
-
-func uploadMetadata(relativePath string) map[string]interface{} {
-	relativePath = strings.TrimSpace(relativePath)
-	if relativePath == "" {
-		return nil
-	}
-	return map[string]interface{}{
-		"relative_path": relativePath,
-	}
 }

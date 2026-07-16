@@ -54,7 +54,6 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 	}
 
 	sourceID := strings.TrimSpace(ctx.PostForm("source_id"))
-	relativePath := strings.TrimSpace(ctx.PostForm("relative_path"))
 
 	file, err := fileHeader.Open()
 	if err != nil {
@@ -70,15 +69,14 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 	}
 
 	result, err := h.service.UploadFile(ctx, &contract.UploadFileRequest{
-		OrgID:        caller.OrgID,
-		OwnerID:      caller.Uin,
-		File:         file,
-		Filename:     fileHeader.Filename,
-		FileSize:     fileHeader.Size,
-		MimeType:     fileHeader.Header.Get("Content-Type"),
-		Purpose:      purpose,
-		SourceID:     sourceID,
-		RelativePath: relativePath,
+		OrgID:    caller.OrgID,
+		OwnerID:  caller.Uin,
+		File:     file,
+		Filename: fileHeader.Filename,
+		FileSize: fileHeader.Size,
+		MimeType: fileHeader.Header.Get("Content-Type"),
+		Purpose:  purpose,
+		SourceID: sourceID,
 	})
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, "upload file failed"))
