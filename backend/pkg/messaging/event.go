@@ -106,6 +106,8 @@ type RunEventBody struct {
 	RunCompleted *RunCompletedPayload `json:"run_completed,omitempty"`
 	// Error 仅在 run.failed 时填充。
 	Error *RunEventError `json:"error,omitempty"`
+	// AssistantPKID is the DigitalAssistant primary key ID when this event is associated with an assistant.
+	AssistantPKID uint `json:"assistant_pk_id,omitempty"`
 }
 
 // RunEventPayload 携带流事件的特定内容。

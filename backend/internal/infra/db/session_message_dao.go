@@ -203,12 +203,12 @@ func GetLastAssistantMessageCreatedAt(ctx context.Context, db *gorm.DB, sessionI
 		Order("created_at DESC").
 		Limit(1).
 		Select("created_at").
-		Take(&entity).Error
+		Find(&entity).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
 		return nil, err
+	}
+	if entity.CreatedAt.IsZero() {
+		return nil, nil
 	}
 	return &entity.CreatedAt, nil
 }
