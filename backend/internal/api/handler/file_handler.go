@@ -68,6 +68,18 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 		return
 	}
 
+	localPath := strings.TrimSpace(ctx.PostForm("local-path"))
+	if localPath != "" {
+		if err := filestore.ValidateComposerUploadFilename(localPath); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "unsupported file type"))
+			return
+		}
+		if fileHeader.Size == 0 {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "empty file is not allowed"))
+			return
+		}
+	}
+
 	result, err := h.service.UploadFile(ctx, &contract.UploadFileRequest{
 		OrgID:    caller.OrgID,
 		OwnerID:  caller.Uin,

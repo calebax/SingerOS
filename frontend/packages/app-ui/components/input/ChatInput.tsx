@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	COMPOSER_UPLOAD_ACCEPT,
 	isSystemDefaultAssistant,
 	type ProjectMember,
 	type ProjectSkill,
@@ -66,9 +67,7 @@ import {
 } from "./StructuredComposer";
 import { FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE, isFolderUploadSizeExceeded } from "./upload-folder";
 
-// 中文注释：统一维护项目文件上传入口的格式白名单，覆盖旧版 Office 和 HTML 文件。
-export const PROJECT_ATTACHMENT_ACCEPT =
-	"image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.doc,.docx,.ppt,.pptx,.html,.htm";
+export const PROJECT_ATTACHMENT_ACCEPT = COMPOSER_UPLOAD_ACCEPT;
 
 export function ChatInput({
 	variant = "default",
@@ -426,7 +425,11 @@ export function ChatInput({
 
 			try {
 				const { message } = await addUploadedFolderAttachment(currentProjectId, files);
-				toast.success(message || "文件夹上传成功");
+				if (message.includes("已跳过")) {
+					toast.info(message, { position: "bottom-right" });
+				} else {
+					toast.success(message || "文件夹上传成功");
+				}
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "文件夹上传失败";
 				console.error("ChatInput upload folder error:", err);

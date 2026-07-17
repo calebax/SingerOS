@@ -1,3 +1,8 @@
+import {
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	resolveComposerUploadFileName,
+} from "../constants/composer-upload";
 import { authenticatedFetch } from "../utils/authStorage";
 import { apiClient } from "./client";
 import { API_BASE_URL } from "./config";
@@ -26,6 +31,8 @@ export type UploadLooseFileParams = {
 	file: File;
 	purpose?: string;
 	source_id?: string;
+	/** 对话输入框上传时传 true，后端会按 local-path 后缀校验 */
+	withLocalPath?: boolean;
 };
 
 type BackendUploadFilePayload = {
@@ -47,6 +54,12 @@ async function parseErrorMessage(response: Response): Promise<string> {
 		}
 	} catch {
 		// 保持默认错误信息即可
+	}
+	if (message === "unsupported file type") {
+		return COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE;
+	}
+	if (message === "empty file is not allowed") {
+		return COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE;
 	}
 	return message;
 }
@@ -84,6 +97,7 @@ async function uploadFile(
 		file,
 		purpose: "projects",
 		source_id: projectPublicId,
+		withLocalPath: true,
 	});
 }
 
@@ -91,12 +105,16 @@ async function uploadLooseFile({
 	file,
 	purpose = "attachment",
 	source_id,
+	withLocalPath = false,
 }: UploadLooseFileParams): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	const formData = new FormData();
 	formData.append("file", file);
 	formData.append("purpose", purpose);
 	if (source_id) {
 		formData.append("source_id", source_id);
+	}
+	if (withLocalPath) {
+		formData.append("local-path", resolveComposerUploadFileName(file));
 	}
 
 	const response = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
@@ -228,11 +246,12 @@ export const projectFileApi = {
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
 
-	uploadLoose: async ({ file, purpose = "attachment" }: UploadLooseFileParams) => {
+	uploadLoose: async ({ file, purpose = "attachment", withLocalPath }: UploadLooseFileParams) => {
 		const uploadResponse = assertBackendSuccess(
 			await uploadLooseFile({
 				file,
 				purpose,
+				withLocalPath,
 			}),
 			"文件上传失败",
 		);
