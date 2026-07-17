@@ -17,7 +17,6 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FeedbackImageUpload, type FeedbackImageUploadHandle } from "./FeedbackImageUpload";
 import { FeedbackTypeSelector } from "./FeedbackTypeSelector";
-import { getImageFilesFromClipboard } from "./feedbackImageUtils";
 
 const MAX_CONTENT = 300;
 
@@ -41,13 +40,6 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
 		setAttachmentIds([]);
 		setUploadKey((key) => key + 1);
 	}, [open]);
-
-	const handlePasteImages = (event: React.ClipboardEvent) => {
-		const files = getImageFilesFromClipboard(event.clipboardData);
-		if (!files.length) return;
-		event.preventDefault();
-		void imageUploadRef.current?.uploadFiles(files);
-	};
 
 	const handleSubmit = async () => {
 		if (!type) {
@@ -99,7 +91,6 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
 			<DialogContent
 				className="flex max-h-[min(88vh,720px)] flex-col gap-0 overflow-hidden border-[var(--leros-control-border)] bg-white p-0 shadow-[var(--leros-shadow-menu)] sm:max-w-[520px]"
 				showCloseButton
-				onPaste={handlePasteImages}
 			>
 				<div className="border-b border-[var(--leros-control-border)] px-6 py-5">
 					<DialogHeader className="gap-2 text-left">
@@ -128,7 +119,6 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
 								value={content}
 								maxLength={MAX_CONTENT}
 								onChange={(event) => setContent(event.target.value)}
-								onPaste={handlePasteImages}
 								className={cn(
 									"min-h-[128px] resize-none rounded-lg border-slate-200 bg-slate-50/70 px-3 py-2.5 text-sm text-slate-800",
 									"placeholder:text-slate-400 focus-visible:border-blue-300 focus-visible:ring-blue-100",
