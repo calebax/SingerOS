@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDocxSelectionEditRequest } from "./docx-selection-edit";
+import { buildDocxSelectionEditRequest, getDocxPolishPrompt } from "./docx-selection-edit";
 import type { OfficeTextSelection } from "./office-selection";
 
 const selection: OfficeTextSelection = {
@@ -15,6 +15,16 @@ const selection: OfficeTextSelection = {
 };
 
 describe("buildDocxSelectionEditRequest", () => {
+	it("maps polish actions to editable composer prompts", () => {
+		expect(getDocxPolishPrompt("expand")).toBe("帮我扩写这段内容");
+		expect(getDocxPolishPrompt("shorten")).toBe("帮我缩写这段内容");
+		expect(getDocxPolishPrompt("improve-expression")).toBe("帮我优化这段内容的表达");
+		expect(getDocxPolishPrompt("proofread")).toBe("帮我重新校对这段文字，检查语病并调整语序");
+		expect(getDocxPolishPrompt({ kind: "tone", tone: "正式" })).toBe(
+			"帮我调整这段内容的语气，使之更正式",
+		);
+	});
+
 	it("builds an expand reference with the exact selected version attachment", () => {
 		const result = buildDocxSelectionEditRequest({
 			instruction: "expand",

@@ -31,7 +31,7 @@ import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 
 type DirectiveKind = "assistant" | "command" | "project";
-type TokenKind = "assistant" | "skill";
+type TokenKind = "assistant" | "skill" | "reference";
 type SelectionKind = "assistant" | "skill";
 
 type ActiveTrigger = {
@@ -410,7 +410,7 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 				id: node.dataset.mentionId,
 				start: cursor,
 				end: cursor + label.length,
-				kind: node.dataset.mentionKind === "skill" ? "skill" : "assistant",
+				kind: parseTokenKind(node.dataset.mentionKind),
 			});
 			return { text: label, cursor: cursor + label.length };
 		}
@@ -441,6 +441,11 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 		text,
 		tokens: sortTokens(tokens),
 	};
+}
+
+function parseTokenKind(value?: string): TokenKind {
+	if (value === "skill" || value === "reference") return value;
+	return "assistant";
 }
 
 function createSkillSparklesIcon(): SVGElement {
@@ -486,6 +491,23 @@ function createRemoveIcon(): SVGElement {
 		svg.appendChild(path);
 	}
 
+	return svg;
+}
+
+function createReferenceIcon(): SVGElement {
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke-width", "2");
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	svg.setAttribute("class", "size-3.5");
+	for (const d of ["M4 4h6v16H4z", "M14 4h6v7h-6z", "M14 15h6v5h-6z"]) {
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		path.setAttribute("d", d);
+		svg.appendChild(path);
+	}
 	return svg;
 }
 
@@ -568,6 +590,26 @@ function buildSkillMentionIconShell(token: InsertedToken): HTMLSpanElement {
 	return iconShell;
 }
 
+function buildReferenceMentionIconShell(token: InsertedToken): HTMLSpanElement {
+	const iconShell = document.createElement("span");
+	iconShell.dataset.mentionRemove = "true";
+	iconShell.dataset.mentionLabel = token.label;
+	iconShell.dataset.mentionKind = token.kind;
+	iconShell.setAttribute("role", "button");
+	iconShell.setAttribute("tabindex", "-1");
+	iconShell.setAttribute("aria-label", `移除文档选区引用 ${token.label}`);
+	iconShell.className =
+		"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 [&_svg]:block";
+	const referenceIcon = createReferenceIcon();
+	referenceIcon.classList.add("transition-opacity", "group-hover:opacity-0");
+	const removeControl = document.createElement("span");
+	removeControl.className =
+		"absolute inset-0 inline-flex items-center justify-center rounded-full opacity-0 transition-opacity hover:bg-slate-100 hover:opacity-100 group-hover:opacity-70";
+	removeControl.appendChild(createRemoveIcon());
+	iconShell.append(referenceIcon, removeControl);
+	return iconShell;
+}
+
 function buildEditorContent(
 	root: HTMLElement,
 	value: string,
@@ -598,6 +640,13 @@ function buildEditorContent(
 			label.className = "truncate";
 			label.textContent = formatSkillTokenDisplayLabel(token.label);
 			mention.append(buildSkillMentionIconShell(token), label);
+		} else if (token.kind === "reference") {
+			mention.className =
+				"group inline-flex max-w-[240px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium leading-4 text-slate-600 align-middle";
+			const label = document.createElement("span");
+			label.className = "truncate";
+			label.textContent = token.label;
+			mention.append(buildReferenceMentionIconShell(token), label);
 		} else {
 			mention.className =
 				"group inline-flex items-center gap-1 rounded-lg bg-blue-50 px-1.5 py-0.5 text-xs font-medium leading-5 text-blue-700 ring-1 ring-blue-100 align-baseline";
@@ -1277,9 +1326,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		);
 
 		const removeMentionToken = useCallback(
-			(kind: Extract<TokenKind, "assistant" | "skill">, rawLabel: string) => {
-				const prefix = kind === "assistant" ? "@" : "/";
-				const normalizedLabel = rawLabel.startsWith(prefix) ? rawLabel : `${prefix}${rawLabel}`;
+			(kind: TokenKind, rawLabel: string) => {
+				const prefix = kind === "assistant" ? "@" : kind === "skill" ? "/" : "";
+				const normalizedLabel =
+					prefix && !rawLabel.startsWith(prefix) ? `${prefix}${rawLabel}` : rawLabel;
 				const currentValue = valueRef.current;
 				const currentTokens = resolveDisplayTokens(
 					currentValue,
@@ -1381,7 +1431,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					event.preventDefault();
 					event.stopPropagation();
 
-					const kind = removeControl.dataset.mentionKind === "skill" ? "skill" : "assistant";
+					const kind = parseTokenKind(removeControl.dataset.mentionKind);
 					const label = removeControl.dataset.mentionLabel;
 					if (label) {
 						// 中文注释：token 内的 x 只删除对应的 mention 文本，保留输入框其他内容和 token 样式。

@@ -2,6 +2,7 @@
 
 import type { Message } from "@leros/store/types/chat";
 import { cn } from "@leros/ui/lib/utils";
+import { PanelsTopLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { SkillDirectiveBadge } from "../common/SkillDirectiveBadge";
 
@@ -56,6 +57,14 @@ export function MessageContentWithComposerTokens({
 					name={token.label.replace(/^\/+/, "")}
 					variant="on-blue"
 				/>
+			) : token.kind === "reference" ? (
+				<span
+					key={`token-${index}`}
+					className="inline-flex max-w-[220px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2 py-1 text-xs font-medium leading-none text-slate-600"
+				>
+					<PanelsTopLeft className="size-3.5 shrink-0" />
+					<span className="truncate">{token.label}</span>
+				</span>
 			) : (
 				<span key={`token-${index}`} className={mentionClassName}>
 					{token.label}
