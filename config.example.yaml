@@ -34,3 +34,11 @@ cli:
 
 log:
   level: "info"                        # Logging Level: debug, info, warn, error
+
+# Authentication adapter configuration
+# Mode: builtin (default, open-source) or enterprise (SaaS, delegates to IAM service)
+# The iam block is only required when building with -tags enterprise
+auth:
+  mode: "builtin"
+  # iam:
+  #   base_url: "https://iam.example.com/v5"

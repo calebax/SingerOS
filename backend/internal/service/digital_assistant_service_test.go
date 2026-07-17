@@ -156,46 +156,6 @@ func TestListDigitalAssistantExcludesSystemDefaultAssistant(t *testing.T) {
 	}
 }
 
-func TestListDigitalAssistantExcludesSystemDefaultAssistant(t *testing.T) {
-	database := setupDigitalAssistantDB(t)
-	ctx := setupTestContextWithCaller(t)
-	service := NewDigitalAssistantService(database, nil)
-
-	assistants := []*types.DigitalAssistant{
-		{
-			PublicID: "assistant_default_o1",
-			OrgID:    1,
-			OwnerID:  1,
-			Name:     "System Default",
-			Status:   string(contract.DigitalAssistantStatusActive),
-		},
-		{
-			PublicID: "assistant_custom_1",
-			OrgID:    1,
-			OwnerID:  1,
-			Name:     "Custom Assistant",
-			Status:   string(contract.DigitalAssistantStatusActive),
-		},
-	}
-	if err := database.Create(&assistants).Error; err != nil {
-		t.Fatalf("create assistants: %v", err)
-	}
-
-	result, err := service.ListDigitalAssistant(ctx, &contract.ListDigitalAssistantRequest{})
-	if err != nil {
-		t.Fatalf("ListDigitalAssistant failed: %v", err)
-	}
-	if result.Total != 1 {
-		t.Fatalf("total = %d, want 1", result.Total)
-	}
-	if len(result.Items) != 1 {
-		t.Fatalf("items length = %d, want 1", len(result.Items))
-	}
-	if result.Items[0].PublicID != "assistant_custom_1" {
-		t.Fatalf("public_id = %q, want assistant_custom_1", result.Items[0].PublicID)
-	}
-}
-
 func TestUpdateDigitalAssistantRejectsTemplateCreatedAssistant(t *testing.T) {
 	database := setupDigitalAssistantDB(t)
 	ctx := setupTestContextWithCaller(t)

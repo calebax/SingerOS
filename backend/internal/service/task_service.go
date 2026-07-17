@@ -26,10 +26,10 @@ type projectTaskBrief struct {
 	Name     string
 }
 
-func NewTaskService(db *gorm.DB) contract.TaskService {
+func NewTaskService(db *gorm.DB, perm *PermissionService) contract.TaskService {
 	return &taskService{
 		db:   db,
-		perm: NewPermissionService(db),
+		perm: perm,
 	}
 }
 

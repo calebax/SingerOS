@@ -47,10 +47,10 @@ type MessagePoster struct {
 }
 
 // NewMessagePoster 创建 MessagePoster 实例。
-func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) *MessagePoster {
+func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) *MessagePoster {
 	return &MessagePoster{
 		db:          db,
-		perm:        NewPermissionService(db),
+		perm:        perm,
 		eventbus:    eb,
 		inferrer:    inferrer,
 		giteaClient: giteaClient,

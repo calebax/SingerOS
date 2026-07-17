@@ -174,7 +174,7 @@ func (s *PermissionService) AllowsTaskActionViaProject(ctx context.Context, call
 	if resource == nil {
 		return false, nil
 	}
-	effectiveRole, _, _, err := s.resolveEffectiveRole(ctx, caller, resource)
+	effectiveRole, _, _, err := s.ResolveEffectiveRole(ctx, caller, resource)
 	if err != nil {
 		return false, fmt.Errorf("resolve effective role: %w", err)
 	}
@@ -348,7 +348,7 @@ func (s *PermissionService) FilterProjectFilesByAction(ctx context.Context, call
 		}
 		effectiveRole, ok := roleCache[resource.ID]
 		if !ok {
-			role, _, _, resolveErr := s.resolveEffectiveRole(ctx, caller, resource)
+			role, _, _, resolveErr := s.ResolveEffectiveRole(ctx, caller, resource)
 			if resolveErr != nil {
 				continue
 			}

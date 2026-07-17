@@ -12,10 +12,12 @@ import (
 	"code.gitea.io/sdk/gitea"
 	"github.com/gin-gonic/gin"
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter"
+	adapteraccount "github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
@@ -39,31 +41,17 @@ import (
 //
 // 根据配置初始化并注册 GitHub、GitLab 等渠道连接器，
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
-func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB, modelInvoker modelrouter.Invoker) *gin.Engine {
+func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, db *gorm.DB, modelInvoker modelrouter.Invoker) *gin.Engine {
 	r := gin.New()
-	r.Use(middleware.CORS())
-	r.Use(middleware.CallerMiddleware(cfg.Server.JWT.Secret, db))
-	r.Use(middleware.ResponseRequestID())
-	r.Use(middleware.ClientUpdateMiddleware(cfg.ClientUpdate))
-	r.Use(middleware.Logger(".Ping", "metrics"))
-	r.Use(ygmiddleware.Recovery())
 
-	var giteaClient *gitea.Client
-	if cfg.Gitea != nil && cfg.Gitea.Enabled {
-		var err error
-		giteaClient, err = gitea.NewClient(cfg.Gitea.Endpoint,
-			gitea.SetToken(cfg.Gitea.AccessToken),
-			gitea.SetHTTPClient(&http.Client{Timeout: 30 * time.Second}))
-		if err != nil {
-			logs.Errorf("create gitea client: %v", err)
-			giteaClient = nil
-		}
-	}
-
-	v1 := r.Group("/v1")
-
+	// ── 全局中间件（必须在 r.Group / RegisterRoutes 之前挂载）────────────────────
+	// Gin 的 RouterGroup.Group() 与 handle() 通过 combineHandlers 值拷贝当前
+	// Handlers 切片。若先 Group/注册路由再 r.Use，已注册路由的处理链拿不到
+	// 后续追加的中间件，会导致 /v1/* 路由响应缺失 CORS 头，浏览器跨域请求失败。
+	// 见 gin routergroup.go: Group/handle/combineHandlers。
 	var workerScheduler worker.WorkerScheduler
 	var workerProvisioningService *service.WorkerProvisioningService
+	var giteaClient *gitea.Client
 	{
 		if cfg.Scheduler != nil {
 			var err error
@@ -72,26 +60,46 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB, mod
 				logs.Errorf("Worker scheduler initialization failed: %v", err)
 			}
 		}
-
-		workerManager := workerserver.NewServer(workerScheduler)
-		workerManager.RegisterRoutes(r)
-		logs.Info("Worker server routes registered successfully")
-
 		if db != nil {
 			workerProvisioningService = service.NewWorkerProvisioningService(db, cfg.Scheduler)
 		}
+		if cfg.Gitea != nil && cfg.Gitea.Enabled {
+			var err error
+			giteaClient, err = gitea.NewClient(cfg.Gitea.Endpoint,
+				gitea.SetToken(cfg.Gitea.AccessToken),
+				gitea.SetHTTPClient(&http.Client{Timeout: 30 * time.Second}))
+			if err != nil {
+				logs.Errorf("create gitea client: %v", err)
+				giteaClient = nil
+			}
+		}
 	}
+
+	tokenParser := edition.TokenParser()
+	authService := edition.Auth()
+
+	r.Use(middleware.CORS())
+	r.Use(middleware.CallerMiddleware(tokenParser, db))
+	r.Use(middleware.ClientUpdateMiddleware(cfg.ClientUpdate))
+	r.Use(middleware.Logger(".Ping", "metrics"))
+	r.Use(ygmiddleware.Recovery())
+
+	v1 := r.Group("/v1")
+
+	// Worker server routes 注册公开管理端点；放在全局中间件之后以继承 CORS/Logger/Recovery。
+	workerManager := workerserver.NewServer(workerScheduler)
+	workerManager.RegisterRoutes(r)
+	logs.Info("Worker server routes registered successfully")
 
 	// ── 公开路由（无需 org 认证）──────────────────────────────────────────────────
 	{
 		websocket.RegisterWebSocketRoutes(v1, eventbus)
 		logs.Info("WebSocket connector registered successfully")
 
-		authService := service.NewAuthServiceWithProvisioning(db, cfg.Server.JWT.Secret, cfg.Aliyun, workerProvisioningService)
 		handler.RegisterAuthRoutes(v1, authService)
 		logs.Info("Auth routes registered successfully")
 
-		handler.RegisterWorkerAuthRoutes(v1, cfg.WorkerAuth, cfg.Server.JWT.Secret, db)
+		handler.RegisterWorkerAuthRoutes(v1, tokenParser)
 		logs.Info("Worker auth routes registered successfully")
 
 		handler.RegisterClientUpdateRoutes(v1, cfg.ClientUpdate)
@@ -104,7 +112,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB, mod
 	logs.Info("LLM usage report route registered successfully")
 
 	// ── 鉴权路由（RequireCallerOrg 统一拦截未认证/未绑定 org 的请求）─────────────
-	permSvc := service.NewPermissionService(db)
+	permCore := edition.Permission()
+	permSvc := service.NewPermissionService(db, permCore, func(d *gorm.DB) service.PermissionCore {
+		return adapteraccount.NewPermission(adapteraccount.Deps{DB: d})
+	})
 	authed := v1.Group("/", middleware.RequireCallerOrg())
 	{
 		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioning(db, workerScheduler, workerProvisioningService)
@@ -120,23 +131,23 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB, mod
 		logs.Info("LLM model routes registered successfully")
 
 		inferrer := service.NewDefaultAssistantInferrer(1)
-		sessionService := service.NewSessionService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, modelInvoker)
+		sessionService := service.NewSessionService(db, permSvc, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, modelInvoker)
 		handler.RegisterSessionRoutes(authed, sessionService, permSvc)
 		handler.RegisterGlobalEventRoutes(authed, sessionService)
 		logs.Info("Session routes registered successfully")
 
-		projectService := service.NewProjectServiceWithInferrerAndPublisher(db, inferrer, giteaClient, cfg.Gitea, cfg.Env, eventbus)
+		projectService := service.NewProjectServiceWithInferrerAndPublisher(db, permSvc, inferrer, giteaClient, cfg.Gitea, cfg.Env, eventbus)
 		handler.RegisterProjectRoutes(authed, projectService, permSvc)
 		logs.Info("Project routes registered successfully")
 
-		handler.RegisterPermissionRoutes(authed, NewPermissionBatchChecker(permSvc))
+		handler.RegisterPermissionRoutes(authed, NewPermissionBatchChecker(permCore))
 		logs.Info("Permission routes registered successfully")
 
 		projectFileHandler := handler.NewProjectFileHandler(projectService, permSvc)
 		projectFileHandler.RegisterRoutes(authed)
 		logs.Info("Project file routes registered successfully")
 
-		taskService := service.NewTaskService(db)
+		taskService := service.NewTaskService(db, permSvc)
 		handler.RegisterTaskRoutes(authed, taskService, permSvc)
 		logs.Info("Task routes registered successfully")
 
@@ -145,15 +156,15 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB, mod
 		fileHandler.RegisterRoutes(authed)
 		logs.Info("File routes registered successfully")
 
-		orgService := service.NewOrgServiceWithProvisioning(db, workerProvisioningService)
+		orgService := edition.Org()
 		handler.RegisterOrgRoutes(authed, orgService)
 		logs.Info("Organization routes registered successfully")
 
-		departmentService := service.NewDepartmentService(db)
+		departmentService := edition.Department()
 		handler.RegisterDepartmentRoutes(authed, departmentService)
 		logs.Info("Department routes registered successfully")
 
-		userService := service.NewUserService(db)
+		userService := edition.User()
 		handler.RegisterUserRoutes(authed, userService)
 		logs.Info("User routes registered successfully")
 

@@ -14,7 +14,7 @@ import (
 func TestResponseRequestIDAddsRequestIDAtResponseRoot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(CallerMiddleware(testJWTSecret, nil))
+	router.Use(CallerMiddleware(newTestParser(nil), nil))
 	router.Use(ResponseRequestID())
 	router.GET("/test", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, dto.Success(gin.H{"value": "ok"}))
@@ -44,7 +44,7 @@ func TestResponseRequestIDAddsRequestIDAtResponseRoot(t *testing.T) {
 func TestResponseRequestIDLeavesNonJSONResponseUnchanged(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(CallerMiddleware(testJWTSecret, nil))
+	router.Use(CallerMiddleware(newTestParser(nil), nil))
 	router.Use(ResponseRequestID())
 	router.GET("/text", func(ctx *gin.Context) {
 		ctx.String(http.StatusOK, "plain response")

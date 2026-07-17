@@ -1,4 +1,6 @@
-package service
+//go:build !enterprise
+
+package oss
 
 import (
 	"context"
@@ -7,41 +9,37 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
 
-var _ contract.OrgService = (*orgService)(nil)
-
-type orgService struct {
+type org struct {
 	db                 *gorm.DB
-	workerProvisioning *WorkerProvisioningService
+	workerProvisioning *service.WorkerProvisioningService
 }
 
-func NewOrgService(d *gorm.DB) contract.OrgService {
-	return &orgService{db: d}
+func NewOrg(d *gorm.DB, provisioning *service.WorkerProvisioningService) *org {
+	return &org{db: d, workerProvisioning: provisioning}
 }
 
-func NewOrgServiceWithProvisioning(d *gorm.DB, provisioning *WorkerProvisioningService) contract.OrgService {
-	return &orgService{db: d, workerProvisioning: provisioning}
-}
-
-func (s *orgService) CreateOrg(ctx context.Context, req *contract.CreateOrgRequest) (*contract.Org, error) {
+func (s *org) CreateOrg(ctx context.Context, req *contract.CreateOrgRequest) (*contract.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("用户未登录")
+		return nil, accounterror.ErrLoginRequired
 	}
 
 	if strings.TrimSpace(req.Name) == "" {
-		return nil, errors.New("组织名称不能为空")
+		return nil, accounterror.ErrInvalidArg
 	}
 	if strings.TrimSpace(req.Code) == "" {
-		return nil, errors.New("组织编码不能为空")
+		return nil, accounterror.ErrInvalidArg
 	}
 
 	orgType := strings.TrimSpace(req.Type)
@@ -72,7 +70,7 @@ func (s *orgService) CreateOrg(ctx context.Context, req *contract.CreateOrgReque
 			return err
 		}
 		if existing != nil {
-			return errors.New("组织编码已存在")
+			return accounterror.ErrInvalidArg
 		}
 		if err := db.CreateOrg(ctx, tx, org); err != nil {
 			return err
@@ -89,7 +87,7 @@ func (s *orgService) CreateOrg(ctx context.Context, req *contract.CreateOrgReque
 		}
 
 		if s.workerProvisioning != nil {
-			if _, err := s.workerProvisioning.ensureDefaultWorkerForOrg(ctx, tx, org.ID, caller.Uin); err != nil {
+			if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, org.ID, caller.Uin); err != nil {
 				return fmt.Errorf("ensure default worker deployment: %w", err)
 			}
 		}
@@ -101,10 +99,10 @@ func (s *orgService) CreateOrg(ctx context.Context, req *contract.CreateOrgReque
 	return convertToContractOrg(org), nil
 }
 
-func (s *orgService) GetOrg(ctx context.Context, publicID string, code string) (*contract.Org, error) {
+func (s *org) GetOrg(ctx context.Context, publicID string, code string) (*contract.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("用户未登录")
+		return nil, accounterror.ErrLoginRequired
 	}
 
 	var org *types.Organization
@@ -115,26 +113,26 @@ func (s *orgService) GetOrg(ctx context.Context, publicID string, code string) (
 	} else if code != "" {
 		org, err = db.GetOrgByCode(ctx, s.db, code)
 	} else {
-		return nil, errors.New("组织ID或编码不能为空")
+		return nil, accounterror.ErrInvalidArg
 	}
 
 	if err != nil {
 		return nil, err
 	}
 	if org == nil {
-		return nil, errors.New("组织不存在")
+		return nil, accounterror.ErrOrgNotFound
 	}
 
 	return convertToContractOrg(org), nil
 }
 
-func (s *orgService) UpdateOrg(ctx context.Context, publicID string, req *contract.UpdateOrgRequest) (*contract.Org, error) {
+func (s *org) UpdateOrg(ctx context.Context, publicID string, req *contract.UpdateOrgRequest) (*contract.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("用户未登录")
+		return nil, accounterror.ErrLoginRequired
 	}
 	if strings.TrimSpace(publicID) == "" {
-		return nil, errors.New("组织ID不能为空")
+		return nil, accounterror.ErrOrgIDRequired
 	}
 
 	var org *types.Organization
@@ -145,10 +143,10 @@ func (s *orgService) UpdateOrg(ctx context.Context, publicID string, req *contra
 			return err
 		}
 		if org == nil {
-			return errors.New("组织不存在")
+			return accounterror.ErrOrgNotFound
 		}
 		if org.ID != caller.OrgID {
-			return errors.New("无权操作")
+			return accounterror.ErrPermissionDenied
 		}
 
 		if req.Name != nil {
@@ -184,13 +182,13 @@ func (s *orgService) UpdateOrg(ctx context.Context, publicID string, req *contra
 	return convertToContractOrg(org), nil
 }
 
-func (s *orgService) DeleteOrg(ctx context.Context, publicID string) error {
+func (s *org) DeleteOrg(ctx context.Context, publicID string) error {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return errors.New("用户未登录")
+		return accounterror.ErrLoginRequired
 	}
 	if strings.TrimSpace(publicID) == "" {
-		return errors.New("组织ID不能为空")
+		return accounterror.ErrOrgIDRequired
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -199,16 +197,16 @@ func (s *orgService) DeleteOrg(ctx context.Context, publicID string) error {
 			return err
 		}
 		if org == nil {
-			return errors.New("组织不存在")
+			return accounterror.ErrOrgNotFound
 		}
 		return db.DeleteOrg(ctx, tx, org.ID)
 	})
 }
 
-func (s *orgService) ListOrgs(ctx context.Context, req *contract.ListOrgsRequest) (*contract.OrgList, error) {
+func (s *org) ListOrgs(ctx context.Context, req *contract.ListOrgsRequest) (*contract.OrgList, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("用户未登录")
+		return nil, accounterror.ErrLoginRequired
 	}
 	req.Fill()
 
@@ -238,10 +236,10 @@ func (s *orgService) ListOrgs(ctx context.Context, req *contract.ListOrgsRequest
 	}, nil
 }
 
-func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOrgMemberRequest) (*contract.OrgMember, error) {
+func (s *org) CreateOrgMember(ctx context.Context, req *contract.CreateOrgMemberRequest) (*contract.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
-		return nil, errors.New("用户未登录")
+		return nil, accounterror.ErrLoginRequired
 	}
 	if err := s.requireDefaultOrgUser(ctx, caller.Uin, caller.OrgID); err != nil {
 		return nil, err
@@ -252,7 +250,7 @@ func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOr
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("组织名称不能为空")
+		return nil, accounterror.ErrInvalidArg
 	}
 	phone, err := normalizeOrgMemberPhone(req.Phone)
 	if err != nil {
@@ -300,7 +298,7 @@ func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOr
 				Phone:       phone,
 			}
 			if err := db.CreateUser(ctx, tx, user); err != nil {
-				if isUniqueConstraintError(err) {
+				if db.IsUniqueConstraintError(err) {
 					return errors.New("手机号已存在")
 				}
 				return err
@@ -318,7 +316,7 @@ func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOr
 			IsDefault: orgCount == 0,
 		}
 		if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
-			if isUniqueConstraintError(err) {
+			if db.IsUniqueConstraintError(err) {
 				return errors.New("组织成员已存在")
 			}
 			return err
@@ -361,7 +359,7 @@ func (s *orgService) CreateOrgMember(ctx context.Context, req *contract.CreateOr
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *orgService) createExistingOrgMember(ctx context.Context, callerOrgID uint, req *contract.CreateOrgMemberRequest) (*contract.OrgMember, error) {
+func (s *org) createExistingOrgMember(ctx context.Context, callerOrgID uint, req *contract.CreateOrgMemberRequest) (*contract.OrgMember, error) {
 	if strings.TrimSpace(req.UserID) == "" {
 		return nil, errors.New("用户ID不能为空")
 	}
@@ -382,10 +380,10 @@ func (s *orgService) createExistingOrgMember(ctx context.Context, callerOrgID ui
 		return nil, err
 	}
 	if org == nil {
-		return nil, errors.New("组织不存在")
+		return nil, accounterror.ErrOrgNotFound
 	}
 	if org.ID != callerOrgID {
-		return nil, errors.New("无权操作")
+		return nil, accounterror.ErrPermissionDenied
 	}
 
 	userOrg := &types.UserOrg{
@@ -396,7 +394,7 @@ func (s *orgService) createExistingOrgMember(ctx context.Context, callerOrgID ui
 	}
 
 	if err := db.CreateUserOrg(ctx, s.db, userOrg); err != nil {
-		if isUniqueConstraintError(err) {
+		if db.IsUniqueConstraintError(err) {
 			return nil, errors.New("组织成员已存在")
 		}
 		return nil, err
@@ -405,10 +403,10 @@ func (s *orgService) createExistingOrgMember(ctx context.Context, callerOrgID ui
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *orgService) GetOrgMember(ctx context.Context, id uint, uin uint) (*contract.OrgMember, error) {
+func (s *org) GetOrgMember(ctx context.Context, id uint, uin uint) (*contract.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
-		return nil, errors.New("用户未登录")
+		return nil, accounterror.ErrLoginRequired
 	}
 
 	var userOrg *types.UserOrg
@@ -429,16 +427,16 @@ func (s *orgService) GetOrgMember(ctx context.Context, id uint, uin uint) (*cont
 		return nil, errors.New("组织成员不存在")
 	}
 	if userOrg.OrgID != caller.OrgID {
-		return nil, errors.New("无权操作")
+		return nil, accounterror.ErrPermissionDenied
 	}
 
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *orgService) UpdateOrgMember(ctx context.Context, id uint, req *contract.UpdateOrgMemberRequest) (*contract.OrgMember, error) {
+func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *contract.UpdateOrgMemberRequest) (*contract.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
-		return nil, errors.New("用户未登录")
+		return nil, accounterror.ErrLoginRequired
 	}
 	if err := s.requireDefaultOrgUser(ctx, caller.Uin, caller.OrgID); err != nil {
 		return nil, err
@@ -458,7 +456,7 @@ func (s *orgService) UpdateOrgMember(ctx context.Context, id uint, req *contract
 			return errors.New("组织成员不存在")
 		}
 		if userOrg.OrgID != caller.OrgID {
-			return errors.New("无权操作")
+			return accounterror.ErrPermissionDenied
 		}
 
 		if req.OrgID != nil && strings.TrimSpace(*req.OrgID) != "" {
@@ -467,10 +465,10 @@ func (s *orgService) UpdateOrgMember(ctx context.Context, id uint, req *contract
 				return err
 			}
 			if org == nil {
-				return errors.New("组织不存在")
+				return accounterror.ErrOrgNotFound
 			}
 			if org.ID != caller.OrgID {
-				return errors.New("无权操作")
+				return accounterror.ErrPermissionDenied
 			}
 			userOrg.OrgID = org.ID
 		}
@@ -532,10 +530,10 @@ func (s *orgService) UpdateOrgMember(ctx context.Context, id uint, req *contract
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *orgService) ListOrgMembers(ctx context.Context, req *contract.ListOrgMembersRequest) (*contract.OrgMemberList, error) {
+func (s *org) ListOrgMembers(ctx context.Context, req *contract.ListOrgMembersRequest) (*contract.OrgMemberList, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
-		return nil, errors.New("用户未登录")
+		return nil, accounterror.ErrLoginRequired
 	}
 	req.Fill()
 
@@ -543,7 +541,7 @@ func (s *orgService) ListOrgMembers(ctx context.Context, req *contract.ListOrgMe
 	opt.ListAll = req.ListAll
 	if req.OrgID != nil && *req.OrgID > 0 {
 		if *req.OrgID != caller.OrgID {
-			return nil, errors.New("无权操作")
+			return nil, accounterror.ErrPermissionDenied
 		}
 		opt.AddExactFilter("org_id", fmt.Sprintf("%d", *req.OrgID))
 	} else {
@@ -587,7 +585,7 @@ func (s *orgService) ListOrgMembers(ctx context.Context, req *contract.ListOrgMe
 	}, nil
 }
 
-func (s *orgService) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *contract.OrgMember {
+func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *contract.OrgMember {
 	result := &contract.OrgMember{
 		ID:        uo.ID,
 		Uin:       uo.Uin,
@@ -667,13 +665,13 @@ func uniqueDepartmentIDs(ids []uint) []uint {
 	return result
 }
 
-func (s *orgService) requireDefaultOrgUser(ctx context.Context, uin, orgID uint) error {
+func (s *org) requireDefaultOrgUser(ctx context.Context, uin, orgID uint) error {
 	org, err := db.GetOrgByID(ctx, s.db, orgID)
 	if err != nil {
 		return err
 	}
 	if org == nil || org.CreatedByUin != uin {
-		return errors.New("无权操作")
+		return accounterror.ErrPermissionDenied
 	}
 	return nil
 }

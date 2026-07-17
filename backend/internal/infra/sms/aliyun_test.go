@@ -1,4 +1,4 @@
-package service
+package sms
 
 import (
 	"errors"
@@ -40,14 +40,9 @@ func TestIsAliyunSMSRateLimited(t *testing.T) {
 	}
 }
 
-func TestMapSMSSendError(t *testing.T) {
-	rateLimitedErr := fmt.Errorf("%w: %s", errAliyunSMSRateLimited, "触发分钟级流控Permits:1")
-	if !errors.Is(mapSMSSendError(rateLimitedErr), errAuthPhoneCodeSendTooOften) {
-		t.Fatalf("expected phone code send too often error")
-	}
-
-	genericErr := fmt.Errorf("aliyun sms failed: %s", "参数异常")
-	if !errors.Is(mapSMSSendError(genericErr), errAuthSMSDeliveryFailed) {
-		t.Fatalf("expected sms delivery failed error")
+func TestErrRateLimitedWrapping(t *testing.T) {
+	wrapped := fmt.Errorf("%w: %s", ErrRateLimited, "触发分钟级流控Permits:1")
+	if !errors.Is(wrapped, ErrRateLimited) {
+		t.Fatalf("errors.Is should detect wrapped ErrRateLimited")
 	}
 }

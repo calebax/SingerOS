@@ -59,10 +59,10 @@ type sessionService struct {
 	modelInvoker modelrouter.Invoker
 }
 
-func NewSessionService(db *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker) contract.SessionService {
+func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker) contract.SessionService {
 	return &sessionService{
 		db:           db,
-		perm:         NewPermissionService(db),
+		perm:         perm,
 		eventbus:     eventbus,
 		inferrer:     inferrer,
 		giteaClient:  giteaClient,
@@ -376,7 +376,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 }
 
 func (s *sessionService) newMessagePoster() *MessagePoster {
-	return NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
+	return NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
 }
 
 func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {

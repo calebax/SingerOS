@@ -64,20 +64,20 @@ type fileTreeEntry struct {
 }
 
 // NewProjectService 创建项目服务实例
-func NewProjectService(db *gorm.DB, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.ProjectService {
+func NewProjectService(db *gorm.DB, perm *PermissionService, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.ProjectService {
 	return &projectService{
 		db:          db,
-		perm:        NewPermissionService(db),
+		perm:        perm,
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
 		env:         env,
 	}
 }
 
-func NewProjectServiceWithInferrer(db *gorm.DB, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.ProjectService {
+func NewProjectServiceWithInferrer(db *gorm.DB, perm *PermissionService, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.ProjectService {
 	return &projectService{
 		db:          db,
-		perm:        NewPermissionService(db),
+		perm:        perm,
 		inferrer:    inferrer,
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
@@ -88,6 +88,7 @@ func NewProjectServiceWithInferrer(db *gorm.DB, inferrer AssistantInferrer, gite
 // NewProjectServiceWithInferrerAndPublisher creates a project service that can dispatch worker commands.
 func NewProjectServiceWithInferrerAndPublisher(
 	db *gorm.DB,
+	perm *PermissionService,
 	inferrer AssistantInferrer,
 	giteaClient *gitea.Client,
 	giteaCfg *config.GiteaConfig,
@@ -96,7 +97,7 @@ func NewProjectServiceWithInferrerAndPublisher(
 ) contract.ProjectService {
 	return &projectService{
 		db:          db,
-		perm:        NewPermissionService(db),
+		perm:        perm,
 		inferrer:    inferrer,
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,

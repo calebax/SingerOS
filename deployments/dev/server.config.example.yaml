@@ -94,3 +94,9 @@ feishu:
   app_secret: "<your_feishu_app_secret>"
   app_token: "<your_feishu_app_token>"
   table_id: "<your_feishu_table_id>"
+
+# Enterprise authentication adapter (only required with -tags enterprise)
+# auth:
+#   mode: "enterprise"
+#   iam:
+#     base_url: "https://iam.example.com/v5"

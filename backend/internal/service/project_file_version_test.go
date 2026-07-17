@@ -138,7 +138,7 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 
 	restorePublisher := &projectFileRestorePublisher{}
 	service := &projectService{
-		db: database, perm: NewPermissionService(database), inferrer: NewDefaultAssistantInferrer(1), publisher: restorePublisher,
+		db: database, perm: newTestPermissionService(database), giteaClient: nil, giteaCfg: nil, inferrer: NewDefaultAssistantInferrer(1), publisher: restorePublisher,
 	}
 	ctx := setupTestContextWithCaller(t)
 	tree, err := service.GetProjectFileTree(ctx, project.PublicID, contract.ProjectFileTreeQuery{

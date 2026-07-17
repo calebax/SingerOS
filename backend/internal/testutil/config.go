@@ -5,7 +5,6 @@ package testutil
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/insmtx/Leros/backend/config"
@@ -16,12 +15,21 @@ func findConfig() string {
 	if p := os.Getenv("LEROS_TEST_CONFIG"); p != "" {
 		return p
 	}
-	for i := 0; i < 5; i++ {
-		prefix := strings.Repeat("../", i)
-		candidate := prefix + "deployments/dev/server.config.yaml"
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		candidate := filepath.Join(dir, "deployments", "dev", "server.config.yaml")
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
 	return ""
 }
@@ -31,7 +39,7 @@ func LoadTestConfig(t *testing.T) *config.Config {
 
 	path := findConfig()
 	if path == "" {
-		t.Fatal("test config not found: set LEROS_TEST_CONFIG or place deployments/dev/server.config.yaml within 5 parent directories")
+		t.Fatal("test config not found: set LEROS_TEST_CONFIG or place deployments/dev/server.config.yaml in the project root")
 	}
 
 	abs, err := filepath.Abs(path)
