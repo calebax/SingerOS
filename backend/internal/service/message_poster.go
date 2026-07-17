@@ -853,7 +853,7 @@ func (p *MessagePoster) publishWorkerTask(
 	executionTarget := p.buildExecutionTarget(ctx, session, effectiveAssistantID, message)
 	projectContext := p.buildProjectContext(ctx, session, effectiveAssistantID)
 
-	cmd := messaging.NewRunCommand(
+	cmd := withRequestTrace(ctx, messaging.NewRunCommand(
 		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
 		messaging.RouteContext{
 			OrgID:     orgID,
@@ -898,7 +898,7 @@ func (p *MessagePoster) publishWorkerTask(
 			MessageType: message.MessageType,
 			Sequence:    message.Sequence,
 		},
-	)
+	))
 
 	if err := p.eventbus.Publish(ctx, topic, cmd); err != nil {
 		logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", effectiveAssistantID, err)

@@ -88,7 +88,7 @@ func (s *skillService) fetchInstalledSkills(ctx context.Context, orgID uint) ([]
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := messaging.NewSkillCommand(
+	msg := withRequestTrace(ctx, messaging.NewSkillCommand(
 		fmt.Sprintf("skill-list-%s", uuid.New().String()),
 		messaging.RouteContext{
 			OrgID:    orgID,
@@ -98,7 +98,7 @@ func (s *skillService) fetchInstalledSkills(ctx context.Context, orgID uint) ([]
 			Action: "list",
 		},
 		"",
-	)
+	))
 
 	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

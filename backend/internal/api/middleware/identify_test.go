@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
@@ -11,6 +12,11 @@ import (
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
+	"github.com/ygpkg/yg-go/apis/constants"
+	"github.com/ygpkg/yg-go/logs"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -195,6 +201,8 @@ func TestCallerMiddleware_WorkerToken(t *testing.T) {
 func TestCallerMiddleware_RequestIDAndTraceID(t *testing.T) {
 	database := setupTestDB(t)
 	ctx, _ := setupTestContext()
+	core, observed := observer.New(zapcore.InfoLevel)
+	logs.SetContextLogger(ctx, zap.New(core).Sugar())
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set(headerKeyRequestID, "test-request-id")
 	req.Header.Set(headerKeyTraceID, "test-trace-id")
@@ -213,6 +221,21 @@ func TestCallerMiddleware_RequestIDAndTraceID(t *testing.T) {
 	if trace.TraceID != "test-trace-id" {
 		t.Errorf("expected TraceID test-trace-id, got %s", trace.TraceID)
 	}
+	if got := ctx.Writer.Header().Get(headerKeyRequestID); got != "test-request-id" {
+		t.Errorf("response X-Request-ID = %q, want test-request-id", got)
+	}
+	logs.InfoContext(ctx, "request handled")
+	entries := observed.All()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["req_id"] != "test-request-id" {
+		t.Fatalf("log req_id = %#v, want test-request-id", fields["req_id"])
+	}
+	if _, ok := fields["trace_id"]; ok {
+		t.Fatalf("trace_id should not be added to request logs: %#v", fields["trace_id"])
+	}
 }
 
 func TestCallerMiddleware_AutoGenerateRequestID(t *testing.T) {
@@ -230,8 +253,14 @@ func TestCallerMiddleware_AutoGenerateRequestID(t *testing.T) {
 	if trace.RequestID == "" {
 		t.Error("RequestID should be auto-generated when not provided")
 	}
+	if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(trace.RequestID) {
+		t.Errorf("RequestID = %q, want 32 lowercase hexadecimal characters", trace.RequestID)
+	}
 	if trace.TraceID != trace.RequestID {
 		t.Error("TraceID should equal RequestID when not provided")
+	}
+	if got := ctx.Request.Context().Value(constants.CtxKeyRequestID); got != trace.RequestID {
+		t.Errorf("request context reqid = %#v, want %q", got, trace.RequestID)
 	}
 }
 

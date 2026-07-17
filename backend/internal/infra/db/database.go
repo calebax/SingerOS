@@ -104,7 +104,7 @@ func InitDB(cfg config.DatabaseConfig, llmCfg *config.LLMConfig) (*gorm.DB, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
-	db.Logger = logs.GetGorm("gorm")
+	db.Logger = newContextGormLogger(logs.Get("gorm"))
 
 	if cfg.Debug {
 		db = db.Debug()

@@ -11,6 +11,10 @@ import (
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
+	"github.com/ygpkg/yg-go/logs"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // mockSubscriber records subscription calls, distinguishing auto vs manual.
@@ -247,5 +251,26 @@ func TestDispatcherHandleRunCallsTermOnParseFailure(t *testing.T) {
 	d.handleRunDelivery(context.Background(), []byte("not-json"), delivery)
 	if !delivery.termCalled {
 		t.Fatal("Term should be called when the run command envelope is invalid")
+	}
+}
+
+func TestWithCommandLogFieldsAddsRequestID(t *testing.T) {
+	core, observed := observer.New(zapcore.InfoLevel)
+	ctx := logs.WithContextLogger(context.Background(), zap.New(core).Sugar())
+	ctx = withCommandLogFields(ctx, messaging.WorkerCommand{
+		Trace: messaging.TraceContext{ReqID: "req-worker-1", TraceID: "trace-worker-1"},
+	})
+
+	logs.InfoContext(ctx, "worker command")
+	entries := observed.All()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["req_id"] != "req-worker-1" {
+		t.Fatalf("req_id = %#v, want req-worker-1", fields["req_id"])
+	}
+	if _, ok := fields["trace_id"]; ok {
+		t.Fatalf("trace_id should not be added to worker logs: %#v", fields["trace_id"])
 	}
 }

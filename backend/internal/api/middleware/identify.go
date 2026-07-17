@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ygpkg/yg-go/encryptor/snowflake"
+	"github.com/google/uuid"
+	"github.com/ygpkg/yg-go/apis/constants"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
@@ -26,25 +27,34 @@ func CallerMiddleware(jwtSecret string, database *gorm.DB) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		reqID := ctx.Request.Header.Get(headerKeyRequestID)
 		if reqID == "" {
-			reqID = snowflake.GenerateIDBase58()
+			reqID = strings.ReplaceAll(uuid.NewString(), "-", "")
 		}
 		traceID := ctx.Request.Header.Get(headerKeyTraceID)
 		if traceID == "" {
 			traceID = reqID
 		}
+		ctx.Set(constants.CtxKeyRequestID, reqID)
+		ctx.Header(headerKeyRequestID, reqID)
+		logs.SetContextFields(ctx, "req_id", reqID)
+		requestCtx := context.WithValue(ctx.Request.Context(), constants.CtxKeyRequestID, reqID)
+		ctx.Request = ctx.Request.WithContext(logs.WithContextFields(
+			requestCtx, "req_id", reqID,
+		))
 
-		caller := parseCallerFromRequest(ctx, jwtSecret, database, reqID)
+		caller := parseCallerFromRequest(ctx, jwtSecret, database)
 
-		localauth.WithGinContext(ctx, caller, &types.Trace{
+		trace := &types.Trace{
 			RequestID: reqID,
 			TraceID:   traceID,
 			SpanID:    []string{},
-		})
+		}
+		localauth.WithGinContext(ctx, caller, trace)
+		ctx.Request = ctx.Request.WithContext(localauth.WithContext(ctx.Request.Context(), caller, trace))
 		ctx.Next()
 	}
 }
 
-func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.DB, reqID string) *types.Caller {
+func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.DB) *types.Caller {
 	if os.Getenv("LEROS_DEV") == "true" {
 		return &types.Caller{
 			Uin:   1,
@@ -64,7 +74,7 @@ func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.D
 
 	tokenStr := extractTokenFromHeader(authHeader)
 	if tokenStr == "" {
-		logs.Debugw("no valid token found in request", "authHeader", authHeader, "reqID", reqID)
+		logs.DebugContextw(ctx, "no valid token found in request", "authHeader", authHeader)
 		return &types.Caller{
 			Uin:   0,
 			OrgID: 0,
@@ -72,7 +82,7 @@ func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.D
 		}
 	}
 
-	userCaller, userErr := parseUserCaller(ctx, tokenStr, jwtSecret, database, reqID)
+	userCaller, userErr := parseUserCaller(ctx, tokenStr, jwtSecret, database)
 	if userErr == nil {
 		return userCaller
 	}
@@ -80,12 +90,12 @@ func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.D
 	if workerCaller, workerErr := parseWorkerCaller(tokenStr, jwtSecret); workerErr == nil {
 		return workerCaller
 	} else {
-		logs.Warnw("parse auth token failed", "user_error", userErr, "worker_error", workerErr)
+		logs.WarnContextw(ctx, "parse auth token failed", "user_error", userErr, "worker_error", workerErr)
 	}
 	return failedCaller()
 }
 
-func parseUserCaller(ctx *gin.Context, tokenStr, jwtSecret string, database *gorm.DB, reqID string) (*types.Caller, error) {
+func parseUserCaller(ctx *gin.Context, tokenStr, jwtSecret string, database *gorm.DB) (*types.Caller, error) {
 	claims, err := localauth.ParseUserToken(tokenStr, jwtSecret)
 	if err != nil {
 		return nil, err
@@ -96,7 +106,7 @@ func parseUserCaller(ctx *gin.Context, tokenStr, jwtSecret string, database *gor
 
 	userOrg, err := db.GetUserOrgByUin(queryCtx, database, claims.Uin)
 	if err != nil {
-		logs.Warnw("get user org failed, db error", "error", err, "uin", claims.Uin, "reqID", reqID)
+		logs.WarnContextw(ctx, "get user org failed, db error", "error", err, "uin", claims.Uin)
 		return &types.Caller{
 			Uin:   claims.Uin,
 			Kind:  types.CallerKindUser,
@@ -104,7 +114,7 @@ func parseUserCaller(ctx *gin.Context, tokenStr, jwtSecret string, database *gor
 		}, nil
 	}
 	if userOrg == nil {
-		logs.Warnw("user org not found", "uin", claims.Uin, "reqID", reqID)
+		logs.WarnContextw(ctx, "user org not found", "uin", claims.Uin)
 		return &types.Caller{
 			Uin:   claims.Uin,
 			Kind:  types.CallerKindUser,

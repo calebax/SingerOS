@@ -2223,7 +2223,7 @@ func (s *projectService) requestProjectFileRestore(
 		name = fmt.Sprintf("leros-user-%d", caller.Uin)
 		email = fmt.Sprintf("user-%d@org-%d.leros.local", caller.Uin, caller.OrgID)
 	}
-	command := messaging.NewProjectFileRestoreCommand(
+	command := withRequestTrace(ctx, messaging.NewProjectFileRestoreCommand(
 		"project-file-restore-"+snowflake.GenerateIDBase58(),
 		messaging.RouteContext{OrgID: orgID, WorkerID: workerID},
 		messaging.ProjectFileRestoreCommandPayload{
@@ -2234,7 +2234,7 @@ func (s *projectService) requestProjectFileRestore(
 			AuthorName:      name,
 			AuthorEmail:     email,
 		},
-	)
+	))
 	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	reply, err := s.publisher.Request(requestCtx, topic, command)

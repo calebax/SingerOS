@@ -9,6 +9,10 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/ygpkg/yg-go/logs"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/insmtx/Leros/backend/agent"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
@@ -70,6 +74,28 @@ func (d *fakeDelivery) snapshot() (ack, nak, term bool, inProgress int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.ackCalled, d.nakCalled, d.termCalled, d.inProgressCalls
+}
+
+func TestWithRunLogFieldsPreservesRequestIDForAsyncExecution(t *testing.T) {
+	core, observed := observer.New(zapcore.InfoLevel)
+	ctx := logs.WithContextLogger(context.Background(), zap.New(core).Sugar())
+	ctx = withRunLogFields(ctx, runTask{
+		Trace: messaging.TraceContext{ReqID: "req-async-1", TraceID: "trace-async-1", RunID: "run-1"},
+		Route: messaging.RouteContext{SessionID: "session-1"},
+	})
+
+	logs.InfoContext(ctx, "async run")
+	entries := observed.All()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["req_id"] != "req-async-1" {
+		t.Fatalf("req_id = %#v, want req-async-1", fields["req_id"])
+	}
+	if _, ok := fields["trace_id"]; ok {
+		t.Fatalf("trace_id should not be added to async run logs: %#v", fields["trace_id"])
+	}
 }
 
 type handlerPublisher struct {
