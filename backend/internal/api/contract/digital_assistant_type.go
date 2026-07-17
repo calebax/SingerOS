@@ -66,6 +66,17 @@ type UpdateDigitalAssistantRequest struct {
 	Expertise    *[]string `json:"expertise,omitempty"`
 }
 
+// CheckDigitalAssistantNameRequest checks whether a teammate name can be used in the current organization.
+type CheckDigitalAssistantNameRequest struct {
+	Name      string `json:"name" binding:"required"`
+	ExcludeID uint   `json:"exclude_id,omitempty"`
+}
+
+// CheckDigitalAssistantNameResponse returns the availability of a normalized teammate name.
+type CheckDigitalAssistantNameResponse struct {
+	Available bool `json:"available"`
+}
+
 // UpdateDigitalAssistantStatusRequest 更新数字助手状态请求
 type UpdateDigitalAssistantStatusRequest struct {
 	Status string `json:"status" binding:"required"`

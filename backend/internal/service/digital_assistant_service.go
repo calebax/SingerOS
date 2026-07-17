@@ -19,6 +19,8 @@ import (
 
 var _ contract.DigitalAssistantService = (*digitalAssistantService)(nil)
 
+var errDigitalAssistantNameAlreadyExists = errors.New("digital assistant name already exists")
+
 type digitalAssistantService struct {
 	db                 *gorm.DB
 	workerScheduler    worker.WorkerScheduler
@@ -50,6 +52,9 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 	publicID := generateAssistantPublicID()
 	if req.Name == "" {
 		return nil, errors.New("name is required")
+	}
+	if err := s.ensureDigitalAssistantNameAvailable(ctx, caller.OrgID, req.Name, 0); err != nil {
+		return nil, err
 	}
 
 	if s.workerProvisioning != nil {
@@ -178,7 +183,14 @@ func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id
 		}
 	}
 	if req.Name != "" {
-		da.Name = req.Name
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			return nil, errors.New("name is required")
+		}
+		if err := s.ensureDigitalAssistantNameAvailable(ctx, caller.OrgID, name, da.ID); err != nil {
+			return nil, err
+		}
+		da.Name = name
 	}
 	if req.RoleName != "" {
 		da.RoleName = strings.TrimSpace(req.RoleName)
@@ -204,6 +216,35 @@ func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id
 	}
 
 	return s.convertToContractDigitalAssistant(ctx, da), nil
+}
+
+// CheckDigitalAssistantName checks normalized name availability for the current organization.
+func (s *digitalAssistantService) CheckDigitalAssistantName(ctx context.Context, req *contract.CheckDigitalAssistantNameRequest) (*contract.CheckDigitalAssistantNameResponse, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, errors.New("name is required")
+	}
+	exists, err := db.DigitalAssistantNameExists(ctx, s.db, caller.OrgID, name, req.ExcludeID)
+	if err != nil {
+		return nil, err
+	}
+	return &contract.CheckDigitalAssistantNameResponse{Available: !exists}, nil
+}
+
+// ensureDigitalAssistantNameAvailable keeps create and update paths consistent with the availability endpoint.
+func (s *digitalAssistantService) ensureDigitalAssistantNameAvailable(ctx context.Context, orgID uint, name string, excludeID uint) error {
+	exists, err := db.DigitalAssistantNameExists(ctx, s.db, orgID, name, excludeID)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return errDigitalAssistantNameAlreadyExists
+	}
+	return nil
 }
 
 func (s *digitalAssistantService) DeleteDigitalAssistant(ctx context.Context, id uint) error {

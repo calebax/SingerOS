@@ -48,6 +48,11 @@ export type GetDAParams = {
 	public_id?: string;
 };
 
+export type CheckDANameParams = {
+	name: string;
+	exclude_id?: number;
+};
+
 export type CreateDAFromTemplateParams = {
 	template_id: number;
 	public_id?: string;
@@ -82,6 +87,7 @@ const DA_ENDPOINTS = {
 	create: "/CreateDigitalAssistant",
 	createFromTemplate: "/CreateDigitalAssistantFromTemplate",
 	list: "/ListDigitalAssistant",
+	checkName: "/CheckDigitalAssistantName",
 	get: "/GetDigitalAssistant",
 	update: "/UpdateDigitalAssistant",
 	updateStatus: "/UpdateDigitalAssistantStatus",
@@ -104,6 +110,9 @@ export const digitalAssistantApi = {
 
 	list: (params: ListDAParams) =>
 		apiClient.post<BackendPaginatedResponse<BackendDigitalAssistant>>(DA_ENDPOINTS.list, params),
+
+	checkName: (params: CheckDANameParams) =>
+		apiClient.post<BackendDataResponse<{ available: boolean }>>(DA_ENDPOINTS.checkName, params),
 
 	get: (params: GetDAParams) =>
 		apiClient.post<BackendDataResponse<BackendDigitalAssistant>>(DA_ENDPOINTS.get, params),

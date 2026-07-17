@@ -273,7 +273,8 @@ function matchesCommandQuery(
 }
 
 function assistantPickerValue(option: AssistantOption): string {
-	return `assistant:${option.code}`;
+	// 中文注释：同名同角色的队友仍是不同实体，命令菜单必须以唯一 id 区分，避免联动高亮。
+	return `assistant:${String(option.id)}`;
 }
 
 function commandPickerValue(option: CommandOption): string {
@@ -1693,7 +1694,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 									<CommandGroup className="p-0">
 										{filteredAssistants.map((assistant, index) => (
 											<CommandItem
-												key={assistant.code}
+												key={String(assistant.id)}
 												value={assistantPickerValue(assistant)}
 												data-picker-item-value={assistantPickerValue(assistant)}
 												onMouseDown={(event: MouseEvent<HTMLElement>) => event.preventDefault()}

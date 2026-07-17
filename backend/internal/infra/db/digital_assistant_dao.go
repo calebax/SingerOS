@@ -72,6 +72,21 @@ func DigitalAssistantPublicIDExists(ctx context.Context, db *gorm.DB, publicID s
 	return count > 0, nil
 }
 
+// DigitalAssistantNameExists checks whether a normalized name already exists in an organization.
+func DigitalAssistantNameExists(ctx context.Context, database *gorm.DB, orgID uint, name string, excludeID uint) (bool, error) {
+	var count int64
+	query := database.WithContext(ctx).
+		Model(&types.DigitalAssistant{}).
+		Where("org_id = ? AND LOWER(TRIM(name)) = ?", orgID, strings.ToLower(strings.TrimSpace(name)))
+	if excludeID > 0 {
+		query = query.Where("id != ?", excludeID)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // ListDigitalAssistant 查询数字助手列表
 func ListDigitalAssistant(ctx context.Context, db *gorm.DB, opt *types.PageQuery) ([]*types.DigitalAssistant, int64, error) {
 	var entities []*types.DigitalAssistant

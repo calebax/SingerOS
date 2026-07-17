@@ -1,7 +1,7 @@
 "use client";
 
 import type { DigitalAssistantItem } from "@leros/store";
-import { projectFileApi, useDAStore } from "@leros/store";
+import { digitalAssistantApi, projectFileApi, useDAStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -12,7 +12,7 @@ import {
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
 import { ImagePlus } from "lucide-react";
-import { type ChangeEvent, useEffect, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { blobToDataURL, cacheProtectedImageDataURL } from "../avatar/ProtectedImage";
 import { AssistantAvatar } from "./AssistantAvatar";
@@ -25,7 +25,7 @@ export type AssistantEditDialogProps = {
 };
 
 export function AssistantEditDialog({ assistant, open, onOpenChange }: AssistantEditDialogProps) {
-	const { updateAssistant } = useDAStore((s) => s);
+	const { assistants, updateAssistant } = useDAStore((s) => s);
 	const isTemplateAssistant = assistant.source === "template";
 	const [name, setName] = useState(assistant.name);
 	const [roleName, setRoleName] = useState(assistant.roleName || assistant.name);
@@ -35,6 +35,47 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [previewAvatar, setPreviewAvatar] = useState<string | undefined>();
+	const [nameError, setNameError] = useState("");
+	const [checkingName, setCheckingName] = useState(false);
+	const nameCheckSequenceRef = useRef(0);
+
+	const validateName = useCallback(async () => {
+		const sequence = ++nameCheckSequenceRef.current;
+		const candidate = name.trim();
+		if (!candidate) {
+			setCheckingName(false);
+			return false;
+		}
+		const normalizedName = candidate.toLocaleLowerCase();
+		if (
+			assistants.some(
+				(item) =>
+					item.id !== assistant.id && item.name.trim().toLocaleLowerCase() === normalizedName,
+			)
+		) {
+			// 中文注释：编辑时排除当前队友，本地命中其他队友后不再重复请求服务端。
+			setNameError("该 AI 队友名称已存在");
+			setCheckingName(false);
+			return false;
+		}
+		setCheckingName(true);
+		try {
+			const response = await digitalAssistantApi.checkName({
+				name: candidate,
+				exclude_id: assistant.id,
+			});
+			if (sequence !== nameCheckSequenceRef.current) return false;
+			const available = response.data.data?.available ?? false;
+			setNameError(available ? "" : "该 AI 队友名称已存在");
+			return available;
+		} catch (error) {
+			// 中文注释：预检异常不阻止保存，保存接口会再次执行最终校验。
+			console.error("check ai teammate name error:", error);
+			return true;
+		} finally {
+			if (sequence === nameCheckSequenceRef.current) setCheckingName(false);
+		}
+	}, [assistant.id, assistants, name]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -45,11 +86,14 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 		setSystemPrompt(assistant.systemPrompt);
 		setSubmitting(false);
 		setPreviewAvatar(undefined);
+		setNameError("");
+		setCheckingName(false);
 	}, [assistant, open]);
 
 	const handleSubmit = async () => {
 		if (!name.trim() || !roleName.trim() || !description.trim() || submitting || uploadingAvatar)
 			return;
+		if (!(await validateName())) return;
 		setSubmitting(true);
 		const updated = await updateAssistant({
 			id: assistant.id,
@@ -66,7 +110,8 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 		});
 		setSubmitting(false);
 		if (!updated) {
-			toast.error("AI 队友保存失败，请稍后重试");
+			// 中文注释：保存阶段发生并发重名时复用字段提示，其余错误才使用通用提示。
+			if (await validateName()) toast.error("AI 队友保存失败，请稍后重试");
 			return;
 		}
 		onOpenChange(false);
@@ -147,15 +192,29 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 								<input
 									type="text"
 									value={name}
-									onChange={(e) => setName(e.target.value)}
+									onChange={(e) => {
+										setName(e.target.value);
+										setNameError("");
+										nameCheckSequenceRef.current += 1;
+										setCheckingName(false);
+									}}
+									onBlur={() => void validateName()}
 									placeholder="例如：小智、阿乐"
 									maxLength={ASSISTANT_FORM_LIMITS.name}
-									className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-[#4f46e5] focus:outline-none"
+									aria-invalid={Boolean(nameError)}
+									className={`w-full rounded-md border bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-[#4f46e5] focus:outline-none ${
+										nameError ? "border-red-500" : "border-slate-200"
+									}`}
 								/>
 								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
 									{name.length}/{ASSISTANT_FORM_LIMITS.name}
 								</span>
 							</div>
+							{(nameError || checkingName) && (
+								<p className={`text-xs ${nameError ? "text-red-500" : "text-slate-400"}`}>
+									{nameError || "正在检查名称..."}
+								</p>
+							)}
 						</div>
 						<div className="space-y-1.5">
 							<span className="text-xs font-medium text-slate-700">

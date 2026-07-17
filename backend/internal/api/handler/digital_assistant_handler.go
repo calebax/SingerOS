@@ -25,6 +25,7 @@ func (h *DigitalAssistantHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/UpdateDigitalAssistant", h.UpdateDigitalAssistant)
 	r.POST("/DeleteDigitalAssistant", h.DeleteDigitalAssistant)
 	r.POST("/ListDigitalAssistant", h.ListDigitalAssistant)
+	r.POST("/CheckDigitalAssistantName", h.CheckDigitalAssistantName)
 	r.POST("/UpdateDigitalAssistantStatus", h.UpdateDigitalAssistantStatus)
 	r.POST("/CreateDigitalAssistantFromTemplate", h.CreateDigitalAssistantFromTemplate)
 }
@@ -54,11 +55,7 @@ func (h *DigitalAssistantHandler) CreateDigitalAssistant(ctx *gin.Context) {
 
 	result, err := h.service.CreateDigitalAssistant(ctx, &req)
 	if err != nil {
-		if err.Error() == "user not authenticated or org not set" {
-			ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
-			return
-		}
-		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+		handleServiceError(ctx, err)
 		return
 	}
 
@@ -224,6 +221,21 @@ func (h *DigitalAssistantHandler) ListDigitalAssistant(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// CheckDigitalAssistantName checks whether a teammate name is available in the caller organization.
+func (h *DigitalAssistantHandler) CheckDigitalAssistantName(ctx *gin.Context) {
+	var req contract.CheckDigitalAssistantNameRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.CheckDigitalAssistantName(ctx, &req)
+	if err != nil {
+		handleServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 type UpdateDigitalAssistantStatusRequest struct {
 	ID uint `json:"id" binding:"required"`
 	contract.UpdateDigitalAssistantStatusRequest
@@ -299,6 +311,10 @@ func handleServiceError(ctx *gin.Context, err error) {
 		return
 	}
 	if err.Error() == "ai teammate template is inactive" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	if err.Error() == "digital assistant name already exists" || err.Error() == "name is required" {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
