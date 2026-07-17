@@ -4,6 +4,7 @@ import {
 	isSystemDefaultAssistant,
 	type ProjectMember,
 	type ProjectSkill,
+	projectFileApi,
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
@@ -11,6 +12,7 @@ import {
 import type {
 	ApprovalAction,
 	ApprovalRequest,
+	Attachment,
 	ComposerToken,
 	Message,
 	MessageMetadata,
@@ -36,11 +38,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 import type { AppNavigation } from "../layout";
+import {
+	applyDocxSelectionDraftToComposer,
+	type DocxSelectionComposerDraft,
+	docxSelectionComposerActions,
+	type PendingDocxVersionSync,
+	removeDocxReferenceFromComposer,
+	useDocxSelectionComposerStore,
+} from "../layout/docx-selection-composer-store";
+import { buildDocxSelectionPromptRequest } from "../layout/docx-selection-edit";
 import { openPendingAttachmentPreview } from "../layout/file-preview-store";
 import {
 	getProjectChatLayoutClasses,
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
+import { getLatestProjectFileVersion } from "../layout/project-file-version-sync";
 import { AttachmentPreview } from "./AttachmentPreview";
 import { ComposerActionBar } from "./ComposerActionBar";
 import { ComposerUsageTipsPanel } from "./ComposerUsageTipsPanel";
@@ -106,10 +118,15 @@ export function ChatInput({
 	const { assistants, assistantsLoaded } = useDAStore((s) => s);
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
+	const lastAppliedSelectionDraftRef = useRef<{
+		id: string;
+		suggestedPrompt?: string;
+	} | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const folderInputRef = useRef<HTMLInputElement>(null);
 	const previousProjectSkillLabelsRef = useRef<string[] | null>(null);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
+	const { draft: docxSelectionDraft } = useDocxSelectionComposerStore();
 
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
 	const isProjectVariant = variant === "project";
@@ -187,6 +204,29 @@ export function ChatInput({
 			: undefined;
 
 	useEffect(() => {
+		if (!docxSelectionDraft || lastAppliedSelectionDraftRef.current?.id === docxSelectionDraft.id) {
+			return;
+		}
+		const currentTokens = composerRef.current?.getComposerTokens() ?? [];
+		const next = applyDocxSelectionDraftToComposer({
+			value: inputText,
+			tokens: currentTokens,
+			draft: docxSelectionDraft,
+			previousSuggestedPrompt: lastAppliedSelectionDraftRef.current?.suggestedPrompt,
+		});
+		lastAppliedSelectionDraftRef.current = {
+			id: docxSelectionDraft.id,
+			suggestedPrompt: docxSelectionDraft.suggestedPrompt,
+		};
+		if (composerRef.current) {
+			composerRef.current.setContent(next.value, next.tokens);
+		} else {
+			setInputText(next.value);
+		}
+		setInputFocused(true);
+	}, [docxSelectionDraft, inputText, setInputFocused, setInputText]);
+
+	useEffect(() => {
 		if (!isProjectVariant) {
 			previousProjectSkillLabelsRef.current = null;
 			return;
@@ -212,10 +252,48 @@ export function ChatInput({
 		if (isGenerating) return;
 		const trimmedInput = inputText.trim();
 		if (trimmedInput) {
-			const composerMetadata = buildComposerMetadata(
-				inputText,
-				composerRef.current?.getComposerTokens() ?? [],
-			);
+			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
+			const activeSelectionReference = docxSelectionDraft
+				? composerTokens.find(
+						(token) =>
+							token.kind === "reference" &&
+							token.id === docxSelectionDraft.referenceId &&
+							inputText.slice(token.start, token.end) === token.label,
+					)
+				: undefined;
+			let outgoingContent = trimmedInput;
+			let outgoingAttachments = inputAttachments;
+			let composerMetadata = buildComposerMetadata(inputText, composerTokens);
+			let pendingVersionSync: PendingDocxVersionSync | null = null;
+
+			if (docxSelectionDraft && activeSelectionReference) {
+				const visibleSnapshot = removeDocxReferenceFromComposer(inputText, composerTokens);
+				const userPrompt = visibleSnapshot.value.trim();
+				if (!userPrompt) {
+					toast.info("请补充希望如何修改这段内容");
+					return;
+				}
+				const request = buildDocxSelectionPromptRequest({
+					prompt: userPrompt,
+					file: docxSelectionDraft.file,
+					selection: docxSelectionDraft.selection,
+				});
+				if (!request.attachment && !docxSelectionDraft.file.projectPath) {
+					toast.error("当前文件缺少可编辑的文件标识");
+					return;
+				}
+				outgoingContent = request.content;
+				outgoingAttachments = mergeSelectionAttachment(inputAttachments, request.attachment);
+				const visibleMetadata = buildComposerMetadata(inputText, composerTokens);
+				composerMetadata = {
+					...visibleMetadata,
+					displayContent: trimmedInput,
+					displayComposerTokens: visibleMetadata?.composerTokens,
+				};
+				pendingVersionSync = await resolveDocxVersionSync(docxSelectionDraft);
+			}
+
+			let submitted: unknown;
 			if (
 				isProjectVariant &&
 				currentView === "taskDetail" &&
@@ -223,25 +301,24 @@ export function ChatInput({
 				activeTaskDetailTaskId &&
 				activeTaskDetailSessionId
 			) {
-				await sendTaskRoomMessage(
-					trimmedInput,
+				submitted = await sendTaskRoomMessage(
+					outgoingContent,
 					{
 						projectId: activeTaskDetailProjectId,
 						taskId: activeTaskDetailTaskId,
 						sessionId: activeTaskDetailSessionId,
 						metadata: composerMetadata,
 					},
-					inputAttachments,
+					outgoingAttachments,
 				);
-				return;
-			}
-			if (isProjectVariant && currentView === "project") {
+			} else if (isProjectVariant && currentView === "project") {
 				const taskEntry = await sendProjectMessage(
-					trimmedInput,
+					outgoingContent,
 					activeProjectId,
-					inputAttachments,
+					outgoingAttachments,
 					composerMetadata,
 				);
+				submitted = taskEntry;
 				if (taskEntry?.project_id && taskEntry?.task_id) {
 					// 中文注释：项目首页创建出真实任务后，立即跳到任务详情页，避免仍停留在项目首页的新建任务视图。
 					navigation?.goToTaskDetail(
@@ -250,9 +327,20 @@ export function ChatInput({
 						taskEntry.session_id ?? null,
 					);
 				}
-				return;
+			} else {
+				submitted = await sendMessage(outgoingContent, outgoingAttachments, composerMetadata);
 			}
-			sendMessage(trimmedInput, inputAttachments, composerMetadata);
+
+			if (!submitted) return;
+			if (docxSelectionDraft && activeSelectionReference) {
+				docxSelectionComposerActions.markSubmitted(pendingVersionSync);
+				docxSelectionComposerActions.clearDraft(docxSelectionDraft.id);
+				lastAppliedSelectionDraftRef.current = null;
+			} else if (docxSelectionDraft) {
+				// 中文注释：用户手动删掉引用 token 后，本次按普通消息发送，同时清除失效的选区草稿。
+				docxSelectionComposerActions.clearDraft(docxSelectionDraft.id);
+				lastAppliedSelectionDraftRef.current = null;
+			}
 		}
 	}, [
 		inputText,
@@ -264,6 +352,7 @@ export function ChatInput({
 		activeTaskDetailTaskId,
 		activeTaskDetailSessionId,
 		isGenerating,
+		docxSelectionDraft,
 		navigation,
 		sendMessage,
 		sendProjectMessage,
@@ -681,6 +770,53 @@ function buildComposerMetadata(
 		}))
 		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
 	return composerTokens.length > 0 ? { composerTokens } : undefined;
+}
+
+function mergeSelectionAttachment(
+	attachments: Attachment[],
+	selectionAttachment?: Attachment,
+): Attachment[] {
+	if (!selectionAttachment) return attachments;
+	return [
+		...attachments.filter(
+			(attachment) => attachment.fileUploadId !== selectionAttachment.fileUploadId,
+		),
+		selectionAttachment,
+	];
+}
+
+async function resolveDocxVersionSync(
+	draft: DocxSelectionComposerDraft,
+): Promise<PendingDocxVersionSync | null> {
+	const { file } = draft;
+	const chainFilePublicId = file.publicId || file.versionPublicId;
+	if (!file.projectId || !chainFilePublicId || !file.publicId) return null;
+
+	let baselinePublicId = file.publicId;
+	let baselineVersionNo = file.versionNo ?? 0;
+	try {
+		const response = await projectFileApi.versions(file.projectId, chainFilePublicId);
+		if (response.data.code === 0) {
+			const latest = getLatestProjectFileVersion(response.data.data);
+			if (latest) {
+				baselinePublicId = latest.public_id;
+				baselineVersionNo = latest.version_no;
+			}
+		}
+	} catch (error) {
+		console.warn("Resolve DOCX version baseline error:", error);
+	}
+
+	return {
+		id: `docx-selection-submit-${Date.now()}`,
+		projectId: file.projectId,
+		taskId: file.taskId,
+		chainFilePublicId,
+		expectedPreviewPublicId: file.publicId,
+		baselinePublicId,
+		baselineVersionNo,
+		selectedVersionPublicId: draft.selectedVersionPublicId,
+	};
 }
 
 function projectSkillToComposerOption(skill: ProjectSkill): ComposerSkillOption {

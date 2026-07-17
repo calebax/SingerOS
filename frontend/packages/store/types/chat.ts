@@ -126,7 +126,7 @@ export type MessageMetadata = {
 };
 
 export type ComposerToken = {
-	kind: "assistant" | "skill";
+	kind: "assistant" | "skill" | "reference";
 	id?: string;
 	label: string;
 	start: number;

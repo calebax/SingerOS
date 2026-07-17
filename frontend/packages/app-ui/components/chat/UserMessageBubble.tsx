@@ -38,7 +38,15 @@ export function UserMessageBubble({ message }: { message: Message }) {
 	const authUser = useAuthStore((state) => state.authUser);
 	const displayContent = message.metadata?.displayContent ?? message.content;
 	const visibleText = displayContent.trim();
-	const attachments = message.attachments ?? [];
+	const referenceIds = new Set(
+		(message.metadata?.displayComposerTokens ?? message.metadata?.composerTokens ?? [])
+			.filter((token) => token.kind === "reference" && token.id)
+			.map((token) => token.id as string),
+	);
+	// 中文注释：选区编辑所附 DOCX 仅用于模型定位，用户侧以引用 token 展示，避免重复出现文件卡片。
+	const attachments = (message.attachments ?? []).filter(
+		(attachment) => !referenceIds.has(attachment.fileUploadId),
+	);
 	const currentUserId = authUser?.uin !== undefined ? String(authUser.uin) : undefined;
 	// 中文注释：后端落库消息会返回真实 sender_uin，不能只依赖本地 optimistic 的 current-user 标记。
 	const isOwnMessage =

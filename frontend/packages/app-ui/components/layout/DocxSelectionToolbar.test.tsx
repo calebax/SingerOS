@@ -7,28 +7,30 @@ afterEach(() => {
 });
 
 describe("DocxSelectionToolbar", () => {
-	it("offers only expand and shorten instructions", () => {
-		const onInstruction = vi.fn();
+	it("offers add-to-conversation and polish actions without sending immediately", () => {
+		const onPolish = vi.fn();
+		const onAddToConversation = vi.fn();
 		render(
 			<DocxSelectionToolbar
 				anchor={{ x: 100, y: 200, width: 240, height: 30 }}
 				busy={false}
-				onInstruction={onInstruction}
+				onPolish={onPolish}
+				onAddToConversation={onAddToConversation}
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: /AI 编辑/ }));
-		expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
-			"AI 编辑",
-			"扩写",
-			"缩写",
-		]);
+		fireEvent.click(screen.getByRole("button", { name: "添加到对话" }));
+		expect(onAddToConversation).toHaveBeenCalledTimes(1);
+		expect(onPolish).not.toHaveBeenCalled();
 
-		fireEvent.click(screen.getByRole("button", { name: "扩写" }));
-		expect(onInstruction).toHaveBeenCalledWith("expand");
-		fireEvent.click(screen.getByRole("button", { name: /AI 编辑/ }));
-		fireEvent.click(screen.getByRole("button", { name: "缩写" }));
-		expect(onInstruction).toHaveBeenCalledWith("shorten");
+		fireEvent.click(screen.getByRole("button", { name: "AI 润色" }));
+		fireEvent.click(screen.getByRole("button", { name: "优化表达" }));
+		expect(onPolish).toHaveBeenCalledWith("improve-expression");
+
+		fireEvent.click(screen.getByRole("button", { name: "AI 润色" }));
+		fireEvent.mouseEnter(screen.getByRole("button", { name: "调整语气" }));
+		fireEvent.click(screen.getByRole("button", { name: "有说服力" }));
+		expect(onPolish).toHaveBeenLastCalledWith({ kind: "tone", tone: "有说服力" });
 	});
 
 	it("anchors inside the document scroll layer without recalculating while scrolling", () => {
@@ -45,7 +47,8 @@ describe("DocxSelectionToolbar", () => {
 				anchor={{ x: 140, y: 280, width: 100, height: 24 }}
 				portalContainer={container}
 				busy={false}
-				onInstruction={vi.fn()}
+				onPolish={vi.fn()}
+				onAddToConversation={vi.fn()}
 			/>,
 		);
 

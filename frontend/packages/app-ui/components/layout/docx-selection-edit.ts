@@ -3,6 +3,13 @@ import type { FilePreviewItem } from "./file-preview-utils";
 import type { OfficeTextSelection } from "./office-selection";
 
 export type DocxSelectionInstruction = "expand" | "shorten";
+export type DocxTone = "正式" | "随意" | "亲切" | "简洁" | "生动" | "有说服力";
+export type DocxPolishAction =
+	| "expand"
+	| "shorten"
+	| "improve-expression"
+	| "proofread"
+	| { kind: "tone"; tone: DocxTone };
 
 export type DocxSelectionEditRequest = {
 	content: string;
@@ -28,6 +35,20 @@ const instructionCopy: Record<DocxSelectionInstruction, { label: string; prompt:
 	},
 };
 
+export const DOCX_TONES: DocxTone[] = ["正式", "随意", "亲切", "简洁", "生动", "有说服力"];
+
+export function getDocxPolishPrompt(action: DocxPolishAction): string {
+	if (typeof action === "object") {
+		return `帮我调整这段内容的语气，使之更${action.tone}`;
+	}
+	return {
+		expand: "帮我扩写这段内容",
+		shorten: "帮我缩写这段内容",
+		"improve-expression": "帮我优化这段内容的表达",
+		proofread: "帮我重新校对这段文字，检查语病并调整语序",
+	}[action];
+}
+
 export function buildDocxSelectionEditRequest({
 	instruction,
 	file,
@@ -38,6 +59,29 @@ export function buildDocxSelectionEditRequest({
 	selection: OfficeTextSelection;
 }): DocxSelectionEditRequest {
 	const copy = instructionCopy[instruction];
+	const previewText = selection.text.trim().replace(/\s+/g, " ").slice(0, 48);
+	return buildDocxSelectionPromptRequest({
+		prompt: copy.prompt,
+		displayContent: `${copy.label}文档选区：「${previewText}${selection.text.trim().length > 48 ? "…" : ""}」`,
+		instruction,
+		file,
+		selection,
+	});
+}
+
+export function buildDocxSelectionPromptRequest({
+	prompt,
+	displayContent,
+	instruction = "custom",
+	file,
+	selection,
+}: {
+	prompt: string;
+	displayContent?: string;
+	instruction?: string;
+	file: FilePreviewItem;
+	selection: OfficeTextSelection;
+}): DocxSelectionEditRequest {
 	const filePublicId = file.versionPublicId?.trim() || file.publicId?.trim();
 	const safeName = baseName(file.name);
 	const selectedText = selection.text;
@@ -72,8 +116,10 @@ export function buildDocxSelectionEditRequest({
 	const previewText = selection.text.trim().replace(/\s+/g, " ").slice(0, 48);
 
 	return {
-		content: `/docx\n<reference>\n${serializedReference}\n</reference>\n\n${REFERENCE_EXECUTION_RULES}\n${copy.prompt}`,
-		displayContent: `${copy.label}文档选区：「${previewText}${selection.text.trim().length > 48 ? "…" : ""}」`,
+		content: `/docx\n<reference>\n${serializedReference}\n</reference>\n\n${REFERENCE_EXECUTION_RULES}\n${prompt.trim()}`,
+		displayContent:
+			displayContent ??
+			`${prompt.trim()}：「${previewText}${selection.text.trim().length > 48 ? "…" : ""}」`,
 		attachment: filePublicId
 			? {
 					id: `docx-selection-${filePublicId}`,

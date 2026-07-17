@@ -37,7 +37,7 @@ function pickComposerTokens(...values: unknown[]): ComposerToken[] | undefined {
 			if (typeof item !== "object" || item === null) return false;
 			const token = item as Partial<ComposerToken>;
 			return (
-				(token.kind === "assistant" || token.kind === "skill") &&
+				(token.kind === "assistant" || token.kind === "skill" || token.kind === "reference") &&
 				typeof token.label === "string" &&
 				typeof token.start === "number" &&
 				typeof token.end === "number"

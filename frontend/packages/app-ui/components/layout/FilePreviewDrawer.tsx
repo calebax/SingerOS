@@ -1,11 +1,6 @@
 "use client";
 
-import {
-	type BackendProjectFileVersion,
-	projectFileApi,
-	useChatStore,
-	useLayoutStore,
-} from "@leros/store";
+import { type BackendProjectFileVersion, projectFileApi, useChatStore } from "@leros/store";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	ChevronsLeftRightEllipsis,
@@ -13,7 +8,6 @@ import {
 	FileText,
 	History,
 	LoaderCircle,
-	RotateCcw,
 	ShieldCheck,
 	X,
 } from "lucide-react";
@@ -22,9 +16,14 @@ import { toast } from "sonner";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { DocxSelectionToolbar } from "./DocxSelectionToolbar";
 import {
-	buildDocxSelectionEditRequest,
+	docxSelectionComposerActions,
+	type PendingDocxVersionSync,
+	useDocxSelectionComposerStore,
+} from "./docx-selection-composer-store";
+import {
 	DOCX_SELECTION_TEXT_LIMIT,
-	type DocxSelectionInstruction,
+	type DocxPolishAction,
+	getDocxPolishPrompt,
 } from "./docx-selection-edit";
 import { filePreviewActions } from "./file-preview-store";
 import {
@@ -41,23 +40,10 @@ import {
 } from "./file-preview-utils";
 import { OfficePreview, type OfficeTextSelection } from "./OfficePreview";
 import { PdfPreview, type PdfTextSelection } from "./PdfPreview";
-import {
-	getLatestProjectFileVersion,
-	waitForProjectFileVersionChange,
-} from "./project-file-version-sync";
+import { waitForProjectFileVersionChange } from "./project-file-version-sync";
 import { SpreadsheetPreview } from "./SpreadsheetPreview";
 
 export type { FilePreviewItem } from "./file-preview-utils";
-
-type PendingSelectionVersionSync = {
-	projectId: string;
-	taskId?: string;
-	chainFilePublicId: string;
-	expectedPreviewPublicId: string;
-	baselinePublicId: string;
-	baselineVersionNo: number;
-	selectedVersionPublicId: string;
-};
 
 export function FilePreviewDrawer({
 	file,
@@ -76,25 +62,12 @@ export function FilePreviewDrawer({
 	const [versionsLoading, setVersionsLoading] = useState(false);
 	const [versionsError, setVersionsError] = useState<string | null>(null);
 	const [selectedVersionPublicId, setSelectedVersionPublicId] = useState("");
-	const [restoreTarget, setRestoreTarget] = useState<BackendProjectFileVersion | null>(null);
-	const [restoring, setRestoring] = useState(false);
 	const [officeSelection, setOfficeSelection] = useState<OfficeTextSelection | null>(null);
-	const [selectionSubmitting, setSelectionSubmitting] = useState(false);
-	const [pendingVersionSync, setPendingVersionSync] = useState<PendingSelectionVersionSync | null>(
-		null,
-	);
+	const [pendingVersionSync, setPendingVersionSync] = useState<PendingDocxVersionSync | null>(null);
 	const drawerRef = useRef<HTMLDivElement>(null);
 	const selectedVersionPublicIdRef = useRef(selectedVersionPublicId);
-	const { isGenerating, sendMessage, sendProjectMessage, sendTaskRoomMessage } = useChatStore(
-		(state) => state,
-	);
-	const {
-		activeProjectId,
-		activeTaskDetailProjectId,
-		activeTaskDetailTaskId,
-		activeTaskDetailSessionId,
-		currentView,
-	} = useLayoutStore((state) => state);
+	const { isGenerating } = useChatStore((state) => state);
+	const { submission } = useDocxSelectionComposerStore();
 	const selectedVersion = useMemo(
 		() => versions.find((version) => version.public_id === selectedVersionPublicId) ?? null,
 		[versions, selectedVersionPublicId],
@@ -126,6 +99,12 @@ export function FilePreviewDrawer({
 	useEffect(() => {
 		selectedVersionPublicIdRef.current = selectedVersionPublicId;
 	}, [selectedVersionPublicId]);
+
+	useEffect(() => {
+		if (!submission) return;
+		setPendingVersionSync(submission);
+		docxSelectionComposerActions.clearSubmission(submission.id);
+	}, [submission]);
 
 	useEffect(() => {
 		if (!open || !file) return;
@@ -362,40 +341,6 @@ export function FilePreviewDrawer({
 		}
 	};
 
-	const handleRestoreVersion = async () => {
-		if (!file?.projectId || !restoreTarget) return;
-		setRestoring(true);
-		try {
-			const response = await projectFileApi.restoreVersion(file.projectId, restoreTarget.public_id);
-			if (response.data.code !== 0) {
-				throw new Error(response.data.message || "恢复版本失败");
-			}
-			toast.success("已恢复为新的最新版本");
-			const node = response.data.data;
-			if (file && node) {
-				filePreviewActions.open({
-					...file,
-					publicId: node.public_id ?? file.publicId,
-					storageUri: node.storage_uri ?? file.storageUri,
-					versionNo: node.version_no,
-					versionLabel: node.version_label,
-					versionCount: node.version_count,
-				});
-			}
-			setRestoreTarget(null);
-			setSelectedVersionPublicId("");
-			window.dispatchEvent(
-				new CustomEvent(PROJECT_FILE_VERSION_CHANGED_EVENT, {
-					detail: { projectId: file.projectId, taskId: file.taskId },
-				}),
-			);
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "恢复版本失败");
-		} finally {
-			setRestoring(false);
-		}
-	};
-
 	const handleDrawerResizeStart = (event: React.PointerEvent<HTMLElement>) => {
 		event.preventDefault();
 		const startX = event.clientX;
@@ -420,99 +365,28 @@ export function FilePreviewDrawer({
 		window.addEventListener("pointerup", handlePointerUp);
 	};
 
-	const handleSelectionInstruction = async (instruction: DocxSelectionInstruction) => {
-		if (!officeSelection || !previewFile || !file || selectionSubmitting) return;
-		if (isGenerating) {
-			toast.info("当前任务正在执行，请完成后再编辑选区");
-			return;
-		}
+	const stageSelectionDraft = (suggestedPrompt?: string) => {
+		if (!officeSelection || !previewFile) return;
 		if (officeSelection.text.length > DOCX_SELECTION_TEXT_LIMIT) {
 			toast.info("选区内容过长，请缩小选区后重试");
 			return;
 		}
-
-		const request = buildDocxSelectionEditRequest({
-			instruction,
-			file: previewFile,
-			selection: officeSelection,
-		});
-		if (!request.attachment && !previewFile.projectPath) {
+		if (!previewFile.versionPublicId && !previewFile.publicId && !previewFile.projectPath) {
 			toast.error("当前文件缺少可编辑的文件标识");
 			return;
 		}
+		docxSelectionComposerActions.setDraft({
+			file: previewFile,
+			selection: officeSelection,
+			suggestedPrompt,
+			selectedVersionPublicId,
+		});
+		setOfficeSelection(null);
+		window.getSelection()?.removeAllRanges();
+	};
 
-		const attachments = request.attachment ? [request.attachment] : [];
-		const metadata = { displayContent: request.displayContent };
-		setSelectionSubmitting(true);
-		try {
-			const chainFilePublicId = file.publicId || previewFile.versionPublicId;
-			let versionSync: PendingSelectionVersionSync | null = null;
-			if (previewFile.projectId && chainFilePublicId && file.publicId) {
-				let baselinePublicId = file.publicId;
-				let baselineVersionNo = file.versionNo ?? 0;
-				try {
-					const response = await projectFileApi.versions(previewFile.projectId, chainFilePublicId);
-					if (response.data.code === 0) {
-						const latest = getLatestProjectFileVersion(response.data.data);
-						if (latest) {
-							baselinePublicId = latest.public_id;
-							baselineVersionNo = latest.version_no;
-						}
-					}
-				} catch (error) {
-					console.warn("Resolve DOCX version baseline error:", error);
-				}
-				versionSync = {
-					projectId: previewFile.projectId,
-					taskId: file.taskId,
-					chainFilePublicId,
-					expectedPreviewPublicId: file.publicId,
-					baselinePublicId,
-					baselineVersionNo,
-					selectedVersionPublicId,
-				};
-			}
-
-			let submitted: unknown;
-			if (
-				currentView === "taskDetail" &&
-				activeTaskDetailProjectId &&
-				activeTaskDetailTaskId &&
-				activeTaskDetailSessionId
-			) {
-				submitted = await sendTaskRoomMessage(
-					request.content,
-					{
-						projectId: activeTaskDetailProjectId,
-						taskId: activeTaskDetailTaskId,
-						sessionId: activeTaskDetailSessionId,
-						metadata,
-					},
-					attachments,
-				);
-			} else if (currentView === "project" && activeProjectId) {
-				submitted = await sendProjectMessage(
-					request.content,
-					activeProjectId,
-					attachments,
-					metadata,
-				);
-			} else {
-				submitted = await sendMessage(request.content, attachments, metadata);
-			}
-			if (!submitted) {
-				throw new Error("selection edit message was not submitted");
-			}
-			setPendingVersionSync(versionSync);
-			setOfficeSelection(null);
-			window.getSelection()?.removeAllRanges();
-			toast.success(instruction === "expand" ? "已提交扩写" : "已提交缩写");
-		} catch (error) {
-			console.error("Submit DOCX selection edit error:", error);
-			toast.error("选区编辑提交失败，请稍后重试");
-		} finally {
-			setSelectionSubmitting(false);
-		}
+	const handlePolish = (action: DocxPolishAction) => {
+		stageSelectionDraft(getDocxPolishPrompt(action));
 	};
 
 	if (!open || !file) {
@@ -624,7 +498,6 @@ export function FilePreviewDrawer({
 						loading={versionsLoading}
 						error={versionsError}
 						onSelect={(version) => setSelectedVersionPublicId(version.public_id)}
-						onRestore={setRestoreTarget}
 					/>
 				) : null}
 			</div>
@@ -632,52 +505,10 @@ export function FilePreviewDrawer({
 				<DocxSelectionToolbar
 					anchor={officeSelection.boundingRect}
 					portalContainer={selectionToolbarContainer}
-					busy={selectionSubmitting}
-					onInstruction={(instruction) => void handleSelectionInstruction(instruction)}
+					busy={false}
+					onPolish={handlePolish}
+					onAddToConversation={() => stageSelectionDraft()}
 				/>
-			) : null}
-			{restoreTarget ? (
-				<div className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 px-8">
-					<div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-						<div className="flex items-start justify-between gap-4">
-							<div>
-								<h3 className="text-base font-semibold text-[var(--leros-text-strong)]">
-									恢复此版本
-								</h3>
-								<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
-									恢复后，将基于该历史版本的内容生成一个新版本，并设为当前版本。当前版本及其他历史版本均会保留。
-								</p>
-							</div>
-							<button
-								type="button"
-								onClick={() => setRestoreTarget(null)}
-								className="rounded-lg p-1.5 text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]"
-								disabled={restoring}
-							>
-								<X className="size-4" />
-							</button>
-						</div>
-						<div className="mt-5 flex justify-end gap-2">
-							<button
-								type="button"
-								onClick={() => setRestoreTarget(null)}
-								className="rounded-lg px-4 py-2 text-sm text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]"
-								disabled={restoring}
-							>
-								取消
-							</button>
-							<button
-								type="button"
-								onClick={() => void handleRestoreVersion()}
-								className="inline-flex items-center gap-2 rounded-lg bg-[var(--leros-text-strong)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-								disabled={restoring}
-							>
-								{restoring ? <LoaderCircle className="size-4 animate-spin" /> : null}
-								确认恢复
-							</button>
-						</div>
-					</div>
-				</div>
 			) : null}
 		</div>
 	);
@@ -690,7 +521,6 @@ function FileVersionPanel({
 	loading,
 	error,
 	onSelect,
-	onRestore,
 }: {
 	currentPublicId: string;
 	selectedPublicId: string;
@@ -698,7 +528,6 @@ function FileVersionPanel({
 	loading: boolean;
 	error: string | null;
 	onSelect: (version: BackendProjectFileVersion) => void;
-	onRestore: (version: BackendProjectFileVersion) => void;
 }) {
 	return (
 		<aside className="flex w-52 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-white">
@@ -726,12 +555,12 @@ function FileVersionPanel({
 							const isCurrent = version.public_id === currentPublicId;
 							const isSelected = version.public_id === selectedPublicId;
 							return (
-								<div key={version.public_id} className="relative">
+								<div key={version.public_id}>
 									<button
 										type="button"
 										onClick={() => onSelect(version)}
 										className={cn(
-											"w-full cursor-pointer rounded-md px-2.5 py-1.5 pr-8 text-left transition-colors",
+											"w-full cursor-pointer rounded-md px-2.5 py-1.5 text-left transition-colors",
 											isSelected
 												? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]"
 												: "hover:bg-[var(--leros-surface-soft)]",
@@ -749,16 +578,6 @@ function FileVersionPanel({
 											) : null}
 										</span>
 									</button>
-									{!isCurrent ? (
-										<button
-											type="button"
-											onClick={() => onRestore(version)}
-											className="absolute right-1.5 top-1.5 rounded p-1 text-[var(--leros-text-muted)] hover:bg-white hover:text-[var(--leros-primary)]"
-											title="恢复"
-										>
-											<RotateCcw className="size-3" />
-										</button>
-									) : null}
 								</div>
 							);
 						})}
