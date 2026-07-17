@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import {
 	FEEDBACK_IMAGE_ACCEPT,
 	FEEDBACK_MAX_IMAGES,
-	getImageFilesFromClipboard,
 	isAcceptedFeedbackImage,
 } from "./feedbackImageUtils";
 
@@ -112,13 +111,6 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 			onAttachmentIdsChange(attachmentIds.filter((id) => id !== image.publicId));
 		};
 
-		const handlePaste = (event: React.ClipboardEvent<HTMLElement>) => {
-			const files = getImageFilesFromClipboard(event.clipboardData);
-			if (!files.length) return;
-			event.preventDefault();
-			void uploadFiles(files);
-		};
-
 		const handleDragOver = (event: React.DragEvent<HTMLElement>) => {
 			event.preventDefault();
 			setDragActive(true);
@@ -178,7 +170,6 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 					<button
 						type="button"
 						onClick={openFilePicker}
-						onPaste={handlePaste}
 						onDragOver={handleDragOver}
 						onDragLeave={handleDragLeave}
 						onDrop={handleDrop}
@@ -195,18 +186,15 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 							<Upload className="size-5" />
 						</div>
 						<div>
-							<p className="text-sm text-[var(--leros-text-strong)]">
-								点击上传、拖拽或 Ctrl+V 粘贴图片
-							</p>
+							<p className="text-sm text-[var(--leros-text-strong)]">点击上传或拖拽图片</p>
 							<p className="mt-0.5 text-xs text-[var(--leros-text-muted)]">
 								支持 JPG、PNG、WebP，最多 {FEEDBACK_MAX_IMAGES} 张
 							</p>
 						</div>
 					</button>
 				) : (
-					// biome-ignore lint/a11y/noStaticElementInteractions: 已上传截图区域需要承接拖拽与粘贴，且内部包含删除/添加按钮，不能整体使用 button。
+					// biome-ignore lint/a11y/noStaticElementInteractions: 已上传截图区域需要承接拖拽，且内部包含删除/添加按钮，不能整体使用 button。
 					<div
-						onPaste={handlePaste}
 						onDragOver={handleDragOver}
 						onDragLeave={handleDragLeave}
 						onDrop={handleDrop}
@@ -252,7 +240,7 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 							</div>
 							{canUploadMore ? (
 								<p className="text-center text-xs text-[var(--leros-text-muted)]">
-									支持 Ctrl+V 粘贴、拖拽或点击添加
+									支持拖拽或点击添加
 								</p>
 							) : null}
 						</div>
