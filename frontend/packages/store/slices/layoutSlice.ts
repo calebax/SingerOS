@@ -764,19 +764,6 @@ export class LayoutActionImpl {
 
 			if (selectedTask?.sessionId) {
 				try {
-					const globalEventsStore = this.#get() as LayoutStore & {
-						startGlobalEvents?: () => Promise<void>;
-					};
-					void globalEventsStore.startGlobalEvents?.();
-					await sessionApi.addMessage({
-						session_id: selectedTask.sessionId,
-						role: "user",
-						content: trimmed,
-						execution_mode: mode,
-						message_type: "text",
-						metadata: buildBackendMessageMetadata(_metadata),
-						attachments: mapOutgoingAttachments(attachments),
-					});
 					const data = {
 						project_id: workbenchProjectId,
 						task_id: selectedTaskId,
@@ -794,10 +781,45 @@ export class LayoutActionImpl {
 						executionMode: mode,
 					} as Partial<LayoutState>);
 					await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
-					this.#bootstrapWorkbenchTaskSession(data.session_id, trimmed, attachments, _metadata);
-					return data;
+
+					const chatStore = this.#get() as LayoutStore & {
+						setActiveSession?: (sessionId: string) => void;
+						loadConversationMessages?: (
+							sessionId: string,
+							options?: { resumeStream?: boolean },
+						) => Promise<void>;
+						sendTaskRoomMessage?: (
+							content: string,
+							params: {
+								projectId: string;
+								taskId: string;
+								sessionId: string;
+								metadata?: MessageMetadata;
+							},
+							attachments?: Attachment[],
+						) => Promise<{
+							project_id: string;
+							task_id: string;
+							session_id: string;
+						} | null>;
+					};
+					chatStore.setActiveSession?.(data.session_id);
+					// 中文注释：续聊已有任务时先拉历史再发消息，与任务详情内发送保持一致，避免 bootstrap 覆盖历史。
+					await chatStore.loadConversationMessages?.(data.session_id, { resumeStream: false });
+					const result = await chatStore.sendTaskRoomMessage?.(
+						trimmed,
+						{
+							projectId: data.project_id,
+							taskId: data.task_id,
+							sessionId: data.session_id,
+							metadata: _metadata,
+						},
+						attachments,
+					);
+					if (!result) return null;
+					return result;
 				} catch (err) {
-					console.error("sendWorkbenchMessage addMessage error:", err);
+					console.error("sendWorkbenchMessage continue task error:", err);
 					return null;
 				}
 			}

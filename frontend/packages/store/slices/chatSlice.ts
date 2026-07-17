@@ -2117,7 +2117,14 @@ export class ChatActionImpl {
 		attachments?: Attachment[],
 	) => {
 		const trimmed = content.trim();
-		if (!trimmed || !params.projectId || !params.taskId || !params.sessionId) return null;
+		if (
+			(!trimmed && !attachments?.length) ||
+			!params.projectId ||
+			!params.taskId ||
+			!params.sessionId
+		) {
+			return null;
+		}
 		if (this.#get().isGenerating) return null;
 
 		const now = Date.now();
