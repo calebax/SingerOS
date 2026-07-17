@@ -196,6 +196,7 @@ type ArtifactPayload struct {
 	Sha256               string `json:"sha256,omitempty"`
 	Source               string `json:"source,omitempty"`
 	Status               string `json:"status,omitempty"`
+	VersionNo            int    `json:"version_no,omitempty"`
 }
 
 // ApprovalRequestPayload 描述需要用户审批的工具调用。

@@ -40,6 +40,8 @@ const (
 	replyToMessageIDsKey           = "reply_to_message_ids"
 	sessionProcessingWindow        = 30 * time.Minute
 	workTitleMaxRunes              = 50
+	artifactVersionLookupAttempts  = 8
+	artifactVersionLookupDelay     = 50 * time.Millisecond
 )
 
 // ErrNoReplyMessageIDs is returned when a run-started stream event lacks
@@ -370,7 +372,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		}
 	}
 
-	return convertToContractSessionMessage(message, session.PublicID), nil
+	return s.convertToContractSessionMessage(ctx, session.OrgID, message, session.PublicID), nil
 }
 
 func (s *sessionService) newMessagePoster() *MessagePoster {
@@ -644,7 +646,7 @@ func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID strin
 
 	items := make([]contract.SessionMessage, 0, len(messages))
 	for _, message := range messages {
-		items = append(items, *convertToContractSessionMessage(message, session.PublicID))
+		items = append(items, *s.convertToContractSessionMessage(ctx, session.OrgID, message, session.PublicID))
 	}
 
 	return &contract.MessageList{
@@ -816,7 +818,7 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 		if !dedup.mark(runEvent.Body.Seq) {
 			return
 		}
-		se, ok := ProjectRunEvent(runEvent)
+		se, ok := s.projectSessionRunEvent(ctx, caller.OrgID, runEvent)
 		if !ok {
 			logs.WarnContextf(ctx, "unknown run event type: %v", runEvent.Body.Event)
 			return
@@ -865,6 +867,40 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 	// Wait for goroutines to clean up (they'll exit when innerCtx is Done).
 	_ = g.Wait()
 	return nil
+}
+
+func (s *sessionService) projectSessionRunEvent(
+	ctx context.Context,
+	orgID uint,
+	runEvent messaging.RunEvent,
+) (*contract.SessionEvent, bool) {
+	if runEvent.Body.Event == messaging.RunEventArtifactDeclared && runEvent.Body.Payload.Artifact != nil {
+		artifact := runEvent.Body.Payload.Artifact
+		artifact.VersionNo = s.lookupArtifactVersion(ctx, orgID, artifact.ArtifactID)
+	}
+	return ProjectRunEvent(runEvent)
+}
+
+func (s *sessionService) lookupArtifactVersion(ctx context.Context, orgID uint, artifactID string) int {
+	for attempt := 0; attempt < artifactVersionLookupAttempts; attempt++ {
+		projectFile, err := db.GetProjectFileByFilePublicID(ctx, s.db, orgID, artifactID)
+		if err != nil {
+			logs.WarnContextf(ctx, "resolve artifact version: artifact_id=%s err=%v", artifactID, err)
+			return 0
+		}
+		if projectFile != nil {
+			return projectFile.VersionNo
+		}
+		if attempt == artifactVersionLookupAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return 0
+		case <-time.After(artifactVersionLookupDelay):
+		}
+	}
+	return 0
 }
 
 // StreamGlobalEvents 为调用方订阅其所属所有 project 的全局通知事件
@@ -1123,6 +1159,39 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 	usage := normalizeMessageUsage(&message.Usage)
 	result.Usage = &usage
 
+	return result
+}
+
+func (s *sessionService) convertToContractSessionMessage(
+	ctx context.Context,
+	orgID uint,
+	message *types.SessionMessage,
+	publicID string,
+) *contract.SessionMessage {
+	result := convertToContractSessionMessage(message, publicID)
+	if message == nil {
+		return result
+	}
+	if len(message.Chunks) > 0 {
+		result.Chunks = result.Chunks[:0]
+		for _, chunk := range message.Chunks {
+			if isHiddenSessionHistoryChunk(chunk.Type) {
+				continue
+			}
+			runEvent, ok := runEventFromRecord(publicID, chunk)
+			if !ok {
+				continue
+			}
+			event, ok := s.projectSessionRunEvent(ctx, orgID, runEvent)
+			if ok {
+				result.Chunks = append(result.Chunks, *event)
+			}
+		}
+	}
+	for index := range result.Artifacts {
+		artifact := &result.Artifacts[index]
+		artifact.VersionNo = s.lookupArtifactVersion(ctx, orgID, artifact.ArtifactID)
+	}
 	return result
 }
 

@@ -446,6 +446,7 @@ func publicStreamArtifactPayload(
 		),
 		RelativePath: payload.RelativePath, PreviousRelativePath: payload.PreviousRelativePath,
 		StorageURI: payload.StorageURI, Sha256: payload.Sha256,
+		VersionNo: payload.VersionNo,
 	}
 }
 

@@ -207,6 +207,7 @@ type MessageArtifact struct {
 	StorageURI   string    `json:"storage_uri,omitempty"`
 	Sha256       string    `json:"sha256,omitempty"`
 	CreatedAt    time.Time `json:"created_at,omitempty"`
+	VersionNo    int       `json:"version_no,omitempty"`
 }
 
 // MessageArtifactSlice stores artifact references in JSONB.

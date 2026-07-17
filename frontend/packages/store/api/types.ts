@@ -138,6 +138,7 @@ export type BackendSessionArtifactPayload = {
 	sha256?: string;
 	storage_uri?: string;
 	created_at?: string;
+	version_no?: number;
 };
 
 export type BackendApprovalRequestPayload = {

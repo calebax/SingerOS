@@ -84,6 +84,7 @@ export type ProjectArtifact = {
 	downloadUrl: string;
 	storageUri?: string;
 	sha256?: string;
+	versionNo?: number;
 };
 
 export type ProjectSkill = {

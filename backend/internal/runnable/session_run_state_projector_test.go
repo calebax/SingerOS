@@ -200,8 +200,12 @@ func TestPersistDeclaredArtifactCreatesPathVersionChain(t *testing.T) {
 		},
 	}
 	for i := range items {
-		if err := persister.PersistDeclaredArtifact(context.Background(), route, items[i]); err != nil {
+		persisted, err := persister.PersistDeclaredArtifact(context.Background(), route, items[i])
+		if err != nil {
 			t.Fatalf("persist artifact %d: %v", i, err)
+		}
+		if persisted == nil || persisted.VersionNo != i+1 {
+			t.Fatalf("persisted artifact %d version = %#v, want %d", i, persisted, i+1)
 		}
 	}
 
@@ -234,8 +238,12 @@ func TestPersistDeclaredArtifactCreatesPathVersionChain(t *testing.T) {
 		t.Fatalf("latest project files = %#v", latest)
 	}
 
-	if err := persister.PersistDeclaredArtifact(context.Background(), route, items[2]); err != nil {
+	persisted, err := persister.PersistDeclaredArtifact(context.Background(), route, items[2])
+	if err != nil {
 		t.Fatalf("replay artifact: %v", err)
+	}
+	if persisted == nil || persisted.VersionNo != 3 {
+		t.Fatalf("replayed artifact version = %#v, want 3", persisted)
 	}
 	var count int64
 	if err := database.Model(&types.ProjectFile{}).Count(&count).Error; err != nil {
