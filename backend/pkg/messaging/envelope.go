@@ -36,6 +36,7 @@ const (
 type TraceContext struct {
 	TraceID   string `json:"trace_id"`
 	RequestID string `json:"request_id,omitempty"`
+	ReqID     string `json:"req_id,omitempty"`
 	TaskID    string `json:"task_id,omitempty"`
 	RunID     string `json:"run_id,omitempty"`
 	ParentID  string `json:"parent_id,omitempty"`

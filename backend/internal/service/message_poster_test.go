@@ -69,6 +69,9 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 	if !ok {
 		t.Fatalf("published event = %T, want messaging.WorkerCommand", recorder.event)
 	}
+	if cmd.Trace.ReqID != "test-request-id" {
+		t.Fatalf("command req_id = %q, want test-request-id", cmd.Trace.ReqID)
+	}
 	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
 	if err != nil {
 		t.Fatalf("decode run command: %v", err)

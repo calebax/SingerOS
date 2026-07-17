@@ -30,6 +30,7 @@ func TestEnvelopeJSONShape(t *testing.T) {
 		Trace: TraceContext{
 			TraceID:   "trace-1",
 			RequestID: "req-1",
+			ReqID:     "http-req-1",
 			TaskID:    "task-1",
 			RunID:     "run-1",
 		},
@@ -62,6 +63,9 @@ func TestEnvelopeJSONShape(t *testing.T) {
 	}
 	if decoded.Body.CommandType != CommandTypeRun {
 		t.Errorf("expected command_type agent.run, got %q", decoded.Body.CommandType)
+	}
+	if decoded.Trace.ReqID != "http-req-1" {
+		t.Errorf("expected req_id http-req-1, got %q", decoded.Trace.ReqID)
 	}
 
 	decodedPayload, err := DecodeCommandPayload[RunCommandPayload](&decoded.Body)

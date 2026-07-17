@@ -417,7 +417,7 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 	defer h.releaseAdmission()
 	defer h.releaseInflight(iKey)
 
-	execCtx := h.execCtx
+	execCtx := withRunLogFields(h.execCtx, task)
 
 	req := RequestFromWorkerTask(task)
 	submission := runcoord.RunSubmission{
@@ -450,6 +450,23 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 		logs.WarnContextf(execCtx, "Run command execution error: msg_id=%s task_id=%s run_id=%s session_id=%s: %v",
 			task.ID, task.Trace.TaskID, task.Trace.RunID, task.Route.SessionID, execErr)
 	}
+}
+
+func withRunLogFields(ctx context.Context, task runTask) context.Context {
+	fields := make([]interface{}, 0, 6)
+	if task.Trace.ReqID != "" {
+		fields = append(fields, "req_id", task.Trace.ReqID)
+	}
+	if task.Trace.RunID != "" {
+		fields = append(fields, "run_id", task.Trace.RunID)
+	}
+	if task.Route.SessionID != "" {
+		fields = append(fields, "session_id", task.Route.SessionID)
+	}
+	if len(fields) == 0 {
+		return ctx
+	}
+	return logs.WithContextFields(ctx, fields...)
 }
 
 // RecoverNonTerminal 加载当前 topic 下所有非终态的 inbox 记录，

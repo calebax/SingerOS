@@ -463,7 +463,7 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 		return fmt.Errorf("build approval topic: %w", err)
 	}
 
-	cmd := messaging.NewApprovalResolveCommand(
+	cmd := withRequestTrace(ctx, messaging.NewApprovalResolveCommand(
 		fmt.Sprintf("approval_%s", snowflake.GenerateIDBase58()),
 		messaging.RouteContext{
 			OrgID:     req.OrgID,
@@ -476,7 +476,7 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 			Reason: req.Reason,
 		},
 		req.RequestID,
-	)
+	))
 	return s.eventbus.Publish(ctx, topic, cmd)
 }
 
@@ -497,7 +497,7 @@ func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract
 		return fmt.Errorf("build question answer topic: %w", err)
 	}
 
-	cmd := messaging.NewQuestionAnswerCommand(
+	cmd := withRequestTrace(ctx, messaging.NewQuestionAnswerCommand(
 		fmt.Sprintf("question_%s", snowflake.GenerateIDBase58()),
 		messaging.RouteContext{
 			OrgID:     req.OrgID,
@@ -509,7 +509,7 @@ func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract
 			Answers: req.Answers,
 		},
 		req.RequestID,
-	)
+	))
 	return s.eventbus.Publish(ctx, topic, cmd)
 }
 
@@ -1257,7 +1257,7 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 			return nil, fmt.Errorf("build control topic: %w", err)
 		}
 
-		cmd := messaging.NewCancelRunCommand(
+		cmd := withRequestTrace(ctx, messaging.NewCancelRunCommand(
 			fmt.Sprintf("ctrl_%s", snowflake.GenerateIDBase58()),
 			messaging.RouteContext{
 				OrgID:     caller.OrgID,
@@ -1270,7 +1270,7 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 				Reason: req.Reason,
 			},
 			req.RunID,
-		)
+		))
 
 		if err := s.eventbus.Publish(ctx, topic, cmd); err != nil {
 			return nil, fmt.Errorf("publish cancel control: %w", err)
@@ -1312,7 +1312,7 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 					lastErr = err
 					continue
 				}
-				cmd := messaging.NewCancelRunCommand(
+				cmd := withRequestTrace(ctx, messaging.NewCancelRunCommand(
 					fmt.Sprintf("ctrl_%s", snowflake.GenerateIDBase58()),
 					messaging.RouteContext{
 						OrgID:     caller.OrgID,
@@ -1325,7 +1325,7 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 						Reason: req.Reason,
 					},
 					req.RunID,
-				)
+				))
 				if err := s.eventbus.Publish(ctx, topic, cmd); err != nil {
 					logs.WarnContextf(ctx, "CancelSessionRun: publish cancel to worker %d failed: %v", workerID, err)
 					lastErr = err

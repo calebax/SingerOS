@@ -534,7 +534,7 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := messaging.NewSkillCommand(
+	msg := withRequestTrace(ctx, messaging.NewSkillCommand(
 		fmt.Sprintf("skill-install-%s", uuid.New().String()),
 		messaging.RouteContext{
 			OrgID:    caller.OrgID,
@@ -542,7 +542,7 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 		},
 		payload,
 		"",
-	)
+	))
 
 	resp, err := s.requestSkillManagement(ctx, topic, msg, "skill install")
 	if err != nil {
@@ -666,7 +666,7 @@ func (s *skillMarketplaceService) listInstalledSkills(ctx context.Context) ([]co
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := messaging.NewSkillCommand(
+	msg := withRequestTrace(ctx, messaging.NewSkillCommand(
 		fmt.Sprintf("skill-list-%s", uuid.New().String()),
 		messaging.RouteContext{
 			OrgID:    caller.OrgID,
@@ -676,7 +676,7 @@ func (s *skillMarketplaceService) listInstalledSkills(ctx context.Context) ([]co
 			Action: "list",
 		},
 		"",
-	)
+	))
 
 	reqCtx, cancel := context.WithTimeout(ctx, skillManagementTimeout)
 	defer cancel()
@@ -1102,7 +1102,7 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := messaging.NewSkillCommand(
+	msg := withRequestTrace(ctx, messaging.NewSkillCommand(
 		fmt.Sprintf("skill-detail-%s", uuid.New().String()),
 		messaging.RouteContext{
 			OrgID:    caller.OrgID,
@@ -1113,7 +1113,7 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 			Name:   skillID,
 		},
 		"",
-	)
+	))
 
 	reqCtx, cancel := context.WithTimeout(ctx, skillManagementTimeout)
 	defer cancel()
@@ -1530,7 +1530,7 @@ func (s *skillMarketplaceService) ImportSkill(ctx context.Context, req *contract
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := messaging.NewSkillCommand(
+	msg := withRequestTrace(ctx, messaging.NewSkillCommand(
 		fmt.Sprintf("skill-import-%s", uuid.New().String()),
 		messaging.RouteContext{
 			OrgID:    caller.OrgID,
@@ -1542,7 +1542,7 @@ func (s *skillMarketplaceService) ImportSkill(ctx context.Context, req *contract
 			DownloadURL: publicURL,
 		},
 		"",
-	)
+	))
 
 	resp, err := s.requestSkillManagement(ctx, topic, msg, "skill import")
 	if err != nil {
@@ -1581,7 +1581,7 @@ func (s *skillMarketplaceService) ImportSkillFromGitHub(ctx context.Context, req
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := messaging.NewSkillCommand(
+	msg := withRequestTrace(ctx, messaging.NewSkillCommand(
 		fmt.Sprintf("skill-import-github-%s", uuid.New().String()),
 		messaging.RouteContext{
 			OrgID:    caller.OrgID,
@@ -1594,7 +1594,7 @@ func (s *skillMarketplaceService) ImportSkillFromGitHub(ctx context.Context, req
 			Version: version,
 		},
 		"",
-	)
+	))
 
 	resp, err := s.requestSkillManagement(ctx, topic, msg, "GitHub skill import")
 	if err != nil {

@@ -59,7 +59,7 @@ func requestWorkerSkillInstall(ctx context.Context, publisher mq.Publisher, orgI
 		return fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := messaging.NewSkillCommand(
+	msg := withRequestTrace(ctx, messaging.NewSkillCommand(
 		fmt.Sprintf("skill-sync-%s", uuid.New().String()),
 		messaging.RouteContext{
 			OrgID:    orgID,
@@ -67,7 +67,7 @@ func requestWorkerSkillInstall(ctx context.Context, publisher mq.Publisher, orgI
 		},
 		payload,
 		"",
-	)
+	))
 
 	reqCtx, cancel := context.WithTimeout(ctx, orgSkillSyncTimeout)
 	defer cancel()
@@ -192,7 +192,7 @@ func publishSkillPayloadToWorker(ctx context.Context, publisher mq.Publisher, or
 		logs.WarnContextf(ctx, "build skill publish topic failed: org=%d worker=%d error=%v", orgID, workerID, err)
 		return
 	}
-	msg := messaging.NewSkillCommand(
+	msg := withRequestTrace(ctx, messaging.NewSkillCommand(
 		fmt.Sprintf("skill-publish-%s", uuid.New().String()),
 		messaging.RouteContext{
 			OrgID:    orgID,
@@ -200,7 +200,7 @@ func publishSkillPayloadToWorker(ctx context.Context, publisher mq.Publisher, or
 		},
 		payload,
 		"",
-	)
+	))
 	if err := publisher.Publish(ctx, topic, msg); err != nil {
 		logs.WarnContextf(ctx, "publish skill command failed: org=%d worker=%d action=%s skill=%s error=%v",
 			orgID, workerID, payload.Action, firstNonEmpty(payload.Name, payload.SkillID), err)

@@ -207,6 +207,7 @@ func (d *Dispatcher) handleRunDelivery(ctx context.Context, data []byte, deliver
 		_ = delivery.Term()
 		return
 	}
+	ctx = withCommandLogFields(ctx, cmd)
 	if err := d.handlers.Run.HandleRunCommand(ctx, cmd, delivery); err != nil {
 		logs.WarnContextf(ctx, "Run command handler error: %v", err)
 	}
@@ -218,6 +219,7 @@ func (d *Dispatcher) handleControl(ctx context.Context, msg *nats.Msg) {
 		logs.WarnContextf(ctx, "Failed to parse control command: %v", err)
 		return
 	}
+	ctx = withCommandLogFields(ctx, cmd)
 	if err := d.handlers.Control.HandleControlCommand(ctx, cmd); err != nil {
 		logs.WarnContextf(ctx, "Control command handler error: %v", err)
 	}
@@ -229,6 +231,7 @@ func (d *Dispatcher) handleInteraction(ctx context.Context, msg *nats.Msg) {
 		logs.WarnContextf(ctx, "Failed to parse interaction command: %v", err)
 		return
 	}
+	ctx = withCommandLogFields(ctx, cmd)
 	if err := d.handlers.Interaction.HandleInteractionCommand(ctx, cmd); err != nil {
 		logs.WarnContextf(ctx, "Interaction command handler error: %v", err)
 	}
@@ -240,6 +243,7 @@ func (d *Dispatcher) handleSkill(ctx context.Context, msg *nats.Msg) {
 		logs.WarnContextf(ctx, "Failed to parse skill command: %v", err)
 		return
 	}
+	ctx = withCommandLogFields(ctx, cmd)
 	if err := d.handlers.Skill.HandleSkillCommand(ctx, cmd, msg); err != nil {
 		logs.WarnContextf(ctx, "Skill command handler error: %v", err)
 	}
@@ -251,7 +255,15 @@ func (d *Dispatcher) handleFile(ctx context.Context, msg *nats.Msg) {
 		logs.WarnContextf(ctx, "Failed to parse file command: %v", err)
 		return
 	}
+	ctx = withCommandLogFields(ctx, cmd)
 	if err := d.handlers.File.HandleFileCommand(ctx, cmd); err != nil {
 		logs.WarnContextf(ctx, "File command handler error: %v", err)
 	}
+}
+
+func withCommandLogFields(ctx context.Context, cmd messaging.WorkerCommand) context.Context {
+	if cmd.Trace.ReqID == "" {
+		return ctx
+	}
+	return logs.WithContextFields(ctx, "req_id", cmd.Trace.ReqID)
 }
