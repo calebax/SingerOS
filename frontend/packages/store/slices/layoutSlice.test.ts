@@ -188,3 +188,65 @@ describe("LayoutActionImpl.updateProjectMembers", () => {
 		expect(invalidate).not.toHaveBeenCalled();
 	});
 });
+
+describe("LayoutActionImpl.sendWorkbenchMessage", () => {
+	it("续聊已有任务时先拉历史再走任务群聊发送，不再 bootstrap 覆盖历史", async () => {
+		const setActiveSession = vi.fn();
+		const loadConversationMessages = vi.fn().mockResolvedValue(undefined);
+		const sendTaskRoomMessage = vi.fn().mockResolvedValue({
+			project_id: "project-1",
+			task_id: "task-1",
+			session_id: "session-1",
+		});
+		const bootstrapNewTaskSession = vi.fn();
+		const state = {
+			activeWorkbenchProjectId: "project-1",
+			activeWorkbenchTaskId: "task-1",
+			projects: [
+				createProject({
+					id: "project-1",
+					name: "项目 1",
+					updatedAt: 1,
+					tasks: [
+						{
+							id: "task-1",
+							title: "任务 1",
+							meta: "",
+							status: "todo",
+							sessionId: "session-1",
+						},
+					],
+				}),
+			],
+			setActiveSession,
+			loadConversationMessages,
+			sendTaskRoomMessage,
+			bootstrapNewTaskSession,
+		};
+		const setState = vi.fn();
+		const actions = new LayoutActionImpl(setState as never, (() => state) as never);
+		vi.spyOn(actions, "saveWorkbenchRecentContext").mockResolvedValue(undefined);
+
+		const result = await actions.sendWorkbenchMessage("继续提问", "project-1");
+
+		expect(result).toEqual({
+			project_id: "project-1",
+			task_id: "task-1",
+			session_id: "session-1",
+		});
+		expect(setActiveSession).toHaveBeenCalledWith("session-1");
+		expect(loadConversationMessages).toHaveBeenCalledWith("session-1", { resumeStream: false });
+		expect(sendTaskRoomMessage).toHaveBeenCalledWith(
+			"继续提问",
+			{
+				projectId: "project-1",
+				taskId: "task-1",
+				sessionId: "session-1",
+				metadata: undefined,
+			},
+			undefined,
+		);
+		expect(bootstrapNewTaskSession).not.toHaveBeenCalled();
+		expect(loadConversationMessages).toHaveBeenCalledBefore(sendTaskRoomMessage);
+	});
+});
