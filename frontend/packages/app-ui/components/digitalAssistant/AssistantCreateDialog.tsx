@@ -33,7 +33,7 @@ import {
 	PenLine,
 	WandSparkles,
 } from "lucide-react";
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { blobToDataURL, cacheProtectedImageDataURL } from "../avatar/ProtectedImage";
 import { AssistantAvatar } from "./AssistantAvatar";
@@ -110,9 +110,8 @@ export function AssistantCreateDialog({
 	onOpenChange,
 	onCreated,
 }: AssistantCreateDialogProps) {
-	const { createAssistant, createAssistantFromTemplate, updateAssistantStatus } = useDAStore(
-		(s) => s,
-	);
+	const { assistants, createAssistant, createAssistantFromTemplate, updateAssistantStatus } =
+		useDAStore((s) => s);
 	const [templates, setTemplates] = useState<BackendAITeammateTemplate[]>([]);
 	const [templatesLoading, setTemplatesLoading] = useState(false);
 	const [selectedTemplate, setSelectedTemplate] = useState<BackendAITeammateTemplate | null>(null);
@@ -126,7 +125,42 @@ export function AssistantCreateDialog({
 	const [previewAvatar, setPreviewAvatar] = useState<string | undefined>();
 	const [customAvatarSeed, setCustomAvatarSeed] = useState("custom-ai");
 	const [submitting, setSubmitting] = useState(false);
+	const [nameError, setNameError] = useState("");
+	const [checkingName, setCheckingName] = useState(false);
 	const selectionTouchedRef = useRef(false);
+	const nameCheckSequenceRef = useRef(0);
+
+	const validateName = useCallback(async () => {
+		const sequence = ++nameCheckSequenceRef.current;
+		const candidate = name.trim();
+		if (!candidate) {
+			setCheckingName(false);
+			return false;
+		}
+		const normalizedName = candidate.toLocaleLowerCase();
+		if (
+			assistants.some((assistant) => assistant.name.trim().toLocaleLowerCase() === normalizedName)
+		) {
+			// 中文注释：本地已命中重名时不再发请求，避免同一个错误提示出现两次。
+			setNameError("该 AI 队友名称已存在");
+			setCheckingName(false);
+			return false;
+		}
+		setCheckingName(true);
+		try {
+			const response = await digitalAssistantApi.checkName({ name: candidate });
+			if (sequence !== nameCheckSequenceRef.current) return false;
+			const available = response.data.data?.available ?? false;
+			setNameError(available ? "" : "该 AI 队友名称已存在");
+			return available;
+		} catch (error) {
+			// 中文注释：预检失败不阻断保存，保存接口仍会以服务端数据做最终校验。
+			console.error("check ai teammate name error:", error);
+			return true;
+		} finally {
+			if (sequence === nameCheckSequenceRef.current) setCheckingName(false);
+		}
+	}, [assistants, name]);
 
 	useEffect(() => {
 		// 中文注释：预设角色从后端模板读取，保证组织后续调整模板时创建入口无需重新发版。
@@ -197,6 +231,7 @@ export function AssistantCreateDialog({
 			toast.error("请填写自定义名称、角色名称和简介");
 			return;
 		}
+		if (!(await validateName())) return;
 		setSubmitting(true);
 		try {
 			let assistant: DigitalAssistantItem | null;
@@ -227,7 +262,8 @@ export function AssistantCreateDialog({
 				}
 			}
 			if (!assistant) {
-				toast.error("创建队友失败");
+				// 中文注释：保存时若被其他成员抢先使用名称，重新预检并将服务端结果落到同一字段提示。
+				if (await validateName()) toast.error("创建队友失败");
 				return;
 			}
 			toast.success("AI 队友创建中，请等待部署完成后再使用");
@@ -248,6 +284,8 @@ export function AssistantCreateDialog({
 		setIntroduction("");
 		setAvatar("");
 		setPreviewAvatar(undefined);
+		setNameError("");
+		setCheckingName(false);
 		onOpenChange(false);
 	};
 
@@ -379,7 +417,15 @@ export function AssistantCreateDialog({
 								<Field
 									label="自定义名称"
 									value={name}
-									onChange={setName}
+									onChange={(nextName) => {
+										setName(nextName);
+										setNameError("");
+										nameCheckSequenceRef.current += 1;
+										setCheckingName(false);
+									}}
+									onBlur={() => void validateName()}
+									error={nameError}
+									checking={checkingName}
 									placeholder="例如：小智、阿乐"
 									maxLength={ASSISTANT_FORM_LIMITS.name}
 								/>
@@ -446,6 +492,9 @@ function Field({
 	readOnly,
 	maxLength,
 	onChange,
+	onBlur,
+	error,
+	checking,
 }: {
 	label: string;
 	value: string;
@@ -453,6 +502,9 @@ function Field({
 	readOnly?: boolean;
 	maxLength: number;
 	onChange: (value: string) => void;
+	onBlur?: () => void;
+	error?: string;
+	checking?: boolean;
 }) {
 	return (
 		<label className="space-y-1.5">
@@ -464,15 +516,25 @@ function Field({
 					type="text"
 					value={value}
 					onChange={(event) => onChange(event.target.value)}
+					onBlur={onBlur}
 					placeholder={placeholder}
 					readOnly={readOnly}
 					maxLength={maxLength}
-					className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 read-only:bg-slate-50 focus:border-[#4f46e5] focus:outline-none"
+					aria-invalid={Boolean(error)}
+					className={cn(
+						"w-full rounded-md border bg-white px-3 py-2 pr-14 text-sm text-slate-800 read-only:bg-slate-50 focus:border-[#4f46e5] focus:outline-none",
+						error ? "border-red-500" : "border-slate-200",
+					)}
 				/>
 				<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
 					{value.length}/{maxLength}
 				</span>
 			</span>
+			{(error || checking) && (
+				<span className={cn("block pt-1 text-xs", error ? "text-red-500" : "text-slate-400")}>
+					{error || "正在检查名称..."}
+				</span>
+			)}
 		</label>
 	);
 }

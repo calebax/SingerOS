@@ -296,8 +296,9 @@ export function ComposerActionBar({
 							<CommandGroup className="p-0">
 								{filteredAssistants.map((assistant) => (
 									<CommandItem
-										key={assistant.code}
-										value={assistant.name}
+										// 中文注释：CommandItem 的 value 同时承担活动项标识；不能使用可能重复的名称。
+										key={String(assistant.id)}
+										value={`assistant:${String(assistant.id)}`}
 										onSelect={() => {
 											composerRef.current?.insertAssistant(assistant.name);
 											setAssistantOpen(false);
