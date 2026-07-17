@@ -1,7 +1,7 @@
 "use client";
 
 import {
-	fetchFileDownload,
+	fetchFilePreviewByPublicId,
 	formatArtifactTime,
 	formatFileSize,
 	formatTime,
@@ -250,11 +250,11 @@ function ImageAttachmentCard({
 		let cancelled = false;
 		let objectUrl: string | null = null;
 
-		// 历史消息中的图片补拉一次 blob 生成缩略图，避免只剩存储路径时消息区展示不出来。
+		// 历史消息中的图片补拉一次 preview 内容生成缩略图，避免只剩文件标识时消息区展示不出来。
 		async function loadThumbnail() {
 			setThumbnailLoading(true);
 			try {
-				const response = await fetchFileDownload(attachment.fileUploadId);
+				const response = await fetchFilePreviewByPublicId(attachment.fileUploadId);
 				const blob = await response.blob();
 				objectUrl = URL.createObjectURL(blob);
 				if (!cancelled) setThumbnailUrl(objectUrl);

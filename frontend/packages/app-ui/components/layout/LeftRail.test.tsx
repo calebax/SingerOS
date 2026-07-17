@@ -37,7 +37,7 @@ const mockUser = {
 vi.mock("@leros/store", () => ({
 	authenticatedFetch: (...args: unknown[]) => mockAuthenticatedFetch(...args),
 	fetchFilePreviewByPublicId: (...args: unknown[]) => mockFetchFilePreviewByPublicId(...args),
-	getFileDownloadUrl: (publicId: string) => `http://localhost:18080/v1/files/${publicId}/download`,
+	normalizeFilePublicId: (value?: string) => value?.match(/file_[A-Za-z0-9_-]+/)?.[0],
 	LEFT_RAIL_MAX_WIDTH: 360,
 	LEFT_RAIL_MIN_WIDTH: 220,
 	projectFileApi: {},

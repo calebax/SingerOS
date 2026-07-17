@@ -5,11 +5,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const storeMocks = vi.hoisted(() => ({
 	authenticatedFetch: vi.fn(),
 	fetchFilePreviewByPublicId: vi.fn(),
+	normalizeFilePublicId: (value?: string) => {
+		if (!value) return undefined;
+		return value.match(/file_[A-Za-z0-9_-]+/)?.[0];
+	},
 }));
 
 vi.mock("@leros/store", () => ({
 	authenticatedFetch: storeMocks.authenticatedFetch,
 	fetchFilePreviewByPublicId: storeMocks.fetchFilePreviewByPublicId,
+	normalizeFilePublicId: storeMocks.normalizeFilePublicId,
 }));
 
 import { ProtectedImage, resetProtectedImageCacheForTests } from "./ProtectedImage";
@@ -62,7 +67,7 @@ describe("ProtectedImage", () => {
 		expect(document.body).not.toHaveTextContent("default-avatar");
 	});
 
-	it("keeps legacy protected download URL compatibility", async () => {
+	it("converts legacy protected download URL to preview API", async () => {
 		const legacyURL = "http://localhost:18080/v1/files/file_TN3691n6qd/download";
 
 		render(
@@ -75,9 +80,9 @@ describe("ProtectedImage", () => {
 		);
 
 		await waitFor(() => {
-			expect(storeMocks.authenticatedFetch).toHaveBeenCalledWith(legacyURL);
+			expect(storeMocks.fetchFilePreviewByPublicId).toHaveBeenCalledWith("file_TN3691n6qd");
 		});
-		expect(storeMocks.fetchFilePreviewByPublicId).not.toHaveBeenCalled();
+		expect(storeMocks.authenticatedFetch).not.toHaveBeenCalled();
 	});
 
 	it("deduplicates concurrent loads for the same file public_id", async () => {

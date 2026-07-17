@@ -5,15 +5,14 @@ function getAPIOriginURL(): string {
 	return API_BASE_URL.replace(/\/v1$/, "");
 }
 
-export function getFileDownloadUrl(publicId: string): string {
-	return `${API_BASE_URL}/files/${encodeURIComponent(publicId)}/download`;
-}
-
-// resolveLogoUrl 将 logo 的 public_id 解析为可下载 URL。
-export function resolveLogoUrl(logo?: string | null): string | undefined {
-	const trimmed = logo?.trim();
+// normalizeFilePublicId 统一文件标识，并兼容历史上误保存的旧 download URL。
+export function normalizeFilePublicId(value?: string | null): string | undefined {
+	const trimmed = value?.trim();
 	if (!trimmed) return undefined;
-	return getFileDownloadUrl(trimmed);
+	if (/^file_[A-Za-z0-9_-]+$/.test(trimmed)) return trimmed;
+
+	const legacyMatch = trimmed.match(/\/files\/(file_[A-Za-z0-9_-]+)\/download(?:[/?#]|$)/);
+	return legacyMatch?.[1];
 }
 
 export function getFilePublicUrlFromStorageUri(storageUri?: string): string | undefined {
@@ -24,20 +23,6 @@ export function getFilePublicUrlFromStorageUri(storageUri?: string): string | un
 	if (parts.length < 2) return undefined;
 
 	return `${getAPIOriginURL()}/${parts.map(encodeURIComponent).join("/")}`;
-}
-
-export async function fetchFileDownload(
-	publicId: string,
-	options?: { signal?: AbortSignal },
-): Promise<Response> {
-	const response = await authenticatedFetch(getFileDownloadUrl(publicId), {
-		method: "GET",
-		signal: options?.signal,
-	});
-	if (!response.ok) {
-		throw new Error(`HTTP ${response.status}`);
-	}
-	return response;
 }
 
 export function getFilePreviewUrl(storageUri: string): string {
@@ -95,9 +80,7 @@ export async function fetchFilePreview(
 }
 
 export const fileApi = {
-	getDownloadUrl: getFileDownloadUrl,
 	getPublicUrlFromStorageUri: getFilePublicUrlFromStorageUri,
-	fetchDownload: fetchFileDownload,
 	getPreviewUrl: getFilePreviewUrl,
 	getPreviewUrlByPublicId: getFilePreviewUrlByPublicId,
 	fetchPreviewByStorageUri: fetchFilePreviewByStorageUri,
