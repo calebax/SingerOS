@@ -8,9 +8,11 @@ import { SkillDirectiveBadge } from "../common/SkillDirectiveBadge";
 export function MessageContentWithComposerTokens({
 	message,
 	className,
+	inlineLayout = false,
 }: {
 	message: Pick<Message, "content" | "metadata">;
 	className?: string;
+	inlineLayout?: boolean;
 }) {
 	// 中文注释：部分入口会把 @队友 从实际发送内容中剥离，这里优先使用展示专用文本恢复标签样式。
 	const displayContent = message.metadata?.displayContent ?? message.content;
@@ -21,16 +23,28 @@ export function MessageContentWithComposerTokens({
 	if (tokens.length === 0) {
 		// 中文注释：没有明确 token metadata 时，普通内容里的 @ 和 / 必须原样展示，不能靠文本猜样式。
 		return (
-			<span className={cn("whitespace-pre-wrap break-words", className)}>{displayContent}</span>
+			<span
+				className={cn(
+					inlineLayout ? "inline break-words" : "whitespace-pre-wrap break-words",
+					className,
+				)}
+			>
+				{displayContent}
+			</span>
 		);
 	}
+
+	const textClassName = inlineLayout ? "inline break-words" : "whitespace-pre-wrap break-words";
+	const mentionClassName = inlineLayout
+		? "inline align-middle rounded-md bg-blue-100 px-1.5 py-0.5 text-xs font-medium leading-none text-blue-700"
+		: "inline-flex max-w-full items-center rounded-md bg-blue-100 px-1.5 py-0.5 text-xs font-medium leading-none text-blue-700";
 
 	const parts: ReactNode[] = [];
 	let cursor = 0;
 	tokens.forEach((token, index) => {
 		if (token.start > cursor) {
 			parts.push(
-				<span key={`text-${index}`} className="whitespace-pre-wrap break-words">
+				<span key={`text-${index}`} className={textClassName}>
 					{displayContent.slice(cursor, token.start)}
 				</span>,
 			);
@@ -43,10 +57,7 @@ export function MessageContentWithComposerTokens({
 					variant="on-blue"
 				/>
 			) : (
-				<span
-					key={`token-${index}`}
-					className="inline-flex max-w-full items-center rounded-md bg-blue-100 px-1.5 py-0.5 text-xs font-medium leading-none text-blue-700"
-				>
+				<span key={`token-${index}`} className={mentionClassName}>
 					{token.label}
 				</span>
 			),
@@ -56,13 +67,20 @@ export function MessageContentWithComposerTokens({
 
 	if (cursor < displayContent.length) {
 		parts.push(
-			<span key="text-tail" className="whitespace-pre-wrap break-words">
+			<span key="text-tail" className={textClassName}>
 				{displayContent.slice(cursor)}
 			</span>,
 		);
 	}
 
 	return (
-		<span className={cn("inline-flex flex-wrap items-center gap-1.5", className)}>{parts}</span>
+		<span
+			className={cn(
+				inlineLayout ? "inline break-words" : "inline-flex flex-wrap items-center gap-1.5",
+				className,
+			)}
+		>
+			{parts}
+		</span>
 	);
 }
