@@ -627,37 +627,39 @@ export function LeftRail({
 						))}
 				</nav>
 
-				<section className="leros-nav leros-nav-section mb-0 flex min-h-0 flex-1 flex-col">
-					<div
-						className={cn(
-							"leros-nav-section-label shrink-0",
-							"normal-case leading-snug tracking-normal font-normal",
-						)}
-					>
-						<span className="text-sm">最近项目</span>
-					</div>
-					<ProjectList
-						projects={visibleProjects}
-						activeProjectId={activeProjectId}
-						activeTaskDetailProjectId={activeTaskDetailProjectId}
-						activeTaskDetailTaskId={activeTaskDetailTaskId}
-						currentView={currentView}
-						currentPath={navigation?.currentPath}
-						expandedProjectIds={expandedProjectIds}
-						expandedTaskProjectIds={expandedTaskProjectIds}
-						loadingTaskProjectIds={loadingTaskProjectIds}
-						onToggleProject={handleToggleProject}
-						onEnterProject={handleProjectClick}
-						onOpenTask={handleOpenTask}
-						onExpandTasks={handleExpandProjectTasks}
-						onRenameProject={handleOpenRename}
-						onDeleteProject={setDeleteTarget}
-						onLeaveProject={setLeaveTarget}
-						onRenameTask={handleOpenTaskRename}
-						onDeleteTask={setDeleteTaskTarget}
-						collapsed={leftRailCollapsed}
-					/>
-				</section>
+				{!leftRailCollapsed && (
+					<section className="leros-nav leros-nav-section mb-0 flex min-h-0 flex-1 flex-col">
+						<div
+							className={cn(
+								"leros-nav-section-label shrink-0",
+								"normal-case leading-snug tracking-normal font-normal",
+							)}
+						>
+							<span className="text-sm">最近项目</span>
+						</div>
+						<ProjectList
+							projects={visibleProjects}
+							activeProjectId={activeProjectId}
+							activeTaskDetailProjectId={activeTaskDetailProjectId}
+							activeTaskDetailTaskId={activeTaskDetailTaskId}
+							currentView={currentView}
+							currentPath={navigation?.currentPath}
+							expandedProjectIds={expandedProjectIds}
+							expandedTaskProjectIds={expandedTaskProjectIds}
+							loadingTaskProjectIds={loadingTaskProjectIds}
+							onToggleProject={handleToggleProject}
+							onEnterProject={handleProjectClick}
+							onOpenTask={handleOpenTask}
+							onExpandTasks={handleExpandProjectTasks}
+							onRenameProject={handleOpenRename}
+							onDeleteProject={setDeleteTarget}
+							onLeaveProject={setLeaveTarget}
+							onRenameTask={handleOpenTaskRename}
+							onDeleteTask={setDeleteTaskTarget}
+							collapsed={false}
+						/>
+					</section>
+				)}
 			</div>
 
 			<div className="leros-sidebar-footer shrink-0">

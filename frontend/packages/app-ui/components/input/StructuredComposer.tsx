@@ -1696,7 +1696,8 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		);
 
 		const inputSpacingClass = isProjectVariant
-			? "min-h-[96px] rounded-none px-0 py-0 text-sm leading-6"
+			? // 中文注释：编辑器滚动区域会裁切标签外扩的 ring，四周各保留 1px 安全间距。
+				"min-h-[96px] rounded-none px-px py-px text-sm leading-6"
 			: "min-h-[80px] rounded-2xl px-5 py-4 pb-2 text-xs leading-5";
 
 		return (
