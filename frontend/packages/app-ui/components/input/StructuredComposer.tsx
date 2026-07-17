@@ -593,14 +593,14 @@ function buildEditorContent(
 		mention.setAttribute("contenteditable", "false");
 		if (token.kind === "skill") {
 			mention.className =
-				"group inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-xs font-medium leading-4 text-violet-700 ring-1 ring-violet-100 align-middle";
+				"group inline-flex items-center gap-1 rounded-lg bg-violet-50 px-1.5 py-0.5 text-xs font-medium leading-5 text-violet-700 ring-1 ring-violet-100 align-baseline";
 			const label = document.createElement("span");
 			label.className = "truncate";
 			label.textContent = formatSkillTokenDisplayLabel(token.label);
 			mention.append(buildSkillMentionIconShell(token), label);
 		} else {
 			mention.className =
-				"group inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium leading-4 text-blue-700 ring-1 ring-blue-100 align-middle";
+				"group inline-flex items-center gap-1 rounded-lg bg-blue-50 px-1.5 py-0.5 text-xs font-medium leading-5 text-blue-700 ring-1 ring-blue-100 align-baseline";
 			const label = document.createElement("span");
 			label.className = "truncate";
 			label.textContent = formatAssistantTokenDisplayLabel(token.label);

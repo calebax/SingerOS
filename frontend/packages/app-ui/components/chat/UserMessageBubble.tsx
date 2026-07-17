@@ -63,7 +63,6 @@ export function UserMessageBubble({ message }: { message: Message }) {
 					{!isOwnMessage && authorName && (
 						<span className="font-medium text-slate-500">{authorName}</span>
 					)}
-					{isOwnMessage && visibleText && <CopyButton text={displayContent} />}
 					{isOwnMessage && authorName && <span>{authorName}</span>}
 					{message.status === "sending" && <span className="text-xs text-slate-400">发送中</span>}
 					<span>{formatTime(message.timestamp)}</span>
@@ -100,15 +99,24 @@ export function UserMessageBubble({ message }: { message: Message }) {
 					</div>
 				)}
 				{visibleText && (
-					<div
-						className={`w-fit rounded-2xl px-4 py-2 text-sm leading-7 text-black shadow-sm ${
-							isOwnMessage
-								? "rounded-tr-md bg-[#f3f3f4] shadow-blue-600/10"
-								: "rounded-tl-md border border-slate-100 bg-white shadow-slate-200/60"
-						}`}
-					>
-						<MessageContentWithComposerTokens message={message} />
-					</div>
+					<>
+						<div
+							className={`w-fit rounded-2xl px-4 py-2 text-sm leading-7 text-black shadow-sm ${
+								isOwnMessage
+									? "rounded-tr-md bg-[#f3f3f4] shadow-blue-600/10"
+									: "rounded-tl-md border border-slate-100 bg-white shadow-slate-200/60"
+							}`}
+						>
+							<MessageContentWithComposerTokens message={message} />
+						</div>
+						{isOwnMessage && (
+							<div className="mt-2 flex justify-end">
+								<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+									<CopyButton text={displayContent} />
+								</div>
+							</div>
+						)}
+					</>
 				)}
 			</div>
 		</div>

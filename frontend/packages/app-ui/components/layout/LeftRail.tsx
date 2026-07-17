@@ -1060,6 +1060,8 @@ export function LeftRail({
 	);
 }
 
+const ACCOUNT_USER_NAME_MAX_LENGTH = 20;
+
 function AccountManagementDialog({
 	open,
 	user,
@@ -1245,6 +1247,7 @@ function AccountManagementDialog({
 								<div className="flex items-center gap-2">
 									<Input
 										value={nameValue}
+										maxLength={ACCOUNT_USER_NAME_MAX_LENGTH}
 										onChange={(event) => setNameValue(event.target.value)}
 										onKeyDown={(event) => {
 											if (event.key === "Enter") void handleSaveName();

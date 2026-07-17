@@ -19,7 +19,16 @@ import type {
 } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { cn } from "@leros/ui/lib/utils";
-import { Check, ChevronDown, ChevronRight, Copy, RefreshCw, Rows3, Wrench } from "lucide-react";
+import {
+	Check,
+	ChevronDown,
+	ChevronRight,
+	Copy,
+	CornerRightUp,
+	RefreshCw,
+	Rows3,
+	Wrench,
+} from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
 	SHOW_ASSISTANT_MESSAGE_METRICS,
@@ -31,7 +40,6 @@ import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { openPlanPreview, openProjectArtifactPreview } from "../layout/file-preview-store";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { AssistantChatAvatar } from "./AssistantChatAvatar";
-import { MessageContentWithComposerTokens } from "./MessageContentWithComposerTokens";
 import { resolveAssistantMessageDisplay } from "./resolveAssistantMessageDisplay";
 import { ThinkingProcessIcon } from "./ThinkingProcessIcon";
 
@@ -68,19 +76,9 @@ function CopyButton({ text }: { text: string }) {
 	);
 }
 
-function resolveReplyPreviewMessage(
-	message: Message,
-	messagesMap: Record<string, Message>,
-): Pick<Message, "content" | "metadata"> | null {
+function resolveReplyPreviewContent(message: Message): string | null {
 	const content = message.replyTo?.content?.trim();
-	if (!content) return null;
-
-	const target = message.replyTo?.messageId ? messagesMap[message.replyTo.messageId] : undefined;
-	// 中文注释：引用框复用被引用用户消息的 composerTokens，让 @队友 和 /技能 保持标签样式。
-	return {
-		content,
-		metadata: target?.role === "user" ? target.metadata : undefined,
-	};
+	return content || null;
 }
 
 function ChatAssistantAvatar({ name, src }: { name: string; src?: string }) {
@@ -123,10 +121,8 @@ export function AIMessageBubble({
 	const hasArtifacts = message.artifacts && message.artifacts.length > 0;
 	const assistantName = assistantDisplay.name;
 	const assistantRoleName = assistantDisplay.roleName;
-	const replyLabel = message.replyTo?.authorName
-		? `回复了 ${message.replyTo.authorName}`
-		: undefined;
-	const replyPreviewMessage = resolveReplyPreviewMessage(message, messagesMap);
+	const replyAuthorName = message.replyTo?.authorName?.trim() || "用户";
+	const replyPreviewContent = resolveReplyPreviewContent(message);
 	const statusLabel = message.status === "waiting" ? "等待中" : "正在思考";
 	const statusText = message.statusText?.trim();
 	const metricSegments = SHOW_ASSISTANT_MESSAGE_METRICS
@@ -152,22 +148,30 @@ export function AIMessageBubble({
 					{assistantRoleName ? (
 						<span className="text-[12px] text-slate-400">{assistantRoleName}</span>
 					) : null}
-					{replyLabel && (
-						<span className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] text-slate-500">
-							{replyLabel}
-						</span>
-					)}
 					<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
 					{isStreaming && (
 						<span className="animate-pulse text-[13px] text-blue-500">{statusLabel}</span>
 					)}
 				</div>
 
-				{replyPreviewMessage && (
-					<div className="mb-2 max-w-[78%] rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs leading-5 text-slate-500">
-						<div className="mb-0.5 font-medium text-slate-500">引用消息</div>
-						<div className="line-clamp-2 break-words">
-							<MessageContentWithComposerTokens message={replyPreviewMessage} />
+				{replyPreviewContent && (
+					<div
+						className="mb-2 w-fit max-w-[78%] min-w-0 rounded-lg bg-[#f3f3f4] px-4 py-2"
+						title={`${replyAuthorName}：${replyPreviewContent}`}
+					>
+						<div className="flex min-w-0 items-center border-l-[3px] border-l-neutral-200 pl-4">
+							<div className="min-w-0 truncate text-[13px] leading-normal text-neutral-400">
+								<span className="inline">
+									回复
+									<CornerRightUp
+										className="mx-0.5 inline size-3.5 -translate-y-px align-text-bottom"
+										aria-hidden="true"
+									/>
+								</span>
+								<span>{replyAuthorName}</span>
+								<span>：</span>
+								<span>{replyPreviewContent}</span>
+							</div>
 						</div>
 					</div>
 				)}
