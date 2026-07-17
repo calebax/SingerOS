@@ -147,7 +147,7 @@ func handleArtifactDeclaredEvent(ctx context.Context, persister *declaredArtifac
 		Status:               art.Status,
 	}
 
-	if err := persister.PersistDeclaredArtifact(ctx, messaging.RouteContext{
+	if _, err := persister.PersistDeclaredArtifact(ctx, messaging.RouteContext{
 		OrgID:     runEvent.Route.OrgID,
 		SessionID: runEvent.Route.SessionID,
 		WorkerID:  runEvent.Route.WorkerID,
@@ -447,62 +447,62 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 	ctx context.Context,
 	route messaging.RouteContext,
 	item messaging.ArtifactPayload,
-) error {
+) (*types.ProjectFile, error) {
 	if p == nil || p.db == nil {
-		return nil
+		return nil, nil
 	}
 	artifactID := strings.TrimSpace(item.ArtifactID)
 	if artifactID == "" {
-		return fmt.Errorf("artifact_id is required")
+		return nil, fmt.Errorf("artifact_id is required")
 	}
 	if route.OrgID == 0 {
-		return fmt.Errorf("org_id is required")
+		return nil, fmt.Errorf("org_id is required")
 	}
 	if route.WorkerID == 0 {
-		return fmt.Errorf("worker_id is required")
+		return nil, fmt.Errorf("worker_id is required")
 	}
 	sessionID := strings.TrimSpace(route.SessionID)
 	if sessionID == "" {
-		return fmt.Errorf("session_id is required")
+		return nil, fmt.Errorf("session_id is required")
 	}
 	storageURI := strings.TrimSpace(item.StorageURI)
 	if storageURI == "" {
 		logs.InfoContextf(ctx, "persist declared artifact: storage_uri is empty, skipping persistence artifact_id=%s session_id=%s", artifactID, sessionID)
-		return nil
+		return nil, nil
 	}
 
 	// Check idempotency via ProjectFile.FilePublicID unique index.
 	existingPF, err := infradb.GetProjectFileByFilePublicID(ctx, p.db, route.OrgID, artifactID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if existingPF != nil {
 		logs.InfoContextf(ctx, "persist declared artifact: already exists (project_file), artifact_id=%s session_id=%s", artifactID, sessionID)
-		return nil
+		return existingPF, nil
 	}
 
 	session, err := infradb.GetSessionByPublicID(ctx, p.db, sessionID)
 	if err != nil {
-		return fmt.Errorf("find session %s: %w", sessionID, err)
+		return nil, fmt.Errorf("find session %s: %w", sessionID, err)
 	}
 	if session == nil {
 		logs.WarnContextf(ctx, "persist declared artifact: session not found, artifact_id=%s session_id=%s", artifactID, sessionID)
-		return fmt.Errorf("session %s not found", sessionID)
+		return nil, fmt.Errorf("session %s not found", sessionID)
 	}
 	if session.OrgID != route.OrgID {
 		logs.WarnContextf(ctx, "persist declared artifact: org mismatch, artifact_id=%s session_org=%d route_org=%d",
 			artifactID, session.OrgID, route.OrgID)
-		return fmt.Errorf("session %s does not belong to org %d", sessionID, route.OrgID)
+		return nil, fmt.Errorf("session %s does not belong to org %d", sessionID, route.OrgID)
 	}
 	if session.ProjectID == nil || *session.ProjectID == 0 {
 		logs.WarnContextf(ctx, "persist declared artifact: session has no project_id, artifact_id=%s session_id=%s",
 			artifactID, sessionID)
-		return fmt.Errorf("session project_id is required for artifact persistence")
+		return nil, fmt.Errorf("session project_id is required for artifact persistence")
 	}
 	if session.TaskID == nil || *session.TaskID == 0 {
 		logs.WarnContextf(ctx, "persist declared artifact: session has no task_id, artifact_id=%s session_id=%s",
 			artifactID, sessionID)
-		return fmt.Errorf("session task_id is required for artifact persistence")
+		return nil, fmt.Errorf("session task_id is required for artifact persistence")
 	}
 
 	filename := strings.TrimSpace(item.Filename)
@@ -519,17 +519,18 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 	}
 	relativePath, err = workspace.NormalizeRelativePath(relativePath)
 	if err != nil {
-		return fmt.Errorf("normalize artifact relative path: %w", err)
+		return nil, fmt.Errorf("normalize artifact relative path: %w", err)
 	}
 	previousRelativePath := strings.TrimSpace(item.PreviousRelativePath)
 	if previousRelativePath != "" {
 		previousRelativePath, err = workspace.NormalizeRelativePath(previousRelativePath)
 		if err != nil {
-			return fmt.Errorf("normalize artifact previous relative path: %w", err)
+			return nil, fmt.Errorf("normalize artifact previous relative path: %w", err)
 		}
 	}
 
 	// Use transaction to ensure FileUpload and ProjectFile are created atomically.
+	var persisted *types.ProjectFile
 	err = p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		fileUpload, err := filestore.RecordUpload(ctx, tx, filestore.RecordUploadParams{
 			StorageURI:   storageURI,
@@ -560,6 +561,7 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 		if err := infradb.CreateProjectFileVersionFromPreviousPath(ctx, tx, projectFile, previousRelativePath); err != nil {
 			return fmt.Errorf("create artifact project file: %w", err)
 		}
+		persisted = projectFile
 		projResource, err := infradb.GetResourceByBizID(ctx, tx, session.OrgID, types.ResourceTypeProject, *session.ProjectID)
 		if err != nil {
 			return fmt.Errorf("get project resource for artifact: %w", err)
@@ -583,11 +585,11 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(
 	})
 	if err != nil {
 		logs.WarnContextf(ctx, "persist declared artifact: transaction failed, artifact_id=%s err=%v", artifactID, err)
-		return err
+		return nil, err
 	}
 
 	logs.InfoContextf(ctx, "persist declared artifact: success, artifact_id=%s session_id=%s", artifactID, sessionID)
-	return nil
+	return persisted, nil
 }
 
 // PersistPublishedPlan persists a published plan as FileUpload + ProjectFile in a transaction.

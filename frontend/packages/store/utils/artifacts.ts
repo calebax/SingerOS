@@ -16,6 +16,7 @@ export function messageArtifactToProjectArtifact(artifact: MessageArtifact): Pro
 		downloadUrl: artifact.downloadUrl,
 		storageUri: artifact.storageUri,
 		sha256: artifact.sha256,
+		versionNo: artifact.versionNo,
 	};
 }
 

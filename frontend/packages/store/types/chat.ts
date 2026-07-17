@@ -108,6 +108,7 @@ export type MessageArtifact = {
 	downloadUrl: string;
 	storageUri?: string;
 	sha256?: string;
+	versionNo?: number;
 };
 
 export type MessageMetadata = {

@@ -654,6 +654,7 @@ function mapArtifactPayload(payload: BackendSessionArtifactPayload): MessageArti
 		downloadUrl: "",
 		storageUri: payload.storage_uri?.trim() || undefined,
 		sha256: payload.sha256,
+		versionNo: payload.version_no,
 	};
 }
 

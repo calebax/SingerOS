@@ -684,7 +684,7 @@ function MessageArtifactList({
 					data-file-preview-trigger
 					onClick={() => openProjectArtifactPreview(artifact, projectId)}
 					className="group/artifact relative flex min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
-					title="预览文件"
+					title={artifact.versionNo ? `预览 V${artifact.versionNo}` : "预览文件"}
 				>
 					<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover/artifact:opacity-100">
 						<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
@@ -695,8 +695,13 @@ function MessageArtifactList({
 						<MessageArtifactIcon fileName={artifact.name} />
 					</div>
 					<div className="min-w-0">
-						<div className="truncate text-sm font-semibold leading-5 text-slate-700">
-							{artifact.name}
+						<div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5 text-slate-700">
+							<span className="truncate">{artifact.name}</span>
+							{artifact.versionNo ? (
+								<span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-blue-600">
+									V{artifact.versionNo}
+								</span>
+							) : null}
 						</div>
 						<div className="mt-0.5 truncate text-[13px] leading-4 text-slate-400">
 							{[artifact.size, artifact.updatedAt ? formatArtifactTime(artifact.updatedAt) : ""]
