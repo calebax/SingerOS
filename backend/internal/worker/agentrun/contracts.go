@@ -56,10 +56,12 @@ type Finalization struct {
 
 // EventContext carries immutable routing and tracing values for one business run.
 type EventContext struct {
-	OrgID             uint
+	OrgID uint
+	// TODO: 梳理 WorkerID、AssistantID、AssistantPKID 的使用场景，收敛和清晰化
 	WorkerID          uint
 	SessionID         string
 	AssistantID       string
+	AssistantPKID     uint
 	TraceID           string
 	RequestID         string
 	TaskID            string

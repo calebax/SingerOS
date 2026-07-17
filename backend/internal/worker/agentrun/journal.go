@@ -125,6 +125,7 @@ func (j *runJournal) envelopeLocked(
 	if traceID == "" {
 		traceID = j.eventContext.TraceID
 	}
+	body.AssistantPKID = j.eventContext.AssistantPKID
 	return messaging.RunEvent{
 		ID:        fmt.Sprintf("%s:%d", runID, body.Seq),
 		Type:      messaging.MessageTypeRunEvent,

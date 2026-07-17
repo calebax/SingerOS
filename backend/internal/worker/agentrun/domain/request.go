@@ -164,16 +164,15 @@ func BuildAttachmentText(attachments []Attachment) string {
 	}
 	var sb strings.Builder
 	sb.WriteString("\n[Attachments]\n")
-	sb.WriteString("The following files were uploaded by the user:\n")
+	sb.WriteString("The following files were attached by the user in this message, read them to understand their content:\n")
 	for _, a := range attachments {
-		sb.WriteString(fmt.Sprintf("- %s", a.Name))
+		sb.WriteString(fmt.Sprintf("- %s\n", a.Name))
 		if a.URL != "" {
-			sb.WriteString(fmt.Sprintf(" (%s)", a.URL))
+			sb.WriteString(fmt.Sprintf("  URL: %s\n", a.URL))
 		}
 		if a.MimeType != "" {
-			sb.WriteString(fmt.Sprintf(" [%s]", a.MimeType))
+			sb.WriteString(fmt.Sprintf("  Type: %s\n", a.MimeType))
 		}
-		sb.WriteString("\n")
 	}
 	return sb.String()
 }

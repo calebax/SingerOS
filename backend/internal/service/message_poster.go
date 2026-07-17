@@ -812,36 +812,37 @@ func (p *MessagePoster) publishWorkerTask(
 	var inputMessages []messaging.ChatMessage
 	// 群聊历史上下文注入：以当前 AI 队友上一条回复为起点，增量获取时间窗口内的 user/assistant 消息
 	if session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject {
-		windowStart := session.CreatedAt
-		if lastTime, err := infradb.GetLastAssistantMessageCreatedAt(ctx, p.db, session.ID, effectiveAssistantID); err != nil {
-			logs.WarnContextf(ctx, "publishWorkerTask: get last assistant message time: %v", err)
-		} else if lastTime != nil {
-			windowStart = *lastTime
-		}
-		incremental, err := infradb.GetSessionMessagesInRange(ctx, p.db, session.ID, windowStart)
+		lastTime, err := infradb.GetLastAssistantMessageCreatedAt(ctx, p.db, session.ID, effectiveAssistantID)
 		if err != nil {
-			logs.WarnContextf(ctx, "publishWorkerTask: get session messages in range: %v", err)
-		} else {
-			seen := make(map[uint]bool)
-			for _, hm := range incremental {
-				if hm.ID == message.ID {
-					continue
+			logs.WarnContextf(ctx, "publishWorkerTask: get last assistant message time: %v", err)
+		}
+		if lastTime != nil {
+			incremental, err := infradb.GetSessionMessagesInRange(ctx, p.db, session.ID, *lastTime)
+			if err != nil {
+				logs.WarnContextf(ctx, "publishWorkerTask: get session messages in range: %v", err)
+			} else {
+				seen := make(map[uint]bool)
+				for _, hm := range incremental {
+					if hm.ID == message.ID {
+						continue
+					}
+					if hm.Role != string(types.MessageRoleUser) && hm.Role != string(types.MessageRoleAssistant) {
+						continue
+					}
+					if seen[hm.ID] {
+						continue
+					}
+					seen[hm.ID] = true
+					inputMessages = append(inputMessages, messaging.ChatMessage{
+						ID:         fmt.Sprintf("%d", hm.ID),
+						Role:       messaging.MessageRole(hm.Role),
+						Content:    hm.Content,
+						SenderName: hm.SenderName,
+					})
 				}
-				if hm.Role != string(types.MessageRoleUser) && hm.Role != string(types.MessageRoleAssistant) {
-					continue
-				}
-				if seen[hm.ID] {
-					continue
-				}
-				seen[hm.ID] = true
-				inputMessages = append(inputMessages, messaging.ChatMessage{
-					ID:         fmt.Sprintf("%d", hm.ID),
-					Role:       messaging.MessageRole(hm.Role),
-					Content:    hm.Content,
-					SenderName: hm.SenderName,
-				})
 			}
 		}
+		// 该 AI 队友在 session 中无历史消息，不查询历史记录，inputMessages 保持空
 	}
 	// 当前新消息追加末尾，携带发言者身份
 	inputMessages = append(inputMessages, messaging.ChatMessage{
