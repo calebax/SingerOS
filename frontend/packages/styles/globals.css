@@ -572,7 +572,8 @@
 	.leros-sidebar[data-collapsed="true"] .leros-profile-trigger:hover,
 	.leros-sidebar[data-collapsed="true"] .leros-profile-trigger:focus-visible,
 	.leros-sidebar[data-collapsed="true"] .leros-profile-trigger[aria-expanded="true"] {
-		background: color-mix(in srgb, var(--leros-text) 6%, transparent);
+		/* 收起态头像不显示悬停底色，避免狭窄容器中出现上下凸起的视觉阴影。 */
+		background: transparent;
 	}
 
 	.leros-sidebar[data-collapsed="true"] .leros-sidebar-footer {
