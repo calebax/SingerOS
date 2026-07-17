@@ -247,3 +247,18 @@ func ListUserOrgs(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 	}
 	return entities, total, nil
 }
+
+// GetUserOrgByExternalUin looks up a user-org mapping by the identity-platform
+// UIN ID. Used by the enterprise adapter to resolve the local Uin from an
+// identity-issued JWT.
+func GetUserOrgByExternalUin(ctx context.Context, db *gorm.DB, externalUin uint) (*types.UserOrg, error) {
+	var userOrg types.UserOrg
+	err := db.WithContext(ctx).Where("external_uin = ?", externalUin).First(&userOrg).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &userOrg, nil
+}

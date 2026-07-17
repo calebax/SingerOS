@@ -69,3 +69,9 @@ client_update:
     latest_version: "0.1.21"
     update_url: "https://xxx.cos.ap-beijing.myqcloud.com/application/stable"
     force_message: "当前客户端版本过低，请更新后继续使用"
+
+# Enterprise authentication adapter (only required with -tags enterprise)
+# auth:
+#   mode: "enterprise"
+#   iam:
+#     base_url: "${IAM_BASE_URL}"

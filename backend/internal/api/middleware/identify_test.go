@@ -10,6 +10,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
+	adapteraccount "github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/apis/constants"
@@ -22,6 +23,59 @@ import (
 )
 
 const testJWTSecret = "test-secret-key"
+
+type mockTokenParser struct {
+	secret   string
+	database *gorm.DB
+}
+
+func (m *mockTokenParser) ParseUser(ctx context.Context, tokenStr string) (*types.Caller, error) {
+	claims, err := localauth.ParseUserToken(tokenStr, m.secret)
+	if err != nil {
+		return &types.Caller{State: types.AuthStateFailed}, nil
+	}
+	if claims.Uin == 0 {
+		return &types.Caller{State: types.AuthStateFailed}, nil
+	}
+	orgID := uint(0)
+	if m.database != nil {
+		userOrg, dbErr := db.GetUserOrgByUin(ctx, m.database, claims.Uin)
+		if dbErr == nil && userOrg != nil {
+			orgID = userOrg.OrgID
+		}
+	}
+	return &types.Caller{
+		Uin:   claims.Uin,
+		State: types.AuthStateSucc,
+		Kind:  types.CallerKindUser,
+		OrgID: orgID,
+	}, nil
+}
+
+func (m *mockTokenParser) ParseWorker(ctx context.Context, tokenStr string) (*types.Caller, error) {
+	claims, err := localauth.ParseWorkerToken(tokenStr, m.secret)
+	if err != nil {
+		return &types.Caller{State: types.AuthStateFailed}, nil
+	}
+	return &types.Caller{
+		State:    types.AuthStateSucc,
+		Kind:     types.CallerKindWorker,
+		OrgID:    claims.OrgID,
+		WorkerID: claims.WorkerID,
+	}, nil
+}
+
+func (m *mockTokenParser) IssueWorker(ctx context.Context, orgID, workerID uint, bootstrapToken string) (string, int64, error) {
+	panic("not implemented")
+}
+
+func newTestParser(database *gorm.DB) adapteraccount.TokenParser {
+	return &mockTokenParser{secret: testJWTSecret, database: database}
+}
+
+func wrongSecretParser(database *gorm.DB) adapteraccount.TokenParser {
+	return &mockTokenParser{secret: "wrong-secret", database: database}
+}
 
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -66,7 +120,7 @@ func TestCallerMiddleware_NoAuthHeader(t *testing.T) {
 	ctx, _ := setupTestContext()
 	ctx.Request = httptest.NewRequest("GET", "/", nil)
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(	newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -88,7 +142,7 @@ func TestCallerMiddleware_EmptyAuthHeader(t *testing.T) {
 	req.Header.Set("Authorization", "")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(	newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -107,7 +161,7 @@ func TestCallerMiddleware_InvalidToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(	newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -144,7 +198,7 @@ func TestCallerMiddleware_ValidV2UserToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(	newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -177,7 +231,7 @@ func TestCallerMiddleware_WorkerToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(	newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -208,7 +262,7 @@ func TestCallerMiddleware_RequestIDAndTraceID(t *testing.T) {
 	req.Header.Set(headerKeyTraceID, "test-trace-id")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(	newTestParser(database), database)
 	middleware(ctx)
 
 	_, trace := localauth.FromGinContext(ctx)
@@ -243,7 +297,7 @@ func TestCallerMiddleware_AutoGenerateRequestID(t *testing.T) {
 	ctx, _ := setupTestContext()
 	ctx.Request = httptest.NewRequest("GET", "/", nil)
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(	newTestParser(database), database)
 	middleware(ctx)
 
 	_, trace := localauth.FromGinContext(ctx)
@@ -311,7 +365,7 @@ func TestCallerMiddleware_WrongSecret(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware("wrong-secret", database)
+	middleware := CallerMiddleware(	wrongSecretParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -337,7 +391,7 @@ func TestCallerMiddleware_ZeroUin(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(	newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)

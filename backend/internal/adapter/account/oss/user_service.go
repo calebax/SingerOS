@@ -1,11 +1,13 @@
-package service
+//go:build !enterprise
+
+package oss
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
@@ -16,27 +18,25 @@ import (
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
 
-var _ contract.UserService = (*userService)(nil)
-
-type userService struct {
+type user struct {
 	db *gorm.DB
 }
 
-func NewUserService(d *gorm.DB) contract.UserService {
-	return &userService{db: d}
+func NewUser(db *gorm.DB) *user {
+	return &user{db: db}
 }
 
-func (s *userService) CreateUser(ctx context.Context, req *contract.CreateUserRequest) (*contract.UserInfo, error) {
+func (s *user) CreateUser(ctx context.Context, req *contract.CreateUserRequest) (*contract.UserInfo, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, accounterror.ErrLoginRequired
 	}
 
 	if strings.TrimSpace(req.Name) == "" {
-		return nil, errors.New("name is required")
+		return nil, accounterror.ErrInvalidArg
 	}
 	if strings.TrimSpace(req.GithubLogin) == "" {
-		return nil, errors.New("github_login is required")
+		return nil, accounterror.ErrInvalidArg
 	}
 
 	existing, err := db.GetUserByGithubLogin(ctx, s.db, strings.TrimSpace(req.GithubLogin))
@@ -44,7 +44,7 @@ func (s *userService) CreateUser(ctx context.Context, req *contract.CreateUserRe
 		return nil, err
 	}
 	if existing != nil {
-		return nil, errors.New("github_login already exists")
+		return nil, accounterror.ErrInvalidArg
 	}
 
 	user := &types.User{
@@ -73,10 +73,10 @@ func (s *userService) CreateUser(ctx context.Context, req *contract.CreateUserRe
 	return convertToContractUser(user), nil
 }
 
-func (s *userService) GetUser(ctx context.Context, publicID string, githubLogin string) (*contract.UserInfo, error) {
+func (s *user) GetUser(ctx context.Context, publicID string, githubLogin string) (*contract.UserInfo, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, accounterror.ErrLoginRequired
 	}
 
 	var user *types.User
@@ -87,26 +87,26 @@ func (s *userService) GetUser(ctx context.Context, publicID string, githubLogin 
 	} else if githubLogin != "" {
 		user, err = db.GetUserByGithubLogin(ctx, s.db, githubLogin)
 	} else {
-		return nil, errors.New("public_id or github_login is required")
+		return nil, accounterror.ErrInvalidArg
 	}
 
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
-		return nil, errors.New("user not found")
+		return nil, accounterror.ErrUserNotFound
 	}
 
 	return convertToContractUser(user), nil
 }
 
-func (s *userService) UpdateUser(ctx context.Context, publicID string, req *contract.UpdateUserRequest) (*contract.UserInfo, error) {
+func (s *user) UpdateUser(ctx context.Context, publicID string, req *contract.UpdateUserRequest) (*contract.UserInfo, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, accounterror.ErrLoginRequired
 	}
 	if strings.TrimSpace(publicID) == "" {
-		return nil, errors.New("public_id is required")
+		return nil, accounterror.ErrInvalidArg
 	}
 
 	var user *types.User
@@ -117,7 +117,7 @@ func (s *userService) UpdateUser(ctx context.Context, publicID string, req *cont
 			return err
 		}
 		if user == nil {
-			return errors.New("user not found")
+			return accounterror.ErrUserNotFound
 		}
 
 		if req.GithubLogin != nil {
@@ -157,13 +157,13 @@ func (s *userService) UpdateUser(ctx context.Context, publicID string, req *cont
 	return convertToContractUser(user), nil
 }
 
-func (s *userService) DeleteUser(ctx context.Context, publicID string) error {
+func (s *user) DeleteUser(ctx context.Context, publicID string) error {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return errors.New("user not authenticated")
+		return accounterror.ErrLoginRequired
 	}
 	if strings.TrimSpace(publicID) == "" {
-		return errors.New("public_id is required")
+		return accounterror.ErrInvalidArg
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -172,16 +172,16 @@ func (s *userService) DeleteUser(ctx context.Context, publicID string) error {
 			return err
 		}
 		if user == nil {
-			return errors.New("user not found")
+			return accounterror.ErrUserNotFound
 		}
 		return db.DeleteUser(ctx, tx, user.ID)
 	})
 }
 
-func (s *userService) ListUsers(ctx context.Context, req *contract.ListUsersRequest) (*contract.UserList, error) {
+func (s *user) ListUsers(ctx context.Context, req *contract.ListUsersRequest) (*contract.UserList, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
-		return nil, errors.New("user not authenticated")
+		return nil, accounterror.ErrLoginRequired
 	}
 	req.Fill()
 

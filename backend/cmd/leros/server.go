@@ -13,9 +13,11 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter"
 	"github.com/insmtx/Leros/backend/internal/api"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	infrasms "github.com/insmtx/Leros/backend/internal/infra/sms"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
@@ -108,7 +110,19 @@ func newServerCommand() *cobra.Command {
 				)
 			}
 
-			r := api.SetupRouter(*cfg, publisher, db, modelInvoker)
+			var iamCfg *config.IAMConfig
+			if cfg.Auth != nil {
+				iamCfg = cfg.Auth.IAM
+			}
+			edition := adapter.NewEdition(adapter.Config{
+				DB:                 db,
+				JWTSecret:          cfg.Server.JWT.Secret,
+				IAM:                iamCfg,
+				SmsSender:          infrasms.NewSender(cfg.Aliyun),
+				WorkerAuth:         cfg.WorkerAuth,
+			})
+
+			r := api.SetupRouter(*cfg, edition, publisher, db, modelInvoker)
 
 			srv := &http.Server{
 				Addr:    fmt.Sprintf(":%s", cfg.Server.Port),

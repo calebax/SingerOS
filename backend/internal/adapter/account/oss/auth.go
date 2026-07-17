@@ -1,4 +1,6 @@
-package service
+//go:build !enterprise
+
+package oss
 
 import (
 	"context"
@@ -20,10 +22,12 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/insmtx/Leros/backend/config"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/sms"
+	"github.com/insmtx/Leros/backend/internal/service"
+	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -36,71 +40,32 @@ const (
 	phoneCodeResendInterval = 2 * time.Minute
 	defaultPhoneCode        = "123456"
 	maxUserOrganizations    = 3
+	defaultWorkerTokenTTL   = 24 * time.Hour
 )
 
-var (
-	errAuthDatabaseRequired               = errors.New("数据库不可用")
-	errAuthEmailRequired                  = errors.New("请输入邮箱")
-	errAuthInvalidEmailFormat             = errors.New("请输入正确的邮箱")
-	errAuthPasswordRequired               = errors.New("请输入密码")
-	errAuthPasswordsDoNotMatch            = errors.New("密码不一致")
-	errAuthPasswordTooShort               = errors.New("密码长度不能少于8位")
-	errAuthPasswordTooLong                = errors.New("密码长度不能超过20位")
-	errAuthPasswordContainsChinese        = errors.New("密码不能包含中文")
-	errAuthPasswordContainsWhitespace     = errors.New("密码不能包含空格")
-	errAuthPasswordMustContainLetterDigit = errors.New("8-20位，数字/大写字母/小写字母/字符至少3种")
-	errAuthEmailAlreadyExists             = errors.New("该邮箱已注册")
-	errAuthInvalidEmailOrPassword         = errors.New("邮箱或密码错误")
-	errAuthLoginAttemptsExceeded          = errors.New("登录失败次数过多，请稍后再试")
-	errAuthPhoneRequired                  = errors.New("请输入手机号")
-	errAuthInvalidPhoneFormat             = errors.New("请输入正确的手机号")
-	errAuthPhoneCodeRequired              = errors.New("请输入验证码")
-	errAuthInvalidPhoneCode               = errors.New("验证码错误或已过期")
-	errAuthPhoneCodeSendTooOften          = errors.New("验证码发送太频繁，请稍后再试")
-	errAuthSMSDeliveryFailed              = errors.New("验证码发送失败，请稍后再试")
-	errAuthRefreshTokenRequired           = errors.New("刷新令牌不能为空")
-	errAuthRefreshTokenInvalid            = errors.New("登录已过期，请重新登录")
-	errAuthUserNotFound                   = errors.New("用户不存在")
-	errAuthUserOrgNotFound                = errors.New("用户组织信息不存在")
-	errAuthUserOrgNotAllowed              = errors.New("用户未加入该组织")
-	errAuthLoginRequired                  = errors.New("请先登录")
-	errAuthOrgNotFound                    = errors.New("用户组织信息不存在")
-	errAuthJWTSecretRequired              = errors.New("登录配置缺失")
-	errAuthOrganizationLimitExceeded      = errors.New("最多只能加入三个组织")
-)
-
-var _ contract.AuthService = (*authService)(nil)
-
-type authService struct {
+type authAdapter struct {
 	db                 *gorm.DB
 	jwtSecret          string
-	smsSender          smsSender
+	smsSender          sms.SmsSender
 	defaultPhoneCode   string
-	workerProvisioning *WorkerProvisioningService
+	workerProvisioning *service.WorkerProvisioningService
 }
 
-func NewAuthService(d *gorm.DB, jwtSecret string, aliyunCfg *config.AliyunConfig) contract.AuthService {
-	return NewAuthServiceWithProvisioning(d, jwtSecret, aliyunCfg, nil)
-}
-
-// NewAuthServiceWithProvisioning creates an auth service that can provision organization defaults.
-func NewAuthServiceWithProvisioning(d *gorm.DB, jwtSecret string, aliyunCfg *config.AliyunConfig, provisioning *WorkerProvisioningService) contract.AuthService {
+// NewAuth creates a builtin auth adapter.
+func NewAuth(d *gorm.DB, jwtSecret string, smsSender sms.SmsSender, provisioning *service.WorkerProvisioningService) *authAdapter {
 	code := defaultPhoneCode
-	if aliyunCfg != nil && strings.TrimSpace(aliyunCfg.DefaultCode) != "" {
-		code = strings.TrimSpace(aliyunCfg.DefaultCode)
-	}
-	return &authService{
+	return &authAdapter{
 		db:                 d,
 		jwtSecret:          strings.TrimSpace(jwtSecret),
-		smsSender:          newSMSSender(aliyunCfg),
+		smsSender:          smsSender,
 		defaultPhoneCode:   code,
 		workerProvisioning: provisioning,
 	}
 }
 
-func (s *authService) RegisterByEmail(ctx context.Context, req *contract.RegisterByEmailRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) RegisterByEmail(ctx context.Context, req *contract.RegisterByEmailRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errAuthDatabaseRequired
+		return nil, accounterror.ErrDatabaseRequired
 	}
 
 	email, err := normalizeEmail(req.Email)
@@ -116,7 +81,7 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 		return nil, err
 	}
 	if existing != nil {
-		return nil, errAuthEmailAlreadyExists
+		return nil, accounterror.ErrEmailAlreadyExists
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -141,8 +106,8 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 			Email:       email,
 		}
 		if err := db.CreateUser(ctx, tx, user); err != nil {
-			if isUniqueConstraintError(err) {
-				return errAuthEmailAlreadyExists
+			if db.IsUniqueConstraintError(err) {
+				return accounterror.ErrEmailAlreadyExists
 			}
 			return err
 		}
@@ -170,9 +135,9 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
-func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEmailRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) LoginByEmail(ctx context.Context, req *contract.LoginByEmailRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errAuthDatabaseRequired
+		return nil, accounterror.ErrDatabaseRequired
 	}
 
 	email, err := normalizeEmail(req.Email)
@@ -180,7 +145,7 @@ func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 		return nil, err
 	}
 	if strings.TrimSpace(req.Password) == "" {
-		return nil, errAuthPasswordRequired
+		return nil, accounterror.ErrPasswordRequired
 	}
 
 	if err := s.ensureLoginAllowed(ctx, email); err != nil {
@@ -193,12 +158,12 @@ func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 	}
 	if user == nil || user.Password == "" {
 		s.recordLoginFailure(ctx, email)
-		return nil, errAuthInvalidEmailOrPassword
+		return nil, accounterror.ErrInvalidEmailOrPassword
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		s.recordLoginFailure(ctx, email)
 		logs.WarnContextf(ctx, "LoginByEmail: password not match for email=%s: %v", email, err)
-		return nil, errAuthInvalidEmailOrPassword
+		return nil, accounterror.ErrInvalidEmailOrPassword
 	}
 
 	s.clearLoginFailures(ctx, email)
@@ -210,9 +175,9 @@ func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
-func (s *authService) SendPhoneLoginCode(ctx context.Context, req *contract.SendPhoneLoginCodeRequest) (*contract.SendPhoneLoginCodeResponse, error) {
+func (s *authAdapter) SendPhoneLoginCode(ctx context.Context, req *contract.SendPhoneLoginCodeRequest) (*contract.SendPhoneLoginCodeResponse, error) {
 	if s.db == nil {
-		return nil, errAuthDatabaseRequired
+		return nil, accounterror.ErrDatabaseRequired
 	}
 
 	phone, err := normalizePhone(req.Phone)
@@ -229,8 +194,8 @@ func (s *authService) SendPhoneLoginCode(ctx context.Context, req *contract.Send
 	}
 	if latestCode != nil && latestCode.CreatedAt.Add(phoneCodeResendInterval).After(now) {
 		logs.WarnContextf(ctx, "SendPhoneLoginCode rejected by resend limit: phone=%s resend_after_seconds=%d",
-			maskPhone(phone), int64(phoneCodeResendInterval.Seconds()))
-		return nil, errAuthPhoneCodeSendTooOften
+			sms.MaskPhone(phone), int64(phoneCodeResendInterval.Seconds()))
+		return nil, accounterror.ErrPhoneCodeSendTooOften
 	}
 
 	code, err := s.nextPhoneCode()
@@ -238,10 +203,10 @@ func (s *authService) SendPhoneLoginCode(ctx context.Context, req *contract.Send
 		return nil, err
 	}
 	logs.InfoContextf(ctx, "SendPhoneLoginCode started: phone=%s sms_enabled=%t expires_in_seconds=%d resend_after_seconds=%d",
-		maskPhone(phone), s.smsSender.Enabled(), int64(phoneCodeExpire.Seconds()), int64(phoneCodeResendInterval.Seconds()))
+		sms.MaskPhone(phone), s.smsSender.Enabled(), int64(phoneCodeExpire.Seconds()), int64(phoneCodeResendInterval.Seconds()))
 	if err := s.smsSender.SendVerificationCode(ctx, phone, code); err != nil {
 		logs.ErrorContextf(ctx, "SendPhoneLoginCode send failed: phone=%s sms_enabled=%t error=%v",
-			maskPhone(phone), s.smsSender.Enabled(), err)
+			sms.MaskPhone(phone), s.smsSender.Enabled(), err)
 		return nil, mapSMSSendError(err)
 	}
 
@@ -250,11 +215,11 @@ func (s *authService) SendPhoneLoginCode(ctx context.Context, req *contract.Send
 		CodeHash:  hashPhoneCode(phone, code),
 		ExpiresAt: now.Add(phoneCodeExpire),
 	}); err != nil {
-		logs.ErrorContextf(ctx, "SendPhoneLoginCode store failed: phone=%s error=%v", maskPhone(phone), err)
+		logs.ErrorContextf(ctx, "SendPhoneLoginCode store failed: phone=%s error=%v", sms.MaskPhone(phone), err)
 		return nil, err
 	}
 	logs.InfoContextf(ctx, "SendPhoneLoginCode completed: phone=%s sms_enabled=%t",
-		maskPhone(phone), s.smsSender.Enabled())
+		sms.MaskPhone(phone), s.smsSender.Enabled())
 
 	return &contract.SendPhoneLoginCodeResponse{
 		Phone:       phone,
@@ -263,9 +228,9 @@ func (s *authService) SendPhoneLoginCode(ctx context.Context, req *contract.Send
 	}, nil
 }
 
-func (s *authService) LoginByPhoneCode(ctx context.Context, req *contract.LoginByPhoneCodeRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *contract.LoginByPhoneCodeRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errAuthDatabaseRequired
+		return nil, accounterror.ErrDatabaseRequired
 	}
 
 	phone, err := normalizePhone(req.Phone)
@@ -274,7 +239,7 @@ func (s *authService) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 	}
 	code := strings.TrimSpace(req.Code)
 	if code == "" {
-		return nil, errAuthPhoneCodeRequired
+		return nil, accounterror.ErrPhoneCodeRequired
 	}
 	if err := s.ensureLoginAllowed(ctx, phone); err != nil {
 		return nil, err
@@ -288,7 +253,7 @@ func (s *authService) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 	}
 	if savedCode == nil || savedCode.CodeHash != hashPhoneCode(phone, code) {
 		s.recordLoginFailure(ctx, phone)
-		return nil, errAuthInvalidPhoneCode
+		return nil, accounterror.ErrInvalidPhoneCode
 	}
 
 	var user *types.User
@@ -329,7 +294,7 @@ func (s *authService) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 				return err
 			}
 			if req.OrgID > 0 && req.OrgID != org.ID {
-				return errAuthUserOrgNotAllowed
+				return accounterror.ErrUserOrgNotAllowed
 			}
 			return nil
 		}
@@ -347,13 +312,13 @@ func (s *authService) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
-func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTokenRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) RefreshToken(ctx context.Context, req *contract.RefreshTokenRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errAuthDatabaseRequired
+		return nil, accounterror.ErrDatabaseRequired
 	}
 	refreshToken := strings.TrimSpace(req.RefreshToken)
 	if refreshToken == "" {
-		return nil, errAuthRefreshTokenRequired
+		return nil, accounterror.ErrRefreshTokenRequired
 	}
 
 	now := time.Now()
@@ -365,10 +330,10 @@ func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTok
 		return nil, err
 	}
 	if savedToken == nil {
-		return nil, errAuthRefreshTokenInvalid
+		return nil, accounterror.ErrRefreshTokenInvalid
 	}
 	if savedToken.Uin == 0 {
-		return nil, errAuthRefreshTokenInvalid
+		return nil, accounterror.ErrRefreshTokenInvalid
 	}
 
 	userOrg, err := db.GetUserOrgByUin(ctx, s.db, savedToken.Uin)
@@ -376,7 +341,7 @@ func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTok
 		return nil, err
 	}
 	if userOrg == nil {
-		return nil, errAuthUserOrgNotFound
+		return nil, accounterror.ErrUserOrgNotFound
 	}
 
 	user, err := db.GetUserByID(ctx, s.db, userOrg.UserID)
@@ -384,14 +349,14 @@ func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTok
 		return nil, err
 	}
 	if user == nil {
-		return nil, errAuthUserNotFound
+		return nil, accounterror.ErrUserNotFound
 	}
 	org, err := db.GetOrgByID(ctx, s.db, userOrg.OrgID)
 	if err != nil {
 		return nil, err
 	}
 	if org == nil {
-		return nil, errAuthOrgNotFound
+		return nil, accounterror.ErrOrgNotFound
 	}
 
 	if err := db.RevokeAuthRefreshToken(ctx, s.db, tokenHash, now); err != nil {
@@ -400,17 +365,17 @@ func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTok
 	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
-func (s *authService) SwitchOrganization(ctx context.Context, req *contract.SwitchOrganizationRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) SwitchOrganization(ctx context.Context, req *contract.SwitchOrganizationRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errAuthDatabaseRequired
+		return nil, accounterror.ErrDatabaseRequired
 	}
 	if req.OrgID == 0 {
-		return nil, errAuthOrgNotFound
+		return nil, accounterror.ErrOrgNotFound
 	}
 
 	caller, _ := localauth.FromContext(ctx)
 	if caller == nil || caller.State != types.AuthStateSucc || caller.Uin == 0 {
-		return nil, errAuthLoginRequired
+		return nil, accounterror.ErrLoginRequired
 	}
 
 	currentUserOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
@@ -418,7 +383,7 @@ func (s *authService) SwitchOrganization(ctx context.Context, req *contract.Swit
 		return nil, err
 	}
 	if currentUserOrg == nil {
-		return nil, errAuthUserOrgNotFound
+		return nil, accounterror.ErrUserOrgNotFound
 	}
 
 	user, err := db.GetUserByID(ctx, s.db, currentUserOrg.UserID)
@@ -426,7 +391,7 @@ func (s *authService) SwitchOrganization(ctx context.Context, req *contract.Swit
 		return nil, err
 	}
 	if user == nil {
-		return nil, errAuthUserNotFound
+		return nil, accounterror.ErrUserNotFound
 	}
 
 	targetUserOrg, targetOrg, err := s.resolveLoginUserOrg(ctx, s.db, user.ID, req.OrgID)
@@ -436,9 +401,9 @@ func (s *authService) SwitchOrganization(ctx context.Context, req *contract.Swit
 	return s.buildTokenResponse(ctx, user, targetUserOrg, targetOrg)
 }
 
-func (s *authService) CreateOrganization(ctx context.Context, req *contract.CreateOrganizationRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) CreateOrganization(ctx context.Context, req *contract.CreateOrganizationRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errAuthDatabaseRequired
+		return nil, accounterror.ErrDatabaseRequired
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -447,7 +412,7 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 
 	caller, _ := localauth.FromContext(ctx)
 	if caller == nil || caller.State != types.AuthStateSucc || caller.Uin == 0 {
-		return nil, errAuthLoginRequired
+		return nil, accounterror.ErrLoginRequired
 	}
 
 	currentUserOrg, err := s.userOrgForIdentity(ctx, s.db, caller.Uin, caller.OrgID)
@@ -455,7 +420,7 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 		return nil, err
 	}
 	if currentUserOrg == nil {
-		return nil, errAuthUserOrgNotFound
+		return nil, accounterror.ErrUserOrgNotFound
 	}
 
 	user, err := db.GetUserByID(ctx, s.db, currentUserOrg.UserID)
@@ -463,7 +428,7 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 		return nil, err
 	}
 	if user == nil {
-		return nil, errAuthUserNotFound
+		return nil, accounterror.ErrUserNotFound
 	}
 
 	var (
@@ -483,7 +448,7 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 			return err
 		}
 		if orgCount >= maxUserOrganizations {
-			return errAuthOrganizationLimitExceeded
+			return accounterror.ErrOrganizationLimitExceeded
 		}
 
 		orgCode := fmt.Sprintf("org_%s", snowflake.GenerateIDBase58())
@@ -548,7 +513,7 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 			return err
 		}
 		if s.workerProvisioning != nil {
-			if _, err := s.workerProvisioning.ensureDefaultWorkerForOrg(ctx, tx, org.ID, userOrg.Uin); err != nil {
+			if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, org.ID, userOrg.Uin); err != nil {
 				return fmt.Errorf("ensure default worker deployment: %w", err)
 			}
 		}
@@ -560,14 +525,14 @@ func (s *authService) CreateOrganization(ctx context.Context, req *contract.Crea
 	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
-func (s *authService) AuthSession(ctx context.Context) (*contract.AuthSessionResponse, error) {
+func (s *authAdapter) AuthSession(ctx context.Context) (*contract.AuthSessionResponse, error) {
 	if s.db == nil {
-		return nil, errAuthDatabaseRequired
+		return nil, accounterror.ErrDatabaseRequired
 	}
 
 	caller, _ := localauth.FromContext(ctx)
 	if caller == nil || caller.State != types.AuthStateSucc || caller.Uin == 0 {
-		return nil, errAuthLoginRequired
+		return nil, accounterror.ErrLoginRequired
 	}
 
 	userOrg, err := s.userOrgForIdentity(ctx, s.db, caller.Uin, caller.OrgID)
@@ -575,7 +540,7 @@ func (s *authService) AuthSession(ctx context.Context) (*contract.AuthSessionRes
 		return nil, err
 	}
 	if userOrg == nil {
-		return nil, errAuthUserOrgNotFound
+		return nil, accounterror.ErrUserOrgNotFound
 	}
 
 	user, err := db.GetUserByID(ctx, s.db, userOrg.UserID)
@@ -583,7 +548,7 @@ func (s *authService) AuthSession(ctx context.Context) (*contract.AuthSessionRes
 		return nil, err
 	}
 	if user == nil {
-		return nil, errAuthUserNotFound
+		return nil, accounterror.ErrUserNotFound
 	}
 
 	_, org, err := s.userOrgWithOrganization(ctx, s.db, userOrg)
@@ -593,7 +558,7 @@ func (s *authService) AuthSession(ctx context.Context) (*contract.AuthSessionRes
 	return s.buildAuthSessionResponse(ctx, user, userOrg, org)
 }
 
-func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthTokenResponse, error) {
 	token, expiredAt, err := s.generateJWT(userOrg)
 	if err != nil {
 		return nil, err
@@ -619,7 +584,7 @@ func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, 
 	}, nil
 }
 
-func (s *authService) buildAuthSessionResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthSessionResponse, error) {
+func (s *authAdapter) buildAuthSessionResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthSessionResponse, error) {
 	organizations, err := s.userOrganizationInfos(ctx, user.ID)
 	if err != nil {
 		return nil, err
@@ -639,16 +604,16 @@ func (s *authService) buildAuthSessionResponse(ctx context.Context, user *types.
 	}, nil
 }
 
-func (s *authService) generateJWT(userOrg *types.UserOrg) (string, int64, error) {
+func (s *authAdapter) generateJWT(userOrg *types.UserOrg) (string, int64, error) {
 	if s.jwtSecret == "" {
-		return "", 0, errAuthJWTSecretRequired
+		return "", 0, accounterror.ErrJWTSecretRequired
 	}
 	return localauth.GenerateUserToken(localauth.UserClaims{
 		Uin: userOrg.Uin,
 	}, s.jwtSecret, accessTokenExpire)
 }
 
-func (s *authService) generateRefreshToken(ctx context.Context, uin uint) (string, error) {
+func (s *authAdapter) generateRefreshToken(ctx context.Context, uin uint) (string, error) {
 	token, err := randomToken()
 	if err != nil {
 		return "", err
@@ -666,14 +631,14 @@ func (s *authService) generateRefreshToken(ctx context.Context, uin uint) (strin
 	return token, nil
 }
 
-func (s *authService) userOrgForIdentity(ctx context.Context, database *gorm.DB, uin, orgID uint) (*types.UserOrg, error) {
+func (s *authAdapter) userOrgForIdentity(ctx context.Context, database *gorm.DB, uin, orgID uint) (*types.UserOrg, error) {
 	if orgID > 0 {
 		return db.GetUserOrgByUinAndOrgID(ctx, database, uin, orgID)
 	}
 	return db.GetUserOrgByUin(ctx, database, uin)
 }
 
-func (s *authService) resolveLoginUserOrg(ctx context.Context, database *gorm.DB, userID, requestedOrgID uint) (*types.UserOrg, *types.Organization, error) {
+func (s *authAdapter) resolveLoginUserOrg(ctx context.Context, database *gorm.DB, userID, requestedOrgID uint) (*types.UserOrg, *types.Organization, error) {
 	var (
 		userOrg *types.UserOrg
 		err     error
@@ -684,7 +649,7 @@ func (s *authService) resolveLoginUserOrg(ctx context.Context, database *gorm.DB
 			return nil, nil, err
 		}
 		if userOrg == nil {
-			return nil, nil, errAuthUserOrgNotAllowed
+			return nil, nil, accounterror.ErrUserOrgNotAllowed
 		}
 		return s.userOrgWithOrganization(ctx, database, userOrg)
 	}
@@ -694,23 +659,23 @@ func (s *authService) resolveLoginUserOrg(ctx context.Context, database *gorm.DB
 		return nil, nil, err
 	}
 	if userOrg == nil {
-		return nil, nil, errAuthUserOrgNotFound
+		return nil, nil, accounterror.ErrUserOrgNotFound
 	}
 	return s.userOrgWithOrganization(ctx, database, userOrg)
 }
 
-func (s *authService) userOrgWithOrganization(ctx context.Context, database *gorm.DB, userOrg *types.UserOrg) (*types.UserOrg, *types.Organization, error) {
+func (s *authAdapter) userOrgWithOrganization(ctx context.Context, database *gorm.DB, userOrg *types.UserOrg) (*types.UserOrg, *types.Organization, error) {
 	org, err := db.GetOrgByID(ctx, database, userOrg.OrgID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if org == nil {
-		return nil, nil, errAuthOrgNotFound
+		return nil, nil, accounterror.ErrOrgNotFound
 	}
 	return userOrg, org, nil
 }
 
-func (s *authService) userOrganizationInfos(ctx context.Context, userID uint) ([]contract.AuthOrgInfo, error) {
+func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([]contract.AuthOrgInfo, error) {
 	userOrgs, err := db.GetUserOrgsByUserID(ctx, s.db, userID)
 	if err != nil {
 		return nil, err
@@ -755,7 +720,7 @@ func authOrgInfo(org *types.Organization, isDefault bool) contract.AuthOrgInfo {
 	}
 }
 
-func (s *authService) ensureLoginAllowed(ctx context.Context, email string) error {
+func (s *authAdapter) ensureLoginAllowed(ctx context.Context, email string) error {
 	now := time.Now()
 	s.cleanupExpiredAuthData(ctx, now)
 
@@ -767,12 +732,12 @@ func (s *authService) ensureLoginAllowed(ctx context.Context, email string) erro
 		return nil
 	}
 	if attempt.FailureCount >= loginAttemptMaxFailures {
-		return errAuthLoginAttemptsExceeded
+		return accounterror.ErrLoginAttemptsExceeded
 	}
 	return nil
 }
 
-func (s *authService) recordLoginFailure(ctx context.Context, email string) {
+func (s *authAdapter) recordLoginFailure(ctx context.Context, email string) {
 	now := time.Now()
 	attempt, err := db.GetAuthLoginAttempt(ctx, s.db, email)
 	if err != nil {
@@ -795,13 +760,13 @@ func (s *authService) recordLoginFailure(ctx context.Context, email string) {
 	}
 }
 
-func (s *authService) clearLoginFailures(ctx context.Context, email string) {
+func (s *authAdapter) clearLoginFailures(ctx context.Context, email string) {
 	if err := db.DeleteAuthLoginAttempt(ctx, s.db, email); err != nil {
 		logs.WarnContextf(ctx, "LoginByEmail: clear login attempt counter failed: %v", err)
 	}
 }
 
-func (s *authService) cleanupExpiredAuthData(ctx context.Context, now time.Time) {
+func (s *authAdapter) cleanupExpiredAuthData(ctx context.Context, now time.Time) {
 	if s.db == nil {
 		return
 	}
@@ -822,7 +787,7 @@ func defaultAccountOrg(ctx context.Context, tx *gorm.DB) (*types.Organization, e
 		return nil, err
 	}
 	if org == nil {
-		return nil, errAuthOrgNotFound
+		return nil, accounterror.ErrOrgNotFound
 	}
 	return org, nil
 }
@@ -830,11 +795,11 @@ func defaultAccountOrg(ctx context.Context, tx *gorm.DB) (*types.Organization, e
 func normalizeEmail(email string) (string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
-		return "", errAuthEmailRequired
+		return "", accounterror.ErrEmailRequired
 	}
 	address, err := mail.ParseAddress(email)
 	if err != nil || address.Address != email || !strings.Contains(email, "@") {
-		return "", errAuthInvalidEmailFormat
+		return "", accounterror.ErrInvalidEmailFormat
 	}
 	return email, nil
 }
@@ -842,32 +807,32 @@ func normalizeEmail(email string) (string, error) {
 func normalizePhone(phone string) (string, error) {
 	phone = strings.TrimSpace(phone)
 	if phone == "" {
-		return "", errAuthPhoneRequired
+		return "", accounterror.ErrPhoneRequired
 	}
 	phone = strings.TrimPrefix(phone, "+86")
 	phone = strings.TrimPrefix(phone, "86")
 	if !regexp.MustCompile(`^1[3-9]\d{9}$`).MatchString(phone) {
-		return "", errAuthInvalidPhoneFormat
+		return "", accounterror.ErrInvalidPhoneFormat
 	}
 	return phone, nil
 }
 
 func validateRegisterPassword(password, confirmPassword string) error {
 	if password != confirmPassword {
-		return errAuthPasswordsDoNotMatch
+		return accounterror.ErrPasswordsDoNotMatch
 	}
 	return validatePasswordStrength(password)
 }
 
 func validatePasswordStrength(password string) error {
 	if strings.TrimSpace(password) == "" {
-		return errAuthPasswordRequired
+		return accounterror.ErrPasswordRequired
 	}
 	if len(password) < 8 {
-		return errAuthPasswordTooShort
+		return accounterror.ErrPasswordTooShort
 	}
 	if len(password) > 20 {
-		return errAuthPasswordTooLong
+		return accounterror.ErrPasswordTooLong
 	}
 	categoryCount := 0
 	hasLower := false
@@ -876,10 +841,10 @@ func validatePasswordStrength(password string) error {
 	hasSpecial := false
 	for _, r := range password {
 		if r >= '\u4e00' && r <= '\u9fff' {
-			return errAuthPasswordContainsChinese
+			return accounterror.ErrPasswordContainsChinese
 		}
 		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
-			return errAuthPasswordContainsWhitespace
+			return accounterror.ErrPasswordContainsWhitespace
 		}
 		if r >= 'a' && r <= 'z' {
 			hasLower = true
@@ -901,7 +866,7 @@ func validatePasswordStrength(password string) error {
 		}
 	}
 	if categoryCount < 3 {
-		return errAuthPasswordMustContainLetterDigit
+		return accounterror.ErrPasswordStrength
 	}
 	return nil
 }
@@ -925,20 +890,10 @@ func hashPhoneCode(phone string, code string) string {
 }
 
 func mapSMSSendError(err error) error {
-	if errors.Is(err, errAliyunSMSRateLimited) {
-		return errAuthPhoneCodeSendTooOften
-	}
-	return errAuthSMSDeliveryFailed
+	return accounterror.ErrSMSDeliveryFailed
 }
 
-func maskPhone(phone string) string {
-	if len(phone) < 7 {
-		return phone
-	}
-	return phone[:3] + "****" + phone[len(phone)-4:]
-}
-
-func (s *authService) nextPhoneCode() (string, error) {
+func (s *authAdapter) nextPhoneCode() (string, error) {
 	if !s.smsSender.Enabled() {
 		return s.defaultPhoneCode, nil
 	}
@@ -948,12 +903,4 @@ func (s *authService) nextPhoneCode() (string, error) {
 		return "", fmt.Errorf("generate phone verification code: %w", err)
 	}
 	return fmt.Sprintf("%06d", n.Int64()), nil
-}
-
-func isUniqueConstraintError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
 }

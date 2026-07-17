@@ -95,7 +95,7 @@ func seedTaskResource(t *testing.T, database *gorm.DB, task *types.Task, project
 
 func TestCreateTask_TouchesProjectUpdatedAt(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewTaskService(database)
+	service := NewTaskService(database, newTestPermissionService(database))
 	ctx := setupTestContextWithCaller(t)
 
 	project := &types.Project{
@@ -139,7 +139,7 @@ func TestCreateTask_TouchesProjectUpdatedAt(t *testing.T) {
 
 func TestCreateTask_AllowsMemberWithoutServiceGate(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewTaskService(database)
+	service := NewTaskService(database, newTestPermissionService(database))
 
 	project := &types.Project{
 		PublicID: "prj_task_create_auth",
@@ -165,8 +165,8 @@ func TestCreateTask_AllowsMemberWithoutServiceGate(t *testing.T) {
 
 func TestDeleteProject_CascadesTasks(t *testing.T) {
 	database := setupTestDB(t)
-	projectService := NewProjectService(database, nil, nil, "test")
-	taskService := NewTaskService(database)
+	projectService := NewProjectService(database, newTestPermissionService(database), nil, nil, "test")
+	taskService := NewTaskService(database, newTestPermissionService(database))
 	ctx := setupTestContextWithCaller(t)
 
 	project := &types.Project{
@@ -203,7 +203,7 @@ func TestDeleteProject_CascadesTasks(t *testing.T) {
 
 func TestListTasks_ExcludesTasksFromDeletedProject(t *testing.T) {
 	database := setupTestDB(t)
-	taskService := NewTaskService(database)
+	taskService := NewTaskService(database, newTestPermissionService(database))
 	ctx := setupTestContextWithCaller(t)
 
 	activeProject := &types.Project{
@@ -263,7 +263,7 @@ func TestListTasks_ExcludesTasksFromDeletedProject(t *testing.T) {
 
 func TestTaskService_ProjectMemberCanViewProjectTasks(t *testing.T) {
 	database := setupTestDB(t)
-	taskService := NewTaskService(database)
+	taskService := NewTaskService(database, newTestPermissionService(database))
 	ctx := setupTestContextWithCaller(t)
 
 	project := &types.Project{
@@ -308,7 +308,7 @@ func TestTaskService_ProjectMemberCanViewProjectTasks(t *testing.T) {
 
 func TestListTasks_GlobalListUsesProjectBindingNotTaskOwner(t *testing.T) {
 	database := setupTestDB(t)
-	taskService := NewTaskService(database)
+	taskService := NewTaskService(database, newTestPermissionService(database))
 	ownerCtx := setupTestContextWithCaller(t)
 
 	project := &types.Project{

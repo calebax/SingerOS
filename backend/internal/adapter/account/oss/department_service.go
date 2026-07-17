@@ -1,10 +1,13 @@
-package service
+//go:build !enterprise
+
+package oss
 
 import (
 	"context"
 	"errors"
 	"strings"
 
+	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
@@ -12,24 +15,22 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
-var _ contract.DepartmentService = (*accountDepartmentService)(nil)
-
-type accountDepartmentService struct {
+type department struct {
 	db *gorm.DB
 }
 
-// NewDepartmentService 创建组织部门服务。
-func NewDepartmentService(d *gorm.DB) contract.DepartmentService {
-	return &accountDepartmentService{db: d}
+// NewDepartment 创建组织部门适配器。
+func NewDepartment(d *gorm.DB) *department {
+	return &department{db: d}
 }
 
-func (s *accountDepartmentService) CreateDepartment(ctx context.Context, req *contract.CreateDepartmentRequest) (*contract.Department, error) {
+func (s *department) CreateDepartment(ctx context.Context, req *contract.CreateDepartmentRequest) (*contract.Department, error) {
 	if _, err := requireAccountOrgAccess(ctx, req.OrgID); err != nil {
 		return nil, err
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("部门名称不能为空")
+		return nil, accounterror.ErrInvalidArg
 	}
 
 	existing, err := db.GetDepartmentByName(ctx, s.db, req.OrgID, name)
@@ -37,7 +38,7 @@ func (s *accountDepartmentService) CreateDepartment(ctx context.Context, req *co
 		return nil, err
 	}
 	if existing != nil {
-		return nil, errors.New("部门名称已存在")
+		return nil, accounterror.ErrInvalidArg
 	}
 
 	var parent *types.Department
@@ -73,7 +74,7 @@ func (s *accountDepartmentService) CreateDepartment(ctx context.Context, req *co
 	return convertToContractDepartment(department), nil
 }
 
-func (s *accountDepartmentService) GetDepartment(ctx context.Context, id uint) (*contract.Department, error) {
+func (s *department) GetDepartment(ctx context.Context, id uint) (*contract.Department, error) {
 	caller, err := accountOrganizationCaller(ctx)
 	if err != nil {
 		return nil, err
@@ -86,7 +87,7 @@ func (s *accountDepartmentService) GetDepartment(ctx context.Context, id uint) (
 		return nil, err
 	}
 	if department == nil {
-		return nil, errors.New("部门不存在")
+		return nil, accounterror.ErrInvalidArg
 	}
 	if err := verifyAccountOrgEntity(department.OrgID, caller.OrgID); err != nil {
 		return nil, err
@@ -94,7 +95,7 @@ func (s *accountDepartmentService) GetDepartment(ctx context.Context, id uint) (
 	return convertToContractDepartment(department), nil
 }
 
-func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint, req *contract.UpdateDepartmentRequest) (*contract.Department, error) {
+func (s *department) UpdateDepartment(ctx context.Context, id uint, req *contract.UpdateDepartmentRequest) (*contract.Department, error) {
 	caller, err := accountOrganizationCaller(ctx)
 	if err != nil {
 		return nil, err
@@ -111,7 +112,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 			return err
 		}
 		if department == nil {
-			return errors.New("部门不存在")
+			return accounterror.ErrInvalidArg
 		}
 		if err := verifyAccountOrgEntity(department.OrgID, caller.OrgID); err != nil {
 			return err
@@ -119,7 +120,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 		if req.Name != nil {
 			nextName := strings.TrimSpace(*req.Name)
 			if nextName == "" {
-				return errors.New("部门名称不能为空")
+				return accounterror.ErrInvalidArg
 			}
 			if nextName != department.Name {
 				existing, dbErr := db.GetDepartmentByName(ctx, tx, department.OrgID, nextName)
@@ -127,7 +128,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 					return dbErr
 				}
 				if existing != nil && existing.ID != department.ID {
-					return errors.New("部门名称已存在")
+					return accounterror.ErrInvalidArg
 				}
 			}
 			department.Name = nextName
@@ -179,7 +180,7 @@ func (s *accountDepartmentService) UpdateDepartment(ctx context.Context, id uint
 	return convertToContractDepartment(department), nil
 }
 
-func (s *accountDepartmentService) DeleteDepartment(ctx context.Context, id uint) error {
+func (s *department) DeleteDepartment(ctx context.Context, id uint) error {
 	caller, err := accountOrganizationCaller(ctx)
 	if err != nil {
 		return err
@@ -193,7 +194,7 @@ func (s *accountDepartmentService) DeleteDepartment(ctx context.Context, id uint
 			return err
 		}
 		if department == nil {
-			return errors.New("部门不存在")
+			return accounterror.ErrInvalidArg
 		}
 		if err := verifyAccountOrgEntity(department.OrgID, caller.OrgID); err != nil {
 			return err
@@ -212,7 +213,7 @@ func (s *accountDepartmentService) DeleteDepartment(ctx context.Context, id uint
 	})
 }
 
-func (s *accountDepartmentService) ListDepartments(ctx context.Context, req *contract.ListDepartmentsRequest) (*contract.DepartmentList, error) {
+func (s *department) ListDepartments(ctx context.Context, req *contract.ListDepartmentsRequest) (*contract.DepartmentList, error) {
 	caller, err := accountOrganizationCaller(ctx)
 	if err != nil {
 		return nil, err
@@ -275,7 +276,7 @@ func departmentParentIDsContain(parentIDs []uint, id uint) bool {
 	return false
 }
 
-func (s *accountDepartmentService) recomputeParentIDsForSubtree(ctx context.Context, tx *gorm.DB, department *types.Department) error {
+func (s *department) recomputeParentIDsForSubtree(ctx context.Context, tx *gorm.DB, department *types.Department) error {
 	children, err := db.ListDepartmentSiblings(ctx, tx, department.ID, 0)
 	if err != nil {
 		return err

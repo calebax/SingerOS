@@ -1,16 +1,22 @@
-package service
+//go:build !enterprise
+
+package oss
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/sms"
+	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -61,15 +67,15 @@ func setupAuthServiceTest(t *testing.T) (contract.AuthService, *gorm.DB) {
 		t.Fatalf("failed to seed default org: %v", err)
 	}
 
-	return NewAuthService(database, "test-secret", nil), database
+	return NewAuth(database, "test-secret", sms.NoopSMSSender{}, nil), database
 }
 
 func setupAuthServiceTestWithProvisioning(t *testing.T) (contract.AuthService, *gorm.DB) {
 	t.Helper()
 
 	_, database := setupAuthServiceTest(t)
-	provisioning := NewWorkerProvisioningService(database, nil)
-	return NewAuthServiceWithProvisioning(database, "test-secret", nil, provisioning), database
+	provisioning := service.NewWorkerProvisioningService(database, nil)
+	return NewAuth(database, "test-secret", sms.NoopSMSSender{}, provisioning), database
 }
 
 func TestAuthServiceRegisterLoginAndRefreshByEmail(t *testing.T) {
@@ -245,7 +251,7 @@ func TestAuthServiceLoginByEmailRejectsUnjoinedOrganization(t *testing.T) {
 		Password: "Password123",
 		OrgID:    foreignOrg.ID,
 	})
-	if !errors.Is(err, errAuthUserOrgNotAllowed) {
+	if !errors.Is(err, accounterror.ErrUserOrgNotAllowed) {
 		t.Fatalf("expected user org not allowed, got %v", err)
 	}
 }
@@ -334,7 +340,7 @@ func TestAuthServiceCreateOrganizationSwitchesSession(t *testing.T) {
 	}
 
 	_, err = service.CreateOrganization(authCtx, &contract.CreateOrganizationRequest{Name: "第四个组织"})
-	if !errors.Is(err, errAuthOrganizationLimitExceeded) {
+	if !errors.Is(err, accounterror.ErrOrganizationLimitExceeded) {
 		t.Fatalf("expected organization limit error, got %v", err)
 	}
 }
@@ -375,7 +381,7 @@ func TestAuthServiceCreateOrganizationEnsuresDefaultWorker(t *testing.T) {
 		t.Fatalf("unexpected worker deployment: %#v", deployment)
 	}
 
-	assistant, err := db.GetDigitalAssistantByPublicID(ctx, database, defaultWorkerPublicID(created.Org.ID))
+	assistant, err := db.GetDigitalAssistantByPublicID(ctx, database, fmt.Sprintf("ler_wk_%d", created.Org.ID))
 	if err != nil {
 		t.Fatalf("GetDigitalAssistantByPublicID failed: %v", err)
 	}
@@ -406,7 +412,7 @@ func TestAuthServiceLoginAttemptLimit(t *testing.T) {
 			Email:    "limit@example.com",
 			Password: "WrongPassword123",
 		})
-		if !errors.Is(err, errAuthInvalidEmailOrPassword) {
+		if !errors.Is(err, accounterror.ErrInvalidEmailOrPassword) {
 			t.Fatalf("expected invalid password error on attempt %d, got %v", i+1, err)
 		}
 	}
@@ -415,7 +421,7 @@ func TestAuthServiceLoginAttemptLimit(t *testing.T) {
 		Email:    "limit@example.com",
 		Password: "Password123",
 	})
-	if !errors.Is(err, errAuthLoginAttemptsExceeded) {
+	if !errors.Is(err, accounterror.ErrLoginAttemptsExceeded) {
 		t.Fatalf("expected login attempts exceeded, got %v", err)
 	}
 }
@@ -429,7 +435,7 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 		Password:        "Password123",
 		ConfirmPassword: "Password123",
 	})
-	if !errors.Is(err, errAuthInvalidEmailFormat) {
+	if !errors.Is(err, accounterror.ErrInvalidEmailFormat) {
 		t.Fatalf("expected invalid email format, got %v", err)
 	}
 
@@ -438,7 +444,7 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 		Password:        "short",
 		ConfirmPassword: "short",
 	})
-	if !errors.Is(err, errAuthPasswordTooShort) {
+	if !errors.Is(err, accounterror.ErrPasswordTooShort) {
 		t.Fatalf("expected password too short, got %v", err)
 	}
 
@@ -447,7 +453,7 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 		Password:        "Password123",
 		ConfirmPassword: "Password456",
 	})
-	if !errors.Is(err, errAuthPasswordsDoNotMatch) {
+	if !errors.Is(err, accounterror.ErrPasswordsDoNotMatch) {
 		t.Fatalf("expected passwords do not match, got %v", err)
 	}
 
@@ -456,7 +462,7 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 		Password:        "PasswordOnly",
 		ConfirmPassword: "PasswordOnly",
 	})
-	if !errors.Is(err, errAuthPasswordMustContainLetterDigit) {
+	if !errors.Is(err, accounterror.ErrPasswordStrength) {
 		t.Fatalf("expected password strength error, got %v", err)
 	}
 }
@@ -515,7 +521,7 @@ func TestAuthServicePhoneCodeRejectsInvalidCode(t *testing.T) {
 		Phone: "13900139000",
 		Code:  "000000",
 	})
-	if !errors.Is(err, errAuthInvalidPhoneCode) {
+	if !errors.Is(err, accounterror.ErrInvalidPhoneCode) {
 		t.Fatalf("expected invalid phone code, got %v", err)
 	}
 }
@@ -537,7 +543,7 @@ func TestAuthServicePhoneCodeRejectsResendWithinTwoMinutes(t *testing.T) {
 	_, err = service.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
 		Phone: "13700137000",
 	})
-	if !errors.Is(err, errAuthPhoneCodeSendTooOften) {
+	if !errors.Is(err, accounterror.ErrPhoneCodeSendTooOften) {
 		t.Fatalf("expected resend-too-often error, got %v", err)
 	}
 }

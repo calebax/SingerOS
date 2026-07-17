@@ -1,19 +1,10 @@
 package contract
 
 import (
-	"context"
 	"time"
 
 	"github.com/insmtx/Leros/backend/types"
 )
-
-type DepartmentService interface {
-	CreateDepartment(ctx context.Context, req *CreateDepartmentRequest) (*Department, error)
-	GetDepartment(ctx context.Context, id uint) (*Department, error)
-	UpdateDepartment(ctx context.Context, id uint, req *UpdateDepartmentRequest) (*Department, error)
-	DeleteDepartment(ctx context.Context, id uint) error
-	ListDepartments(ctx context.Context, req *ListDepartmentsRequest) (*DepartmentList, error)
-}
 
 type Department struct {
 	ID        uint      `json:"id"`
