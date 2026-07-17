@@ -25,16 +25,14 @@ export { digitalAssistantApi } from "./api/digitalAssistantApi";
 export type { FeedbackType, SubmitFeedbackParams, SubmitFeedbackResponse } from "./api/feedbackApi";
 export { feedbackApi } from "./api/feedbackApi";
 export {
-	fetchFileDownload,
 	fetchFilePreview,
 	fetchFilePreviewByPublicId,
 	fetchFilePreviewByStorageUri,
 	fileApi,
-	getFileDownloadUrl,
 	getFilePreviewUrl,
 	getFilePreviewUrlByPublicId,
 	getFilePublicUrlFromStorageUri,
-	resolveLogoUrl,
+	normalizeFilePublicId,
 } from "./api/fileApi";
 export type {
 	Department,

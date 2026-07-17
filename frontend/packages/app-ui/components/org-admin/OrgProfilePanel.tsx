@@ -1,10 +1,10 @@
 "use client";
 
 import {
+	normalizeFilePublicId,
 	type OrgInfo,
 	orgAdminApi,
 	projectFileApi,
-	resolveLogoUrl,
 	useAuthStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
@@ -76,7 +76,7 @@ export function OrgProfilePanel({
 			setOrg(data);
 			setNameDraft(data.name);
 			setInitialName(data.name);
-			setPendingLogoUrl(resolveLogoUrl(data.logo));
+			setPendingLogoUrl(normalizeFilePublicId(data.logo));
 			const currentOrgId = currentOrgIdRef.current;
 			if (currentOrgId) {
 				syncOrganizationProfile(currentOrgId, { name: data.name, logo: data.logo });
@@ -150,8 +150,7 @@ export function OrgProfilePanel({
 			const updated = resp.data.data;
 			setOrg(updated);
 			setInitialName(updated.name);
-			const resolvedLogo = resolveLogoUrl(updated.logo);
-			setPendingLogoUrl(resolvedLogo);
+			setPendingLogoUrl(normalizeFilePublicId(updated.logo));
 			if (user.currentOrg?.id) {
 				syncOrganizationProfile(user.currentOrg.id, { name: updated.name, logo: updated.logo });
 			}
@@ -167,7 +166,7 @@ export function OrgProfilePanel({
 	const handleCancel = () => {
 		setNameDraft(initialName);
 		clearLogoPreview();
-		setPendingLogoUrl(resolveLogoUrl(org?.logo));
+		setPendingLogoUrl(normalizeFilePublicId(org?.logo));
 	};
 
 	// 中文注释：仅在组织尚未设置图标或原图不可用时显示固定默认头像，不影响用户上传并保存自定义图标。

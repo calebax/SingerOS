@@ -2,7 +2,7 @@
 
 import {
 	type AuthUser,
-	resolveLogoUrl,
+	normalizeFilePublicId,
 	useAuthStore,
 	useChatStore,
 	useDAStore,
@@ -232,7 +232,7 @@ function OrganizationList({
 						{/* 中文注释：与组织管理页共用默认头像；组织已上传的图标仍由 src 优先渲染。 */}
 						<span className="flex size-10 shrink-0 overflow-hidden rounded-full bg-[var(--leros-primary-softer)]">
 							<ProtectedImage
-								src={resolveLogoUrl(org.logo)}
+								src={normalizeFilePublicId(org.logo)}
 								alt={org.name}
 								className="h-full w-full object-cover"
 								fallback={

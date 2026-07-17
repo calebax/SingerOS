@@ -1,6 +1,10 @@
 "use client";
 
-import { authenticatedFetch, fetchFilePreviewByPublicId } from "@leros/store";
+import {
+	authenticatedFetch,
+	fetchFilePreviewByPublicId,
+	normalizeFilePublicId,
+} from "@leros/store";
 import { type ReactNode, useEffect, useState } from "react";
 
 const PROTECTED_IMAGE_CACHE_PREFIX = "leros-avatar-cache:";
@@ -8,16 +12,12 @@ const PROTECTED_IMAGE_CACHE_PREFIX = "leros-avatar-cache:";
 const memoryCache = new Map<string, string>();
 const inflightLoads = new Map<string, Promise<string>>();
 
-export function isProtectedFileURL(src: string): boolean {
-	return src.includes("/files/") && src.includes("/download");
-}
-
 function isFilePublicId(src: string): boolean {
 	return /^file_[A-Za-z0-9_-]+$/.test(src.trim());
 }
 
 function isProtectedImageSource(src: string): boolean {
-	return isProtectedFileURL(src) || isFilePublicId(src);
+	return isFilePublicId(src) || Boolean(normalizeFilePublicId(src));
 }
 
 function getProtectedImageCacheKey(src: string): string {
@@ -117,9 +117,10 @@ export function blobToDataURL(blob: Blob): Promise<string> {
 }
 
 function fetchProtectedImageSource(src: string): Promise<Response> {
-	if (isFilePublicId(src)) {
-		// 中文注释：头像字段保存的是文件 public_id，展示时统一走 preview 接口读取受保护文件。
-		return fetchFilePreviewByPublicId(src);
+	const publicId = normalizeFilePublicId(src);
+	if (publicId) {
+		// 中文注释：头像字段统一保存 public_id，历史 download URL 也会先转换后走 preview。
+		return fetchFilePreviewByPublicId(publicId);
 	}
 
 	return authenticatedFetch(src);

@@ -31,7 +31,7 @@ const mockUser = {
 };
 
 vi.mock("@leros/store", () => ({
-	resolveLogoUrl: () => "",
+	normalizeFilePublicId: () => "",
 	useAuthStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			authUser: mockUser,
