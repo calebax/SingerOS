@@ -93,6 +93,24 @@ export {
 	useTopicStore,
 } from "./appStore";
 export {
+	buildComposerFolderUploadSummaryMessage,
+	COMPOSER_UPLOAD_ACCEPT,
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	isComposerUploadAllowedFile,
+	isEmptyUploadFile,
+	partitionComposerFolderFiles,
+	resolveComposerUploadFileName,
+} from "./constants/composer-upload";
+export {
+	FOLDER_UPLOAD_MAX_BYTES,
+	FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE,
+	getFileRelativePath,
+	getFolderNameFromFiles,
+	getFolderUploadTotalSize,
+	isFolderUploadSizeExceeded,
+} from "./constants/upload";
+export {
 	useCan,
 	useEnsureCapabilities,
 	useProjectCapabilities,

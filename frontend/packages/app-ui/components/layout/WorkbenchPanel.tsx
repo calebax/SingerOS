@@ -1,8 +1,15 @@
 "use client";
 
 import {
+	buildComposerFolderUploadSummaryMessage,
+	COMPOSER_UPLOAD_ACCEPT,
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	isComposerUploadAllowedFile,
+	isEmptyUploadFile,
 	type Project,
 	type ProjectTask,
+	partitionComposerFolderFiles,
 	projectFileApi,
 	useChatStore,
 	useDAStore,
@@ -33,7 +40,6 @@ import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
 import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 import { AttachmentPreview } from "../input/AttachmentPreview";
-import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ComposerActionBar } from "../input/ComposerActionBar";
 import { ComposerUsageTipsPanel } from "../input/ComposerUsageTipsPanel";
 import { buildComposerUsageTips } from "../input/composerUsageTips";
@@ -447,10 +453,18 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	};
 
 	const uploadWorkbenchAttachment = useCallback(async (file: File) => {
+		if (isEmptyUploadFile(file)) {
+			throw new Error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
+		}
+		if (!isComposerUploadAllowedFile(file)) {
+			throw new Error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
+		}
+
 		// 中文注释：未选项目时先走通用上传，后续再随 NewMessage 关联到新建任务上下文。
 		const response = await projectFileApi.uploadLoose({
 			file,
 			purpose: "attachment",
+			withLocalPath: true,
 		});
 		const payload = response.data;
 		const attachment: Attachment = {
@@ -499,12 +513,21 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			return;
 		}
 
+		const { uploadable, skippedEmpty, skippedType } = partitionComposerFolderFiles(files);
+		if (uploadable.length === 0) {
+			toast.error(
+				buildComposerFolderUploadSummaryMessage(0, skippedEmpty.length, skippedType.length),
+				{ position: "bottom-right" },
+			);
+			return;
+		}
+
 		const folderName = getFolderNameFromFiles(files);
 		const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
 		let totalSize = 0;
 
 		try {
-			for (const file of files) {
+			for (const file of uploadable) {
 				const response = activeWorkbenchProjectId
 					? await projectFileApi.upload({
 							projectId: activeWorkbenchProjectId,
@@ -514,6 +537,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					: await projectFileApi.uploadLoose({
 							file,
 							purpose: "attachment",
+							withLocalPath: true,
 						});
 				const payload = response.data;
 				if (!payload?.public_id) {
@@ -540,7 +564,16 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				folderFiles,
 			};
 			setAttachments((prev) => [...prev, attachment]);
-			toast.success("文件夹上传成功");
+			const summaryMessage = buildComposerFolderUploadSummaryMessage(
+				uploadable.length,
+				skippedEmpty.length,
+				skippedType.length,
+			);
+			if (summaryMessage.includes("已跳过")) {
+				toast.info(summaryMessage, { position: "bottom-right" });
+			} else {
+				toast.success(summaryMessage, { position: "bottom-right" });
+			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "文件夹上传失败";
 			console.error("Workbench upload folder error:", err);
@@ -910,7 +943,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							ref={fileInputRef}
 							type="file"
 							className="hidden"
-							accept={PROJECT_ATTACHMENT_ACCEPT}
+							accept={COMPOSER_UPLOAD_ACCEPT}
 							multiple
 							onChange={handleAttachmentSelect}
 						/>

@@ -19,6 +19,14 @@ import type {
 	SSEMessageEvent,
 } from "../api/types";
 import {
+	buildComposerFolderUploadSummaryMessage,
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	isComposerUploadAllowedFile,
+	isEmptyUploadFile,
+	partitionComposerFolderFiles,
+} from "../constants/composer-upload";
+import {
 	FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE,
 	getFileRelativePath,
 	getFolderNameFromFiles,
@@ -2855,6 +2863,13 @@ export class ChatActionImpl {
 	};
 
 	addUploadedAttachment = async (projectId: string, file: File) => {
+		if (isEmptyUploadFile(file)) {
+			throw new Error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
+		}
+		if (!isComposerUploadAllowedFile(file)) {
+			throw new Error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
+		}
+
 		const response = await projectFileApi.upload({
 			projectId,
 			projectPublicId: projectId,
@@ -2892,12 +2907,18 @@ export class ChatActionImpl {
 			throw new Error(FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE);
 		}
 
+		const { uploadable, skippedEmpty, skippedType } = partitionComposerFolderFiles(files);
+		if (uploadable.length === 0) {
+			throw new Error(
+				buildComposerFolderUploadSummaryMessage(0, skippedEmpty.length, skippedType.length),
+			);
+		}
+
 		const folderName = getFolderNameFromFiles(files);
 		const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
 		let totalSize = 0;
-		let responseMessage = "文件夹上传成功";
 
-		for (const file of files) {
+		for (const file of uploadable) {
 			const response = await projectFileApi.upload({
 				projectId,
 				projectPublicId: projectId,
@@ -2920,7 +2941,6 @@ export class ChatActionImpl {
 				size: fileSize,
 			});
 			totalSize += fileSize;
-			responseMessage = response.message || responseMessage;
 		}
 
 		const attachment: Attachment = {
@@ -2935,7 +2955,14 @@ export class ChatActionImpl {
 			inputAttachments: [...state.inputAttachments, attachment],
 		}));
 
-		return { attachment, message: responseMessage };
+		return {
+			attachment,
+			message: buildComposerFolderUploadSummaryMessage(
+				uploadable.length,
+				skippedEmpty.length,
+				skippedType.length,
+			),
+		};
 	};
 
 	removeAttachment = (id: string) => {
