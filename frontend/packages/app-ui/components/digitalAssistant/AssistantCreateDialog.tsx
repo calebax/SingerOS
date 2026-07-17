@@ -241,6 +241,8 @@ export function AssistantCreateDialog({
 					name: name.trim(),
 					role_name: roleName.trim(),
 					description: introduction.trim(),
+					// 中文注释：模板实例允许覆盖头像，与后续编辑入口保持一致，其他模板配置仍由服务端继承。
+					avatar: avatar.trim() || undefined,
 				});
 			} else {
 				assistant = await createAssistant({
@@ -396,23 +398,23 @@ export function AssistantCreateDialog({
 							<div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr_1fr]">
 								<div className="flex items-center gap-3 md:row-span-2 md:flex-col md:items-start">
 									<AssistantAvatar
-										name={customAvatarSeed}
+										// 中文注释：自定义默认头像在本次弹窗打开期间保持同一随机种子；仅模板回退头像使用模板名称。
+										name={selectedTemplate?.name || customAvatarSeed}
 										src={previewAvatar || avatar}
 										size="lg"
 									/>
-									{customMode ? (
-										<label className="inline-flex h-8 cursor-pointer items-center rounded-md border border-slate-200 px-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
-											<ImagePlus className="mr-1.5 size-3.5" />
-											{uploadingAvatar ? "上传中" : "上传头像"}
-											<input
-												type="file"
-												accept="image/*"
-												className="sr-only"
-												onChange={handleAvatarChange}
-												disabled={uploadingAvatar}
-											/>
-										</label>
-									) : null}
+									{/* 中文注释：预设和自定义创建共用头像上传能力，避免创建后的编辑能力与创建阶段不一致。 */}
+									<label className="inline-flex h-8 cursor-pointer items-center rounded-md border border-slate-200 px-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+										<ImagePlus className="mr-1.5 size-3.5" />
+										{uploadingAvatar ? "上传中" : "上传头像"}
+										<input
+											type="file"
+											accept="image/*"
+											className="sr-only"
+											onChange={handleAvatarChange}
+											disabled={uploadingAvatar}
+										/>
+									</label>
 								</div>
 								<Field
 									label="自定义名称"
