@@ -328,7 +328,7 @@ function getReplyTargetMessageId(runId?: string): string | undefined {
 
 function buildReplyToFromMessage(message?: Message): Message["replyTo"] | undefined {
 	if (message?.role !== "user") return undefined;
-	const content = message.content.trim();
+	const content = (message.metadata?.displayContent ?? message.content).trim();
 	if (!content && !message.attachments?.length) return undefined;
 	return {
 		messageId: message.id,
@@ -2154,9 +2154,7 @@ export class ChatActionImpl {
 				assistant_ids: extractAssistantIdsFromMetadata(params.metadata),
 				message_type: "text",
 				attachments: mapOutgoingAttachments(attachments),
-				metadata: params.metadata?.composerTokens
-					? { extra: { composerTokens: params.metadata.composerTokens } }
-					: undefined,
+				metadata: buildBackendMessageMetadata(params.metadata),
 			});
 		} catch (err) {
 			this.#dispatchChat({
@@ -2189,18 +2187,18 @@ export class ChatActionImpl {
 
 	sendMessage = async (content: string, attachments?: Attachment[], metadata?: MessageMetadata) => {
 		// 仅上传附件而无文字时后端会报错，必须要求有文本内容
-		if (!content.trim()) return;
+		if (!content.trim()) return false;
 
 		const state = this.#get();
 		// 中文注释：生成中禁止再次发送，避免新的请求把上一条流式响应直接顶掉。
-		if (state.isGenerating) return;
+		if (state.isGenerating) return false;
 		let { activeSessionId } = state;
 
 		if (!activeSessionId) {
 			try {
 				const res = await sessionApi.create({ type: "chat", title: "新会话" });
 				const session = res.data.data;
-				if (!session) return;
+				if (!session) return false;
 				activeSessionId = session.session_id;
 				const conv = {
 					id: session.session_id,
@@ -2224,7 +2222,7 @@ export class ChatActionImpl {
 				});
 			} catch (err) {
 				console.error("Auto-create conversation error:", err);
-				return;
+				return false;
 			}
 		}
 
@@ -2237,13 +2235,11 @@ export class ChatActionImpl {
 				assistant_ids: extractAssistantIdsFromMetadata(metadata),
 				message_type: "text",
 				attachments: mapOutgoingAttachments(attachments),
-				metadata: metadata?.composerTokens
-					? { extra: { composerTokens: metadata.composerTokens } }
-					: undefined,
+				metadata: buildBackendMessageMetadata(metadata),
 			});
 		} catch (err) {
 			console.error("sendMessage addMessage error:", err);
-			return;
+			return false;
 		}
 
 		const now = Date.now();
@@ -2276,6 +2272,7 @@ export class ChatActionImpl {
 		});
 
 		this.#startSSE(activeSessionId, assistantMsg.id);
+		return true;
 	};
 
 	sendProjectMessage = async (

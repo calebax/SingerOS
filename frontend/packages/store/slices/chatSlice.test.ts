@@ -183,6 +183,31 @@ describe("mapBackendMessage", () => {
 });
 
 describe("attachAssistantReplyTargets", () => {
+	it("uses display content instead of an internal reference payload", () => {
+		const messages: Message[] = [
+			{
+				id: "475",
+				conversationId: "session-1",
+				role: "user",
+				content: "<reference>{}</reference>",
+				metadata: { displayContent: "扩写文档选区：「运动」" },
+				timestamp: 1,
+			},
+			{
+				id: "476",
+				conversationId: "session-1",
+				role: "assistant",
+				content: "已完成",
+				timestamp: 2,
+				runId: "req_475",
+			},
+		];
+
+		const result = attachAssistantReplyTargets(messages);
+
+		expect(result[1]?.replyTo?.content).toBe("扩写文档选区：「运动」");
+	});
+
 	it("links an assistant history message to the user message encoded in run_id", () => {
 		const messages: Message[] = [
 			{

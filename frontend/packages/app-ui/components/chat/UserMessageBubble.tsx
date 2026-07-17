@@ -36,7 +36,8 @@ function CopyButton({ text }: { text: string }) {
 
 export function UserMessageBubble({ message }: { message: Message }) {
 	const authUser = useAuthStore((state) => state.authUser);
-	const visibleText = message.content.trim();
+	const displayContent = message.metadata?.displayContent ?? message.content;
+	const visibleText = displayContent.trim();
 	const attachments = message.attachments ?? [];
 	const currentUserId = authUser?.uin !== undefined ? String(authUser.uin) : undefined;
 	// 中文注释：后端落库消息会返回真实 sender_uin，不能只依赖本地 optimistic 的 current-user 标记。
@@ -62,11 +63,11 @@ export function UserMessageBubble({ message }: { message: Message }) {
 					{!isOwnMessage && authorName && (
 						<span className="font-medium text-slate-500">{authorName}</span>
 					)}
-					{isOwnMessage && visibleText && <CopyButton text={message.content} />}
+					{isOwnMessage && visibleText && <CopyButton text={displayContent} />}
 					{isOwnMessage && authorName && <span>{authorName}</span>}
 					{message.status === "sending" && <span className="text-xs text-slate-400">发送中</span>}
 					<span>{formatTime(message.timestamp)}</span>
-					{!isOwnMessage && visibleText && <CopyButton text={message.content} />}
+					{!isOwnMessage && visibleText && <CopyButton text={displayContent} />}
 				</div>
 				{attachments.length > 0 && (
 					<div className={`mb-2 flex flex-col gap-2 ${isOwnMessage ? "items-end" : "items-start"}`}>
