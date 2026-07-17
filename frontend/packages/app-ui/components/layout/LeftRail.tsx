@@ -179,6 +179,13 @@ export function LeftRail({
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
 
+	const resetProjectExpansionState = useCallback(() => {
+		setExpandedProjectIds(new Set());
+		setExpandedTaskProjectIds(new Set());
+		setTaskLoadedProjectIds(new Set());
+		setLoadingTaskProjectIds(new Set());
+	}, []);
+
 	/* ── Desktop update notifier ── */
 	const [promptOpen, setPromptOpen] = useState(false);
 	const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
@@ -321,11 +328,14 @@ export function LeftRail({
 	// 中文注释：项目展开态属于当前登录会话的浏览上下文，登出后应重置，避免重新登录后仍显示空的展开列表。
 	useEffect(() => {
 		if (isAuthenticated) return;
-		setExpandedProjectIds(new Set());
-		setExpandedTaskProjectIds(new Set());
-		setTaskLoadedProjectIds(new Set());
-		setLoadingTaskProjectIds(new Set());
-	}, [isAuthenticated]);
+		resetProjectExpansionState();
+	}, [isAuthenticated, resetProjectExpansionState]);
+
+	// 中文注释：组织切换后应重置项目展开态，避免沿用上一组织的展开记录并误显示“暂无任务”。
+	useEffect(() => {
+		if (user?.currentOrg?.id == null) return;
+		resetProjectExpansionState();
+	}, [user?.currentOrg?.id, resetProjectExpansionState]);
 
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
