@@ -305,6 +305,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
 	const [isDesktopApp, setIsDesktopApp] = useState(false);
 	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
+	const wasAuthenticatedRef = useRef(isAuthenticated);
 
 	const revokeAttachmentURLs = (items: Attachment[]) => {
 		for (const attachment of items) {
@@ -578,7 +579,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			return prev.filter((attachment) => attachment.id !== attachmentId);
 		});
 	};
-	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
+	const activeProject = isAuthenticated
+		? projects.find((project) => project.id === activeWorkbenchProjectId)
+		: undefined;
 	const availableAssistantOptions = useMemo<ComposerAssistantOption[]>(
 		() =>
 			assistants.filter(isAssistantAvailable).map((assistant) => ({
@@ -594,8 +597,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		[assistants],
 	);
 	const filteredProjects = useMemo(
-		() => getFilteredProjects(projects, projectSearch),
-		[projectSearch, projects],
+		() => (isAuthenticated ? getFilteredProjects(projects, projectSearch) : []),
+		[isAuthenticated, projectSearch, projects],
 	);
 
 	// 中文注释：项目列表接口不含任务，hover 展示任务子菜单时按需拉取。
@@ -624,6 +627,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			? `${activeProject.name} / ${activeTask.title}`
 			: `${activeProject.name} / 新建任务`
 		: "新建项目/任务";
+	const hasWorkbenchSelection = isAuthenticated && Boolean(activeWorkbenchProjectId);
 	const hoveredProject =
 		hoveredSubmenu?.startsWith("project:") === true
 			? projects.find((project) => project.id === hoveredSubmenu.slice("project:".length))
@@ -666,6 +670,26 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		setProjectSearch("");
 		closeSubmenu();
 	}, [closeSubmenu, dismissProjectTriggerText]);
+
+	const resetWorkbenchOnLogout = useCallback(() => {
+		clearTaskDetailRoute();
+		selectWorkbenchProject(null);
+		setInput("");
+		composerRef.current?.setContent("");
+		revokeAttachmentURLs(attachmentsRef.current);
+		setAttachments([]);
+		setExecutionMode("default");
+		closeProjectMenu();
+		setTaskLoadedProjectIds(new Set());
+		setLoadingTaskProjectIds(new Set());
+	}, [clearTaskDetailRoute, closeProjectMenu, selectWorkbenchProject]);
+
+	useEffect(() => {
+		if (wasAuthenticatedRef.current && !isAuthenticated) {
+			resetWorkbenchOnLogout();
+		}
+		wasAuthenticatedRef.current = isAuthenticated;
+	}, [isAuthenticated, resetWorkbenchOnLogout]);
 
 	const handleProjectSearchChange = useCallback(
 		(value: string) => {
@@ -1003,7 +1027,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									</Command>
 									<div ref={projectListRefCallback} className={PROJECT_PICKER_LIST_CLASS}>
 										{filteredProjects.map((project) => {
-											const projectSelected = activeWorkbenchProjectId === project.id;
+											const projectSelected =
+												isAuthenticated && activeWorkbenchProjectId === project.id;
 
 											return (
 												<button
@@ -1052,11 +1077,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										<button
 											type="button"
 											onClick={handleSelectNewProjectTask}
-											className={projectPickerRowClass(!activeWorkbenchProjectId)}
+											className={projectPickerRowClass(!hasWorkbenchSelection)}
 										>
 											<Plus className="size-4 shrink-0" />
 											<span className="min-w-0 flex-1 truncate">新建空白项目</span>
-											{!activeWorkbenchProjectId && <Check className="size-4 shrink-0" />}
+											{!hasWorkbenchSelection && <Check className="size-4 shrink-0" />}
 										</button>
 									</div>
 								)}
@@ -1072,6 +1097,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 											) : hoveredProject.tasks.length > 0 ? (
 												hoveredProject.tasks.map((task) => {
 													const selected =
+														isAuthenticated &&
 														activeWorkbenchProjectId === hoveredProject.id &&
 														activeWorkbenchTaskId === task.id;
 													return (
