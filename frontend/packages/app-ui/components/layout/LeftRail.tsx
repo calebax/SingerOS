@@ -1587,8 +1587,11 @@ function ProjectList({
 							</span>
 							{!collapsed && (
 								<>
-									<span className="min-w-0 flex-1 truncate">{project.name}</span>
-									<div className="flex shrink-0 items-center">
+									<span className="-mr-6 min-w-0 flex-1 truncate group-hover:mr-0 group-has-[button[data-popup-open]]:mr-0">
+										{project.name}
+									</span>
+									{/* 悬停时将操作组移入原生省略号后的视觉留白，保持三个图标的相对间距。 */}
+									<div className="flex shrink-0 items-center transition-transform duration-150 group-hover:-translate-x-3 group-has-[button[data-popup-open]]:-translate-x-3">
 										<span
 											className={cn(railHoverChevronSlotClass, "text-[var(--leros-text-subtle)]")}
 										>
