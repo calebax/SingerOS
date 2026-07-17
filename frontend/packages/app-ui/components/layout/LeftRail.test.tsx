@@ -31,6 +31,7 @@ const mockUser = {
 	name: "测试用户",
 	email: "test@example.com",
 	avatarUrl: "http://localhost:18080/v1/files/file_TN3691n6qd/download",
+	currentOrg: { id: 1, name: "组织 1" },
 };
 
 vi.mock("@leros/store", () => ({
@@ -170,6 +171,23 @@ describe("LeftRail project expansion", () => {
 
 		mockIsAuthenticated = false;
 		mockProjects = [];
+		rerender(<LeftRail />);
+
+		expect(screen.queryByText("暂无任务")).not.toBeInTheDocument();
+	});
+
+	it("切换组织后会重置项目展开状态", async () => {
+		mockFetchTasks.mockResolvedValue(undefined);
+		mockUser.currentOrg = { id: 1, name: "组织 1" };
+
+		const { rerender } = render(<LeftRail />);
+
+		fireEvent.click(screen.getByText("测试项目"));
+		await waitFor(() => {
+			expect(screen.getByText("暂无任务")).toBeInTheDocument();
+		});
+
+		mockUser.currentOrg = { id: 2, name: "组织 2" };
 		rerender(<LeftRail />);
 
 		expect(screen.queryByText("暂无任务")).not.toBeInTheDocument();
