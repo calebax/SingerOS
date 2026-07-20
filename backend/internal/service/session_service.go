@@ -515,8 +515,8 @@ func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract
 	return s.eventbus.Publish(ctx, topic, cmd)
 }
 
-func (s *sessionService) sessionRuntimeStatus(ctx context.Context, sessionID uint) string {
-	messages, err := db.GetRecentProcessingUserMessages(ctx, s.db, sessionID, time.Now().Add(-sessionProcessingWindow))
+func lookupSessionRuntimeStatus(ctx context.Context, gdb *gorm.DB, sessionID uint) string {
+	messages, err := db.GetRecentProcessingUserMessages(ctx, gdb, sessionID, time.Now().Add(-sessionProcessingWindow))
 	if err != nil {
 		logs.WarnContextf(ctx, "get session runtime status failed: session=%d error=%v", sessionID, err)
 		return sessionRuntimeStatusIdle
@@ -525,6 +525,10 @@ func (s *sessionService) sessionRuntimeStatus(ctx context.Context, sessionID uin
 		return sessionRuntimeStatusResponding
 	}
 	return sessionRuntimeStatusIdle
+}
+
+func (s *sessionService) sessionRuntimeStatus(ctx context.Context, sessionID uint) string {
+	return lookupSessionRuntimeStatus(ctx, s.db, sessionID)
 }
 
 func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contract.SessionRunStartedRequest) error {
