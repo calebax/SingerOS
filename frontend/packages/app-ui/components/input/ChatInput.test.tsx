@@ -20,6 +20,7 @@ vi.mock("@leros/store", () => ({
 			inputText: "项目首页首条提问",
 			inputAttachments: [],
 			isGenerating: false,
+			cancellingSessionId: null,
 			messagesMap: {},
 			messageIds: [],
 			selectedModel: "gpt-4.1",
@@ -39,6 +40,7 @@ vi.mock("@leros/store", () => ({
 			setSelectedModel: vi.fn(),
 			setExecutionMode: mockSetExecutionMode,
 		}),
+	COMPOSER_UPLOAD_ACCEPT: ".txt",
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			activeProjectId: "project-1",

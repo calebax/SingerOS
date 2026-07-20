@@ -84,8 +84,10 @@ export function ChatInput({
 		inputText,
 		inputAttachments,
 		isGenerating,
+		cancellingSessionId,
 		messagesMap,
 		messageIds,
+		streamingMessageId,
 		selectedModel,
 		executionMode,
 		modelOptions,
@@ -104,6 +106,10 @@ export function ChatInput({
 		setSelectedModel,
 		setExecutionMode,
 	} = useChatStore((s) => s);
+	const isCancelling = Boolean(activeSessionId && cancellingSessionId === activeSessionId);
+	const isAwaitingRun = streamingMessageId
+		? messagesMap[streamingMessageId]?.status === "waiting"
+		: false;
 	const {
 		activeProjectId,
 		activeTaskDetailProjectId,
@@ -652,9 +658,11 @@ export function ChatInput({
 										isProjectVariant && "size-9 rounded-xl",
 									)}
 									onClick={cancelGeneration}
+									disabled={isCancelling || isAwaitingRun}
 								>
 									<CircleStop className={cn("size-3.5", !isProjectVariant && "mr-1")} />
-									{!isProjectVariant && "停止"}
+									{!isProjectVariant &&
+										(isCancelling ? "停止中…" : isAwaitingRun ? "准备中…" : "停止")}
 								</Button>
 							) : (
 								<Button

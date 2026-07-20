@@ -1171,7 +1171,8 @@ export function applySessionEventToMessage(
 				...message,
 				status: "failed",
 				statusText: undefined,
-				content: message.content || "已取消生成。",
+				// 取消结果由后端持久化后回拉，避免前端默认文案与后端结果短暂闪烁。
+				content: message.content,
 			};
 		}
 		default:
@@ -1956,6 +1957,9 @@ export class ChatActionImpl {
 
 		const responseMessageId = `msg-assistant-${runId}`;
 		const state = this.#get();
+		// 取消命令发送后，GlobalEvents 中可能仍有本轮迟到的 assistant started。
+		// 不能为已取消的 run 再创建「AI 员工已接单」占位或重新建立 SSE。
+		if (state.cancellingSessionId === sessionId) return;
 		if (state.messagesMap[responseMessageId]) return;
 		const currentStreamingMessage = state.streamingMessageId
 			? state.messagesMap[state.streamingMessageId]
@@ -2136,6 +2140,16 @@ export class ChatActionImpl {
 		if (this.#get().isGenerating) return null;
 
 		const now = Date.now();
+		const userMsg: Message = {
+			id: `msg-user-${now}`,
+			conversationId: params.sessionId,
+			role: "user",
+			content: trimmed,
+			timestamp: now,
+			status: "sending",
+			attachments: mapComposerAttachments(attachments),
+			metadata: params.metadata,
+		};
 		const assistantMsg: Message = {
 			id: `msg-assistant-waiting-${now}`,
 			conversationId: params.sessionId,
@@ -2146,13 +2160,15 @@ export class ChatActionImpl {
 			statusText: "正在提交问题并分配 AI 员工...",
 			// 中文注释：等待 GlobalEvents 回填前，先用本次输入的 @ 队友信息稳定展示头像和名称。
 			metadata: params.metadata,
+			replyTo: buildReplyToFromMessage(userMsg),
 			author: {
 				id: "pending-assistant",
 				name: "Lework",
 				type: "assistant",
 			},
 		};
-		// 中文注释：真实用户问题和附件统一由 GlobalEvents 回填，这里只放置等待态避免页面空等。
+		// GlobalEvents 用于以持久化数据回填；先展示本地用户消息，确保回复永远不会排在提问之前。
+		this.#dispatchChat({ type: "addMessage", value: userMsg });
 		this.#dispatchChat({ type: "addMessage", value: assistantMsg });
 		this.#set({
 			streamingMessageId: assistantMsg.id,
@@ -2563,9 +2579,18 @@ export class ChatActionImpl {
 
 	cancelGeneration = () => {
 		const state = this.#get();
+		if (state.activeSessionId && state.cancellingSessionId === state.activeSessionId) return;
 		const runId = resolveActiveRunIdForCancel(state);
+		const streamingMessage = state.streamingMessageId
+			? state.messagesMap[state.streamingMessageId]
+			: undefined;
+		// 等待态尚未分配 worker/run，发送取消会被后端视为无活跃任务；
+		// 等待 GlobalEvents 绑定 run 后再允许取消，避免前端进入无法完成的取消态。
+		if (streamingMessage?.status === "waiting" && !runId) return;
 
-		// 标记此 session 正在取消 + 通知后端真实取消 agent 执行（异步，不阻塞 UI 清理）
+		// 标记此 session 正在取消 + 通知后端真实取消 agent 执行。
+		// 保持当前生成态和 SSE 连接，直至收到 run.cancelled：这会阻止新消息
+		// 插入仍在收尾的会话，也避免迟到的 GlobalEvents 重建 assistant 占位。
 		if (state.activeSessionId) {
 			this.#set({ cancellingSessionId: state.activeSessionId });
 			sessionApi
@@ -2574,11 +2599,15 @@ export class ChatActionImpl {
 					...(runId ? { run_id: runId } : {}),
 				})
 				.catch(() => {
-					// 取消 API 调用失败不影响前端状态重置
+					// 取消请求失败时继续等待原始 run，不保留取消标记以免屏蔽正常流事件。
+					this.#set((current) =>
+						current.cancellingSessionId === state.activeSessionId
+							? { cancellingSessionId: null }
+							: {},
+					);
 				});
 		}
 
-		state.streamCancelRef?.();
 		const streamingId = state.streamingMessageId;
 		if (streamingId) {
 			const msg = state.messagesMap[streamingId];
@@ -2590,12 +2619,6 @@ export class ChatActionImpl {
 				});
 			}
 		}
-		if (this.#sseClient) {
-			this.#sseClient.close();
-			this.#sseClient = null;
-		}
-		this.#resetSSEBinding();
-		this.#finishStream();
 	};
 
 	loadConversationMessages = async (sessionId: string, options?: { resumeStream?: boolean }) => {
@@ -2669,7 +2692,10 @@ export class ChatActionImpl {
 			// 生成中或刚完成但本地仍有 optimistic 消息时，优先保留本地消息；
 			// 同时过滤掉空内容 assistant 占位，避免在落库后与真实 assistant 重复显示。
 			const shouldPreserveLocalMessages =
-				state.activeSessionId === sessionId && (state.isGenerating || optimisticCountAfterLoad > 0);
+				state.activeSessionId === sessionId &&
+				(state.isGenerating ||
+					state.cancellingSessionId === sessionId ||
+					optimisticCountAfterLoad > 0);
 			const reconcilingLocalMessages = shouldPreserveLocalMessages
 				? localSessionMessages.filter(
 						(message) =>
