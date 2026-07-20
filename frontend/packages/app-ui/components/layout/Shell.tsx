@@ -37,11 +37,17 @@ export function Shell({
 	}, [invalidateAll, orgId]);
 
 	useEffect(() => {
+		if (orgId == null) {
+			stopGlobalEvents();
+			return;
+		}
+		// 中文注释：组织切换后 JWT org 已变，必须重连 GlobalEvents 才能收到新 org 的 message.created。
+		stopGlobalEvents();
 		void startGlobalEvents();
 		return () => {
 			stopGlobalEvents();
 		};
-	}, [startGlobalEvents, stopGlobalEvents]);
+	}, [orgId, startGlobalEvents, stopGlobalEvents]);
 
 	if (!isClientMounted) {
 		return <div className="leros-app-shell" aria-hidden="true" />;

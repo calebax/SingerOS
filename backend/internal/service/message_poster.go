@@ -59,6 +59,32 @@ func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus
 	}
 }
 
+// resolveSenderNameFromCaller maps JWT org membership uin to the persisted user display name.
+func resolveSenderNameFromCaller(ctx context.Context, db *gorm.DB, caller *types.Caller) string {
+	if caller == nil || caller.Uin == 0 {
+		return ""
+	}
+
+	var (
+		userOrg *types.UserOrg
+		err     error
+	)
+	if caller.OrgID > 0 {
+		userOrg, err = infradb.GetUserOrgByUinAndOrgID(ctx, db, caller.Uin, caller.OrgID)
+	} else {
+		userOrg, err = infradb.GetUserOrgByUin(ctx, db, caller.Uin)
+	}
+	if err != nil || userOrg == nil || userOrg.UserID == 0 {
+		return ""
+	}
+
+	user, err := infradb.GetUserByID(ctx, db, userOrg.UserID)
+	if err != nil || user == nil {
+		return ""
+	}
+	return user.Name
+}
+
 // MessageRoutingOverride 消息级别的路由覆盖，用于在同个 session 内将消息发给不同的 assistant/worker。
 // 决定消息发往哪个 worker 的唯一依据。publishWorkerTask 要求 routing 必须非 nil 且 WorkerID > 0。
 type MessageRoutingOverride struct {
@@ -91,9 +117,7 @@ func (p *MessagePoster) PostMessage(
 		if caller, _ := auth.FromContext(ctx); caller != nil && caller.Uin > 0 {
 			uid := caller.Uin
 			message.SenderUin = &uid
-			if user, err := infradb.GetUserByID(ctx, p.db, caller.Uin); err == nil && user != nil {
-				message.SenderName = user.Name
-			}
+			message.SenderName = resolveSenderNameFromCaller(ctx, p.db, caller)
 		}
 	}
 
