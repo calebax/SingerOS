@@ -1646,6 +1646,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		if t.SessionID != nil {
 			if sess, ok := sessionMap[*t.SessionID]; ok {
 				item.Session = convertToContractSession(ctx, sess, s.db)
+				item.Session.RuntimeStatus = lookupSessionRuntimeStatus(ctx, s.db, sess.ID)
 			}
 		}
 		result.Tasks = append(result.Tasks, item)

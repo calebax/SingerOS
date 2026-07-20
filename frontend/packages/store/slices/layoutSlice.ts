@@ -58,6 +58,8 @@ export type ProjectMessage = {
 
 export type ProjectTaskStatus = "todo" | "in_progress" | "done";
 
+export type ProjectTaskRuntimeStatus = "idle" | "responding";
+
 export type ProjectTask = {
 	id: string;
 	title: string;
@@ -65,6 +67,7 @@ export type ProjectTask = {
 	status: ProjectTaskStatus;
 	updatedAt?: number;
 	sessionId?: string;
+	runtimeStatus?: ProjectTaskRuntimeStatus;
 	taskType?: string;
 	deadline?: string;
 	description?: string;
@@ -441,6 +444,7 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 		// 中文注释：保留任务更新时间，供左侧最近项目列表展示相对时间。
 		updatedAt: parseOptionalTimestamp(bt.updated_at),
 		sessionId: taskWithSession.session?.session_id,
+		runtimeStatus: taskWithSession.session?.runtime_status === "responding" ? "responding" : "idle",
 		taskType: bt.task_type,
 		deadline: bt.deadline,
 		description: bt.description,

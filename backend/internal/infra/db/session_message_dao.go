@@ -66,14 +66,14 @@ func GetSessionMessagesByIDs(ctx context.Context, db *gorm.DB, sessionID uint, i
 	return entities, nil
 }
 
-// GetRecentProcessingUserMessages returns recent user messages that are currently being answered.
+// GetRecentProcessingUserMessages returns recent user messages awaiting or receiving a reply.
 func GetRecentProcessingUserMessages(ctx context.Context, db *gorm.DB, sessionID uint, since time.Time) ([]*types.SessionMessage, error) {
 	var entities []*types.SessionMessage
 	err := db.WithContext(ctx).
-		Where("session_id = ? AND role = ? AND status = ? AND updated_at >= ?",
+		Where("session_id = ? AND role = ? AND status IN ? AND updated_at >= ?",
 			sessionID,
 			string(types.MessageRoleUser),
-			string(types.MessageStatusProcessing),
+			[]string{string(types.MessageStatusPending), string(types.MessageStatusProcessing)},
 			since,
 		).
 		Order("updated_at DESC").
