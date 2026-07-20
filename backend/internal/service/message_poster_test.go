@@ -1,13 +1,91 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
+
+func TestMessagePosterPostMessageFillsSenderNameFromUserOrgUin(t *testing.T) {
+	database := setupTestDB(t)
+	if err := database.Create(&types.UserOrg{
+		UserID: 1,
+		OrgID:  2,
+		Uin:    100,
+	}).Error; err != nil {
+		t.Fatalf("seed second user org: %v", err)
+	}
+
+	ctx := auth.WithContext(context.Background(), &types.Caller{
+		Uin:   100,
+		OrgID: 2,
+		State: types.AuthStateSucc,
+	}, &types.Trace{
+		RequestID: "test-request-id",
+		TraceID:   "test-trace-id",
+	})
+	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	assistant := seedReadyAssistant(t, database, "sender-name", "Sender Name Assistant", "answer")
+	project := &types.Project{
+		PublicID: "prj_sender_name",
+		OrgID:    2,
+		OwnerID:  100,
+		Name:     "Sender Name Project",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	task := &types.Task{
+		PublicID:  "task_sender_name",
+		OrgID:     2,
+		OwnerID:   100,
+		ProjectID: project.ID,
+		Title:     "Sender Name Task",
+		Status:    string(types.TaskStatusCreated),
+	}
+	if err := database.Create(task).Error; err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	session := &types.Session{
+		PublicID:  "sess_sender_name",
+		Type:      types.SessionTypeTask,
+		Uin:       100,
+		OrgID:     2,
+		ProjectID: &project.ID,
+		TaskID:    &task.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     "Sender Name Session",
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	message, err := poster.PostMessage(ctx, session, "", func(sequence int64) *types.SessionMessage {
+		return &types.SessionMessage{
+			Role:        string(types.MessageRoleUser),
+			Content:     "hello from switched org",
+			MessageType: string(types.MessageTypeText),
+			Status:      string(types.MessageStatusPending),
+			Sequence:    sequence,
+			Timestamp:   time.Now().UnixMilli(),
+		}
+	}, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID})
+	if err != nil {
+		t.Fatalf("PostMessage failed: %v", err)
+	}
+	if message.SenderUin == nil || *message.SenderUin != 100 {
+		t.Fatalf("sender_uin = %#v, want 100", message.SenderUin)
+	}
+	if message.SenderName != "Test User" {
+		t.Fatalf("sender_name = %q, want Test User", message.SenderName)
+	}
+}
 
 func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 	database := setupTestDB(t)
