@@ -619,10 +619,22 @@ function buildEditorContent(
 	const fragment = document.createDocumentFragment();
 	const orderedTokens = sortTokens(tokens);
 	let cursor = 0;
+	const appendPlainText = (text: string) => {
+		const lines = text.split("\n");
+		for (const [index, line] of lines.entries()) {
+			if (index > 0) {
+				fragment.appendChild(document.createElement("br"));
+			}
+			if (line) {
+				fragment.appendChild(document.createTextNode(line));
+			}
+		}
+	};
 
 	for (const token of orderedTokens) {
 		if (token.start > cursor) {
-			fragment.appendChild(document.createTextNode(value.slice(cursor, token.start)));
+			// 中文注释：换行必须恢复为 <br>，否则紧跟的不可编辑 mention 可能被浏览器放到下一空行。
+			appendPlainText(value.slice(cursor, token.start));
 		}
 
 		const mention = document.createElement("span");
@@ -660,7 +672,7 @@ function buildEditorContent(
 	}
 
 	if (cursor < value.length) {
-		fragment.appendChild(document.createTextNode(value.slice(cursor)));
+		appendPlainText(value.slice(cursor));
 	}
 
 	root.replaceChildren(fragment);
@@ -1283,13 +1295,18 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					kind === "assistant" && assistantSelectionMode === "single"
 						? stripAssistantTokensFromSnapshot(valueRef.current, tokensRef.current)
 						: { text: valueRef.current, tokens: tokensRef.current };
-				const currentValue = currentSnapshot.text;
+				// 中文注释：鼠标点击工具栏时，Chromium 会把行尾光标占位 <br> 同步为正文；
+				// 插入标签前保留一个真实换行，其余末尾空行都视为浏览器占位，避免标签落到第三行。
+				const currentValue = currentSnapshot.text.replace(/\n{2,}$/, "\n");
 				const currentTokens = currentSnapshot.tokens;
 				// 中文注释：单选模式下从工具栏重新选人时，统一替换为新的 AI 员工，并把光标落到末尾。
-				const cursor =
+				const rawCursor =
 					editor && !(kind === "assistant" && assistantSelectionMode === "single")
 						? getCaretOffset(editor)
 						: currentValue.length;
+				// 中文注释：压缩浏览器末尾占位换行后，光标偏移也必须对齐新文本，
+				// 否则 token 范围失配会退化为普通 / 指令并重新触发技能弹窗。
+				const cursor = Math.min(rawCursor, currentValue.length);
 				const needsLeadingSpace = cursor > 0 && !/\s/.test(currentValue[cursor - 1] ?? "");
 				const needsTrailingSpace = !/\s/.test(currentValue[cursor] ?? "");
 				const insertion = `${needsLeadingSpace ? " " : ""}${rawLabel}${
