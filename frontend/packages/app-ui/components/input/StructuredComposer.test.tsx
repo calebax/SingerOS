@@ -400,6 +400,28 @@ describe("StructuredComposer", () => {
 		});
 	});
 
+	it("在 Shift+Enter 换行后的空行添加技能时不会把浏览器占位换行当作正文", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+
+		render(<ActionBarHarness onValueChange={handleValueChange} />);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		// Chromium 在 contenteditable 的行尾会用第二个 <br> 保留光标位置。
+		textbox.innerHTML = "已有文字<br><br>";
+		fireEvent.input(textbox);
+		await user.click(screen.getByRole("button", { name: "添加技能" }));
+		await user.click(await screen.findByText("/anysearch"));
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("已有文字\n/anysearch ");
+			const lineBreak = textbox.querySelector("br");
+			const mention = lineBreak?.nextSibling;
+			expect(mention).toBeInstanceOf(HTMLElement);
+			expect(mention as HTMLElement).toHaveAttribute("data-mention-node", "true");
+		});
+	});
+
 	it("技能 mention 上的 x 可以删除已选技能", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();
