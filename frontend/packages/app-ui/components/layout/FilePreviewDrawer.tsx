@@ -486,7 +486,9 @@ export function FilePreviewDrawer({
 						htmlView={htmlView}
 						onHtmlViewChange={setHtmlView}
 						onOfficeSelectionChange={(selection) =>
-							setOfficeSelection(selection?.format === "docx" ? selection : null)
+							setOfficeSelection(
+								selection?.format === "docx" || selection?.format === "pptx" ? selection : null,
+							)
 						}
 					/>
 				</div>
@@ -501,7 +503,9 @@ export function FilePreviewDrawer({
 					/>
 				) : null}
 			</div>
-			{officeSelection?.boundingRect && previewKind === "docx" ? (
+			{officeSelection?.boundingRect &&
+			(previewKind === "docx" || previewKind === "pptx") &&
+			officeSelection.format === previewKind ? (
 				<DocxSelectionToolbar
 					anchor={officeSelection.boundingRect}
 					portalContainer={selectionToolbarContainer}

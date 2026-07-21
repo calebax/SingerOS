@@ -39,17 +39,85 @@ describe("buildDocxSelectionEditRequest", () => {
 			},
 			selection,
 		});
+		const reference = readReference(result.content);
 
 		expect(result.content).toContain("/docx\n<reference>");
-		expect(result.content).toContain('"instruction": "expand"');
-		expect(result.content).toContain('"file_public_id": "file-v2"');
-		expect(result.content).toContain('"project_path": "artifacts/report.docx"');
-		expect(result.content).toContain('"context_before": "它不仅"');
+		expect(reference).not.toHaveProperty("version");
+		expect(reference).toMatchObject({
+			kind: "docx_selection",
+			mode: "replace",
+			instruction: "expand",
+			file: {
+				name: "report.docx",
+				path: "uploads/report.docx",
+			},
+			selection: {
+				context_before: "它不仅",
+			},
+		});
+		expect(Object.keys(reference.file)).toEqual(["name", "path"]);
+		expect(result.content).not.toContain("请先读取 reference");
 		expect(result.content).toContain("请扩写选中的内容");
 		expect(result.displayContent).toBe("扩写文档选区：「运动塑造强健的体魄」");
 		expect(result.attachment).toMatchObject({
 			fileUploadId: "file-v2",
 			name: "report.docx",
+		});
+	});
+
+	it("falls back to the project path when no attachment version is available", () => {
+		const result = buildDocxSelectionEditRequest({
+			instruction: "expand",
+			file: {
+				name: "report.docx",
+				projectPath: "artifacts/report.docx",
+			},
+			selection,
+		});
+
+		expect(readReference(result.content).file).toEqual({
+			name: "report.docx",
+			path: "artifacts/report.docx",
+		});
+		expect(result.attachment).toBeUndefined();
+	});
+
+	it("builds a PPTX selection reference with a slide index", () => {
+		const result = buildDocxSelectionEditRequest({
+			instruction: "shorten",
+			file: {
+				name: "quarterly-review.pptx",
+				publicId: "pptx-v3",
+			},
+			selection: {
+				...selection,
+				format: "pptx",
+				surfaceKind: "slide",
+				surfaceIndex: 3,
+			},
+		});
+		const reference = readReference(result.content);
+		const referenceSelection = reference.selection as Record<string, unknown>;
+
+		expect(result.content).toContain("/pptx\n<reference>");
+		expect(reference).toMatchObject({
+			kind: "pptx_selection",
+			mode: "replace",
+			instruction: "shorten",
+			file: {
+				name: "quarterly-review.pptx",
+				path: "uploads/quarterly-review.pptx",
+			},
+			selection: {
+				slide_index: 3,
+			},
+		});
+		expect(referenceSelection).not.toHaveProperty("page_index");
+		expect(result.displayContent).toBe("缩写演示文稿选区：「运动塑造强健的体魄」");
+		expect(result.attachment).toMatchObject({
+			id: "pptx-selection-pptx-v3",
+			fileUploadId: "pptx-v3",
+			mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		});
 	});
 
@@ -65,3 +133,12 @@ describe("buildDocxSelectionEditRequest", () => {
 		expect(result.content).toContain("请缩写选中的内容");
 	});
 });
+
+function readReference(content: string): {
+	file: Record<string, unknown>;
+	[key: string]: unknown;
+} {
+	const matched = content.match(/<reference>\n([\s\S]*?)\n<\/reference>/);
+	if (!matched?.[1]) throw new Error("reference payload is missing");
+	return JSON.parse(matched[1]);
+}
