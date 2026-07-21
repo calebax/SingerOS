@@ -413,7 +413,7 @@ export function ProjectPage({
 				))}
 			</nav>
 
-			<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+			<div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
 				<main
 					className={cn(
 						"min-w-0 flex-1",
@@ -442,16 +442,23 @@ export function ProjectPage({
 					)}
 				</main>
 
-				{showProjectSidebar && rightSidebarCollapsed && (
-					<button
-						type="button"
-						className="absolute right-8 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-						aria-label="展开右侧栏"
-						title="展开右侧栏"
-						onClick={() => setRightSidebarCollapsed(false)}
-					>
-						<ChevronsLeft className="size-4" />
-					</button>
+				{showProjectSidebar && (
+					<div className="flex w-14 shrink-0 items-start justify-center pt-6">
+						<button
+							type="button"
+							className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							aria-label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+							aria-expanded={!rightSidebarCollapsed}
+							title={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+							onClick={() => setRightSidebarCollapsed((collapsed) => !collapsed)}
+						>
+							{rightSidebarCollapsed ? (
+								<ChevronsLeft className="size-4" />
+							) : (
+								<ChevronsRight className="size-4" />
+							)}
+						</button>
+					</div>
 				)}
 
 				{showProjectSidebar && !rightSidebarCollapsed && (
@@ -459,16 +466,6 @@ export function ProjectPage({
 						className="relative flex min-h-0 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6 transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
-						{/* 中文注释：收起按钮移到侧栏外部，和收起态展开按钮保持同一行高度。 */}
-						<button
-							type="button"
-							className="absolute -left-14 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-							aria-label="收起右侧栏"
-							title="收起右侧栏"
-							onClick={() => setRightSidebarCollapsed(true)}
-						>
-							<ChevronsRight className="size-4" />
-						</button>
 						<ProjectConfigSidebar
 							project={project}
 							compact={!isWideRightSidebar}
