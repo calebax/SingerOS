@@ -49,6 +49,10 @@ import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
 import {
+	buildProjectFileVersionEntries,
+	getCurrentProjectFileVersionEntry,
+} from "./project-file-version-sync";
+import {
 	collectSelectableFiles,
 	normalizeProjectFileTree,
 	type ProjectFileNode,
@@ -922,16 +926,21 @@ function TaskFileList({
 				const hasHistory = Boolean(file.publicId) && availableVersionCount > 1;
 				const versionState = versionStates[file.publicId];
 				const versions = versionState?.items ?? [];
+				const versionEntries = buildProjectFileVersionEntries(versions);
+				const currentVersionEntry = getCurrentProjectFileVersionEntry(
+					versionEntries,
+					versionState?.currentPublicId ?? file.publicId,
+				);
 
 				return (
 					<div key={file.path} className="space-y-2">
-						{versions.length > 0 ? (
-							versions.map((version) => (
+						{versionEntries.length > 0 ? (
+							versionEntries.map((entry) => (
 								<TaskFileCard
-									key={version.public_id}
+									key={entry.key}
 									file={file}
-									version={version}
-									isCurrent={version.public_id === versionState?.currentPublicId}
+									version={entry.version}
+									isCurrent={entry.key === currentVersionEntry?.key}
 									onPreview={onPreview}
 								/>
 							))

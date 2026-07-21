@@ -51,6 +51,49 @@ vi.mock("@silurus/ooxml/docx", () => ({
 	},
 }));
 
+vi.mock("@silurus/ooxml/pptx", () => ({
+	PptxPresentation: {
+		load: vi.fn(async () => ({
+			slideCount: 1,
+			renderSlide: async (
+				canvas: HTMLCanvasElement,
+				_slideIndex: number,
+				options: {
+					onTextRun?: (run: {
+						text: string;
+						shapeX: number;
+						shapeY: number;
+						shapeW: number;
+						shapeH: number;
+						inShapeX: number;
+						inShapeY: number;
+						h: number;
+						font: string;
+						rotation: number;
+						textBodyRotation?: number;
+					}) => void;
+				},
+			) => {
+				canvas.style.width = "720px";
+				canvas.style.height = "405px";
+				options.onTextRun?.({
+					text: "Presentation title",
+					shapeX: 80,
+					shapeY: 60,
+					shapeW: 420,
+					shapeH: 80,
+					inShapeX: 12,
+					inShapeY: 10,
+					h: 28,
+					font: "24px Arial",
+					rotation: 0,
+				});
+			},
+			destroy: vi.fn(),
+		})),
+	},
+}));
+
 vi.mock("@silurus/ooxml/xlsx", () => ({
 	XlsxViewer: class XlsxViewer {
 		constructor(container: HTMLElement, options: MockXlsxViewerOptions) {
@@ -171,6 +214,50 @@ describe("OfficePreview text selection", () => {
 		fireEvent.pointerDown(viewport as HTMLElement);
 		expect(window.getSelection()?.rangeCount).toBe(0);
 		expect(onTextSelectionChange).toHaveBeenLastCalledWith(null);
+	});
+
+	it("renders a PPTX text layer and emits slide-relative selection coordinates", async () => {
+		const onTextSelectionChange = vi.fn();
+		const view = render(
+			createElement(OfficePreview, {
+				buffer: new ArrayBuffer(8),
+				fileName: "slides.pptx",
+				format: "pptx",
+				onTextSelectionChange,
+			}),
+		);
+
+		const run = await waitFor(() => {
+			const element = view.container.querySelector<HTMLElement>("[data-office-run-index='0']");
+			expect(element).not.toBeNull();
+			return element as HTMLElement;
+		});
+		const surface = run.closest<HTMLElement>("[data-office-surface-index='0']");
+		expect(surface).not.toBeNull();
+		Object.defineProperty(surface, "getBoundingClientRect", {
+			value: () => new DOMRect(100, 200, 720, 405),
+		});
+
+		const range = document.createRange();
+		range.setStart(run.firstChild as Text, 0);
+		range.setEnd(run.firstChild as Text, 12);
+		Object.defineProperty(range, "getClientRects", {
+			value: () => [new DOMRect(192, 270, 180, 28)],
+		});
+		window.getSelection()?.addRange(range);
+		fireEvent.pointerUp(run);
+
+		await waitFor(() => {
+			expect(onTextSelectionChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					format: "pptx",
+					text: "Presentation",
+					surfaceKind: "slide",
+					surfaceIndex: 0,
+					boundingRect: { x: 192, y: 270, width: 180, height: 28 },
+				}),
+			);
+		});
 	});
 
 	it("emits XLSX cell text, A1 range, and the rendered selection box", async () => {

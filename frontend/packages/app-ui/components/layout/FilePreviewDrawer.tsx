@@ -40,7 +40,11 @@ import {
 } from "./file-preview-utils";
 import { OfficePreview, type OfficeTextSelection } from "./OfficePreview";
 import { PdfPreview, type PdfTextSelection } from "./PdfPreview";
-import { waitForProjectFileVersionChange } from "./project-file-version-sync";
+import {
+	buildProjectFileVersionEntries,
+	getCurrentProjectFileVersionEntry,
+	waitForProjectFileVersionChange,
+} from "./project-file-version-sync";
 import { SpreadsheetPreview } from "./SpreadsheetPreview";
 
 export type { FilePreviewItem } from "./file-preview-utils";
@@ -62,16 +66,24 @@ export function FilePreviewDrawer({
 	const [versionsLoading, setVersionsLoading] = useState(false);
 	const [versionsError, setVersionsError] = useState<string | null>(null);
 	const [selectedVersionPublicId, setSelectedVersionPublicId] = useState("");
+	const [selectedVersionKey, setSelectedVersionKey] = useState("");
 	const [officeSelection, setOfficeSelection] = useState<OfficeTextSelection | null>(null);
 	const [pendingVersionSync, setPendingVersionSync] = useState<PendingDocxVersionSync | null>(null);
 	const drawerRef = useRef<HTMLDivElement>(null);
 	const selectedVersionPublicIdRef = useRef(selectedVersionPublicId);
 	const { isGenerating } = useChatStore((state) => state);
 	const { submission } = useDocxSelectionComposerStore();
-	const selectedVersion = useMemo(
-		() => versions.find((version) => version.public_id === selectedVersionPublicId) ?? null,
-		[versions, selectedVersionPublicId],
-	);
+	const versionEntries = useMemo(() => buildProjectFileVersionEntries(versions), [versions]);
+	const selectedVersion = useMemo(() => {
+		if (selectedVersionKey) {
+			const selectedEntry = versionEntries.find((entry) => entry.key === selectedVersionKey);
+			if (selectedEntry) return selectedEntry.version;
+		}
+		return (
+			versionEntries.find((entry) => entry.version.public_id === selectedVersionPublicId)
+				?.version ?? null
+		);
+	}, [selectedVersionKey, selectedVersionPublicId, versionEntries]);
 	const previewFile = useMemo(() => {
 		if (!file || !selectedVersion) return file;
 		return {
@@ -108,6 +120,7 @@ export function FilePreviewDrawer({
 
 	useEffect(() => {
 		if (!open || !file) return;
+		setSelectedVersionKey("");
 		setSelectedVersionPublicId(file.versionPublicId ?? "");
 	}, [open, file?.publicId, file?.versionPublicId]);
 
@@ -122,6 +135,7 @@ export function FilePreviewDrawer({
 			setHistoryOpen(false);
 			setVersions([]);
 			setVersionsError(null);
+			setSelectedVersionKey("");
 			setSelectedVersionPublicId("");
 			return;
 		}
@@ -207,6 +221,8 @@ export function FilePreviewDrawer({
 		}
 		const projectId = file.projectId;
 		const filePublicId = file.publicId;
+		const requestedVersionPublicId = file.versionPublicId;
+		const requestedVersionNo = file.versionNo;
 
 		let cancelled = false;
 		async function loadVersions() {
@@ -218,10 +234,24 @@ export function FilePreviewDrawer({
 				if (response.data.code !== 0) {
 					throw new Error(response.data.message || "版本历史加载失败");
 				}
-				const items = response.data.data?.items ?? [];
+				const versionList = response.data.data;
+				const items = versionList?.items ?? [];
+				const entries = buildProjectFileVersionEntries(items);
+				const selectedEntry =
+					entries.find((entry) => entry.key === selectedVersionKey) ??
+					entries.find(
+						(entry) =>
+							entry.version.public_id === requestedVersionPublicId &&
+							(!requestedVersionNo || entry.version.version_no === requestedVersionNo),
+					) ??
+					getCurrentProjectFileVersionEntry(
+						entries,
+						versionList?.current_file_public_id || filePublicId,
+					);
 				setVersions(items);
-				if (!selectedVersionPublicId) {
-					setSelectedVersionPublicId(response.data.data?.current_file_public_id || filePublicId);
+				if (selectedEntry) {
+					setSelectedVersionKey(selectedEntry.key);
+					setSelectedVersionPublicId(selectedEntry.version.public_id);
 				}
 			} catch (err) {
 				if (!cancelled) {
@@ -236,14 +266,7 @@ export function FilePreviewDrawer({
 		return () => {
 			cancelled = true;
 		};
-	}, [
-		open,
-		file?.projectId,
-		file?.publicId,
-		file?.versionPublicId,
-		historyOpen,
-		selectedVersionPublicId,
-	]);
+	}, [open, file?.projectId, file?.publicId, file?.versionPublicId, historyOpen]);
 
 	useEffect(() => {
 		if (!pendingVersionSync || isGenerating) return;
@@ -290,6 +313,7 @@ export function FilePreviewDrawer({
 						versionCount: change.versionCount,
 					});
 				if (previewUpdated) {
+					setSelectedVersionKey("");
 					setSelectedVersionPublicId("");
 					toast.success(`已生成 V${change.latest.version_no}，预览已切换到最新版本`);
 					return;
@@ -389,6 +413,12 @@ export function FilePreviewDrawer({
 		stageSelectionDraft(getDocxPolishPrompt(action));
 	};
 
+	const selectVersionPublicId = (publicId: string) => {
+		const entry = versionEntries.find((candidate) => candidate.version.public_id === publicId);
+		setSelectedVersionKey(entry?.key ?? "");
+		setSelectedVersionPublicId(publicId);
+	};
+
 	if (!open || !file) {
 		return null;
 	}
@@ -432,7 +462,7 @@ export function FilePreviewDrawer({
 					{isHistoricalVersion && file.publicId ? (
 						<button
 							type="button"
-							onClick={() => setSelectedVersionPublicId(file.publicId ?? "")}
+							onClick={() => selectVersionPublicId(file.publicId ?? "")}
 							className="shrink-0 text-xs font-medium text-[var(--leros-primary)] hover:underline"
 						>
 							切换到最新
@@ -486,22 +516,29 @@ export function FilePreviewDrawer({
 						htmlView={htmlView}
 						onHtmlViewChange={setHtmlView}
 						onOfficeSelectionChange={(selection) =>
-							setOfficeSelection(selection?.format === "docx" ? selection : null)
+							setOfficeSelection(
+								selection?.format === "docx" || selection?.format === "pptx" ? selection : null,
+							)
 						}
 					/>
 				</div>
 				{historyOpen && canShowHistory ? (
 					<FileVersionPanel
 						currentPublicId={file.publicId ?? ""}
-						selectedPublicId={selectedVersionPublicId || (file.publicId ?? "")}
+						selectedVersionKey={selectedVersionKey}
 						versions={versions}
 						loading={versionsLoading}
 						error={versionsError}
-						onSelect={(version) => setSelectedVersionPublicId(version.public_id)}
+						onSelect={(entry) => {
+							setSelectedVersionKey(entry.key);
+							setSelectedVersionPublicId(entry.version.public_id);
+						}}
 					/>
 				) : null}
 			</div>
-			{officeSelection?.boundingRect && previewKind === "docx" ? (
+			{officeSelection?.boundingRect &&
+			(previewKind === "docx" || previewKind === "pptx") &&
+			officeSelection.format === previewKind ? (
 				<DocxSelectionToolbar
 					anchor={officeSelection.boundingRect}
 					portalContainer={selectionToolbarContainer}
@@ -516,19 +553,21 @@ export function FilePreviewDrawer({
 
 function FileVersionPanel({
 	currentPublicId,
-	selectedPublicId,
+	selectedVersionKey,
 	versions,
 	loading,
 	error,
 	onSelect,
 }: {
 	currentPublicId: string;
-	selectedPublicId: string;
+	selectedVersionKey: string;
 	versions: BackendProjectFileVersion[];
 	loading: boolean;
 	error: string | null;
-	onSelect: (version: BackendProjectFileVersion) => void;
+	onSelect: (entry: ReturnType<typeof buildProjectFileVersionEntries>[number]) => void;
 }) {
+	const entries = buildProjectFileVersionEntries(versions);
+	const currentEntry = getCurrentProjectFileVersionEntry(entries, currentPublicId);
 	return (
 		<aside className="flex w-52 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-white">
 			<div className="border-b border-[var(--leros-control-border)] px-3 py-2.5">
@@ -551,14 +590,15 @@ function FileVersionPanel({
 					</div>
 				) : (
 					<div className="space-y-1">
-						{versions.map((version) => {
-							const isCurrent = version.public_id === currentPublicId;
-							const isSelected = version.public_id === selectedPublicId;
+						{entries.map((entry) => {
+							const { version } = entry;
+							const isCurrent = entry.key === currentEntry?.key;
+							const isSelected = entry.key === selectedVersionKey;
 							return (
-								<div key={version.public_id}>
+								<div key={entry.key}>
 									<button
 										type="button"
-										onClick={() => onSelect(version)}
+										onClick={() => onSelect(entry)}
 										className={cn(
 											"w-full cursor-pointer rounded-md px-2.5 py-1.5 text-left transition-colors",
 											isSelected

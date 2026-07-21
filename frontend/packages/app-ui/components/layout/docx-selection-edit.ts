@@ -18,9 +18,8 @@ export type DocxSelectionEditRequest = {
 };
 
 const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PPTX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 export const DOCX_SELECTION_TEXT_LIMIT = 20_000;
-const REFERENCE_EXECUTION_RULES =
-	"请先读取 reference：优先使用 file.attachment_path 对应的所选版本作为源文件；存在 file.project_path 时将结果写回该项目路径，否则直接编辑附件文件。使用 selection.text 和前后文共同定位；如果不能唯一定位，停止修改并说明原因，不要猜测。";
 
 const instructionCopy: Record<DocxSelectionInstruction, { label: string; prompt: string }> = {
 	expand: {
@@ -59,10 +58,12 @@ export function buildDocxSelectionEditRequest({
 	selection: OfficeTextSelection;
 }): DocxSelectionEditRequest {
 	const copy = instructionCopy[instruction];
+	const formatLabel = selection.format === "pptx" ? "PPTX" : "DOCX";
+	const selectionLabel = selection.format === "pptx" ? "演示文稿选区" : "文档选区";
 	const previewText = selection.text.trim().replace(/\s+/g, " ").slice(0, 48);
 	return buildDocxSelectionPromptRequest({
-		prompt: copy.prompt,
-		displayContent: `${copy.label}文档选区：「${previewText}${selection.text.trim().length > 48 ? "…" : ""}」`,
+		prompt: copy.prompt.replace("DOCX", formatLabel),
+		displayContent: `${copy.label}${selectionLabel}：「${previewText}${selection.text.trim().length > 48 ? "…" : ""}」`,
 		instruction,
 		file,
 		selection,
@@ -82,30 +83,38 @@ export function buildDocxSelectionPromptRequest({
 	file: FilePreviewItem;
 	selection: OfficeTextSelection;
 }): DocxSelectionEditRequest {
+	const format = selection.format === "pptx" ? "pptx" : "docx";
+	const formatConfig =
+		format === "pptx"
+			? {
+					command: "/pptx",
+					kind: "pptx_selection",
+					mimeType: PPTX_MIME_TYPE,
+				}
+			: {
+					command: "/docx",
+					kind: "docx_selection",
+					mimeType: DOCX_MIME_TYPE,
+				};
 	const filePublicId = file.versionPublicId?.trim() || file.publicId?.trim();
 	const safeName = baseName(file.name);
+	const filePath = filePublicId ? `uploads/${safeName}` : file.projectPath?.trim();
 	const selectedText = selection.text;
 	const reference = {
-		version: 1,
-		kind: "docx_selection",
+		kind: formatConfig.kind,
+		mode: "replace",
 		instruction,
 		file: {
-			file_public_id: filePublicId || undefined,
-			project_id: file.projectId || undefined,
-			project_path: file.projectPath || undefined,
-			attachment_path: filePublicId ? `uploads/${safeName}` : undefined,
 			name: safeName,
-			mime_type: file.mimeType || DOCX_MIME_TYPE,
-			version_no: file.versionNo,
-			is_historical_version: Boolean(
-				file.versionPublicId && file.publicId && file.versionPublicId !== file.publicId,
-			),
+			path: filePath,
 		},
 		selection: {
 			text: selectedText,
 			context_before: selection.contextBefore,
 			context_after: selection.contextAfter,
-			page_index: selection.surfaceIndex,
+			...(format === "pptx"
+				? { slide_index: selection.surfaceIndex }
+				: { page_index: selection.surfaceIndex }),
 			offset_encoding: "utf16",
 		},
 	};
@@ -116,18 +125,18 @@ export function buildDocxSelectionPromptRequest({
 	const previewText = selection.text.trim().replace(/\s+/g, " ").slice(0, 48);
 
 	return {
-		content: `/docx\n<reference>\n${serializedReference}\n</reference>\n\n${REFERENCE_EXECUTION_RULES}\n${prompt.trim()}`,
+		content: `${formatConfig.command}\n<reference>\n${serializedReference}\n</reference>\n\n${prompt.trim()}`,
 		displayContent:
 			displayContent ??
 			`${prompt.trim()}：「${previewText}${selection.text.trim().length > 48 ? "…" : ""}」`,
 		attachment: filePublicId
 			? {
-					id: `docx-selection-${filePublicId}`,
+					id: `${format}-selection-${filePublicId}`,
 					type: "file",
 					name: safeName,
 					size: 0,
 					fileUploadId: filePublicId,
-					mimeType: file.mimeType || DOCX_MIME_TYPE,
+					mimeType: file.mimeType || formatConfig.mimeType,
 					storageUri: file.storageUri,
 				}
 			: undefined,
