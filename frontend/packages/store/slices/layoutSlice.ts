@@ -1180,11 +1180,19 @@ export class LayoutActionImpl {
 					tasks: p.tasks.filter((t) => t.id !== publicId),
 				})),
 				activeWorkbenchTaskId:
-					this.#get().activeWorkbenchTaskId === publicId ? null : this.#get().activeWorkbenchTaskId,
+					s.activeWorkbenchTaskId === publicId ? null : s.activeWorkbenchTaskId,
+				activeTaskDetailTaskId:
+					s.activeTaskDetailTaskId === publicId ? null : s.activeTaskDetailTaskId,
+				activeTaskDetailProjectId:
+					s.activeTaskDetailTaskId === publicId ? null : s.activeTaskDetailProjectId,
+				activeTaskDetailSessionId:
+					s.activeTaskDetailTaskId === publicId ? null : s.activeTaskDetailSessionId,
 			}));
+			return true;
 		} catch (err) {
-			if (handlePermissionDenied(err)) return;
+			if (handlePermissionDenied(err)) return false;
 			console.error("deleteTask error:", err);
+			return false;
 		}
 	};
 

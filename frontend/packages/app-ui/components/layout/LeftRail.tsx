@@ -151,6 +151,7 @@ export function LeftRail({
 		setLeftRailWidth,
 		switchView,
 		switchProject,
+		setProjectRoute,
 		openTaskDetail,
 		updateProject,
 		updateTask,
@@ -166,7 +167,10 @@ export function LeftRail({
 	const [renameTaskValue, setRenameTaskValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 	const [leaveTarget, setLeaveTarget] = useState<Project | null>(null);
-	const [deleteTaskTarget, setDeleteTaskTarget] = useState<ProjectTask | null>(null);
+	const [deleteTaskTarget, setDeleteTaskTarget] = useState<{
+		task: ProjectTask;
+		projectId: string;
+	} | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
 	const [orgAdminDialogOpen, setOrgAdminDialogOpen] = useState(false);
 	const [orgSwitchDialogOpen, setOrgSwitchDialogOpen] = useState(false);
@@ -494,9 +498,29 @@ export function LeftRail({
 
 	const handleConfirmTaskDelete = async () => {
 		if (!deleteTaskTarget) return;
-		await deleteTask(deleteTaskTarget.id);
+
+		const { task, projectId } = deleteTaskTarget;
+		const deletingActiveTask =
+			activeTaskDetailTaskId === task.id ||
+			navigation?.currentPath.startsWith(`/projects/${projectId}/tasks/${task.id}`) ||
+			(currentView === "taskDetail" &&
+				activeTaskDetailProjectId === projectId &&
+				activeTaskDetailTaskId === task.id);
+
+		const deleted = await deleteTask(task.id);
+		if (!deleted) return;
+
 		setDeleteTaskTarget(null);
 		blurFocusedElement();
+
+		if (deletingActiveTask) {
+			if (navigation) {
+				navigation.goToProjectTasks(projectId);
+				return;
+			}
+			switchProject(projectId);
+			setProjectRoute(projectId, "tasks");
+		}
 	};
 
 	const handleProfileClick = () => {
@@ -655,7 +679,7 @@ export function LeftRail({
 							onDeleteProject={setDeleteTarget}
 							onLeaveProject={setLeaveTarget}
 							onRenameTask={handleOpenTaskRename}
-							onDeleteTask={setDeleteTaskTarget}
+							onDeleteTask={(task, projectId) => setDeleteTaskTarget({ task, projectId })}
 							collapsed={false}
 						/>
 					</section>
@@ -926,7 +950,7 @@ export function LeftRail({
 					<DialogHeader>
 						<DialogTitle>删除任务</DialogTitle>
 						<DialogDescription>
-							确定要删除 <strong>{deleteTaskTarget?.title}</strong> 吗？此操作不可撤销。
+							确定要删除 <strong>{deleteTaskTarget?.task.title}</strong> 吗？此操作不可撤销。
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter className="mt-4">
@@ -1552,7 +1576,7 @@ function ProjectList({
 	onDeleteProject: (project: Project) => void;
 	onLeaveProject: (project: Project) => void;
 	onRenameTask: (task: ProjectTask) => void;
-	onDeleteTask: (task: ProjectTask) => void;
+	onDeleteTask: (task: ProjectTask, projectId: string) => void;
 	collapsed: boolean;
 }) {
 	const recentProjects = getRecentProjectsForLeftRail(projects);
@@ -1696,7 +1720,7 @@ function TaskListItem({
 	active: boolean;
 	onOpenTask: (projectId: string, task: ProjectTask) => void;
 	onRenameTask: (task: ProjectTask) => void;
-	onDeleteTask: (task: ProjectTask) => void;
+	onDeleteTask: (task: ProjectTask, projectId: string) => void;
 }) {
 	useTaskCapabilities(task.id);
 	const resource = { type: "task" as const, publicId: task.id };
@@ -1762,7 +1786,7 @@ function TaskListItem({
 							<DropdownMenuItem
 								variant="destructive"
 								onPointerDown={preventRailMenuClickThrough}
-								onClick={(event) => runRailMenuAction(event, () => onDeleteTask(task))}
+								onClick={(event) => runRailMenuAction(event, () => onDeleteTask(task, projectId))}
 							>
 								<Trash2 className="size-3.5" />
 								<span>删除</span>
