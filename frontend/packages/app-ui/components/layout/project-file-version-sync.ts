@@ -5,6 +5,33 @@ export type ProjectFileVersionChange = {
 	versionCount: number;
 };
 
+export type ProjectFileVersionEntry = {
+	key: string;
+	version: BackendProjectFileVersion;
+};
+
+export function buildProjectFileVersionEntries(
+	versions: BackendProjectFileVersion[],
+): ProjectFileVersionEntry[] {
+	const occurrences = new Map<string, number>();
+	return versions.map((version) => {
+		const identity = [version.public_id, version.version_no, version.created_at ?? 0].join(":");
+		const occurrence = occurrences.get(identity) ?? 0;
+		occurrences.set(identity, occurrence + 1);
+		return {
+			key: `${identity}:${occurrence}`,
+			version,
+		};
+	});
+}
+
+export function getCurrentProjectFileVersionEntry(
+	entries: ProjectFileVersionEntry[],
+	currentPublicId: string,
+): ProjectFileVersionEntry | null {
+	return entries.find((entry) => entry.version.public_id === currentPublicId) ?? entries[0] ?? null;
+}
+
 export function getLatestProjectFileVersion(
 	versions: BackendProjectFileVersionList | undefined,
 ): BackendProjectFileVersion | null {
