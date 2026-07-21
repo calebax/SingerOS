@@ -114,12 +114,17 @@ func newServerCommand() *cobra.Command {
 			if cfg.Auth != nil {
 				iamCfg = cfg.Auth.IAM
 			}
+			var workerProvisioning *service.WorkerProvisioningService
+			if db != nil {
+				workerProvisioning = service.NewWorkerProvisioningService(db, cfg.Scheduler)
+			}
 			edition := adapter.NewEdition(adapter.Config{
 				DB:                 db,
 				JWTSecret:          cfg.Server.JWT.Secret,
 				IAM:                iamCfg,
 				SmsSender:          infrasms.NewSender(cfg.Aliyun),
 				WorkerAuth:         cfg.WorkerAuth,
+				WorkerProvisioning: workerProvisioning,
 			})
 
 			r := api.SetupRouter(*cfg, edition, publisher, db, modelInvoker)
