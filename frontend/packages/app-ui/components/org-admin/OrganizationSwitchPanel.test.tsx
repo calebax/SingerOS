@@ -23,10 +23,10 @@ const mockUser = {
 	name: "测试用户",
 	email: "test@example.com",
 	uin: 1,
-	currentOrg: { id: 1, publicId: "org-1", code: "org-1", name: "个人组织" },
+	currentOrg: { id: 1, uin: 10001, publicId: "org-1", code: "org-1", name: "个人组织" },
 	organizations: [
-		{ id: 1, publicId: "org-1", code: "org-1", name: "个人组织" },
-		{ id: 2, publicId: "org-2", code: "org-2", name: "AI冲锋队" },
+		{ id: 1, uin: 10001, publicId: "org-1", code: "org-1", name: "个人组织" },
+		{ id: 2, uin: 10002, publicId: "org-2", code: "org-2", name: "AI冲锋队" },
 	],
 };
 
@@ -103,7 +103,7 @@ describe("OrganizationSwitchPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: /AI冲锋队/ }));
 
 		await waitFor(() => {
-			expect(mockSwitchOrganization).toHaveBeenCalledWith(2);
+			expect(mockSwitchOrganization).toHaveBeenCalledWith(10002);
 			expect(goToRoute).toHaveBeenCalledWith("workbench");
 		});
 		// 中文注释：新路由尚未到达时保留切换层，避免短暂露出旧组织页面。

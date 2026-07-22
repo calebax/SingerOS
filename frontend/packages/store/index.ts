@@ -3,13 +3,17 @@ export type {
 	AuthSessionResponse,
 	AuthTokenResponse,
 	AuthUserInfo,
+	ChooseUinParams,
+	CreateOrganizationForPendingLoginParams,
 	CreateOrganizationParams,
+	CreateOrganizationResponse,
 	LoginByEmailParams,
 	LoginByPhoneCodeParams,
+	PendingOrganizationLoginResponse,
+	RefreshTokenParams,
 	RegisterByEmailParams,
 	SendPhoneLoginCodeParams,
 	SendPhoneLoginCodeResponse,
-	SwitchOrganizationParams,
 } from "./api/authApi";
 export { authApi } from "./api/authApi";
 export { clientUpdateApi } from "./api/clientUpdateApi";
@@ -37,10 +41,9 @@ export {
 export type {
 	Department,
 	ListDepartmentsResponse,
-	ListOrgMembersResponse,
+	ListUsersResponse,
 	OrgInfo,
-	OrgMember,
-	OrgMemberDepartment,
+	User,
 } from "./api/orgAdminApi";
 export { orgAdminApi } from "./api/orgAdminApi";
 export { permissionApi } from "./api/permissionApi";

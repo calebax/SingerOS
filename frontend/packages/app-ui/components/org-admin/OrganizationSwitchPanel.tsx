@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	type AuthOrgInfo,
 	type AuthUser,
 	normalizeFilePublicId,
 	useAuthStore,
@@ -23,6 +24,12 @@ type OrganizationSwitchPanelProps = {
 	navigation?: AppNavigation;
 	onDone?: () => void;
 	active?: boolean;
+	initialMode?: PanelMode;
+	pendingLogin?: {
+		organizations: AuthOrgInfo[];
+		onChoose: (organization: AuthOrgInfo) => Promise<void>;
+		onCreate: (name: string) => Promise<void>;
+	};
 };
 
 type PanelMode = "switch" | "create";
@@ -31,6 +38,8 @@ export function OrganizationSwitchPanel({
 	navigation,
 	onDone,
 	active = true,
+	initialMode = "switch",
+	pendingLogin,
 }: OrganizationSwitchPanelProps) {
 	const user = useAuthStore((s) => s.authUser);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
@@ -45,7 +54,7 @@ export function OrganizationSwitchPanel({
 	const switchView = useLayoutStore((s) => s.switchView);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
-	const [mode, setMode] = useState<PanelMode>("switch");
+	const [mode, setMode] = useState<PanelMode>(initialMode);
 	const [organizationName, setOrganizationName] = useState("");
 	const [switchingOrgId, setSwitchingOrgId] = useState<number | null>(null);
 	const [creating, setCreating] = useState(false);
@@ -53,8 +62,11 @@ export function OrganizationSwitchPanel({
 
 	useEffect(() => {
 		if (!active) return;
+		setMode(initialMode);
+		// 中文注释：首次选择组织尚未建立正式会话，不能请求组织级会话信息。
+		if (pendingLogin) return;
 		void refreshAuthSession();
-	}, [active, refreshAuthSession]);
+	}, [active, initialMode, pendingLogin, refreshAuthSession]);
 
 	useEffect(() => {
 		if (!waitingForNavigation || navigation?.currentPath !== "/workbench") return;
@@ -87,9 +99,10 @@ export function OrganizationSwitchPanel({
 	};
 
 	const handleSwitchOrganization = async (orgId: number) => {
+		// 中文注释：首次选择组织仅持有待登录上下文，不能按项目内切换要求正式登录用户。
 		if (
-			!user ||
-			user.currentOrg?.id === orgId ||
+			(!pendingLogin && !user) ||
+			(!pendingLogin && user?.currentOrg?.id === orgId) ||
 			switchingOrgId !== null ||
 			creating ||
 			waitingForNavigation
@@ -97,9 +110,18 @@ export function OrganizationSwitchPanel({
 			return;
 		setSwitchingOrgId(orgId);
 		try {
-			await switchOrganization(orgId);
+			if (pendingLogin) {
+				const organization = pendingLogin.organizations.find((item) => item.id === orgId);
+				if (!organization) throw new Error("未找到目标组织");
+				await pendingLogin.onChoose(organization);
+			} else {
+				const organization = user?.organizations?.find((item) => item.id === orgId);
+				// 中文注释：SwitchOrganization 按 IAM UIN 签发目标组织 Token，不能传本地组织 ID。
+				if (!organization) throw new Error("未找到目标组织");
+				await switchOrganization(organization.uin);
+			}
 			resetOrgScopedData();
-			toast.success("已切换组织");
+			toast.success(pendingLogin ? "已进入组织" : "已切换组织");
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "切换组织失败，请稍后重试");
 		} finally {
@@ -113,9 +135,13 @@ export function OrganizationSwitchPanel({
 		if (!name || creating || waitingForNavigation) return;
 		setCreating(true);
 		try {
-			await createOrganization(name);
+			if (pendingLogin) {
+				await pendingLogin.onCreate(name);
+			} else {
+				await createOrganization(name);
+			}
 			resetOrgScopedData();
-			toast.success("已创建并切换组织");
+			toast.success(pendingLogin ? "已创建并进入组织" : "已创建并切换组织");
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "创建组织失败，请稍后重试");
 		} finally {
@@ -184,7 +210,8 @@ export function OrganizationSwitchPanel({
 				</button>
 			</div>
 			<OrganizationList
-				user={user}
+				organizations={pendingLogin?.organizations ?? user?.organizations ?? []}
+				currentOrgId={pendingLogin ? undefined : user?.currentOrg?.id}
 				switchingOrgId={switchingOrgId}
 				onSwitch={(orgId) => void handleSwitchOrganization(orgId)}
 			/>
@@ -193,15 +220,16 @@ export function OrganizationSwitchPanel({
 }
 
 function OrganizationList({
-	user,
+	organizations,
+	currentOrgId,
 	switchingOrgId,
 	onSwitch,
 }: {
-	user: AuthUser | null;
+	organizations: AuthOrgInfo[] | NonNullable<AuthUser["organizations"]>;
+	currentOrgId?: number;
 	switchingOrgId: number | null;
 	onSwitch: (orgID: number) => void;
 }) {
-	const organizations = user?.organizations ?? [];
 	if (organizations.length === 0) {
 		return (
 			<div className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
@@ -213,7 +241,7 @@ function OrganizationList({
 	return (
 		<div className="space-y-2">
 			{organizations.map((org) => {
-				const active = org.id === user?.currentOrg?.id;
+				const active = org.id === currentOrgId;
 				const switching = switchingOrgId === org.id;
 				return (
 					<button
