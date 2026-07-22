@@ -104,6 +104,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 		handler.RegisterClientUpdateRoutes(v1, cfg.ClientUpdate)
 		logs.Info("Client update routes registered successfully")
+
+		handler.RegisterFrontendEventRoutes(v1)
+		logs.Info("Frontend event routes registered successfully")
 	}
 
 	// ── 内部路由（worker 上报，不走 RequireCallerOrg）─────────────
