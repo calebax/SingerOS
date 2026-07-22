@@ -31,6 +31,7 @@ func (s *user) CreateUser(ctx context.Context, req *account.CreateUserInput) (*a
 		Email:         req.Email,
 		Phone:         req.Phone,
 		DepartmentIDs: req.DepartmentIDs,
+		Role:          "sys_employee",
 	}, &resp); err != nil {
 		return nil, mapIAMError(err)
 	}
