@@ -2,9 +2,11 @@
 
 import {
 	AUTH_SESSION_EXPIRED_EVENT,
+	type AuthOrgInfo,
 	type AuthTokenResponse,
 	type AuthUser,
 	authApi,
+	type PendingOrganizationLoginResponse,
 	useAuthStore,
 	useChatStore,
 	useDAStore,
@@ -41,9 +43,13 @@ import {
 	APP_PRIVACY_POLICY_PDF_SRC,
 	APP_TERMS_OF_SERVICE_PDF_SRC,
 } from "../../assets";
+import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 
 type AuthMode = "login";
 type PolicyDocument = "terms" | "privacy";
+type PendingOrganizationLoginState = PendingOrganizationLoginResponse & {
+	organizations: AuthOrgInfo[];
+};
 type DesktopPolicyApi = {
 	openPolicyPdf?: (document: PolicyDocument) => Promise<boolean>;
 };
@@ -80,6 +86,8 @@ export function AuthProvider({
 	const hasRestoredSessionRef = useRef(false);
 	const [hydrated, setHydrated] = useState(false);
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const [pendingOrganizationLogin, setPendingOrganizationLogin] =
+		useState<PendingOrganizationLoginState | null>(null);
 	const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
 	useEffect(() => {
@@ -134,10 +142,12 @@ export function AuthProvider({
 		setDialogOpen(true);
 	}, []);
 
-	const handleAuthenticated = useCallback(
-		(token: AuthTokenResponse) => {
+	const completeOrganizationLogin = useCallback(
+		(token: AuthTokenResponse, initializeOrganizationData = true) => {
 			setAuthToken(token);
+			setPendingOrganizationLogin(null);
 			setDialogOpen(false);
+			if (!initializeOrganizationData) return;
 			void Promise.all([fetchProjects(), fetchAssistants(), fetchInstalledSkills()]);
 			const action = pendingAction;
 			setPendingAction(null);
@@ -146,9 +156,78 @@ export function AuthProvider({
 		[fetchAssistants, fetchInstalledSkills, fetchProjects, pendingAction, setAuthToken],
 	);
 
+	const chooseOrganization = useCallback(
+		async (
+			login: PendingOrganizationLoginResponse,
+			uin: number,
+			initializeOrganizationData = true,
+		) => {
+			const response = await authApi.chooseUin({
+				refresh_token: login.refresh_token,
+				uin,
+				user_id: login.user_id,
+				// 中文注释：后端当前阶段暂不要求登录方式，后续按实际契约恢复传递登录方式。
+				// login_way: login.login_way,
+			});
+			const result = response.data;
+			if (result.code !== 0) throw new Error(result.message || "选择组织失败");
+			completeOrganizationLogin(
+				{
+					...result.data,
+					user_id: login.user_id,
+					login_way: login.login_way,
+				},
+				initializeOrganizationData,
+			);
+		},
+		[completeOrganizationLogin],
+	);
+
+	const handleAuthenticated = useCallback(
+		async (login: PendingOrganizationLoginResponse) => {
+			// 中文注释：无组织账号的真实响应会省略 organizations，前端统一按空列表进入创建流程。
+			const pendingLogin: PendingOrganizationLoginState = {
+				...login,
+				organizations: login.organizations ?? [],
+			};
+			const [onlyOrganization] = pendingLogin.organizations;
+			if (onlyOrganization && pendingLogin.organizations.length === 1) {
+				await chooseOrganization(pendingLogin, onlyOrganization.uin);
+				return;
+			}
+			setPendingOrganizationLogin(pendingLogin);
+			setDialogOpen(false);
+		},
+		[chooseOrganization],
+	);
+
+	const handlePendingOrganizationCreate = useCallback(
+		async (name: string) => {
+			if (!pendingOrganizationLogin) throw new Error("登录状态已失效，请重新登录");
+			const response = await authApi.createOrganizationForPendingLogin({
+				name,
+				refresh_token: pendingOrganizationLogin.refresh_token,
+				user_id: pendingOrganizationLogin.user_id,
+				// 中文注释：手机号登录返回的 user_info.name 即用户昵称，用于创建组织请求。
+				user_display_name: pendingOrganizationLogin.user_info.name,
+			});
+			const result = response.data;
+			if (result.code !== 0) throw new Error(result.message || "创建组织失败");
+			if (!result.data.uin) throw new Error("创建组织响应缺少 UIN");
+			await chooseOrganization(pendingOrganizationLogin, result.data.uin, false);
+		},
+		[pendingOrganizationLogin, chooseOrganization],
+	);
+
+	const handlePendingOrganizationDone = useCallback(() => {
+		const action = pendingAction;
+		setPendingAction(null);
+		action?.();
+	}, [pendingAction]);
+
 	const requireAuth = useCallback(
 		(afterAuth?: () => void, _nextMode: AuthMode = "login") => {
-			if (authUser) {
+			if (isActiveOrganizationSession(authUser)) {
 				afterAuth?.();
 				return true;
 			}
@@ -177,7 +256,7 @@ export function AuthProvider({
 	const value = useMemo<AuthContextValue>(
 		() => ({
 			isHydrated: hydrated,
-			isAuthenticated: hydrated && Boolean(authUser),
+			isAuthenticated: hydrated && isActiveOrganizationSession(authUser),
 			user: hydrated ? authUser : null,
 			openAuthDialog,
 			requireAuth,
@@ -198,8 +277,38 @@ export function AuthProvider({
 				}}
 				onAuthenticated={handleAuthenticated}
 			/>
+			<Dialog
+				open={Boolean(pendingOrganizationLogin)}
+				onOpenChange={(open) => {
+					if (open) return;
+					// 中文注释：首次选择阶段尚未建立正式登录态，关闭时只丢弃待选组织上下文。
+					setPendingOrganizationLogin(null);
+					setDialogOpen(true);
+				}}
+			>
+				<DialogContent className="w-[min(420px,95vw)] max-w-none p-6" showCloseButton>
+					<OrganizationSwitchPanel
+						active={Boolean(pendingOrganizationLogin)}
+						initialMode={pendingOrganizationLogin?.organizations.length === 0 ? "create" : "switch"}
+						pendingLogin={
+							pendingOrganizationLogin
+								? {
+										organizations: pendingOrganizationLogin.organizations,
+										onChoose: (org) => chooseOrganization(pendingOrganizationLogin, org.uin, false),
+										onCreate: handlePendingOrganizationCreate,
+									}
+								: undefined
+						}
+						onDone={handlePendingOrganizationDone}
+					/>
+				</DialogContent>
+			</Dialog>
 		</AuthContext.Provider>
 	);
+}
+
+function isActiveOrganizationSession(user: AuthUser | null): boolean {
+	return Boolean(user?.jwtToken && user.currentOrg);
 }
 
 export function useAuth() {
@@ -219,7 +328,7 @@ function AuthDialog({
 	open: boolean;
 	logoSrc: string;
 	onOpenChange: (open: boolean) => void;
-	onAuthenticated: (token: AuthTokenResponse) => void;
+	onAuthenticated: (login: PendingOrganizationLoginResponse) => Promise<void>;
 }) {
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
@@ -318,7 +427,7 @@ function AuthDialog({
 				return;
 			}
 
-			onAuthenticated(result.data);
+			await onAuthenticated(result.data);
 		} catch (err) {
 			console.error("login by phone code error:", err);
 			setErrorMessage(getRequestErrorMessage(err) ?? "登录失败，请稍后再试");
