@@ -12,6 +12,5 @@ type Edition interface {
 	User() account.UserRepository
 	Org() account.OrgRepository
 	Department() account.DepartmentRepository
-	Permission() account.PermissionProvider
 	TokenParser() account.TokenParser
 }
