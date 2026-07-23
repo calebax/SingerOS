@@ -193,8 +193,8 @@ func (s *user) GetUserByUin(ctx context.Context, uin uint) (*account.UserInfo, e
 		return nil, mapIAMError(err)
 	}
 	return &account.UserInfo{
-		ID:       resp.EmployeeID,
-		PublicID: strconv.FormatUint(uint64(resp.EmployeeID), 10),
+		ID:       resp.UserID,
+		PublicID: strconv.FormatUint(uint64(resp.UserID), 10),
 		Uin:      resp.Uin,
 		Name:     resp.UserName,
 		Email:    resp.Email,
