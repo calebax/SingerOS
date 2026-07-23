@@ -38,6 +38,8 @@ export {
 	getFilePublicUrlFromStorageUri,
 	normalizeFilePublicId,
 } from "./api/fileApi";
+export type { Edition, GlobalConfig } from "./api/globalConfigApi";
+export { globalConfigApi } from "./api/globalConfigApi";
 export type {
 	Department,
 	ListDepartmentsResponse,
@@ -90,6 +92,7 @@ export {
 	useAuthStore,
 	useChatStore,
 	useDAStore,
+	useGlobalConfigStore,
 	useLayoutStore,
 	usePermissionStore,
 	useSkillStore,

@@ -7,6 +7,7 @@ import {
 	useAuthStore,
 	useChatStore,
 	useDAStore,
+	useGlobalConfigStore,
 	useLayoutStore,
 	useSkillStore,
 } from "@leros/store";
@@ -42,6 +43,7 @@ export function OrganizationSwitchPanel({
 	pendingLogin,
 }: OrganizationSwitchPanelProps) {
 	const user = useAuthStore((s) => s.authUser);
+	const edition = useGlobalConfigStore((s) => s.edition);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const switchOrganization = useAuthStore((s) => s.switchOrganization);
 	const createOrganization = useAuthStore((s) => s.createOrganization);
@@ -60,6 +62,8 @@ export function OrganizationSwitchPanel({
 	const [switchingOrgId, setSwitchingOrgId] = useState<number | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [waitingForNavigation, setWaitingForNavigation] = useState(false);
+	const canCreateOrganization =
+		edition === "enterprise" || Boolean(pendingLogin && pendingLogin.organizations.length === 0);
 
 	useEffect(() => {
 		if (!active) return;
@@ -218,16 +222,18 @@ export function OrganizationSwitchPanel({
 			<div className="border-b border-[var(--leros-control-border)] pb-4">
 				<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">切换组织</h2>
 			</div>
-			<div className="flex justify-end py-3">
-				<button
-					type="button"
-					onClick={() => setMode("create")}
-					className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]"
-				>
-					<Plus className="size-4" />
-					<span>创建新组织</span>
-				</button>
-			</div>
+			{canCreateOrganization ? (
+				<div className="flex justify-end py-3">
+					<button
+						type="button"
+						onClick={() => setMode("create")}
+						className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]"
+					>
+						<Plus className="size-4" />
+						<span>创建新组织</span>
+					</button>
+				</div>
+			) : null}
 			<div className="no-scrollbar min-h-0 max-h-[calc(70dvh-9rem)] flex-1 overflow-y-auto pr-1">
 				<OrganizationList
 					organizations={pendingLogin?.organizations ?? user?.organizations ?? []}
