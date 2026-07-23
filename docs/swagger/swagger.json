@@ -2230,6 +2230,44 @@
                 }
             }
         },
+        "/GlobalConfig": {
+            "get": {
+                "description": "返回服务端通用全局配置信息（当前返回 edition 字段）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Global"
+                ],
+                "summary": "获取全局配置",
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dto.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.GlobalConfigData"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/ListDepartment": {
             "post": {
                 "description": "查询部门列表",
@@ -5384,6 +5422,14 @@
                     "type": "string"
                 },
                 "req_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.GlobalConfigData": {
+            "type": "object",
+            "properties": {
+                "edition": {
                     "type": "string"
                 }
             }

@@ -13,4 +13,5 @@ type Edition interface {
 	Org() account.OrgRepository
 	Department() account.DepartmentRepository
 	TokenParser() account.TokenParser
+	Edition() string
 }

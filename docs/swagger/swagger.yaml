@@ -548,6 +548,11 @@ definitions:
       req_id:
         type: string
     type: object
+  dto.GlobalConfigData:
+    properties:
+      edition:
+        type: string
+    type: object
   dto.Response:
     properties:
       code:
@@ -2536,6 +2541,28 @@ paths:
       summary: 获取用户详情
       tags:
       - User
+  /GlobalConfig:
+    get:
+      description: 返回服务端通用全局配置信息（当前返回 edition 字段）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.GlobalConfigData'
+              type: object
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取全局配置
+      tags:
+      - Global
   /ListDepartment:
     post:
       consumes:
