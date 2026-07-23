@@ -272,6 +272,9 @@ func (s *user) ListUin(ctx context.Context) (*account.ListUinOutput, error) {
 
 	uins := make([]account.UinInfo, 0, len(resp.Uin))
 	for _, u := range resp.Uin {
+		if u.Uin.SubjectType != "company" {
+			continue
+		}
 		uins = append(uins, account.UinInfo{
 			Uin:           u.Uin.ID,
 			UserID:        u.Uin.UserID,
