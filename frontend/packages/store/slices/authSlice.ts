@@ -177,7 +177,7 @@ export class AuthActionImpl {
 		});
 	};
 
-	createOrganization = async (name: string) => {
+	createOrganization = async (name: string, userDisplayName: string) => {
 		try {
 			this.#authContextVersion += 1;
 			const authUser = readStoredAuthUser();
@@ -188,7 +188,8 @@ export class AuthActionImpl {
 			const response = await authApi.createOrganization({
 				name,
 				user_id: authUser.userId,
-				user_display_name: authUser.name,
+				// 中文注释：昵称由创建组织表单提供，避免使用可能为空或过期的会话名称。
+				user_display_name: userDisplayName,
 			});
 			const result = response.data;
 			if (result.code !== 0) {

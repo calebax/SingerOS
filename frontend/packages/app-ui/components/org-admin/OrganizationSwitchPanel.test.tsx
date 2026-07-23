@@ -129,4 +129,15 @@ describe("OrganizationSwitchPanel", () => {
 			expect.stringContaining("organization-default-avatar.png"),
 		);
 	});
+
+	it("创建组织时提交用户填写的昵称", async () => {
+		render(<OrganizationSwitchPanel active />);
+
+		fireEvent.click(screen.getByRole("button", { name: /创建新组织/ }));
+		fireEvent.change(screen.getByLabelText("组织名称"), { target: { value: "新组织" } });
+		fireEvent.change(screen.getByLabelText("用户昵称"), { target: { value: "新用户" } });
+		fireEvent.click(screen.getByRole("button", { name: /创建并切换/ }));
+
+		await waitFor(() => expect(mockCreateOrganization).toHaveBeenCalledWith("新组织", "新用户"));
+	});
 });
