@@ -974,16 +974,17 @@ func TestMapDepartmentTreeEmployeeToUserInfo(t *testing.T) {
 	emp := iamDepartmentTreeEmployee{
 		Uin:        100,
 		EmployeeID: 10,
+		UserID:     55,
 		Name:       "Test Emp",
 		Email:      "emp@yygu.cn",
 		Phone:      "13800002222",
 	}
 	result := mapDepartmentTreeEmployeeToUserInfo(emp)
-	if result.ID != 0 {
-		t.Errorf("ID = %d, want 0 (UserID not available until IAM adds user_id field)", result.ID)
+	if result.ID != 55 {
+		t.Errorf("ID = %d, want 55", result.ID)
 	}
-	if result.PublicID != "" {
-		t.Errorf("PublicID = %q, want empty (UserID not available until IAM adds user_id field)", result.PublicID)
+	if result.PublicID != "55" {
+		t.Errorf("PublicID = %q, want %q", result.PublicID, "55")
 	}
 	if result.Uin != 100 {
 		t.Errorf("Uin = %d", result.Uin)
@@ -1010,8 +1011,8 @@ func TestMapIAMCompanyToOrg(t *testing.T) {
 	if result == nil {
 		t.Fatal("result is nil")
 	}
-	if result.PublicID != "org_iam_5" {
-		t.Errorf("PublicID = %q", result.PublicID)
+	if result.PublicID != "5" {
+		t.Errorf("PublicID = %q, want %q", result.PublicID, "5")
 	}
 	if result.Name != "Acme Corp" {
 		t.Errorf("Name = %q", result.Name)

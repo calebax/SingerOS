@@ -450,6 +450,7 @@ type iamGetCompanyMemberResp struct {
 	Email         string `json:"email"`
 	Phone         string `json:"phone"`
 	EmployeeID    uint   `json:"employee_id"`
+	UserID        uint   `json:"user_id"`
 	Role          string `json:"role"`
 	DepartmentIDs []uint `json:"department_ids"`
 }
