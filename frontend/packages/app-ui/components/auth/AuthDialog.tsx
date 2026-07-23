@@ -200,14 +200,14 @@ export function AuthProvider({
 	);
 
 	const handlePendingOrganizationCreate = useCallback(
-		async (name: string) => {
+		async (name: string, userDisplayName: string) => {
 			if (!pendingOrganizationLogin) throw new Error("登录状态已失效，请重新登录");
 			const response = await authApi.createOrganizationForPendingLogin({
 				name,
 				refresh_token: pendingOrganizationLogin.refresh_token,
 				user_id: pendingOrganizationLogin.user_id,
-				// 中文注释：手机号登录返回的 user_info.name 即用户昵称，用于创建组织请求。
-				user_display_name: pendingOrganizationLogin.user_info.name,
+				// 中文注释：用户在创建组织时填写的昵称需要作为组织成员名称提交。
+				user_display_name: userDisplayName,
 			});
 			const result = response.data;
 			if (result.code !== 0) throw new Error(result.message || "创建组织失败");
@@ -275,7 +275,11 @@ export function AuthProvider({
 					setDialogOpen(true);
 				}}
 			>
-				<DialogContent className="w-[min(420px,95vw)] max-w-none p-6" showCloseButton>
+				<DialogContent
+					className="flex max-h-[min(70dvh,calc(100dvh-2rem))] w-full max-w-none flex-col overflow-hidden p-6"
+					style={{ width: "min(33vw, calc(100vw - 2rem))" }}
+					showCloseButton
+				>
 					<OrganizationSwitchPanel
 						active={Boolean(pendingOrganizationLogin)}
 						initialMode={pendingOrganizationLogin?.organizations.length === 0 ? "create" : "switch"}

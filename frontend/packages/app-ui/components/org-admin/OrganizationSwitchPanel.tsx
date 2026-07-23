@@ -28,7 +28,7 @@ type OrganizationSwitchPanelProps = {
 	pendingLogin?: {
 		organizations: AuthOrgInfo[];
 		onChoose: (organization: AuthOrgInfo) => Promise<void>;
-		onCreate: (name: string) => Promise<void>;
+		onCreate: (name: string, userDisplayName: string) => Promise<void>;
 	};
 };
 
@@ -56,6 +56,7 @@ export function OrganizationSwitchPanel({
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
 	const [mode, setMode] = useState<PanelMode>(initialMode);
 	const [organizationName, setOrganizationName] = useState("");
+	const [userDisplayName, setUserDisplayName] = useState("");
 	const [switchingOrgId, setSwitchingOrgId] = useState<number | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [waitingForNavigation, setWaitingForNavigation] = useState(false);
@@ -132,13 +133,14 @@ export function OrganizationSwitchPanel({
 	const handleCreateOrganization = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		const name = organizationName.trim();
-		if (!name || creating || waitingForNavigation) return;
+		const displayName = userDisplayName.trim();
+		if (!name || !displayName || creating || waitingForNavigation) return;
 		setCreating(true);
 		try {
 			if (pendingLogin) {
-				await pendingLogin.onCreate(name);
+				await pendingLogin.onCreate(name, displayName);
 			} else {
-				await createOrganization(name);
+				await createOrganization(name, displayName);
 			}
 			resetOrgScopedData();
 			toast.success(pendingLogin ? "已创建并进入组织" : "已创建并切换组织");
@@ -180,12 +182,29 @@ export function OrganizationSwitchPanel({
 						autoFocus
 						className="mt-2 h-10"
 					/>
+					<label
+						className="mt-4 block text-sm font-medium text-[var(--leros-text-muted)]"
+						htmlFor="user-display-name"
+					>
+						用户昵称
+					</label>
+					<Input
+						id="user-display-name"
+						value={userDisplayName}
+						onChange={(event) => setUserDisplayName(event.target.value)}
+						placeholder="请输入用户昵称"
+						maxLength={50}
+						className="mt-2 h-10"
+					/>
 				</div>
 				<div className="flex justify-end gap-3">
 					<Button type="button" variant="outline" onClick={() => setMode("switch")}>
 						取消
 					</Button>
-					<Button type="submit" disabled={!organizationName.trim() || creating}>
+					<Button
+						type="submit"
+						disabled={!organizationName.trim() || !userDisplayName.trim() || creating}
+					>
 						{creating ? <Loader2 className="size-4 animate-spin" /> : null}
 						<span>创建并切换</span>
 					</Button>
@@ -195,7 +214,7 @@ export function OrganizationSwitchPanel({
 	}
 
 	return (
-		<div className="flex w-full flex-col">
+		<div className="flex min-h-0 w-full flex-1 flex-col">
 			<div className="border-b border-[var(--leros-control-border)] pb-4">
 				<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">切换组织</h2>
 			</div>
@@ -209,12 +228,14 @@ export function OrganizationSwitchPanel({
 					<span>创建新组织</span>
 				</button>
 			</div>
-			<OrganizationList
-				organizations={pendingLogin?.organizations ?? user?.organizations ?? []}
-				currentOrgId={pendingLogin ? undefined : user?.currentOrg?.id}
-				switchingOrgId={switchingOrgId}
-				onSwitch={(orgId) => void handleSwitchOrganization(orgId)}
-			/>
+			<div className="no-scrollbar min-h-0 max-h-[calc(70dvh-9rem)] flex-1 overflow-y-auto pr-1">
+				<OrganizationList
+					organizations={pendingLogin?.organizations ?? user?.organizations ?? []}
+					currentOrgId={pendingLogin ? undefined : user?.currentOrg?.id}
+					switchingOrgId={switchingOrgId}
+					onSwitch={(orgId) => void handleSwitchOrganization(orgId)}
+				/>
+			</div>
 		</div>
 	);
 }
