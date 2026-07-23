@@ -32,3 +32,4 @@ func (e *enterpriseEdition) User() account.UserRepository             { return e
 func (e *enterpriseEdition) Org() account.OrgRepository               { return e.org }
 func (e *enterpriseEdition) Department() account.DepartmentRepository { return e.department }
 func (e *enterpriseEdition) TokenParser() account.TokenParser         { return e.tokenParser }
+func (e *enterpriseEdition) Edition() string                          { return "enterprise" }

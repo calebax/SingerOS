@@ -31,3 +31,4 @@ func (e *ossEdition) User() account.UserRepository             { return e.user }
 func (e *ossEdition) Org() account.OrgRepository               { return e.org }
 func (e *ossEdition) Department() account.DepartmentRepository { return e.department }
 func (e *ossEdition) TokenParser() account.TokenParser         { return e.tokenParser }
+func (e *ossEdition) Edition() string                          { return "oss" }
