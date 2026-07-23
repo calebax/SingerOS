@@ -255,9 +255,9 @@ func mapLoginThirdToAuthTokenResponse(resp *iamLoginThirdResponseBody) (*account
 		RefreshToken: resp.RefreshToken,
 		LoginWay:     resp.LoginWay,
 	}
+	result.UserID = resp.UserID
 	if len(resp.Uin) > 0 {
 		result.Uin = resp.Uin[0].Uin.ID
-		result.UserID = resp.UserID
 	}
 	if resp.UserInfo != nil {
 		result.UserInfo = mapIAMUserInfoToAuthUserInfo(resp.UserInfo)
