@@ -221,6 +221,7 @@ type iamDepartmentTreeEmployee struct {
 	Name          string    `json:"name"`
 	Email         string    `json:"email"`
 	Phone         string    `json:"phone"`
+	AvatarURL     string    `json:"avatar_url"`
 	EmployeeID    uint      `json:"employee_id"`
 	UserID        uint      `json:"user_id"`
 	Role          string    `json:"role"`
@@ -316,12 +317,13 @@ func mapDetailPersonalCenterToUserInfo(resp *iamDetailPersonalCenterResponseBody
 
 func mapDepartmentTreeEmployeeToUserInfo(emp iamDepartmentTreeEmployee) account.UserInfo {
 	return account.UserInfo{
-		ID:       emp.UserID,
-		PublicID: strconv.FormatUint(uint64(emp.UserID), 10),
-		Uin:      emp.Uin,
-		Name:     emp.Name,
-		Email:    emp.Email,
-		Phone:    emp.Phone,
+		ID:        emp.UserID,
+		PublicID:  strconv.FormatUint(uint64(emp.UserID), 10),
+		Uin:       emp.Uin,
+		Name:      emp.Name,
+		Email:     emp.Email,
+		Phone:     emp.Phone,
+		AvatarURL: emp.AvatarURL,
 	}
 }
 
@@ -450,6 +452,7 @@ type iamGetCompanyMemberResp struct {
 	Name          string `json:"name"`
 	Email         string `json:"email"`
 	Phone         string `json:"phone"`
+	AvatarURL     string `json:"avatar_url"`
 	EmployeeID    uint   `json:"employee_id"`
 	UserID        uint   `json:"user_id"`
 	Role          string `json:"role"`

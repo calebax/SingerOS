@@ -154,31 +154,31 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 	}, nil
 }
 
-func (s *user) loadEmployeeMap(ctx context.Context) (map[uint]account.UserInfo, map[uint]account.UserInfo, error) {
+func (s *user) loadUserMap(ctx context.Context) (map[uint]account.UserInfo, map[uint]account.UserInfo, error) {
 	var resp iamDepartmentTreeResponseBody
 	if err := s.client.callWithAuth(ctx, "account.GetDepartmentTree", &iamGetDepartmentTreeReq{
 		IncludeEmployee: true,
 	}, &resp); err != nil {
 		return nil, nil, mapIAMError(err)
 	}
-	byID := make(map[uint]account.UserInfo, len(resp.Employees))
+	byUserID := make(map[uint]account.UserInfo, len(resp.Employees))
 	byUin := make(map[uint]account.UserInfo, len(resp.Employees))
 	for _, emp := range resp.Employees {
 		info := mapDepartmentTreeEmployeeToUserInfo(emp)
-		if emp.EmployeeID != 0 {
-			byID[emp.EmployeeID] = info
+		if emp.UserID != 0 {
+			byUserID[emp.UserID] = info
 		}
 		byUin[emp.Uin] = info
 	}
-	return byID, byUin, nil
+	return byUserID, byUin, nil
 }
 
 func (s *user) GetUserByID(ctx context.Context, id uint) (*account.UserInfo, error) {
-	byID, _, err := s.loadEmployeeMap(ctx)
+	byUserID, _, err := s.loadUserMap(ctx)
 	if err != nil {
 		return nil, err
 	}
-	info, ok := byID[id]
+	info, ok := byUserID[id]
 	if !ok {
 		return nil, accounterror.ErrUserNotFound
 	}
@@ -193,12 +193,13 @@ func (s *user) GetUserByUin(ctx context.Context, uin uint) (*account.UserInfo, e
 		return nil, mapIAMError(err)
 	}
 	return &account.UserInfo{
-		ID:       resp.UserID,
-		PublicID: strconv.FormatUint(uint64(resp.UserID), 10),
-		Uin:      resp.Uin,
-		Name:     resp.UserName,
-		Email:    resp.Email,
-		Phone:    resp.Phone,
+		ID:        resp.UserID,
+		PublicID:  strconv.FormatUint(uint64(resp.UserID), 10),
+		Uin:       resp.Uin,
+		Name:      resp.UserName,
+		Email:     resp.Email,
+		Phone:     resp.Phone,
+		AvatarURL: resp.AvatarURL,
 	}, nil
 }
 
@@ -207,13 +208,13 @@ func (s *user) GetUserByGithubID(ctx context.Context, githubID int64) (*account.
 }
 
 func (s *user) GetUsersByIDs(ctx context.Context, ids []uint) ([]*account.UserInfo, error) {
-	byID, _, err := s.loadEmployeeMap(ctx)
+	byUserID, _, err := s.loadUserMap(ctx)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]*account.UserInfo, 0, len(ids))
 	for _, id := range ids {
-		if info, ok := byID[id]; ok {
+		if info, ok := byUserID[id]; ok {
 			copyInfo := info
 			items = append(items, &copyInfo)
 		}
@@ -222,7 +223,7 @@ func (s *user) GetUsersByIDs(ctx context.Context, ids []uint) ([]*account.UserIn
 }
 
 func (s *user) GetUsersByUins(ctx context.Context, uins []uint) (map[uint]*account.UserInfo, error) {
-	_, byUin, err := s.loadEmployeeMap(ctx)
+	_, byUin, err := s.loadUserMap(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +241,7 @@ func (s *user) GetUsersByPublicIDs(ctx context.Context, publicIDs []string) ([]*
 	if len(publicIDs) == 0 {
 		return nil, nil
 	}
-	byID, _, err := s.loadEmployeeMap(ctx)
+	byUserID, _, err := s.loadUserMap(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +251,7 @@ func (s *user) GetUsersByPublicIDs(ctx context.Context, publicIDs []string) ([]*
 		if err != nil {
 			continue
 		}
-		if info, ok := byID[uint(id)]; ok {
+		if info, ok := byUserID[uint(id)]; ok {
 			copyInfo := info
 			result = append(result, &copyInfo)
 		}
@@ -262,7 +263,7 @@ func (s *user) GetUinMapByPublicIDs(ctx context.Context, orgID uint, publicIDs [
 	if len(publicIDs) == 0 {
 		return map[string]uint{}, nil
 	}
-	_, byUin, err := s.loadEmployeeMap(ctx)
+	byUserID, _, err := s.loadUserMap(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +272,7 @@ func (s *user) GetUinMapByPublicIDs(ctx context.Context, orgID uint, publicIDs [
 		publicIDSet[id] = struct{}{}
 	}
 	result := make(map[string]uint, len(publicIDs))
-	for _, info := range byUin {
+	for _, info := range byUserID {
 		if info.PublicID == "" {
 			continue
 		}
