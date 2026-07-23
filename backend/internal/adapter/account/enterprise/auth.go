@@ -80,9 +80,6 @@ func (s *auth) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput)
 	if err != nil {
 		return nil, err
 	}
-	if len(result.Organizations) == 0 {
-		return nil, accounterror.ErrOrgNotFound
-	}
 	result.Edition = account.EditionEnterprise
 	return result, nil
 }
@@ -128,9 +125,6 @@ func (s *auth) LoginByPhoneCode(ctx context.Context, req *account.LoginByPhoneCo
 	result, err := mapLoginThirdToAuthTokenResponse(&resp)
 	if err != nil {
 		return nil, err
-	}
-	if len(result.Organizations) == 0 {
-		return nil, accounterror.ErrOrgNotFound
 	}
 	result.Edition = account.EditionEnterprise
 	return result, nil
