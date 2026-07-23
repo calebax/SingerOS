@@ -237,7 +237,25 @@ func (s *user) GetUsersByUins(ctx context.Context, uins []uint) (map[uint]*accou
 }
 
 func (s *user) GetUsersByPublicIDs(ctx context.Context, publicIDs []string) ([]*account.UserInfo, error) {
-	return nil, accounterror.ErrNotImplementedEdition
+	if len(publicIDs) == 0 {
+		return nil, nil
+	}
+	byID, _, err := s.loadEmployeeMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*account.UserInfo, 0, len(publicIDs))
+	for _, pid := range publicIDs {
+		id, err := strconv.ParseUint(pid, 10, 64)
+		if err != nil {
+			continue
+		}
+		if info, ok := byID[uint(id)]; ok {
+			copyInfo := info
+			result = append(result, &copyInfo)
+		}
+	}
+	return result, nil
 }
 
 func (s *user) GetUinMapByPublicIDs(ctx context.Context, orgID uint, publicIDs []string) (map[string]uint, error) {
