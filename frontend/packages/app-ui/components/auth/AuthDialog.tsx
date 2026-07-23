@@ -11,6 +11,7 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
+	usePermissionStore,
 	useSkillStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
@@ -83,6 +84,8 @@ export function AuthProvider({
 	const fetchAssistants = useDAStore((s) => s.fetchAssistants);
 	const fetchInstalledSkills = useSkillStore((s) => s.fetchInstalledSkills);
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
+	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
+	const invalidateAllPermissions = usePermissionStore((s) => s.invalidateAll);
 	const hasRestoredSessionRef = useRef(false);
 	const [hydrated, setHydrated] = useState(false);
 	const [dialogOpen, setDialogOpen] = useState(false);
@@ -94,20 +97,16 @@ export function AuthProvider({
 		setHydrated(true);
 	}, []);
 
-	useEffect(() => {
-		const handleExpiredSession = () => {
-			logoutAuth();
-			resetAuthScopedData();
-			resetDAAuthScopedData();
-			resetSkillAuthScopedData();
-			resetLocalMessages();
-			setPendingAction(null);
-			setDialogOpen(true);
-		};
-		window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
-		return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
+	const clearAuthScopedStoreData = useCallback(() => {
+		resetAuthScopedData();
+		resetDAAuthScopedData();
+		resetSkillAuthScopedData();
+		resetLocalMessages();
+		clearComposerInput();
+		invalidateAllPermissions();
 	}, [
-		logoutAuth,
+		clearComposerInput,
+		invalidateAllPermissions,
 		resetAuthScopedData,
 		resetDAAuthScopedData,
 		resetLocalMessages,
@@ -115,28 +114,27 @@ export function AuthProvider({
 	]);
 
 	useEffect(() => {
+		const handleExpiredSession = () => {
+			logoutAuth();
+			clearAuthScopedStoreData();
+			setPendingAction(null);
+			setDialogOpen(true);
+		};
+		window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
+		return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
+	}, [clearAuthScopedStoreData, logoutAuth]);
+
+	useEffect(() => {
 		if (!hydrated || hasRestoredSessionRef.current || !authUser?.jwtToken) return;
 		hasRestoredSessionRef.current = true;
 		void refreshAuthSession().then((ok) => {
 			if (ok) return;
 			logoutAuth();
-			resetAuthScopedData();
-			resetDAAuthScopedData();
-			resetSkillAuthScopedData();
-			resetLocalMessages();
+			clearAuthScopedStoreData();
 			setPendingAction(null);
 			setDialogOpen(true);
 		});
-	}, [
-		authUser,
-		hydrated,
-		logoutAuth,
-		refreshAuthSession,
-		resetAuthScopedData,
-		resetDAAuthScopedData,
-		resetLocalMessages,
-		resetSkillAuthScopedData,
-	]);
+	}, [authUser, clearAuthScopedStoreData, hydrated, logoutAuth, refreshAuthSession]);
 
 	const openAuthDialog = useCallback((_nextMode: AuthMode = "login") => {
 		setDialogOpen(true);
@@ -240,18 +238,9 @@ export function AuthProvider({
 
 	const logout = useCallback(() => {
 		logoutAuth();
-		resetAuthScopedData();
-		resetDAAuthScopedData();
-		resetSkillAuthScopedData();
-		resetLocalMessages();
+		clearAuthScopedStoreData();
 		setPendingAction(null);
-	}, [
-		logoutAuth,
-		resetAuthScopedData,
-		resetDAAuthScopedData,
-		resetLocalMessages,
-		resetSkillAuthScopedData,
-	]);
+	}, [clearAuthScopedStoreData, logoutAuth]);
 
 	const value = useMemo<AuthContextValue>(
 		() => ({
