@@ -299,7 +299,7 @@ func mapUinListToAuthOrgInfos(uins []iamLoginUin) []account.AuthOrgInfo {
 			Uin:             uin.Uin.ID,
 			CreatedByUin:    uin.CreatedByUin,
 			CreatedByUserID: uin.CreatedByUserID,
-			UserName:        uin.Name,
+			UserName:        uin.Uin.Name,
 		})
 	}
 	return infos

@@ -67,6 +67,7 @@ export type AuthUserInfo = {
 	phone?: string;
 	github_login?: string;
 	avatar_url?: string;
+	uin_name?: string;
 };
 
 export type AuthOrgInfo = {

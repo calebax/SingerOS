@@ -698,12 +698,12 @@ export function LeftRail({
 								<button
 									type="button"
 									className="leros-profile-trigger"
-									title={user?.name ?? "个人中心"}
+									title={user?.uinName ?? user?.name ?? "个人中心"}
 								>
 									<ProfileAvatar user={user} />
 									<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
 										<p className="truncate text-[14px] font-semibold text-[var(--leros-text-strong)]">
-											{user?.name ?? "Lework 用户"}
+											{user?.uinName ?? user?.name ?? "Lework 用户"}
 										</p>
 										<p className="truncate text-[12px] text-[var(--leros-text-subtle)]">
 											{user?.currentOrg?.name ?? getDisplayPhone(user) ?? "已登录"}
