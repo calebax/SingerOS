@@ -27,13 +27,13 @@ const (
 
 // BusinessKeys carries the business primary key IDs used for LLM call record association.
 type BusinessKeys struct {
-	ProjectPKID        uint   `json:"project_pk_id"`
-	SessionPKID        uint   `json:"session_pk_id"`
-	MessagePKID        uint   `json:"message_pk_id"`
-	AssistantID        uint   `json:"assistant_id,omitempty"`         // leros_digital_assistant.id
-	AssistantPublicID  string `json:"assistant_public_id,omitempty"`  // leros_digital_assistant.public_id
-	WorkerPublicID     string `json:"worker_public_id,omitempty"`     // leros_worker_deployment.public_id
-	UinPK              uint   `json:"uin_pk"`
+	ProjectPKID       uint   `json:"project_pk_id"`
+	SessionPKID       uint   `json:"session_pk_id"`
+	MessagePKID       uint   `json:"message_pk_id"`
+	AssistantID       uint   `json:"assistant_id,omitempty"`        // leros_digital_assistant.id
+	AssistantPublicID string `json:"assistant_public_id,omitempty"` // leros_digital_assistant.public_id
+	WorkerPublicID    string `json:"worker_public_id,omitempty"`    // leros_worker_deployment.public_id
+	UinPK             uint   `json:"uin_pk"`
 }
 
 // RunRequest is the normalized execution snapshot consumed by runtime.
@@ -58,7 +58,7 @@ type RunRequest struct {
 // AssistantContext is the assistant snapshot used for one run.
 type AssistantContext struct {
 	// ID 是 leros_digital_assistant.id，自增主键，用于 llm_history 关联。
-	ID           uint     `json:"id,omitempty"`
+	ID uint `json:"id,omitempty"`
 	// PublicID 是 leros_digital_assistant.public_id，用于标识执行本次运行的 AI 队友。
 	PublicID     string   `json:"public_id,omitempty"`
 	Name         string   `json:"name,omitempty"`

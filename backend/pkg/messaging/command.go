@@ -110,9 +110,9 @@ type RunCommandPayload struct {
 	//   AssistantID       leros_digital_assistant.id          -> 区别于 Execution.AssistantPublicID（assistant public_id）
 	//   AssistantPublicID leros_digital_assistant.public_id    -> 用于 worker 侧展示和对外追溯
 	//   Uin               leros_user.id                        -> 区别于 ActorContext.UserID（fmt.Sprintf("%d", uin)）
-	ProjectID   uint `json:"project_id"`
-	SessionID   uint `json:"session_id"`
-	MessageID   uint `json:"message_id"`
+	ProjectID         uint   `json:"project_id"`
+	SessionID         uint   `json:"session_id"`
+	MessageID         uint   `json:"message_id"`
 	AssistantID       uint   `json:"assistant_id"`
 	AssistantPublicID string `json:"assistant_public_id,omitempty"`
 	Uin               uint   `json:"uin"`
@@ -353,7 +353,7 @@ type ActorContext struct {
 
 type ExecutionTarget struct {
 	// AssistantID 是 leros_digital_assistant.id，自增主键，用于 llm_history 关联。
-	AssistantID       uint     `json:"assistant_id,omitempty"`
+	AssistantID uint `json:"assistant_id,omitempty"`
 	// AssistantPublicID 是 leros_digital_assistant.public_id，用于 worker 侧日志展示。
 	AssistantPublicID string   `json:"assistant_public_id,omitempty"`
 	AssistantName     string   `json:"assistant_name,omitempty"`

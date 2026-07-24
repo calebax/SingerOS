@@ -365,9 +365,9 @@ func TestCompleteSessionMessageUsesAssistantIDFromRoute(t *testing.T) {
 			RunID: "run-1",
 		},
 		Body: messaging.RunEventBody{
-			Event:              messaging.RunEventRunCompleted,
-			Seq:                1,
-			AssistantID:  assistantID,
+			Event:       messaging.RunEventRunCompleted,
+			Seq:         1,
+			AssistantID: assistantID,
 			RunCompleted: &messaging.RunCompletedPayload{
 				Result: messaging.RunResultPayload{
 					Message: "done",
@@ -404,9 +404,9 @@ func TestFailedSessionMessageUsesAssistantIDFromRoute(t *testing.T) {
 			RunID: "run-2",
 		},
 		Body: messaging.RunEventBody{
-			Event:              messaging.RunEventRunFailed,
-			Seq:                2,
-			AssistantID:  assistantID,
+			Event:       messaging.RunEventRunFailed,
+			Seq:         2,
+			AssistantID: assistantID,
 			Payload: messaging.RunEventPayload{
 				Content: "boom",
 			},

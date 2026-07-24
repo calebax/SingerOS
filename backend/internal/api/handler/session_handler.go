@@ -441,10 +441,10 @@ func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
 	switch interaction.Type {
 	case "approval.decide":
 		var payload struct {
-			RequestID          string `json:"request_id"`
-			Action             string `json:"action"`
-			Reason             string `json:"reason,omitempty"`
-			AssistantID  string `json:"assistant_id"`
+			RequestID   string `json:"request_id"`
+			Action      string `json:"action"`
+			Reason      string `json:"reason,omitempty"`
+			AssistantID string `json:"assistant_id"`
 		}
 		if err := json.Unmarshal(interaction.Payload, &payload); err != nil {
 			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
@@ -458,12 +458,12 @@ func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
 		}
 
 		if err := h.service.SubmitApproval(ctx, &contract.SubmitApprovalRequest{
-			OrgID:              caller.OrgID,
-			SessionID:          sessionID,
-			RequestID:          payload.RequestID,
-			Action:             payload.Action,
-			Reason:             payload.Reason,
-			AssistantID:  payload.AssistantID,
+			OrgID:       caller.OrgID,
+			SessionID:   sessionID,
+			RequestID:   payload.RequestID,
+			Action:      payload.Action,
+			Reason:      payload.Reason,
+			AssistantID: payload.AssistantID,
 		}); err != nil {
 			logs.WarnContextf(ctx, "submit approval failed: %v", err)
 			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
@@ -477,9 +477,9 @@ func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
 
 	case "question.answer":
 		var payload struct {
-			RequestID          string     `json:"request_id"`
-			Answers            [][]string `json:"answers"`
-			AssistantID  string     `json:"assistant_id"`
+			RequestID   string     `json:"request_id"`
+			Answers     [][]string `json:"answers"`
+			AssistantID string     `json:"assistant_id"`
 		}
 		if err := json.Unmarshal(interaction.Payload, &payload); err != nil {
 			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
@@ -493,11 +493,11 @@ func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
 		}
 
 		if err := h.service.SubmitQuestionAnswer(ctx, &contract.SubmitQuestionAnswerRequest{
-			OrgID:              caller.OrgID,
-			SessionID:          sessionID,
-			RequestID:          payload.RequestID,
-			Answers:            payload.Answers,
-			AssistantID:  payload.AssistantID,
+			OrgID:       caller.OrgID,
+			SessionID:   sessionID,
+			RequestID:   payload.RequestID,
+			Answers:     payload.Answers,
+			AssistantID: payload.AssistantID,
 		}); err != nil {
 			logs.WarnContextf(ctx, "submit question answer failed: %v", err)
 			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))

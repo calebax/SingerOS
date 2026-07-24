@@ -27,8 +27,8 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 		ExecutionMode: string(agentrundomain.ExecutionModePlan),
 		Execution: messaging.ExecutionTarget{
 			AssistantPublicID: "assistant_1",
-			AssistantName: "投标策略师",
-			SystemPrompt:  "按投标策略师身份执行",
+			AssistantName:     "投标策略师",
+			SystemPrompt:      "按投标策略师身份执行",
 		},
 		Workspace: messaging.WorkspaceOptions{
 			ProjectID: "project_1",

@@ -8,10 +8,10 @@ import (
 
 // CreateSessionRequest creates a session.
 type CreateSessionRequest struct {
-	SessionID        string                `json:"session_id,omitempty"`
-	Type             string                `json:"type" binding:"required"`
+	SessionID   string                `json:"session_id,omitempty"`
+	Type        string                `json:"type" binding:"required"`
 	AssistantID string                `json:"assistant_id,omitempty"`
-	Title            string                `json:"title,omitempty"`
+	Title       string                `json:"title,omitempty"`
 	Metadata    *types.ObjectMetadata `json:"metadata,omitempty"`
 	ExpiredAt   *time.Time            `json:"expired_at,omitempty"`
 }
@@ -28,7 +28,7 @@ type ListSessionsRequest struct {
 	Type        *string `json:"type,omitempty"`
 	Status      *string `json:"status,omitempty"`
 	AssistantID *string `json:"assistant_id,omitempty"`
-	Keyword           *string `json:"keyword,omitempty"`
+	Keyword     *string `json:"keyword,omitempty"`
 	types.Pagination
 }
 
@@ -38,7 +38,7 @@ type AddMessageRequest struct {
 	Content       string                    `json:"content" binding:"required"`
 	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
 	AssistantIDs  []string                  `json:"assistant_ids,omitempty"`
-	MessageType         string                    `json:"message_type,omitempty"`
+	MessageType   string                    `json:"message_type,omitempty"`
 	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
 	Thinking      string                    `json:"thinking,omitempty"`
@@ -59,11 +59,11 @@ type SubmitApprovalRequest struct {
 
 // SubmitQuestionAnswerRequest forwards a question answer to the worker via NATS.
 type SubmitQuestionAnswerRequest struct {
-	OrgID              uint       `json:"-"`
-	SessionID          string     `json:"session_id"`
-	RequestID          string     `json:"request_id"`
-	Answers            [][]string `json:"answers"`
-	AssistantID  string     `json:"assistant_id" binding:"required"`
+	OrgID       uint       `json:"-"`
+	SessionID   string     `json:"session_id"`
+	RequestID   string     `json:"request_id"`
+	Answers     [][]string `json:"answers"`
+	AssistantID string     `json:"assistant_id" binding:"required"`
 }
 
 type Session struct {
@@ -102,13 +102,13 @@ type SessionMessage struct {
 	SenderUin   *uint                     `json:"sender_uin,omitempty"`
 	SenderName  string                    `json:"sender_name,omitempty"`
 	RunID       string                    `json:"run_id,omitempty"`
-	AssistantID string `json:"assistant_id,omitempty"`
+	AssistantID string                    `json:"assistant_id,omitempty"`
 }
 
 // SessionEvent is the public event shape embedded in persisted message chunks.
 type SessionEvent struct {
-	Type              string      `json:"type"`
-	SessionID         string      `json:"session_id"`
+	Type        string      `json:"type"`
+	SessionID   string      `json:"session_id"`
 	AssistantID string      `json:"assistant_id,omitempty"`
 	Payload     interface{} `json:"payload,omitempty"`
 	Sequence    int64       `json:"sequence"`
@@ -139,51 +139,51 @@ type GetSessionMessagesRequest struct {
 
 // CompleteSessionMessageRequest persists a completed assistant message.
 type CompleteSessionMessageRequest struct {
-	SessionID          string                  `json:"session_id"`
-	Content            string                  `json:"content"`
-	ReplyToMessageIDs  []string                `json:"reply_to_message_ids,omitempty"`
-	Chunks             []types.MessageChunk    `json:"chunks,omitempty"`
-	Artifacts          []types.MessageArtifact `json:"artifacts,omitempty"`
-	Metadata           *types.ObjectMetadata   `json:"metadata,omitempty"`
-	Usage              *types.MessageUsage     `json:"usage,omitempty"`
-	Seq                int64                   `json:"seq"`
-	CreatedAt          time.Time               `json:"created_at"`
-	RunID              string                  `json:"run_id,omitempty"`
-	AssistantID  string                  `json:"assistant_id,omitempty"`
+	SessionID         string                  `json:"session_id"`
+	Content           string                  `json:"content"`
+	ReplyToMessageIDs []string                `json:"reply_to_message_ids,omitempty"`
+	Chunks            []types.MessageChunk    `json:"chunks,omitempty"`
+	Artifacts         []types.MessageArtifact `json:"artifacts,omitempty"`
+	Metadata          *types.ObjectMetadata   `json:"metadata,omitempty"`
+	Usage             *types.MessageUsage     `json:"usage,omitempty"`
+	Seq               int64                   `json:"seq"`
+	CreatedAt         time.Time               `json:"created_at"`
+	RunID             string                  `json:"run_id,omitempty"`
+	AssistantID       string                  `json:"assistant_id,omitempty"`
 }
 
 // FailedSessionMessageRequest persists a failed assistant message.
 type FailedSessionMessageRequest struct {
-	SessionID          string                  `json:"session_id"`
-	Content            string                  `json:"content,omitempty"`
-	ReplyToMessageIDs  []string                `json:"reply_to_message_ids,omitempty"`
-	Chunks             []types.MessageChunk    `json:"chunks,omitempty"`
-	Artifacts          []types.MessageArtifact `json:"artifacts,omitempty"`
-	ErrorMsg           string                  `json:"error_msg"`
-	ErrorCode          string                  `json:"error_code,omitempty"`
-	Status             string                  `json:"status,omitempty"`
-	Metadata           *types.ObjectMetadata   `json:"metadata,omitempty"`
-	Usage              *types.MessageUsage     `json:"usage,omitempty"`
-	Seq                int64                   `json:"seq"`
-	CreatedAt          time.Time               `json:"created_at"`
-	RunID              string                  `json:"run_id,omitempty"`
-	AssistantID  string                  `json:"assistant_id,omitempty"`
+	SessionID         string                  `json:"session_id"`
+	Content           string                  `json:"content,omitempty"`
+	ReplyToMessageIDs []string                `json:"reply_to_message_ids,omitempty"`
+	Chunks            []types.MessageChunk    `json:"chunks,omitempty"`
+	Artifacts         []types.MessageArtifact `json:"artifacts,omitempty"`
+	ErrorMsg          string                  `json:"error_msg"`
+	ErrorCode         string                  `json:"error_code,omitempty"`
+	Status            string                  `json:"status,omitempty"`
+	Metadata          *types.ObjectMetadata   `json:"metadata,omitempty"`
+	Usage             *types.MessageUsage     `json:"usage,omitempty"`
+	Seq               int64                   `json:"seq"`
+	CreatedAt         time.Time               `json:"created_at"`
+	RunID             string                  `json:"run_id,omitempty"`
+	AssistantID       string                  `json:"assistant_id,omitempty"`
 }
 
 // SessionRunStartedRequest marks user messages as processing when a worker run starts.
 type SessionRunStartedRequest struct {
-	SessionID          string   `json:"session_id"`
-	ReplyToMessageIDs  []string `json:"reply_to_message_ids,omitempty"`
-	RequestID          string   `json:"request_id,omitempty"`
-	StreamStartSeq     uint64   `json:"stream_start_seq"`
-	StateStartSeq      uint64   `json:"state_start_seq,omitempty"`
-	RunID              string   `json:"run_id,omitempty"`
-	AssistantID  string   `json:"assistant_id,omitempty"`
+	SessionID         string   `json:"session_id"`
+	ReplyToMessageIDs []string `json:"reply_to_message_ids,omitempty"`
+	RequestID         string   `json:"request_id,omitempty"`
+	StreamStartSeq    uint64   `json:"stream_start_seq"`
+	StateStartSeq     uint64   `json:"state_start_seq,omitempty"`
+	RunID             string   `json:"run_id,omitempty"`
+	AssistantID       string   `json:"assistant_id,omitempty"`
 }
 
 // SessionEventsRequest is the request to subscribe to a session event stream.
 type SessionEventsRequest struct {
-	SessionID          string `json:"session_id" binding:"required"`
-	Replay             bool   `json:"replay,omitempty"`
-	AssistantID  string `json:"assistant_id,omitempty"`
+	SessionID   string `json:"session_id" binding:"required"`
+	Replay      bool   `json:"replay,omitempty"`
+	AssistantID string `json:"assistant_id,omitempty"`
 }

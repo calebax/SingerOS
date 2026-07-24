@@ -303,5 +303,5 @@ type RunEventRecord struct {
 	Type        string          `json:"type"`
 	Timestamp   int64           `json:"timestamp,omitempty"`
 	Payload     json.RawMessage `json:"payload,omitempty"`
-	AssistantID string `json:"assistant_id,omitempty"`
+	AssistantID string          `json:"assistant_id,omitempty"`
 }

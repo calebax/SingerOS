@@ -106,7 +106,6 @@ func (c *iamClient) doCallOnce(ctx context.Context, action string, reqBody, resp
 	}
 	body = bytes.NewReader(data)
 
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
 	if err != nil {
 		return fmt.Errorf("create iam request: %w", err)

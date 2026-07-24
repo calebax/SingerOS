@@ -74,15 +74,15 @@ func (p *registryToolProvider) ToolsFor(
 	legacyTools := p.registry.List()
 	result := make([]agent.Tool, 0, len(legacyTools))
 	toolCtx := tools.ToolContext{
-		RunID:          req.RunID,
-		TraceID:        req.TraceID,
+		RunID:             req.RunID,
+		TraceID:           req.TraceID,
 		AssistantPublicID: req.Assistant.PublicID,
-		UserID:         req.Actor.UserID,
-		AccountID:      req.Actor.AccountID,
-		Channel:        req.Actor.Channel,
-		ConversationID: req.Conversation.ID,
-		ExternalID:     req.Actor.ExternalID,
-		WorkDir:        workspace.WorkDir,
+		UserID:            req.Actor.UserID,
+		AccountID:         req.Actor.AccountID,
+		Channel:           req.Actor.Channel,
+		ConversationID:    req.Conversation.ID,
+		ExternalID:        req.Actor.ExternalID,
+		WorkDir:           workspace.WorkDir,
 	}
 	if workspace.RepoDir != "" || workspace.ArtifactManifestPath != "" {
 		toolCtx.Metadata = tools.ToolMetadata{
