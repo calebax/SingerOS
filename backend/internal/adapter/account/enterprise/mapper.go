@@ -130,27 +130,27 @@ type iamUserInfo struct {
 }
 
 type iamLoginUin struct {
-	Uin            iamUinInfo `json:"uin"`
-	Name           string     `json:"name,omitempty"`
-	CompanyLogo    string     `json:"company_logo,omitempty"`
-	CompanyName    string     `json:"company_name,omitempty"`
-	Role           string     `json:"role,omitempty"`
-	CompanyStatus  string     `json:"company_status,omitempty"`
-	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
-	CompanyUserID  uint       `json:"company_user_id,omitempty"`
-	CreatedByUin   uint       `json:"created_by_uin,omitempty"`
-	CreatedByUserID uint      `json:"created_by_user_id,omitempty"`
+	Uin             iamUinInfo `json:"uin"`
+	Name            string     `json:"name,omitempty"`
+	CompanyLogo     string     `json:"company_logo,omitempty"`
+	CompanyName     string     `json:"company_name,omitempty"`
+	Role            string     `json:"role,omitempty"`
+	CompanyStatus   string     `json:"company_status,omitempty"`
+	LastLoginAt     *time.Time `json:"last_login_at,omitempty"`
+	CompanyUserID   uint       `json:"company_user_id,omitempty"`
+	CreatedByUin    uint       `json:"created_by_uin,omitempty"`
+	CreatedByUserID uint       `json:"created_by_user_id,omitempty"`
 }
 
 type iamUinInfo struct {
-	ID          uint      `json:"ID"`
-	CreatedAt   time.Time `json:"CreatedAt"`
-	UserID      uint      `json:"user_id"`
-	SubjectType string    `json:"subject_type"`
-	SubjectID   uint      `json:"subject_id"`
-	UinStatus   string    `json:"uin_status"`
-	Issuer      string    `json:"issuer"`
-	Name        string    `json:"name"`
+	ID          uint       `json:"ID"`
+	CreatedAt   time.Time  `json:"CreatedAt"`
+	UserID      uint       `json:"user_id"`
+	SubjectType string     `json:"subject_type"`
+	SubjectID   uint       `json:"subject_id"`
+	UinStatus   string     `json:"uin_status"`
+	Issuer      string     `json:"issuer"`
+	Name        string     `json:"name"`
 	LastLoginAt *time.Time `json:"last_login_at"`
 }
 
@@ -299,6 +299,7 @@ func mapUinListToAuthOrgInfos(uins []iamLoginUin) []account.AuthOrgInfo {
 			Uin:             uin.Uin.ID,
 			CreatedByUin:    uin.CreatedByUin,
 			CreatedByUserID: uin.CreatedByUserID,
+			UserName:        uin.Name,
 		})
 	}
 	return infos

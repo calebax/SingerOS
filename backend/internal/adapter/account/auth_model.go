@@ -100,4 +100,5 @@ type AuthOrgInfo struct {
 	CreatedByUin    uint   `json:"created_by_uin,omitempty"`
 	CreatedByUserID uint   `json:"created_by_user_id,omitempty"`
 	Uin             uint   `json:"uin,omitempty"`
+	UserName        string `json:"user_name"`
 }
