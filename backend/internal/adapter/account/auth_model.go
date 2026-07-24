@@ -88,6 +88,7 @@ type AuthUserInfo struct {
 	Email     string `json:"email"`
 	Phone     string `json:"phone,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
+	UinName   string `json:"uin_name"`
 }
 
 type AuthOrgInfo struct {
@@ -100,5 +101,5 @@ type AuthOrgInfo struct {
 	CreatedByUin    uint   `json:"created_by_uin,omitempty"`
 	CreatedByUserID uint   `json:"created_by_user_id,omitempty"`
 	Uin             uint   `json:"uin,omitempty"`
-	UserName        string `json:"user_name"`
+	UserName        string `json:"uin_name"`
 }

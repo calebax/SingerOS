@@ -303,6 +303,16 @@ func (s *auth) AuthSession(ctx context.Context) (*account.AuthSessionOutput, err
 		return nil, mapIAMError(err)
 	}
 
+	var orgUinName string
+	userInfo := mapIAMUserInfoToAuthUserInfo(&resp.UserInfo)
+	for _, uin := range resp.UinList {
+		if uin.Uin.ID == resp.EmployeeDetail.Uin {
+			userInfo.UinName = uin.Uin.Name
+			orgUinName = uin.Uin.Name
+			break
+		}
+	}
+
 	var orgInfo account.AuthOrgInfo
 	if resp.CompanyInfo.ID != 0 {
 		orgInfo = account.AuthOrgInfo{
@@ -314,12 +324,12 @@ func (s *auth) AuthSession(ctx context.Context) (*account.AuthSessionOutput, err
 			IsDefault:       true,
 			CreatedByUin:    resp.CompanyInfo.CreatedByUin,
 			CreatedByUserID: resp.CompanyInfo.UserID,
-			UserName:        resp.EmployeeDetail.UserName,
+			UserName:        orgUinName,
 		}
 	}
 
 	return &account.AuthSessionOutput{
-		UserInfo:      mapIAMUserInfoToAuthUserInfo(&resp.UserInfo),
+		UserInfo:      userInfo,
 		Org:           orgInfo,
 		Organizations: mapUinListToAuthOrgInfos(resp.UinList),
 	}, nil

@@ -15,6 +15,7 @@ export type StoredAuthOrg = {
 export type StoredAuthUser = {
 	publicId?: string;
 	name: string;
+	uinName?: string;
 	email: string;
 	phone?: string;
 	avatarUrl?: string;
@@ -67,6 +68,7 @@ type RefreshTokenPayload = {
 			email: string;
 			phone?: string;
 			avatar_url?: string;
+			uin_name?: string;
 		};
 	};
 };

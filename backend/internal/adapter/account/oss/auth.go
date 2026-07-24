@@ -539,7 +539,7 @@ func (s *authAdapter) CreateOrganization(ctx context.Context, req *account.Creat
 		return nil, err
 	}
 
-	orgInfo := authOrgInfo(org, userOrg.IsDefault, user.Name)
+	orgInfo := authOrgInfo(org, userOrg.IsDefault)
 	if account.IsFilePublicID(orgInfo.Logo) {
 		if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, orgInfo.Logo); err == nil && logoMap != nil {
 			orgInfo.Logo = logoMap[orgInfo.Logo]
@@ -706,7 +706,7 @@ func (s *authAdapter) buildAuthSessionResponse(ctx context.Context, user *types.
 	if err != nil {
 		return nil, err
 	}
-	orgInfo := authOrgInfo(org, userOrg.IsDefault, user.Name)
+	orgInfo := authOrgInfo(org, userOrg.IsDefault)
 	if account.IsFilePublicID(orgInfo.Logo) {
 		if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, orgInfo.Logo); err == nil && logoMap != nil {
 			orgInfo.Logo = logoMap[orgInfo.Logo]
@@ -720,6 +720,7 @@ func (s *authAdapter) buildAuthSessionResponse(ctx context.Context, user *types.
 			Email:     user.Email,
 			Phone:     user.Phone,
 			AvatarURL: user.AvatarURL,
+			UinName:   user.Name,
 		},
 		Org:           orgInfo,
 		Organizations: organizations,
@@ -792,7 +793,8 @@ func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint, us
 		if org == nil {
 			continue
 		}
-		info := authOrgInfo(org, userOrg.IsDefault, userName)
+		info := authOrgInfo(org, userOrg.IsDefault)
+		info.UserName = userName
 		if account.IsFilePublicID(info.Logo) {
 			if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, info.Logo); err == nil && logoMap != nil {
 				info.Logo = logoMap[info.Logo]
@@ -803,7 +805,7 @@ func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint, us
 	return infos, nil
 }
 
-func authOrgInfo(org *types.Organization, isDefault bool, userName string) account.AuthOrgInfo {
+func authOrgInfo(org *types.Organization, isDefault bool) account.AuthOrgInfo {
 	return account.AuthOrgInfo{
 		ID:           org.ID,
 		PublicID:     org.PublicID,
@@ -813,7 +815,6 @@ func authOrgInfo(org *types.Organization, isDefault bool, userName string) accou
 		IsDefault:    isDefault,
 		CreatedByUin: org.CreatedByUin,
 		Uin:          org.ID,
-		UserName:     userName,
 	}
 }
 
