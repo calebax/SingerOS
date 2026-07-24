@@ -38,6 +38,12 @@ export {
 	getFilePublicUrlFromStorageUri,
 	normalizeFilePublicId,
 } from "./api/fileApi";
+export type {
+	CollectFrontendEventsParams,
+	FrontendEvent,
+	FrontendEventExtra,
+} from "./api/frontendEventApi";
+export { FRONTEND_EVENT_ENDPOINT, frontendEventApi } from "./api/frontendEventApi";
 export type { Edition, GlobalConfig } from "./api/globalConfigApi";
 export { globalConfigApi } from "./api/globalConfigApi";
 export type {
@@ -242,6 +248,13 @@ export {
 	formatTime,
 	formatTokenCount,
 } from "./utils/format";
+export {
+	getFrontendEventFingerprint,
+	trackButtonClick,
+	trackFrontendEvent,
+	trackPageStay,
+	trackPageView,
+} from "./utils/frontendEventTracker";
 export {
 	buildMessageMetadata,
 	getAssistantMessageFooterSegments,
