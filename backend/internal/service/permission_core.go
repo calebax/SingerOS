@@ -312,7 +312,7 @@ func (s *permissionCore) memberActionAllowed(action types.Action, operatorRole t
 		if ctx.NewRole == types.ResourceRoleOwner {
 			return false
 		}
-		return action == types.ActionProjectMemberCreate || action == types.ActionProjectMemberUpdate || action == types.ActionProjectMemberDelete
+		return action == types.ActionProjectMemberCreate || action == types.ActionProjectMemberUpdate || action == types.ActionProjectMemberDelete || action == types.ActionProjectMemberList
 	case types.ResourceRoleMember:
 		return action == types.ActionProjectMemberList
 	}
