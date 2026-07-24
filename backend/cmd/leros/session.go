@@ -20,7 +20,7 @@ var (
 	sessionKeyword         string
 	sessionStatus          string
 	sessionType            string
-	sessionAssistantID     string
+	sessionAssistantID string
 	sessionOffset          int
 	sessionLimit           int
 	sessionMessagesPage    int

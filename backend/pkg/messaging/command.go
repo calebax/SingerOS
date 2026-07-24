@@ -107,13 +107,15 @@ type RunCommandPayload struct {
 	//   ProjectID   leros_project.id          -> 区别于 Workspace.ProjectID（project public_id）
 	//   SessionID   leros_session.id          -> 区别于 RouteContext.SessionID（session public_id）
 	//   MessageID   leros_session_message.id  -> 当前触发 run 的消息主键
-	//   AssistantID leros_assistant.id        -> 区别于 RouteContext.AssistantID（assistant public_id）
-	//   Uin         leros_user.id             -> 区别于 ActorContext.UserID（fmt.Sprintf("%d", uin)）
+	//   AssistantID       leros_digital_assistant.id          -> 区别于 Execution.AssistantPublicID（assistant public_id）
+	//   AssistantPublicID leros_digital_assistant.public_id    -> 用于 worker 侧展示和对外追溯
+	//   Uin               leros_user.id                        -> 区别于 ActorContext.UserID（fmt.Sprintf("%d", uin)）
 	ProjectID   uint `json:"project_id"`
 	SessionID   uint `json:"session_id"`
 	MessageID   uint `json:"message_id"`
-	AssistantID uint `json:"assistant_id"`
-	Uin         uint `json:"uin"`
+	AssistantID       uint   `json:"assistant_id"`
+	AssistantPublicID string `json:"assistant_public_id,omitempty"`
+	Uin               uint   `json:"uin"`
 }
 
 // CancelRunCommandPayload 是 run.cancel 命令的 payload。
@@ -350,12 +352,15 @@ type ActorContext struct {
 }
 
 type ExecutionTarget struct {
-	AssistantID   string   `json:"assistant_id,omitempty"`
-	AssistantName string   `json:"assistant_name,omitempty"`
-	AssistantDesc string   `json:"assistant_desc,omitempty"`
-	SystemPrompt  string   `json:"system_prompt,omitempty"`
-	Skills        []string `json:"skills,omitempty"`
-	Tools         []string `json:"tools,omitempty"`
+	// AssistantID 是 leros_digital_assistant.id，自增主键，用于 llm_history 关联。
+	AssistantID       uint     `json:"assistant_id,omitempty"`
+	// AssistantPublicID 是 leros_digital_assistant.public_id，用于 worker 侧日志展示。
+	AssistantPublicID string   `json:"assistant_public_id,omitempty"`
+	AssistantName     string   `json:"assistant_name,omitempty"`
+	AssistantDesc     string   `json:"assistant_desc,omitempty"`
+	SystemPrompt      string   `json:"system_prompt,omitempty"`
+	Skills            []string `json:"skills,omitempty"`
+	Tools             []string `json:"tools,omitempty"`
 }
 
 type WorkspaceOptions struct {

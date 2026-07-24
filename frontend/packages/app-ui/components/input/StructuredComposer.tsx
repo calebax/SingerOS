@@ -50,7 +50,7 @@ type InsertedToken = {
 };
 
 export type ComposerAssistantOption = {
-	id: string | number;
+	id: string;
 	code: string;
 	name: string;
 	roleName?: string;
@@ -274,7 +274,7 @@ function matchesCommandQuery(
 
 function assistantPickerValue(option: AssistantOption): string {
 	// 中文注释：同名同角色的队友仍是不同实体，命令菜单必须以唯一 id 区分，避免联动高亮。
-	return `assistant:${String(option.id)}`;
+	return `assistant:${option.id}`;
 }
 
 function commandPickerValue(option: CommandOption): string {
@@ -330,7 +330,7 @@ function resolveVirtualAssistantTokens(
 
 			result.push({
 				label,
-				id: String(assistant.id),
+				id: assistant.id,
 				start,
 				end,
 				kind: "assistant",
@@ -517,8 +517,7 @@ function findMentionAssistant(
 ): AssistantOption | undefined {
 	const assistantName = formatAssistantTokenDisplayLabel(token.label);
 	return assistantOptions.find(
-		(assistant) =>
-			(token.id && String(assistant.id) === token.id) || assistant.name === assistantName,
+		(assistant) => (token.id && assistant.id === token.id) || assistant.name === assistantName,
 	);
 }
 
@@ -944,7 +943,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			return availableAssistantOptions.filter((assistant) => {
 				if (selectedAssistantNames.includes(assistant.name)) return false;
 				if (!query) return true;
-				return [assistant.name, assistant.roleName, assistant.code, assistant.description]
+				return [assistant.name, assistant.roleName, assistant.id, assistant.description]
 					.join(" ")
 					.toLowerCase()
 					.includes(query);
@@ -1520,7 +1519,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const insertedToken: InsertedToken = {
 					label,
 					// 中文注释：AI 队友 token 需要保留 public_id，项目/任务发送时会转换为 assistant_ids。
-					id: isAssistant ? String((option as AssistantOption).id) : undefined,
+					id: isAssistant ? (option as AssistantOption).id : undefined,
 					start: activeTrigger.start,
 					end: activeTrigger.start + label.length,
 					kind: isAssistant ? "assistant" : "skill",
@@ -1762,7 +1761,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 									<CommandGroup className="p-0">
 										{filteredAssistants.map((assistant, index) => (
 											<CommandItem
-												key={String(assistant.id)}
+												key={assistant.id}
 												value={assistantPickerValue(assistant)}
 												data-picker-item-value={assistantPickerValue(assistant)}
 												onMouseDown={(event: MouseEvent<HTMLElement>) => event.preventDefault()}

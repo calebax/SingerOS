@@ -116,14 +116,16 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 		t.Fatalf("create task: %v", err)
 	}
 	session := &types.Session{
-		PublicID:  "sess_persona",
-		Type:      types.SessionTypeTask,
-		Uin:       1,
-		OrgID:     1,
-		ProjectID: &project.ID,
-		TaskID:    &task.ID,
-		Status:    string(types.SessionStatusActive),
-		Title:     "Persona Session",
+		PublicID:             "sess_persona",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          assistant.ID,
+		AllocatedAssistantID: assistant.ID + 10000,
+		ProjectID:            &project.ID,
+		TaskID:               &task.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "Persona Session",
 	}
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
@@ -154,8 +156,8 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode run command: %v", err)
 	}
-	if payload.Execution.AssistantID != "assistant-bid-strategist" {
-		t.Fatalf("execution assistant id = %q, want assistant-bid-strategist", payload.Execution.AssistantID)
+	if payload.Execution.AssistantPublicID != "assistant-bid-strategist" {
+		t.Fatalf("execution assistant id = %q, want assistant-bid-strategist", payload.Execution.AssistantPublicID)
 	}
 	if payload.Execution.AssistantName != assistant.Name {
 		t.Fatalf("execution assistant name = %q, want %q", payload.Execution.AssistantName, assistant.Name)
@@ -218,14 +220,16 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 		t.Fatalf("create task: %v", err)
 	}
 	session := &types.Session{
-		PublicID:  "sess_persona_evolution",
-		Type:      types.SessionTypeTask,
-		Uin:       1,
-		OrgID:     1,
-		ProjectID: &project.ID,
-		TaskID:    &task.ID,
-		Status:    string(types.SessionStatusActive),
-		Title:     "Persona Evolution Session",
+		PublicID:             "sess_persona_evolution",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          assistant.ID,
+		AllocatedAssistantID: assistant.ID + 10000,
+		ProjectID:            &project.ID,
+		TaskID:               &task.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "Persona Evolution Session",
 	}
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
@@ -418,6 +422,114 @@ func TestSyncSkillEntriesToProject_MultipleSkills(t *testing.T) {
 	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
 	if !ok || len(rawSkills) != 2 {
 		t.Fatalf("expected 2 skills, got %d", len(rawSkills))
+	}
+}
+
+// TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID 验证群聊历史注入时
+// publishWorkerTask 用 session.AssistantID（DigitalAssistant.ID）而非
+// session.AllocatedAssistantID（WorkerID）作为 GetLastAssistantMessageCreatedAt 过滤条件。
+//
+// 回归 Bug：修复前 main 分支 message_poster.go:776 把 session.AllocatedAssistantID
+// 当 AssistantID 传入查询，由于 AI 回复消息写入时 SessionMessage.AssistantID 是
+// DigitalAssistant.ID（PK），SQL WHERE assistant_id=<WorkerID> 永远查不到记录，
+// 导致每次都从 session 创建时间增量取所有消息，把整个会话历史塞入 LLM 上下文，
+// 触发"任务串线"问题。
+func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	recorder := &recordingEventBus{}
+	poster := NewMessagePoster(database, newTestPermissionService(database), recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil)
+
+	assistant := seedReadyAssistant(t, database, "code-reviewer", "代码审查员", "按代码审查员身份回答")
+
+	proj := &types.Project{PublicID: "prj_hist2", OrgID: 1, OwnerID: 1, Name: "HistProject2", Status: string(types.ProjectStatusActive)}
+	if err := database.Create(proj).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	session := &types.Session{
+		PublicID:             "sess_hist2",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          assistant.ID,
+		AllocatedAssistantID: assistant.ID + 10000,
+		ProjectID:            &proj.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "history test 2",
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	histUser := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleUser),
+		Content:     "历史用户提问",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusCompleted),
+		Sequence:    1,
+		SenderName:  "张三",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := database.Create(histUser).Error; err != nil {
+		t.Fatalf("create history user message: %v", err)
+	}
+
+	histAssistant := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleAssistant),
+		Content:     "历史AI回复",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusCompleted),
+		Sequence:    2,
+		SenderName:  "AI助手",
+		Timestamp:   time.Now().UnixMilli(),
+		AssistantID: assistant.ID,
+	}
+	if err := database.Create(histAssistant).Error; err != nil {
+		t.Fatalf("create history assistant message: %v", err)
+	}
+
+	message := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleUser),
+		Content:     "这是当前消息",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusPending),
+		Sequence:    3,
+		SenderName:  "李四",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := database.Create(message).Error; err != nil {
+		t.Fatalf("create current message: %v", err)
+	}
+
+	if err := poster.publishWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID}); err != nil {
+		t.Fatalf("publishWorkerTask failed: %v", err)
+	}
+
+	cmd, ok := recorder.event.(messaging.WorkerCommand)
+	if !ok {
+		t.Fatalf("expected WorkerCommand, got %T", recorder.event)
+	}
+
+	if cmd.Route.AssistantPublicID != assistant.PublicID {
+		t.Errorf("cmd.Route.AssistantPublicID = %s, want %s (assistant.PublicID)",
+			cmd.Route.AssistantPublicID, assistant.PublicID)
+	}
+
+	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+
+	messages := payload.Input.Messages
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 input message (current only, windowStart aligned to histAssistant), got %d: %+v", len(messages), messages)
+	}
+	if messages[0].Content != "这是当前消息" {
+		t.Errorf("current content = %q, want %q", messages[0].Content, "这是当前消息")
 	}
 }
 

@@ -1192,8 +1192,8 @@ func (s *projectService) buildProjectActivityItems(ctx context.Context, orgID ui
 				RemovedSkills:      skillRefsFromMap(skillMap, payload.RemovedSkillIDs),
 				AddedMembers:       userRefsFromMap(userMap, payload.AddedMemberIDs),
 				RemovedMembers:     userRefsFromMap(userMap, payload.RemovedMemberIDs),
-			AddedAITeammates:   s.assistantRefsFromMap(ctx, orgID, assistantMap, payload.AddedAITeammateIDs),
-			RemovedAITeammates: s.assistantRefsFromMap(ctx, orgID, assistantMap, payload.RemovedAITeammateIDs),
+				AddedAITeammates:   s.assistantRefsFromMap(ctx, orgID, assistantMap, payload.AddedAITeammateIDs),
+				RemovedAITeammates: s.assistantRefsFromMap(ctx, orgID, assistantMap, payload.RemovedAITeammateIDs),
 			},
 			CreatedAt: activity.CreatedAt,
 		}

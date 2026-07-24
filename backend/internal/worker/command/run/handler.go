@@ -184,21 +184,23 @@ func (h *Handler) executeSubmission(svc *agentrun.Service) runcoord.ExecuteFunc 
 		logs.InfoContextf(ctx,
 			"Starting worker task run: task_id=%s run_id=%s runtime=%s assistant_id=%s",
 			sub.Request.TaskID, sub.Request.RunID,
-			sub.Request.Runtime.Kind, sub.Request.Assistant.ID,
+			sub.Request.Runtime.Kind, sub.Request.Assistant.PublicID,
 		)
 
 		return svc.Run(ctx, sub.Request, agentrun.EventContext{
 			OrgID:             ec.OrgID,
 			WorkerID:          ec.WorkerID,
+			WorkerPublicID:    ec.WorkerPublicID,
 			SessionID:         ec.SessionID,
 			AssistantID:       sub.Request.Assistant.ID,
-			AssistantPKID:     sub.Request.BusinessKeys.AssistantPKID,
+			AssistantPublicID: sub.Request.Assistant.PublicID,
 			TraceID:           ec.TraceID,
 			RequestID:         ec.RequestID,
 			TaskID:            ec.TaskID,
 			RunID:             ec.RunID,
 			ParentID:          ec.ParentID,
 			ReplyToMessageIDs: ec.ReplyToMessageIDs,
+			ClientIP:          ec.ClientIP,
 		}, publisher)
 	}
 }
@@ -426,16 +428,17 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 		EventContext: agentrun.EventContext{
 			OrgID:             task.Route.OrgID,
 			WorkerID:          task.Route.WorkerID,
+			WorkerPublicID:    task.Route.WorkerPublicID,
 			SessionID:         task.Route.SessionID,
 			AssistantID:       req.Assistant.ID,
-			AssistantPKID:     req.BusinessKeys.AssistantPKID,
+			AssistantPublicID: req.Assistant.PublicID,
 			TraceID:           task.Trace.TraceID,
 			RequestID:         task.Trace.RequestID,
 			TaskID:            task.Trace.TaskID,
 			RunID:             task.Trace.RunID,
 			ParentID:          task.Trace.ParentID,
 			ReplyToMessageIDs: replyToMessageIDs(task.Input.Messages),
-			ClientIP:          task.ClientIP,
+			ClientIP:          task.Route.ClientIP,
 		},
 		DeliverySeqs: task.DeliverySeqs,
 	}
@@ -578,6 +581,12 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 		Runtime:       payload.Runtime,
 		Policy:        payload.Policy,
 		DeliverySeqs:  []uint64{rec.StreamSeq},
+		ProjectID:     payload.ProjectID,
+		SessionID:     payload.SessionID,
+		MessageID:     payload.MessageID,
+		AssistantID:   payload.AssistantID,
+		Uin:           payload.Uin,
+		Project:       payload.Project,
 	}
 
 	// Mark processing.
@@ -596,9 +605,10 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 		EventContext: agentrun.EventContext{
 			OrgID:             task.Route.OrgID,
 			WorkerID:          task.Route.WorkerID,
+			WorkerPublicID:    task.Route.WorkerPublicID,
 			SessionID:         task.Route.SessionID,
 			AssistantID:       req.Assistant.ID,
-			AssistantPKID:     req.BusinessKeys.AssistantPKID,
+			AssistantPublicID: req.Assistant.PublicID,
 			TraceID:           task.Trace.TraceID,
 			RequestID:         task.Trace.RequestID,
 			TaskID:            task.Trace.TaskID,

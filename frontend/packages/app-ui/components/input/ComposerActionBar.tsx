@@ -139,7 +139,7 @@ export function ComposerActionBar({
 				return false;
 			}
 			if (!query) return true;
-			return [assistant.name, assistant.roleName, assistant.code, assistant.description]
+			return [assistant.name, assistant.roleName, assistant.id, assistant.description]
 				.join(" ")
 				.toLowerCase()
 				.includes(query);
@@ -297,8 +297,8 @@ export function ComposerActionBar({
 								{filteredAssistants.map((assistant) => (
 									<CommandItem
 										// 中文注释：CommandItem 的 value 同时承担活动项标识；不能使用可能重复的名称。
-										key={String(assistant.id)}
-										value={`assistant:${String(assistant.id)}`}
+										key={assistant.id}
+										value={`assistant:${assistant.id}`}
 										onSelect={() => {
 											composerRef.current?.insertAssistant(assistant.name);
 											setAssistantOpen(false);

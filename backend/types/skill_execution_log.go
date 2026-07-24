@@ -15,8 +15,8 @@ type SkillExecutionLog struct {
 	SessionID string `gorm:"column:session_id;type:varchar(255);index"`
 	// 用户UIN
 	Uin string `gorm:"column:uin;type:varchar(255);index"`
-	// 数字助手ID
-	AssistantID string `gorm:"column:assistant_id;type:varchar(255);index"`
+	// 数字助手public_id
+	AssistantID string `gorm:"column:assistant_public_id;type:varchar(255);index" json:"assistant_id,omitempty"`
 	// 输入参数
 	Input map[string]interface{} `gorm:"column:input;type:jsonb"`
 	// 输出结果

@@ -49,10 +49,10 @@ type MessageCreatedData struct {
 	SenderType    SenderType `json:"sender_type"`
 	SenderUin     *uint      `json:"sender_uin,omitempty"`
 	SenderName    string     `json:"sender_name"`
-	AssistantID   *string    `json:"assistant_id,omitempty"`
-	AssistantName string     `json:"assistant_name,omitempty"`
-	Content       string     `json:"content"`
-	RunID         string     `json:"run_id,omitempty"`
+	AssistantID *string    `json:"assistant_id,omitempty"`
+	AssistantName     string     `json:"assistant_name,omitempty"`
+	Content           string     `json:"content"`
+	RunID             string     `json:"run_id,omitempty"`
 
 	// 前端 human 消息渲染所需字段（assistant 事件不设置，omitempty 保证不出现）
 	MessageType string                    `json:"message_type,omitempty"`
@@ -76,7 +76,7 @@ type HumanMessageData struct {
 // AssistantMessageTrigger 是 sender_type=assistant 时的 message.created payload。
 type AssistantMessageTrigger struct {
 	SenderType    SenderType `json:"sender_type"`
-	AssistantID   *string    `json:"assistant_id,omitempty"`
-	AssistantName string     `json:"assistant_name"`
-	RunID         string     `json:"run_id,omitempty"`
+	AssistantID *string    `json:"assistant_id,omitempty"`
+	AssistantName     string     `json:"assistant_name"`
+	RunID             string     `json:"run_id,omitempty"`
 }

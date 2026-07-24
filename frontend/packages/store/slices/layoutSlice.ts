@@ -71,7 +71,7 @@ export type ProjectTask = {
 	taskType?: string;
 	deadline?: string;
 	description?: string;
-	assistantId?: number;
+	assistantId?: string;
 };
 
 export type ProjectArtifact = {
@@ -434,8 +434,6 @@ function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[
 
 function mapBackendTask(bt: BackendTask): ProjectTask {
 	const taskWithSession = bt as BackendTask & { session?: BackendSession };
-	const rawAssistantId = taskWithSession.session?.assistant_id;
-	const assistantId = rawAssistantId !== undefined ? Number(rawAssistantId) : undefined;
 	return {
 		id: bt.public_id,
 		title: bt.title,
@@ -448,9 +446,7 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 		taskType: bt.task_type,
 		deadline: bt.deadline,
 		description: bt.description,
-		// 中文注释：后端 session.assistant_id 以字符串返回，前端任务模型统一保存数字 ID。
-		assistantId:
-			assistantId !== undefined && Number.isFinite(assistantId) ? assistantId : undefined,
+		assistantId: taskWithSession.session?.assistant_id,
 	};
 }
 

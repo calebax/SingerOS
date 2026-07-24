@@ -239,16 +239,16 @@ func (p *MessagePoster) RunNewMessage(
 		logs.WarnContextf(ctx, "NewMessage touch project updated_at failed: %v", err)
 	}
 
-	assistantPublicID := assistantIDToPublicID(o.ctx, o.poster.db, o.taskRoute.AssistantID)
+	assistantID := assistantIDToPublicID(o.ctx, o.poster.db, o.taskRoute.AssistantID)
 	logs.InfoContextf(ctx, "NewMessage completed: project=%s task=%s session=%s message=%s assistant=%s",
-		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, messageID, assistantPublicID)
+		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, messageID, assistantID)
 
 	return &contract.NewMessageResponse{
 		ProjectID:   o.project.PublicID,
 		TaskID:      o.task.PublicID,
 		SessionID:   o.taskSession.PublicID,
 		MessageID:   messageID,
-		AssistantID: assistantPublicID,
+		AssistantID: assistantID,
 	}, nil
 }
 
@@ -552,7 +552,7 @@ func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types
 	da, err := infradb.GetDigitalAssistantByID(ctx, p.db, assistantID)
 	if err != nil || da == nil {
 		logs.WarnContextf(ctx, "buildExecutionTarget: assistant %d not found, fallback to default identity: %v", assistantID, err)
-		return messaging.ExecutionTarget{AssistantID: strconv.FormatUint(uint64(assistantID), 10)}
+		return messaging.ExecutionTarget{AssistantID: assistantID, AssistantPublicID: strconv.FormatUint(uint64(assistantID), 10)}
 	}
 	systemPrompt := da.SystemPrompt
 	if message != nil {
@@ -566,10 +566,11 @@ func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types
 	}
 
 	return messaging.ExecutionTarget{
-		AssistantID:   da.PublicID,
-		AssistantName: da.Name,
-		AssistantDesc: da.Description,
-		SystemPrompt:  systemPrompt,
+		AssistantID:       da.ID,
+		AssistantPublicID: da.PublicID,
+		AssistantName:     da.Name,
+		AssistantDesc:     da.Description,
+		SystemPrompt:      systemPrompt,
 	}
 }
 
@@ -839,7 +840,9 @@ func (p *MessagePoster) publishWorkerTask(
 	}
 
 	var inputMessages []messaging.ChatMessage
-	// 群聊历史上下文注入：以当前 AI 队友上一条回复为起点，增量获取时间窗口内的 user/assistant 消息
+	// 群聊历史上下文注入：以当前 AI 队友上一条回复为起点，增量获取时间窗口内的 user/assistant 消息。
+	// 用 effectiveAssistantID（DigitalAssistant PK）查历史回复，而非 session.AllocatedAssistantID
+	// （WorkerID），避免 AssistantID 与 WorkerID 错位导致全量历史注入。
 	if session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject {
 		lastTime, err := infradb.GetLastAssistantMessageCreatedAt(ctx, p.db, session.ID, effectiveAssistantID)
 		if err != nil {
@@ -886,10 +889,13 @@ func (p *MessagePoster) publishWorkerTask(
 	cmd := withRequestTrace(ctx, messaging.NewRunCommand(
 		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
 		messaging.RouteContext{
-			OrgID:     orgID,
-			SessionID: session.PublicID,
-			WorkerID:  effectiveWorkerID,
-			ClientIP:  llm.GetCtxString(ctx, llm.CtxClientIP),
+			OrgID:             orgID,
+			SessionID:         session.PublicID,
+			WorkerID:          effectiveWorkerID,
+			WorkerPublicID:    workerIDToPublicID(ctx, p.db, orgID, effectiveWorkerID),
+			AssistantID:       effectiveAssistantID,
+			AssistantPublicID: assistantIDToPublicID(ctx, p.db, effectiveAssistantID),
+			ClientIP:          llm.GetCtxString(ctx, llm.CtxClientIP),
 		},
 		messaging.TraceContext{
 			TraceID:   session.PublicID,
@@ -914,14 +920,15 @@ func (p *MessagePoster) publishWorkerTask(
 				Messages:    inputMessages,
 				Attachments: convertMessageToMessagingAttachments(message.Attachments),
 			},
-			Model:       modelOptions,
-			Execution:   executionTarget,
-			Project:     projectContext,
-			ProjectID:   coalesceUintPtr(session.ProjectID),
-			SessionID:   session.ID,
-			MessageID:   message.ID,
-			AssistantID: routing.AssistantID,
-			Uin:         session.Uin,
+			Model:             modelOptions,
+			Execution:         executionTarget,
+			Project:           projectContext,
+			ProjectID:         coalesceUintPtr(session.ProjectID),
+			SessionID:         session.ID,
+			MessageID:         message.ID,
+			AssistantID:       routing.AssistantID,
+			AssistantPublicID: assistantIDToPublicID(ctx, p.db, routing.AssistantID),
+			Uin:               session.Uin,
 		},
 		&messaging.RunCommandMetadata{
 			SessionID:   session.PublicID,

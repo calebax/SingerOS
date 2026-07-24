@@ -23,9 +23,8 @@ export type BackendSession = {
 	session_id: string;
 	type: string;
 	user_id: number;
-	assistant_id?: string;
-	allocated_assistant_id?: string;
 	status: string;
+	assistant_id?: string;
 	runtime_status?: "idle" | "responding" | string;
 	title: string;
 	message_count: number;

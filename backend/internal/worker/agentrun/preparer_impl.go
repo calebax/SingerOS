@@ -352,7 +352,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			TraceID:      cloned.TraceID,
 			Runtime:      strings.TrimSpace(cloned.Runtime.Kind),
 			SessionKey:   cloned.Conversation.ID,
-			InstanceKey:  cloned.Assistant.ID,
+			InstanceKey:  cloned.Assistant.PublicID,
 			Mode:         agent.ExecutionMode(cloned.ExecutionMode),
 			SystemPrompt: systemPrompt,
 			Prompt:       prompt,
@@ -410,7 +410,7 @@ func (p *preparer) resolveModelRouting(req *agentrundomain.RunRequest) string {
 			ProjectID:   req.BusinessKeys.ProjectPKID,
 			SessionID:   req.BusinessKeys.SessionPKID,
 			MessageID:   req.BusinessKeys.MessagePKID,
-			AssistantID: req.BusinessKeys.AssistantPKID,
+			AssistantID: req.BusinessKeys.AssistantID,
 			Uin:         req.BusinessKeys.UinPK,
 		})
 		req.Model.Model = proxyModel
