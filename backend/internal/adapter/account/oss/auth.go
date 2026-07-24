@@ -539,12 +539,12 @@ func (s *authAdapter) CreateOrganization(ctx context.Context, req *account.Creat
 		return nil, err
 	}
 
-	organizations, err := s.userOrganizationInfos(ctx, user.ID)
+	organizations, err := s.userOrganizationInfos(ctx, user.ID, user.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	orgInfo := authOrgInfo(org, userOrg.IsDefault)
+	orgInfo := authOrgInfo(org, userOrg.IsDefault, user.Name)
 	if account.IsFilePublicID(orgInfo.Logo) {
 		if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, orgInfo.Logo); err == nil && logoMap != nil {
 			orgInfo.Logo = logoMap[orgInfo.Logo]
@@ -631,7 +631,7 @@ func (s *authAdapter) buildLoginResponse(ctx context.Context, user *types.User) 
 		return nil, err
 	}
 
-	organizations, err := s.userOrganizationInfos(ctx, user.ID)
+	organizations, err := s.userOrganizationInfos(ctx, user.ID, user.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -707,11 +707,11 @@ func authUserInfoFromModel(user *types.User) account.AuthUserInfo {
 }
 
 func (s *authAdapter) buildAuthSessionResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*account.AuthSessionOutput, error) {
-	organizations, err := s.userOrganizationInfos(ctx, user.ID)
+	organizations, err := s.userOrganizationInfos(ctx, user.ID, user.Name)
 	if err != nil {
 		return nil, err
 	}
-	orgInfo := authOrgInfo(org, userOrg.IsDefault)
+	orgInfo := authOrgInfo(org, userOrg.IsDefault, user.Name)
 	if account.IsFilePublicID(orgInfo.Logo) {
 		if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, orgInfo.Logo); err == nil && logoMap != nil {
 			orgInfo.Logo = logoMap[orgInfo.Logo]
@@ -769,7 +769,7 @@ func (s *authAdapter) userOrgWithOrganization(ctx context.Context, database *gor
 	return userOrg, org, nil
 }
 
-func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([]account.AuthOrgInfo, error) {
+func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint, userName string) ([]account.AuthOrgInfo, error) {
 	userOrgs, err := db.GetUserOrgsByUserID(ctx, s.db, userID)
 	if err != nil {
 		return nil, err
@@ -797,7 +797,7 @@ func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([
 		if org == nil {
 			continue
 		}
-		info := authOrgInfo(org, userOrg.IsDefault)
+		info := authOrgInfo(org, userOrg.IsDefault, userName)
 		if account.IsFilePublicID(info.Logo) {
 			if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, info.Logo); err == nil && logoMap != nil {
 				info.Logo = logoMap[info.Logo]
@@ -808,7 +808,7 @@ func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([
 	return infos, nil
 }
 
-func authOrgInfo(org *types.Organization, isDefault bool) account.AuthOrgInfo {
+func authOrgInfo(org *types.Organization, isDefault bool, userName string) account.AuthOrgInfo {
 	return account.AuthOrgInfo{
 		ID:           org.ID,
 		PublicID:     org.PublicID,
@@ -818,6 +818,7 @@ func authOrgInfo(org *types.Organization, isDefault bool) account.AuthOrgInfo {
 		IsDefault:    isDefault,
 		CreatedByUin: org.CreatedByUin,
 		Uin:          org.ID,
+		UserName:     userName,
 	}
 }
 
