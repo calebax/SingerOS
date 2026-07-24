@@ -76,7 +76,7 @@ func (p *registryToolProvider) ToolsFor(
 	toolCtx := tools.ToolContext{
 		RunID:          req.RunID,
 		TraceID:        req.TraceID,
-		AssistantID:    req.Assistant.ID,
+		AssistantPublicID: req.Assistant.PublicID,
 		UserID:         req.Actor.UserID,
 		AccountID:      req.Actor.AccountID,
 		Channel:        req.Actor.Channel,

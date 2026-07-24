@@ -102,7 +102,7 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 		TaskID:        "task-1",
 		ExecutionMode: agentrundomain.ExecutionModePlan,
 		Assistant: agentrundomain.AssistantContext{
-			ID: "assistant-1",
+			PublicID: "assistant-1",
 		},
 		Workspace: agentrundomain.WorkspaceContext{
 			OrgID:     1,

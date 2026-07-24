@@ -91,7 +91,7 @@ function buildInvokedAssistantMetadata(
 ): MessageMetadata {
 	// 中文注释：@ 队友保留在 content 中，与 AddMessage / 技能指令一致；metadata 仅补充路由与头像展示信息。
 	const invokedAssistant: NonNullable<MessageMetadata["invokedAssistant"]> = {
-		id: String(assistant.id),
+		id: assistant.id,
 		name: assistant.name,
 	};
 	if (assistant.avatarUrl) invokedAssistant.avatarUrl = assistant.avatarUrl;
@@ -390,10 +390,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			const messageMetadata = mentionedAssistant
 				? buildInvokedAssistantMetadata(composerMetadata, mentionedAssistant)
 				: composerMetadata;
-			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids，不能传单个数字 assistant_id。
-			const mentionedAssistantIds = mentionedAssistant
-				? [String(mentionedAssistant.id)]
-				: undefined;
+			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids。
+			const mentionedAssistantIds = mentionedAssistant ? [mentionedAssistant.id] : undefined;
 			const data = await sendWorkbenchMessage(
 				content,
 				activeWorkbenchProjectId,

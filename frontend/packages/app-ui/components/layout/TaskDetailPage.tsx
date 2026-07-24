@@ -331,21 +331,21 @@ export function TaskDetailPage({
 				if (cancelled) return;
 				const latest = useAppStore.getState().assistants;
 
-				// 中文注释：store 任务保存数字 assistantId，session 接口返回 publicId 字符串，需分别匹配。
-				if (storeTask?.assistantId !== undefined) {
+				// 中文注释：store 任务和 session 接口均使用 publicId 字符串匹配。
+				if (storeTask?.assistantId) {
 					const fromStore =
-						latest.find((assistant) => assistant.id === storeTask.assistantId) ?? null;
+						latest.find((assistant) => assistant.publicId === storeTask.assistantId) ?? null;
 					setTeammate(fromStore);
 					return;
 				}
 
 				const res = await sessionApi.get({ session_id: resolvedSessionId });
-				const assistantPublicId = res.data.data?.assistant_id;
-				if (cancelled || !assistantPublicId) {
+				const assistantId = res.data.data?.assistant_id;
+				if (cancelled || !assistantId) {
 					setTeammate(null);
 					return;
 				}
-				const found = latest.find((assistant) => assistant.publicId === assistantPublicId) ?? null;
+				const found = latest.find((assistant) => assistant.publicId === assistantId) ?? null;
 				setTeammate(found);
 			} catch (err) {
 				console.error("TaskDetailPage resolve teammate error:", err);

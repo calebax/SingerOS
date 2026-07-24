@@ -16,6 +16,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 		ExecutionMode: agentrundomain.ExecutionMode(task.ExecutionMode),
 		Assistant: agentrundomain.AssistantContext{
 			ID:           task.Execution.AssistantID,
+			PublicID:     task.Execution.AssistantPublicID,
 			Name:         task.Execution.AssistantName,
 			Description:  task.Execution.AssistantDesc,
 			SystemPrompt: task.Execution.SystemPrompt,
@@ -69,11 +70,13 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			PermissionMode:  task.Policy.PermissionMode,
 		},
 		BusinessKeys: agentrundomain.BusinessKeys{
-			ProjectPKID:   task.ProjectID,
-			SessionPKID:   task.SessionID,
-			MessagePKID:   task.MessageID,
-			AssistantPKID: task.AssistantID,
-			UinPK:         task.Uin,
+			ProjectPKID:       task.ProjectID,
+			SessionPKID:       task.SessionID,
+			MessagePKID:       task.MessageID,
+			AssistantID:       task.AssistantID,
+			AssistantPublicID: task.Route.AssistantPublicID,
+			WorkerPublicID:    task.Route.WorkerPublicID,
+			UinPK:             task.Uin,
 		},
 	}
 }
