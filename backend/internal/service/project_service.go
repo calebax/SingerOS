@@ -994,7 +994,10 @@ func (s *projectService) syncProjectUserMembers(ctx context.Context, tx *gorm.DB
 	requestedRoles := make(map[uint]types.ResourceRole, len(userMembers))
 	for _, m := range userMembers {
 		uin, ok := uinMap[m.PublicID]
-		if !ok || uin == 0 || uin == caller.Uin {
+		if !ok || uin == 0 {
+			return nil, nil, fmt.Errorf("user not found for member public_id %q", m.PublicID)
+		}
+		if uin == caller.Uin {
 			continue
 		}
 		requestedRoles[uin] = m.Role
