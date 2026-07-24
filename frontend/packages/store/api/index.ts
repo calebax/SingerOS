@@ -25,6 +25,12 @@ export type {
 } from "./digitalAssistantApi";
 export { digitalAssistantApi } from "./digitalAssistantApi";
 export type {
+	CollectFrontendEventsParams,
+	FrontendEvent,
+	FrontendEventExtra,
+} from "./frontendEventApi";
+export { FRONTEND_EVENT_ENDPOINT, frontendEventApi } from "./frontendEventApi";
+export type {
 	Department,
 	ListDepartmentsResponse,
 	ListUsersResponse,
