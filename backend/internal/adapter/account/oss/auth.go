@@ -529,11 +529,6 @@ func (s *authAdapter) CreateOrganization(ctx context.Context, req *account.Creat
 		}); err != nil {
 			return err
 		}
-		if s.workerProvisioning != nil {
-			if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, org.ID, userOrg.Uin); err != nil {
-				return fmt.Errorf("ensure default worker deployment: %w", err)
-			}
-		}
 		return nil
 	}); err != nil {
 		return nil, err

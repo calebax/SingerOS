@@ -227,11 +227,11 @@ func (s *auth) ChooseUin(ctx context.Context, req *account.ChooseUinInput) (*acc
 
 	if s.provisioning != nil {
 		for _, o := range session.Organizations {
-			if o.ID == 0 {
-				continue
-			}
-			if _, err := s.provisioning.EnsureDefaultWorkerForOrg(ctx, o.ID, resp.UIN); err != nil {
-				logs.WarnContextf(ctx, "ChooseUin: ensure default worker for org %d: %v", o.ID, err)
+			if o.Uin == resp.UIN && o.ID != 0 {
+				if _, err := s.provisioning.EnsureDefaultWorkerForOrg(ctx, o.ID, resp.UIN); err != nil {
+					logs.WarnContextf(ctx, "ChooseUin: ensure default worker for org %d: %v", o.ID, err)
+				}
+				break
 			}
 		}
 	}
@@ -279,12 +279,6 @@ func (s *auth) CreateOrganization(ctx context.Context, req *account.CreateOrgani
 	}
 	if err != nil {
 		return nil, mapIAMError(err)
-	}
-
-	if s.provisioning != nil && resp.Uin.SubjectID != 0 {
-		if _, err := s.provisioning.EnsureDefaultWorkerForOrg(ctx, resp.Uin.SubjectID, resp.Uin.ID); err != nil {
-			logs.WarnContextf(ctx, "CreateOrganization: ensure default worker for org %d: %v", resp.Uin.SubjectID, err)
-		}
 	}
 
 	if s.db != nil && resp.Uin.SubjectID != 0 {
