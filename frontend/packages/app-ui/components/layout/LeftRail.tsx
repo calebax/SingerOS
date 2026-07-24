@@ -1118,7 +1118,7 @@ function AccountManagementDialog({
 	onUserChange: (user: AuthUser | null) => void;
 }) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
-	const [nameValue, setNameValue] = useState(user?.name ?? "");
+	const [nameValue, setNameValue] = useState(user?.uinName ?? user?.name ?? "");
 	const [editingName, setEditingName] = useState(false);
 	const [savingName, setSavingName] = useState(false);
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -1131,8 +1131,8 @@ function AccountManagementDialog({
 			setPreviewAvatarUrl(undefined);
 			return;
 		}
-		setNameValue(user?.name ?? "");
-	}, [open, user?.name]);
+		setNameValue(user?.uinName ?? user?.name ?? "");
+	}, [open, user?.uinName, user?.name]);
 
 	const updateLocalUser = (patch: Partial<AuthUser>) => {
 		if (!user) return;
@@ -1148,7 +1148,7 @@ function AccountManagementDialog({
 	const handleSaveName = async () => {
 		const publicId = requirePublicId();
 		const nextName = nameValue.trim();
-		if (!publicId || !nextName || nextName === user?.name) {
+		if (!publicId || !nextName || nextName === (user?.uinName ?? user?.name)) {
 			setEditingName(false);
 			return;
 		}
@@ -1164,12 +1164,13 @@ function AccountManagementDialog({
 				updateLocalUser({
 					publicId: updatedUser.public_id || publicId,
 					name: updatedUser.name,
+					uinName: updatedUser.name,
 					email: updatedUser.email || user?.email || "",
 					phone: updatedUser.phone || user?.phone,
 					avatarUrl: updatedUser.avatar_url || user?.avatarUrl,
 				});
 			} else {
-				updateLocalUser({ name: nextName });
+				updateLocalUser({ name: nextName, uinName: nextName });
 			}
 			setEditingName(false);
 			toast.success("用户名已更新");
@@ -1296,7 +1297,7 @@ function AccountManagementDialog({
 										onKeyDown={(event) => {
 											if (event.key === "Enter") void handleSaveName();
 											if (event.key === "Escape") {
-												setNameValue(user?.name ?? "");
+												setNameValue(user?.uinName ?? user?.name ?? "");
 												setEditingName(false);
 											}
 										}}
@@ -1319,7 +1320,7 @@ function AccountManagementDialog({
 							) : (
 								<div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
 									<span className="truncate text-sm font-medium text-slate-900">
-										{user?.name ?? "Lework 用户"}
+										{user?.uinName ?? user?.name ?? "Lework 用户"}
 									</span>
 									<Button
 										variant="ghost"
