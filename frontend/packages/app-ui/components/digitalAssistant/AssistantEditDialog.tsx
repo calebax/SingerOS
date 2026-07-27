@@ -1,7 +1,12 @@
 "use client";
 
 import type { DigitalAssistantItem } from "@leros/store";
-import { digitalAssistantApi, projectFileApi, useDAStore } from "@leros/store";
+import {
+	digitalAssistantApi,
+	getNativeFileInputAccept,
+	projectFileApi,
+	useDAStore,
+} from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -177,7 +182,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 									{uploadingAvatar ? "上传中" : "上传头像"}
 									<input
 										type="file"
-										accept="image/*"
+										accept={getNativeFileInputAccept("image/*")}
 										className="sr-only"
 										onChange={handleAvatarChange}
 										disabled={uploadingAvatar}

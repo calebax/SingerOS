@@ -2,7 +2,12 @@
 
 import {
 	COMPOSER_UPLOAD_ACCEPT,
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	getComposerUploadAccept,
+	isComposerUploadAllowedFile,
+	isEmptyUploadFile,
 	isSystemDefaultAssistant,
 	type ProjectMember,
 	pluginApi,
@@ -81,6 +86,9 @@ export function ChatInput({
 	projectLayoutMode?: ProjectChatLayoutMode;
 	navigation?: AppNavigation;
 }) {
+	const projectAttachmentAccept = getComposerUploadAccept(
+		typeof navigator === "undefined" ? undefined : navigator.platform,
+	);
 	const {
 		activeSessionId,
 		inputText,
@@ -425,6 +433,14 @@ export function ChatInput({
 			if (!files.length) return;
 
 			for (const file of files) {
+				if (isEmptyUploadFile(file)) {
+					toast.error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
+					continue;
+				}
+				if (!isComposerUploadAllowedFile(file)) {
+					toast.error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
+					continue;
+				}
 				void uploadProjectAttachment(file).then((uploaded) => {
 					if (!uploaded) {
 						addAttachment(file);
@@ -439,6 +455,14 @@ export function ChatInput({
 		async (e: React.ChangeEvent<HTMLInputElement>) => {
 			const files = Array.from(e.target.files ?? []);
 			for (const file of files) {
+				if (isEmptyUploadFile(file)) {
+					toast.error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
+					continue;
+				}
+				if (!isComposerUploadAllowedFile(file)) {
+					toast.error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
+					continue;
+				}
 				const uploaded = await uploadProjectAttachment(file);
 				if (!uploaded) {
 					addAttachment(file);
@@ -544,7 +568,7 @@ export function ChatInput({
 						ref={fileInputRef}
 						type="file"
 						className="hidden"
-						accept={PROJECT_ATTACHMENT_ACCEPT}
+						accept={projectAttachmentAccept}
 						multiple
 						onChange={handleFileSelect}
 					/>

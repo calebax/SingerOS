@@ -4,6 +4,7 @@ import {
 	type BackendAITeammateTemplate,
 	type DigitalAssistantItem,
 	digitalAssistantApi,
+	getNativeFileInputAccept,
 	projectFileApi,
 	useDAStore,
 } from "@leros/store";
@@ -409,7 +410,7 @@ export function AssistantCreateDialog({
 										{uploadingAvatar ? "上传中" : "上传头像"}
 										<input
 											type="file"
-											accept="image/*"
+											accept={getNativeFileInputAccept("image/*")}
 											className="sr-only"
 											onChange={handleAvatarChange}
 											disabled={uploadingAvatar}
