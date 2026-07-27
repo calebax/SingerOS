@@ -267,9 +267,8 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 				if d, ok := deptMap[rel.DepartmentID]; ok {
 					name = d.Name
 				}
-				depts = append(depts, account.OrgMemberDepartment{
-					ID:           rel.ID,
-					DepartmentID: rel.DepartmentID,
+			depts = append(depts, account.OrgMemberDepartment{
+				DepartmentID: rel.DepartmentID,
 					Name:         name,
 					IsPrimary:    rel.IsPrimary,
 				})

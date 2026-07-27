@@ -214,18 +214,24 @@ type iamEmployeeInfo struct {
 	Email     string `json:"email"`
 }
 
+type iamDepartmentInfo struct {
+	ID        uint  `json:"id"`
+	Name      string `json:"name"`
+	IsPrimary int8   `json:"is_primary"`
+}
+
 type iamDepartmentTreeEmployee struct {
-	Uin           uint      `json:"uin"`
-	CreatedAt     time.Time `json:"created_at"`
-	UserName      string    `json:"user_name"`
-	Name          string    `json:"name"`
-	Email         string    `json:"email"`
-	Phone         string    `json:"phone"`
-	AvatarURL     string    `json:"avatar_url"`
-	EmployeeID    uint      `json:"employee_id"`
-	UserID        uint      `json:"user_id"`
-	Role          string    `json:"role"`
-	DepartmentIDs []uint    `json:"department_ids"`
+	Uin            uint                `json:"uin"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UserName       string              `json:"user_name"`
+	Name           string              `json:"name"`
+	Email          string              `json:"email"`
+	Phone          string              `json:"phone"`
+	AvatarURL      string              `json:"avatar_url"`
+	EmployeeID     uint                `json:"employee_id"`
+	UserID         uint                `json:"user_id"`
+	Role           string              `json:"role"`
+	DepartmentList []iamDepartmentInfo `json:"department_list"`
 }
 
 type iamDepartmentTreeResponseBody struct {
@@ -449,16 +455,16 @@ type iamGetCompanyMemberReq struct {
 }
 
 type iamGetCompanyMemberResp struct {
-	Uin           uint   `json:"uin"`
-	UserName      string `json:"user_name"`
-	Name          string `json:"name"`
-	Email         string `json:"email"`
-	Phone         string `json:"phone"`
-	AvatarURL     string `json:"avatar_url"`
-	EmployeeID    uint   `json:"employee_id"`
-	UserID        uint   `json:"user_id"`
-	Role          string `json:"role"`
-	DepartmentIDs []uint `json:"department_ids"`
+	Uin            uint                `json:"uin"`
+	UserName       string              `json:"user_name"`
+	Name           string              `json:"name"`
+	Email          string              `json:"email"`
+	Phone          string              `json:"phone"`
+	AvatarURL      string              `json:"avatar_url"`
+	EmployeeID     uint                `json:"employee_id"`
+	UserID         uint                `json:"user_id"`
+	Role           string              `json:"role"`
+	DepartmentList []iamDepartmentInfo `json:"department_list"`
 }
 
 type iamAuthSessionResp struct {

@@ -35,6 +35,7 @@ import (
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	builtin "github.com/insmtx/Leros/backend/internal/skill/builtin"
 	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
+	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/internal/worker/app"
 	"github.com/insmtx/Leros/backend/internal/worker/command"
 	"github.com/insmtx/Leros/backend/internal/worker/command/interaction"
@@ -361,6 +362,8 @@ func runTaskWorker(defaultRuntime string) {
 			lifecycle.Std().Exit()
 		}
 	}()
+
+	go worker.StartParentWatcher()
 
 	// 设置生命周期强制退出超时。
 	lifecycle.Std().SetTimeout(40 * time.Second)

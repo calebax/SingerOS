@@ -135,11 +135,13 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 	items := make([]account.UserInfo, 0, len(resp.Employees))
 	for _, emp := range resp.Employees {
 		info := mapDepartmentTreeEmployeeToUserInfo(emp)
-		if len(emp.DepartmentIDs) > 0 {
-			info.Departments = make([]account.OrgMemberDepartment, 0, len(emp.DepartmentIDs))
-			for _, deptID := range emp.DepartmentIDs {
+		if len(emp.DepartmentList) > 0 {
+			info.Departments = make([]account.OrgMemberDepartment, 0, len(emp.DepartmentList))
+			for _, dept := range emp.DepartmentList {
 				info.Departments = append(info.Departments, account.OrgMemberDepartment{
-					DepartmentID: deptID,
+					DepartmentID: dept.ID,
+					Name:         dept.Name,
+					IsPrimary:    dept.IsPrimary == 1,
 				})
 			}
 		}

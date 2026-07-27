@@ -40,7 +40,7 @@ import (
 //
 // 根据配置初始化并注册 GitHub、GitLab 等渠道连接器，
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
-func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, db *gorm.DB, modelInvoker modelrouter.Invoker) *gin.Engine {
+func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, db *gorm.DB, modelInvoker modelrouter.Invoker) (*gin.Engine, worker.WorkerScheduler) {
 	r := gin.New()
 
 	// ── 全局中间件（必须在 r.Group / RegisterRoutes 之前挂载）────────────────────
@@ -220,7 +220,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 	// Swagger UI 路由
 	v1.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	return r
+	return r, workerScheduler
 }
 
 // llmUsageSubscriberAdapter 将 eventbus.Subscriber 适配为 llm.UsageSubscriber。
