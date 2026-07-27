@@ -1,6 +1,6 @@
 "use client";
 
-import { type PluginComposerOption, pluginApi, pluginToComposerOption } from "@leros/store";
+import type { PluginComposerOption } from "@leros/store";
 import {
 	Command,
 	CommandEmpty,
@@ -22,14 +22,10 @@ import {
 	Sparkles,
 	WandSparkles,
 } from "lucide-react";
-import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
+import { type ReactNode, type RefObject, useMemo, useState } from "react";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
-import type {
-	ComposerAssistantOption,
-	ComposerSkillOption,
-	StructuredComposerHandle,
-} from "./StructuredComposer";
+import type { ComposerAssistantOption, StructuredComposerHandle } from "./StructuredComposer";
 
 type ComposerActionBarProps = {
 	inputValue: string;
@@ -40,7 +36,8 @@ type ComposerActionBarProps = {
 	children?: ReactNode;
 	className?: string;
 	assistantOptions?: ComposerAssistantOption[];
-	projectSkillOptions?: ComposerSkillOption[];
+	skillOptions?: PluginComposerOption[];
+	skillsLoading?: boolean;
 	disableAssistantAndSkill?: boolean;
 	assistantSelectionMode?: "single" | "multiple";
 	executionMode?: "default" | "plan";
@@ -73,56 +70,20 @@ export function ComposerActionBar({
 	children,
 	className,
 	assistantOptions = [],
-	projectSkillOptions,
+	skillOptions = [],
+	skillsLoading,
 	disableAssistantAndSkill = false,
 	assistantSelectionMode = "multiple",
 	executionMode,
 	setExecutionMode,
 	isGenerating,
 }: ComposerActionBarProps) {
-	const [orgSkillOptions, setOrgSkillOptions] = useState<PluginComposerOption[]>([]);
-	const [orgSkillsLoaded, setOrgSkillsLoaded] = useState(false);
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [assistantSearch, setAssistantSearch] = useState("");
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
 	const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
-
-	useEffect(() => {
-		if (projectSkillOptions) {
-			setOrgSkillsLoaded(true);
-			return;
-		}
-		let cancelled = false;
-		pluginApi
-			.list({ kind: "skill" })
-			.then((res) => {
-				if (cancelled) return;
-				if (res.data?.code !== 0) {
-					console.warn("Failed to load org skills for composer action bar:", res.data?.message);
-					setOrgSkillsLoaded(true);
-					return;
-				}
-				setOrgSkillOptions(
-					(res.data.data.plugins ?? []).map((item) => pluginToComposerOption(item)),
-				);
-				setOrgSkillsLoaded(true);
-			})
-			.catch((err) => {
-				if (cancelled) return;
-				console.error("Failed to load org skills for composer action bar:", err);
-				setOrgSkillsLoaded(true);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [projectSkillOptions]);
-
-	const skillOptions = useMemo<PluginComposerOption[]>(() => {
-		if (projectSkillOptions) return projectSkillOptions;
-		return orgSkillOptions;
-	}, [orgSkillOptions, projectSkillOptions]);
-	const skillsLoading = skillOpen && !projectSkillOptions && !orgSkillsLoaded;
+	const derivedSkillsLoading = skillOpen && skillsLoading;
 
 	const selectedAssistantNames = useMemo(
 		() => parseSelectedAssistantNames(inputValue),
@@ -378,7 +339,7 @@ export function ComposerActionBar({
 						<CommandList className="max-h-64 px-1">
 							<CommandEmpty className="py-6 text-slate-400">没有可继续添加的技能</CommandEmpty>
 							<CommandGroup className="p-0">
-								{skillsLoading && (
+								{derivedSkillsLoading && (
 									<div className="px-2 py-1.5 text-xs text-slate-400">技能加载中...</div>
 								)}
 								{filteredSkills.map((skill) => (
@@ -394,8 +355,15 @@ export function ComposerActionBar({
 											<Sparkles className="size-3.5" />
 										</div>
 										<div className="min-w-0 flex-1">
-											<div className="truncate font-medium">
-												{renderHighlightedText(skill.label, skillSearch)}
+											<div className="flex items-center gap-1.5 truncate font-medium">
+												<span className="truncate">
+													{renderHighlightedText(skill.label, skillSearch)}
+												</span>
+												{skill.origin === "builtin_worker" && (
+													<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+														系统
+													</span>
+												)}
 											</div>
 											<div className="truncate text-xs text-slate-400">{skill.description}</div>
 										</div>

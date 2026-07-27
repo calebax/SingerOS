@@ -55,14 +55,15 @@ import {
 	getFolderNameFromFiles,
 	isFolderUploadSizeExceeded,
 } from "../input/upload-folder";
+import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectIcon } from "./project-icon";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
-	// 中文注释：选择已有项目后不再支持临时召唤队友/技能，需要同步移除输入框中已插入的指令 token。
+	// 中文注释：选择已有项目后不再支持临时召唤队友，需要同步移除输入框中已插入的 @ 指令 token，但保留 /skill 指令。
 	return value
-		.replace(/(^|\s)(?:@[^\s@/]+|\/[^\s@/]+)(?=\s|$)/g, " ")
+		.replace(/(^|\s)@[^\s@/]+(?=\s|$)/g, " ")
 		.replace(/[ \t]{2,}/g, " ")
 		.trimStart();
 }
@@ -269,6 +270,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const uploadAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
+	const { skillOptions, skillsLoading } = useComposerSkillOptions(activeWorkbenchProjectId ?? null);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
 	const projectTriggerDismissRef = useRef<(() => void) | null>(null);
 	const pickerRootRef = useRef<HTMLDivElement>(null);
@@ -1029,7 +1031,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								isProjectVariant
 								assistantOptions={availableAssistantOptions}
 								assistantSelectionMode="single"
-								directivesDisabled={Boolean(activeProject)}
+								skillOptions={skillOptions}
+								skillsLoading={skillsLoading}
+								assistantDirectivesDisabled={Boolean(activeProject)}
 								onProjectTrigger={handleProjectTrigger}
 							/>
 						</div>
@@ -1049,7 +1053,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									}}
 									assistantOptions={availableAssistantOptions}
 									assistantSelectionMode="single"
-									disableAssistantAndSkill={Boolean(activeProject)}
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
 									isGenerating={isSending}

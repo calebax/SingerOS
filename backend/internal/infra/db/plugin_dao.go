@@ -184,6 +184,44 @@ func GetSystemPluginByCode(ctx context.Context, database *gorm.DB, kind, code st
 	return &plugin, nil
 }
 
+// ListSystemPluginsByOrigin returns all system-scope plugins matching kind and origin,
+// ordered by code. Does NOT include gorm-soft-deleted records.
+func ListSystemPluginsByOrigin(ctx context.Context, database *gorm.DB, kind, origin string) ([]types.Plugin, error) {
+	var plugins []types.Plugin
+	err := database.WithContext(ctx).
+		Where("owner_scope = ? AND org_id = 0 AND kind = ? AND origin = ?", types.OwnerScopeSystem, kind, origin).
+		Order("code ASC").
+		Find(&plugins).Error
+	if err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
+// ArchivePlugin sets a plugin's status to archived by ID.
+func ArchivePlugin(ctx context.Context, database *gorm.DB, pluginID uint) error {
+	return database.WithContext(ctx).
+		Model(&types.Plugin{}).
+		Where("id = ?", pluginID).
+		Select("status").
+		Updates(types.Plugin{Status: types.PluginStatusArchived}).Error
+}
+
+// ListActiveSystemPluginsByOrigin returns active system-scope plugins
+// matching kind and origin, ordered by code.
+func ListActiveSystemPluginsByOrigin(ctx context.Context, database *gorm.DB, kind, origin string) ([]types.Plugin, error) {
+	var plugins []types.Plugin
+	err := database.WithContext(ctx).
+		Where("owner_scope = ? AND org_id = 0 AND kind = ? AND origin = ? AND status = ? AND current_revision > 0",
+			types.OwnerScopeSystem, kind, origin, types.PluginStatusActive).
+		Order("code ASC").
+		Find(&plugins).Error
+	if err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
 // GetPluginRevisionByID returns one immutable revision.
 func GetPluginRevisionByID(ctx context.Context, database *gorm.DB, revisionID uint) (*types.PluginRevision, error) {
 	var revision types.PluginRevision

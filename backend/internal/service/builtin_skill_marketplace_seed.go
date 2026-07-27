@@ -43,6 +43,7 @@ type BuiltinSkillSyncReport struct {
 	Created   int
 	Updated   int
 	Unchanged int
+	Restored  int
 	Failures  []BuiltinSkillSyncFailure
 }
 
@@ -131,6 +132,11 @@ func (s *pluginService) syncBuiltinSkill(
 		}
 		if err != nil {
 			return err
+		}
+
+		// Refuse to overwrite a worker builtin plugin with the same code.
+		if plugin != nil && plugin.Origin == builtinWorkerOrigin {
+			return fmt.Errorf("server skill code %q conflicts with existing worker builtin skill", code)
 		}
 
 		var currentRevision *types.PluginRevision

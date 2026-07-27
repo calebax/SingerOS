@@ -1,13 +1,17 @@
 import type { ComposerToken } from "@leros/store/types/chat";
 import { buildDefaultSummonPrompt } from "../digitalAssistant/promptSuggestions";
 
-export function buildSkillWorkbenchPrefill(label: string): {
+export function buildSkillWorkbenchPrefill(
+	label: string,
+	prompt?: string,
+): {
 	value: string;
 	tokens: ComposerToken[];
 } {
 	const token = `/${label}`;
+	const promptSuffix = prompt ? `${prompt}` : "";
 	return {
-		value: `${token} `,
+		value: `${token} ${promptSuffix}`,
 		tokens: [
 			{
 				kind: "skill",

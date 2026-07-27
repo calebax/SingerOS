@@ -40,7 +40,7 @@ type PluginView struct {
 
 // ListPluginsResponse contains organization plugins.
 type ListPluginsResponse struct {
-	Plugins []PluginView `json:"plugins,omitempty"`
+	Plugins []PluginView `json:"plugins"`
 }
 
 // GetPluginRequest selects an organization plugin by public ID.
@@ -209,4 +209,5 @@ type PluginService interface {
 	DeletePlugin(ctx context.Context, orgID, uin uint, pluginID string, req *DeletePluginRequest) (*DeletePluginResponse, error)
 	AddSkillPlugin(ctx context.Context, orgID, uin uint, req *AddSkillPluginRequest) error
 	ResolveSkillDownloadURLs(ctx context.Context, orgID uint, req *ResolveSkillDownloadURLsRequest) (*ResolveSkillDownloadURLsResponse, error)
+	ListBuiltinSkills(ctx context.Context) (*ListPluginsResponse, error)
 }

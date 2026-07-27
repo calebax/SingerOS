@@ -58,6 +58,10 @@ func (*pluginHandlerTestService) ResolveSkillDownloadURLs(context.Context, uint,
 	return &contract.ResolveSkillDownloadURLsResponse{Skills: []contract.SkillDownloadURL{}}, nil
 }
 
+func (*pluginHandlerTestService) ListBuiltinSkills(context.Context) (*contract.ListPluginsResponse, error) {
+	return &contract.ListPluginsResponse{Plugins: []contract.PluginView{}}, nil
+}
+
 func newPluginHandlerTestRouter(service contract.PluginService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

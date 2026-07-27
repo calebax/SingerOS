@@ -78,7 +78,12 @@ export type {
 	PluginRevisionFile,
 	ProjectPluginItem,
 } from "./api/pluginApi";
-export { pluginApi, pluginToComposerOption, pluginToSkillCard } from "./api/pluginApi";
+export {
+	mergeSkillOptions,
+	pluginApi,
+	pluginToComposerOption,
+	pluginToSkillCard,
+} from "./api/pluginApi";
 export type { SkillMarketplaceItem } from "./api/pluginDisplayTypes";
 export type {
 	ListProjectActivitiesParams,

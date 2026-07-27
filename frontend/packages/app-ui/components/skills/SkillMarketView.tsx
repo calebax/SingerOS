@@ -81,7 +81,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	const openCreateSkill = useCallback(() => {
 		requireAuth(() => {
 			const label = "skill-creator";
-			const prefill = buildSkillWorkbenchPrefill(label);
+			const prefill = buildSkillWorkbenchPrefill(label, "请创建一个xxxxxx能力的skill");
 			selectWorkbenchProject(null);
 			selectWorkbenchTask(null);
 			setWorkbenchComposerPrefill(prefill);

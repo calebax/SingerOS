@@ -10,8 +10,6 @@ import {
 	isEmptyUploadFile,
 	isSystemDefaultAssistant,
 	type ProjectMember,
-	pluginApi,
-	pluginToComposerOption,
 	projectFileApi,
 	useChatStore,
 	useDAStore,
@@ -68,11 +66,11 @@ import { buildComposerUsageTips } from "./composerUsageTips";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
 	type ComposerAssistantOption,
-	type ComposerSkillOption,
 	StructuredComposer,
 	type StructuredComposerHandle,
 } from "./StructuredComposer";
 import { FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE, isFolderUploadSizeExceeded } from "./upload-folder";
+import { useComposerSkillOptions } from "./useComposerSkillOptions";
 
 export const PROJECT_ATTACHMENT_ACCEPT = COMPOSER_UPLOAD_ACCEPT;
 
@@ -153,41 +151,9 @@ export function ChatInput({
 	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
 	const currentProjectId = activeTaskDetailProjectId ?? activeProjectId;
 	const currentProject = projects.find((project) => project.id === currentProjectId);
-	const [projectSkillOptions, setProjectSkillOptions] = useState<ComposerSkillOption[] | undefined>(
-		undefined,
+	const { skillOptions, skillsLoading } = useComposerSkillOptions(
+		isProjectVariant ? currentProjectId : null,
 	);
-
-	useEffect(() => {
-		if (!isProjectVariant || !currentProjectId) {
-			setProjectSkillOptions(undefined);
-			return;
-		}
-
-		let cancelled = false;
-		setProjectSkillOptions(undefined);
-		void pluginApi
-			.listProject({ public_id: currentProjectId, kind: "skill" })
-			.then((response) => {
-				if (cancelled) return;
-				if (response.data.code !== 0) {
-					console.warn("Load project skills for composer failed:", response.data.message);
-					setProjectSkillOptions([]);
-					return;
-				}
-				setProjectSkillOptions(
-					response.data.data.map((item) => pluginToComposerOption(item, "项目技能")),
-				);
-			})
-			.catch((error) => {
-				if (cancelled) return;
-				console.warn("Load project skills for composer error:", error);
-				setProjectSkillOptions([]);
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [currentProjectId, isProjectVariant]);
 	const projectAssistantOptions = useMemo<ComposerAssistantOption[] | undefined>(() => {
 		if (!isProjectVariant) return undefined;
 		return (
@@ -225,8 +191,8 @@ export function ChatInput({
 		);
 	}, [assistants, assistantsLoaded, currentProject?.members, isProjectVariant]);
 	const projectSkillLabels = useMemo(
-		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
-		[projectSkillOptions],
+		() => skillOptions?.map((skill) => skill.label) ?? [],
+		[skillOptions],
 	);
 	const isNewProjectTaskView = isProjectVariant && currentView === "project";
 	const composerUsageTips = useMemo(
@@ -608,7 +574,8 @@ export function ChatInput({
 							}
 							isProjectVariant={isProjectVariant}
 							assistantOptions={projectAssistantOptions}
-							projectSkillOptions={projectSkillOptions}
+							skillOptions={skillOptions}
+							skillsLoading={skillsLoading}
 							assistantSelectionMode="single"
 							prefill={activeProjectComposerPrefill}
 							onPrefillConsumed={consumeProjectComposerPrefill}
@@ -628,7 +595,8 @@ export function ChatInput({
 									onUpload={() => fileInputRef.current?.click()}
 									onUploadFolder={() => folderInputRef.current?.click()}
 									assistantOptions={projectAssistantOptions}
-									projectSkillOptions={projectSkillOptions}
+									skillOptions={skillOptions}
+									skillsLoading={skillsLoading}
 									assistantSelectionMode="single"
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
