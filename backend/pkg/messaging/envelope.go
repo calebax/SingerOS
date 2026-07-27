@@ -9,7 +9,6 @@
 //	  cmd.run         - 会话/task 执行命令，保留 session-keyed debounce
 //	  cmd.control     - cancel run 等控制命令，不经过防抖
 //	  cmd.interaction - approval resolve、question answer
-//	  cmd.skill       - skill install/list/detail/import/uninstall，request/reply
 //	  cmd.file        - project file restore，request/reply
 //
 //	Worker -> Server/UI:

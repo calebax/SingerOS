@@ -212,15 +212,6 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 			}
 		}
 
-		skillIDs := extractProjectSkillIDs(project.Metadata)
-		if len(skillIDs) > 0 {
-			payload := types.ProjectActivityPayload{
-				AddedSkillIDs: skillIDs,
-			}
-			if err := s.createProjectActivityAt(ctx, tx, project.PublicID, caller.Uin, types.ProjectActivityActionSkillsChanged, payload, nil, activityTime.Add(2*time.Millisecond)); err != nil {
-				return err
-			}
-		}
 		return nil
 	}); err != nil {
 		return nil, err
@@ -290,7 +281,6 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 		if req.Status != nil {
 			project.Status = *req.Status
 		}
-		oldSkillIDs := extractProjectSkillIDs(project.Metadata)
 		if req.Metadata != nil {
 			if *req.Metadata != nil {
 				newMeta := types.ObjectMetadata{}
@@ -310,8 +300,6 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 				project.Metadata = newMeta
 			}
 		}
-		newSkillIDs := extractProjectSkillIDs(project.Metadata)
-
 		if err := db.UpdateProject(ctx, tx, project); err != nil {
 			return err
 		}
@@ -328,24 +316,113 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 			}
 		}
 
-		if req.Metadata != nil {
-			addedSkillIDs, removedSkillIDs := diffStringSlices(oldSkillIDs, newSkillIDs)
-			if len(addedSkillIDs) > 0 || len(removedSkillIDs) > 0 {
-				payload := types.ProjectActivityPayload{
-					AddedSkillIDs:   addedSkillIDs,
-					RemovedSkillIDs: removedSkillIDs,
-				}
-				if err := s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, types.ProjectActivityActionSkillsChanged, payload, nil); err != nil {
-					return err
-				}
-			}
-		}
-
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	return convertToContractProject(project), nil
+}
+
+// ListProjectPlugins returns active plugin bindings visible to the caller's organization.
+func (s *projectService) ListProjectPlugins(ctx context.Context, req *contract.ListProjectPluginsRequest) ([]contract.ProjectPlugin, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req == nil || strings.TrimSpace(req.PublicID) == "" {
+		return nil, errors.New("public_id is required")
+	}
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, req.PublicID)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+	plugins, err := db.ListProjectPlugins(ctx, s.db, caller.OrgID, project.ID, req.Kind)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]contract.ProjectPlugin, 0, len(plugins))
+	for _, plugin := range plugins {
+		result = append(result, contract.ProjectPlugin{PublicID: plugin.PublicID, Code: plugin.Code, Kind: plugin.Kind, Name: plugin.Name, Description: plugin.Description, Status: plugin.Status, CurrentRevision: plugin.CurrentRevision})
+	}
+	return result, nil
+}
+
+// AddProjectPlugin creates one active project plugin binding.
+func (s *projectService) AddProjectPlugin(ctx context.Context, req *contract.UpdateProjectPluginRequest) error {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return err
+	}
+	if req == nil || strings.TrimSpace(req.PublicID) == "" || strings.TrimSpace(req.PluginID) == "" {
+		return errors.New("public_id and plugin_id are required")
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		project, err := db.GetProjectByPublicID(ctx, tx, caller.OrgID, req.PublicID)
+		if err != nil {
+			return err
+		}
+		if project == nil {
+			return errors.New("project not found")
+		}
+		plugin, err := db.GetPluginByPublicID(ctx, tx, caller.OrgID, req.PluginID)
+		if err != nil {
+			return err
+		}
+		if plugin == nil || plugin.Status != types.PluginStatusActive {
+			return errors.New("plugin not found")
+		}
+		bound, err := db.ListProjectPlugins(ctx, tx, caller.OrgID, project.ID, plugin.Kind)
+		if err != nil {
+			return err
+		}
+		for _, item := range bound {
+			if item.ID == plugin.ID {
+				return nil
+			}
+		}
+		if err := db.CreateProjectPluginBinding(ctx, tx, &types.ProjectPluginBinding{ProjectID: project.ID, PluginID: plugin.ID, Enabled: true, Config: []byte(`{}`), CreatedBy: caller.Uin, UpdatedBy: caller.Uin}); err != nil {
+			return err
+		}
+		return s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, types.ProjectActivityActionSkillsChanged, types.ProjectActivityPayload{AddedSkillIDs: []string{plugin.PublicID}}, nil)
+	})
+}
+
+// RemoveProjectPlugin removes one project plugin binding.
+func (s *projectService) RemoveProjectPlugin(ctx context.Context, req *contract.UpdateProjectPluginRequest) error {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return err
+	}
+	if req == nil || strings.TrimSpace(req.PublicID) == "" || strings.TrimSpace(req.PluginID) == "" {
+		return errors.New("public_id and plugin_id are required")
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		project, err := db.GetProjectByPublicID(ctx, tx, caller.OrgID, req.PublicID)
+		if err != nil {
+			return err
+		}
+		if project == nil {
+			return errors.New("project not found")
+		}
+		plugin, err := db.GetPluginByPublicID(ctx, tx, caller.OrgID, req.PluginID)
+		if err != nil {
+			return err
+		}
+		if plugin == nil {
+			return errors.New("plugin not found")
+		}
+		removed, err := db.RemoveProjectPluginBinding(ctx, tx, project.ID, plugin.ID)
+		if err != nil {
+			return err
+		}
+		if !removed {
+			return errors.New("project plugin not found")
+		}
+		return s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, types.ProjectActivityActionSkillsChanged, types.ProjectActivityPayload{RemovedSkillIDs: []string{plugin.PublicID}}, nil)
+	})
 }
 
 func (s *projectService) DeleteProject(ctx context.Context, publicID string) error {
@@ -1215,33 +1292,23 @@ func (s *projectService) buildProjectActivitySkillMap(ctx context.Context, orgID
 		return result, nil
 	}
 
-	skills, err := db.GetSkillsByCodes(ctx, s.db, orgID, ids)
+	plugins, err := db.ListPlugins(ctx, s.db, orgID, db.PluginListFilter{Kind: "skill"})
 	if err != nil {
 		return nil, err
 	}
-	for _, skill := range skills {
-		result[skill.Code] = contract.ProjectActivitySkill{
-			ID:   skill.Code,
-			Name: skill.Name,
-			Icon: skill.Icon,
-		}
+	pluginByID := make(map[string]types.Plugin, len(plugins))
+	pluginByCode := make(map[string]types.Plugin, len(plugins))
+	for _, p := range plugins {
+		pluginByID[p.PublicID] = p
+		pluginByCode[p.Code] = p
 	}
-
-	items, err := db.GetSkillMarketplaceItemsBySkillIDs(ctx, s.db, ids)
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range items {
-		if existing := result[item.SkillID]; existing.Name != "" {
-			continue
+	for _, id := range ids {
+		p, ok := pluginByID[id]
+		if !ok {
+			p, ok = pluginByCode[id]
 		}
-		name := item.TranslatedName
-		if strings.TrimSpace(name) == "" {
-			name = item.Name
-		}
-		result[item.SkillID] = contract.ProjectActivitySkill{
-			ID:   item.SkillID,
-			Name: name,
+		if ok {
+			result[id] = contract.ProjectActivitySkill{ID: p.PublicID, Name: p.Name}
 		}
 	}
 	return result, nil
@@ -1392,64 +1459,6 @@ func decodeProjectActivityCursor(value string) (projectActivityCursor, error) {
 		return cursor, errors.New("invalid cursor")
 	}
 	return cursor, nil
-}
-
-func extractProjectSkillIDs(meta types.ObjectMetadata) []string {
-	if meta.Extra == nil {
-		return []string{}
-	}
-	rawSkills, ok := meta.Extra["skills"]
-	if !ok || rawSkills == nil {
-		return []string{}
-	}
-	skillsSlice, ok := rawSkills.([]interface{})
-	if !ok {
-		return []string{}
-	}
-	result := make([]string, 0, len(skillsSlice))
-	for _, item := range skillsSlice {
-		entry, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		code, _ := entry["code"].(string)
-		code = strings.TrimSpace(code)
-		if code == "" {
-			name, _ := entry["name"].(string)
-			code = strings.TrimSpace(name)
-		}
-		if code != "" {
-			result = append(result, code)
-		}
-	}
-	return uniqueStringSlice(result)
-}
-
-func diffStringSlices(oldIDs, newIDs []string) (added, removed []string) {
-	oldSet := make(map[string]bool, len(oldIDs))
-	newSet := make(map[string]bool, len(newIDs))
-	for _, id := range oldIDs {
-		id = strings.TrimSpace(id)
-		if id != "" {
-			oldSet[id] = true
-		}
-	}
-	for _, id := range newIDs {
-		id = strings.TrimSpace(id)
-		if id != "" {
-			newSet[id] = true
-			if !oldSet[id] {
-				added = append(added, id)
-			}
-		}
-	}
-	for _, id := range oldIDs {
-		id = strings.TrimSpace(id)
-		if id != "" && !newSet[id] {
-			removed = append(removed, id)
-		}
-	}
-	return added, removed
 }
 
 func diffUintSlices(oldIDs, newIDs []uint) (added, removed []uint) {
@@ -2406,83 +2415,6 @@ func storageKeyFromFilestoreURI(uri string) (string, error) {
 		return "", fmt.Errorf("parse storage uri: %w", err)
 	}
 	return key, nil
-}
-
-func removeSkillFromProjectMetadata(meta types.ObjectMetadata, skillName string) (types.ObjectMetadata, bool) {
-	skillName = strings.TrimSpace(skillName)
-	if skillName == "" || meta.Extra == nil {
-		return meta, false
-	}
-
-	rawSkills, ok := meta.Extra["skills"]
-	if !ok || rawSkills == nil {
-		return meta, false
-	}
-
-	skillsSlice, ok := rawSkills.([]interface{})
-	if !ok {
-		return meta, false
-	}
-
-	filtered := make([]interface{}, 0, len(skillsSlice))
-	removed := false
-	for _, item := range skillsSlice {
-		if projectSkillEntryMatches(item, skillName) {
-			removed = true
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	if !removed {
-		return meta, false
-	}
-
-	newExtra := make(map[string]interface{}, len(meta.Extra))
-	for key, value := range meta.Extra {
-		newExtra[key] = value
-	}
-	newExtra["skills"] = filtered
-
-	newMeta := meta
-	newMeta.Extra = newExtra
-	return newMeta, true
-}
-
-func projectSkillEntryMatches(item interface{}, skillName string) bool {
-	entry, ok := item.(map[string]interface{})
-	if !ok {
-		return false
-	}
-	code, _ := entry["code"].(string)
-	name, _ := entry["name"].(string)
-	target := strings.TrimSpace(skillName)
-	return strings.EqualFold(strings.TrimSpace(code), target) ||
-		strings.EqualFold(strings.TrimSpace(name), target)
-}
-
-func cleanupOrgProjectSkillReferences(ctx context.Context, database *gorm.DB, orgID uint, skillName string) (int, error) {
-	projects, err := db.ListProjectsReferencingSkill(ctx, database, orgID, skillName)
-	if err != nil {
-		return 0, err
-	}
-
-	updated := 0
-	for _, project := range projects {
-		if project == nil {
-			continue
-		}
-		newMeta, changed := removeSkillFromProjectMetadata(project.Metadata, skillName)
-		if !changed {
-			continue
-		}
-		project.Metadata = newMeta
-		if err := db.UpdateProject(ctx, database, project); err != nil {
-			logs.WarnContextf(ctx, "remove skill %q from project %s metadata: %v", skillName, project.PublicID, err)
-			continue
-		}
-		updated++
-	}
-	return updated, nil
 }
 
 // ensure project implements contract.ProjectService at compile time

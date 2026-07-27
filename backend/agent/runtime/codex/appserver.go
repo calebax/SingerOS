@@ -13,6 +13,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -45,10 +46,16 @@ type AppServer struct {
 // 进程启动
 // ============================================================================
 
-func startAppServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, taskDir string) (*AppServer, error) {
+func startAppServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, taskDir, skillDir string) (*AppServer, error) {
+	if strings.TrimSpace(taskDir) == "" {
+		taskDir = workDir
+	}
 	codexHome := filepath.Join(taskDir, ".codex")
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		return nil, fmt.Errorf("create codex-home dir: %w", err)
+	}
+	if err := cli.ProjectSkillLinks(skillDir, filepath.Join(codexHome, "skills")); err != nil {
+		return nil, fmt.Errorf("project codex skills: %w", err)
 	}
 	if err := writeCodexConfigToml(codexHome, modelCfg, mcpServers); err != nil {
 		return nil, err

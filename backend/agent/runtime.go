@@ -49,9 +49,10 @@ type ExecutionPolicy struct {
 
 // FilesystemContext contains the already prepared runtime directories.
 type FilesystemContext struct {
-	WorkDir string
-	RepoDir string
-	TaskDir string
+	WorkDir  string
+	RepoDir  string
+	TaskDir  string
+	SkillDir string
 }
 
 // ProviderSession carries pre-resolved provider session information for resume.

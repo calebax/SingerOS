@@ -12,7 +12,6 @@ import {
 	useDAStore,
 	useLayoutStore,
 	usePermissionStore,
-	useSkillStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Checkbox } from "@leros/ui/components/ui/checkbox";
@@ -80,9 +79,7 @@ export function AuthProvider({
 	const fetchProjects = useLayoutStore((s) => s.fetchProjects);
 	const resetAuthScopedData = useLayoutStore((s) => s.resetAuthScopedData);
 	const resetDAAuthScopedData = useDAStore((s) => s.resetAuthScopedData);
-	const resetSkillAuthScopedData = useSkillStore((s) => s.resetAuthScopedData);
 	const fetchAssistants = useDAStore((s) => s.fetchAssistants);
-	const fetchInstalledSkills = useSkillStore((s) => s.fetchInstalledSkills);
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const invalidateAllPermissions = usePermissionStore((s) => s.invalidateAll);
@@ -103,7 +100,6 @@ export function AuthProvider({
 	const clearAuthScopedStoreData = useCallback(() => {
 		resetAuthScopedData();
 		resetDAAuthScopedData();
-		resetSkillAuthScopedData();
 		resetLocalMessages();
 		clearComposerInput();
 		invalidateAllPermissions();
@@ -113,7 +109,6 @@ export function AuthProvider({
 		resetAuthScopedData,
 		resetDAAuthScopedData,
 		resetLocalMessages,
-		resetSkillAuthScopedData,
 	]);
 
 	useEffect(() => {
@@ -149,12 +144,12 @@ export function AuthProvider({
 			setPendingOrganizationLogin(null);
 			setDialogOpen(false);
 			if (!initializeOrganizationData) return;
-			void Promise.all([fetchProjects(), fetchAssistants(), fetchInstalledSkills()]);
+			void Promise.all([fetchProjects(), fetchAssistants()]);
 			const action = pendingAction;
 			setPendingAction(null);
 			action?.();
 		},
-		[fetchAssistants, fetchInstalledSkills, fetchProjects, pendingAction, setAuthToken],
+		[fetchAssistants, fetchProjects, pendingAction, setAuthToken],
 	);
 
 	const chooseOrganization = useCallback(

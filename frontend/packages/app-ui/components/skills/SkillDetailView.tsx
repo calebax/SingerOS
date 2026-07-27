@@ -1,7 +1,21 @@
 "use client";
 
-import type { SkillDetailData, SkillMarketplaceItem } from "@leros/store";
-import { skillMarketplaceApi } from "@leros/store";
+import {
+	officialPluginMarketplaceApi,
+	type PluginInstallationStatus,
+	type PluginRevisionFile,
+	pluginApi,
+} from "@leros/store";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@leros/ui/components/ui/alert-dialog";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	DropdownMenu,
@@ -28,40 +42,63 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import { SkillFileTree } from "./SkillFileTree";
+import {
+	canUpdateOrganizationSkill,
+	resolveMarketplaceSkillAction,
+} from "./skillInstallationState";
+
+interface SkillDetailData {
+	skill_id: string;
+	source: string;
+	name: string;
+	display_name?: string;
+	description: string;
+	skill_md: string;
+	version: string;
+	author: string;
+	category: string;
+	tags: string[];
+	icon: string;
+	installs: number;
+	verified: boolean;
+	source_type: string;
+	files: PluginRevisionFile[];
+	has_content_snapshot: boolean;
+}
 
 interface SkillDetailViewProps {
 	skillId: string;
-	/** Which source to query — "Leros" for marketplace, "installed" for installed skills */
-	source?: string;
-	/** Optional version for external sources (e.g. ClawHub); defaults to latest */
-	version?: string;
+	/** Selects either the official marketplace or the organization repository. */
+	source?: "official" | "organization";
 	/** Called when the user wants to navigate back to the marketplace */
 	onBack?: () => void;
-	/** Called when a related skill card is clicked */
-	onSkillClick?: (skillId: string, sourceType?: string) => void;
-	/** Called when user clicks "去使用" for an installed skill */
+	/** Called when user clicks "去使用" for an organization skill */
 	onUse?: (skillId: string, displayLabel?: string) => void;
-	/** Called when user clicks "卸载" from the dropdown menu */
-	onUninstall?: (name: string) => void;
+	/** Called after an official marketplace item is installed into the organization. */
+	onOfficialInstalled?: () => void;
 }
 
 export function SkillDetailView({
 	skillId,
-	source = "Leros",
-	version,
+	source = "official",
 	onBack,
-	onSkillClick,
 	onUse,
-	onUninstall,
+	onOfficialInstalled,
 }: SkillDetailViewProps) {
 	const [skill, setSkill] = useState<SkillDetailData | null>(null);
-	const [relatedSkills, setRelatedSkills] = useState<SkillMarketplaceItem[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [installing, setInstalling] = useState(false);
-	const [installed, setInstalled] = useState(false);
+	const [installationStatus, setInstallationStatus] = useState<PluginInstallationStatus | null>(
+		null,
+	);
+	const [installationStatusLoading, setInstallationStatusLoading] = useState(true);
+	const [installationStatusError, setInstallationStatusError] = useState(false);
 	const [activeTab, setActiveTab] = useState("overview");
 	const [mounted, setMounted] = useState(false);
+	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+	const [deleting, setDeleting] = useState(false);
 
 	// Gate fetch on mounted to avoid StrictMode double-fire
 	useEffect(() => {
@@ -71,47 +108,88 @@ export function SkillDetailView({
 	const fetchSkill = useCallback(async () => {
 		setLoading(true);
 		setError(null);
-		setInstalled(false);
+		setInstallationStatus(null);
+		setInstallationStatusLoading(true);
+		setInstallationStatusError(false);
 		const cancelled = false;
-		try {
-			// Fetch skill detail via the dedicated API
-			const params: Record<string, string> = {
-				source,
-				skill_id: skillId,
-			};
-			if (version) {
-				params.version = version;
-			}
-			const resp = await skillMarketplaceApi.getDetail(params as any);
-			if (cancelled) return;
-			const detail = resp.data.data;
-			setSkill(detail);
-			setInstalled(Boolean(detail.installed) || detail.source === "installed");
-
-			// Fetch related skills from the marketplace (only for marketplace skills)
-			if (detail.category) {
-				try {
-					const relatedResp = await skillMarketplaceApi.search({
-						category: detail.category,
-						limit: 5,
-					});
-					if (cancelled) return;
-					const relatedItems = (relatedResp.data.data.items ?? []).filter(
-						(item) => item.skill_id !== detail.skill_id,
-					);
-					setRelatedSkills(relatedItems.slice(0, 4));
-				} catch {
-					// Related skills are non-critical; silently ignore failures
+		const fetchInstallationStatus = async (kind: string, code: string) => {
+			try {
+				const response = await pluginApi.getInstallationStatus({ kind, code });
+				if (!cancelled) setInstallationStatus(response.data.data);
+			} catch (statusError) {
+				if (!cancelled) {
+					setInstallationStatusError(true);
+					console.error("Failed to fetch skill installation status:", statusError);
 				}
+			} finally {
+				if (!cancelled) setInstallationStatusLoading(false);
 			}
+		};
+		try {
+			if (source === "official") {
+				const resp = await officialPluginMarketplaceApi.get(skillId);
+				if (cancelled) return;
+				const item = resp.data.data;
+				const content = item.content;
+				setSkill({
+					skill_id: item.public_id,
+					source: "official",
+					name: item.code,
+					display_name: item.name,
+					description: item.description ?? "",
+					skill_md: content?.skill_md ?? "",
+					version: item.version,
+					author: item.author,
+					category: item.category,
+					tags: item.tags,
+					icon: item.icon ?? "",
+					installs: 0,
+					verified: item.verified,
+					source_type: "official",
+					files: content?.files ?? [],
+					has_content_snapshot: content != null,
+				});
+				await fetchInstallationStatus(item.kind, item.code);
+				return;
+			}
+			if (source === "organization") {
+				const resp = await pluginApi.get(skillId);
+				if (cancelled) return;
+				const plugin = resp.data.data.plugin;
+				const content = resp.data.data.content;
+				setSkill({
+					skill_id: plugin.public_id,
+					source: "organization",
+					name: plugin.code,
+					display_name: plugin.name,
+					description: plugin.description ?? "",
+					skill_md: content?.skill_md ?? "",
+					version: String(content?.version ?? plugin.current_revision),
+					author: "组织插件",
+					category: plugin.kind,
+					tags: [plugin.kind],
+					icon: "",
+					installs: 0,
+					verified: false,
+					source_type: "organization",
+					files: content?.files ?? [],
+					has_content_snapshot: content !== null,
+				});
+				await fetchInstallationStatus(plugin.kind, plugin.code);
+				return;
+			}
+			throw new Error(`不支持的技能来源：${source}`);
 		} catch (err: any) {
 			if (cancelled) return;
 			const msg = err?.response?.data?.message ?? err?.message ?? "加载失败";
 			setError(msg);
 		} finally {
-			if (!cancelled) setLoading(false);
+			if (!cancelled) {
+				setLoading(false);
+				setInstallationStatusLoading(false);
+			}
 		}
-	}, [skillId, source, version]);
+	}, [skillId, source]);
 
 	useEffect(() => {
 		if (!mounted) return;
@@ -120,25 +198,53 @@ export function SkillDetailView({
 
 	const handleInstall = useCallback(async () => {
 		if (!skill) return;
+		const marketplaceItemID =
+			skill.source === "official" ? skill.skill_id : installationStatus?.marketplace_item_id;
+		if (!marketplaceItemID) return;
 		setInstalling(true);
 		try {
-			await skillMarketplaceApi.install({
-				source: skill.source_type,
-				skill_id: skill.skill_id,
-				version: skill.version || undefined,
-			});
-			setInstalled(true);
-			toast.success("技能安装成功");
+			const response = await officialPluginMarketplaceApi.install(marketplaceItemID);
+			const operation = response.data.data.operation;
+			await fetchSkill();
+			onOfficialInstalled?.();
+			if (operation === "updated") {
+				toast.success("技能更新成功");
+			} else if (operation === "already_current") {
+				toast.success("技能已是最新版本");
+			} else {
+				toast.success("技能安装成功");
+			}
 		} catch (err: any) {
 			const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
-			toast.error(`安装失败：${msg}`);
+			toast.error(`安装或更新失败：${msg}`);
 		} finally {
 			setInstalling(false);
 		}
-	}, [skill]);
+	}, [fetchSkill, installationStatus?.marketplace_item_id, onOfficialInstalled, skill]);
 
-	// Convert SkillDetailData to a card-compatible shape for related-skill badges
-	const isLerosOfficial = skill?.verified && skill?.source_type === "Leros";
+	const handleDeleteOrganizationPlugin = useCallback(async () => {
+		if (!skill) return;
+		setDeleting(true);
+		try {
+			await pluginApi.delete(skill.skill_id);
+			toast.success("技能已删除");
+			setDeleteDialogOpen(false);
+			onBack?.();
+		} catch (err: any) {
+			const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
+			toast.error(`删除失败：${msg}`);
+		} finally {
+			setDeleting(false);
+		}
+	}, [onBack, skill]);
+
+	const isOfficialVerified = skill?.verified && skill?.source_type === "official";
+	const marketplaceAction = resolveMarketplaceSkillAction(
+		installationStatus,
+		installationStatusLoading,
+		installationStatusError,
+	);
+	const canUpdateOrganization = canUpdateOrganizationSkill(installationStatus);
 
 	// Loading state
 	if (loading) {
@@ -221,11 +327,22 @@ export function SkillDetailView({
 							<h1 className="mb-1 break-words text-xl font-semibold leading-tight text-[var(--leros-text-strong)]">
 								{displayName}
 							</h1>
-							{skill.category && (
-								<span className="inline-flex px-2 py-0.5 rounded bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] text-[11px] font-medium border border-[var(--leros-control-border)]">
-									{skill.category}
-								</span>
-							)}
+							<div className="flex flex-wrap items-center gap-1.5">
+								{skill.category && (
+									<span className="inline-flex px-2 py-0.5 rounded bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] text-[11px] font-medium border border-[var(--leros-control-border)]">
+										{skill.category}
+									</span>
+								)}
+								{installationStatus?.update_available ? (
+									<span className="inline-flex rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+										有更新
+									</span>
+								) : installationStatus?.installed && skill.source !== "organization" ? (
+									<span className="inline-flex rounded border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
+										已安装
+									</span>
+								) : null}
+							</div>
 							{skill.description && (
 								<p className="mt-2 max-w-2xl [overflow-wrap:anywhere] text-xs leading-relaxed text-[var(--leros-text-muted)]">
 									{skill.description}
@@ -234,12 +351,12 @@ export function SkillDetailView({
 						</div>
 					</div>
 
-					{/* Action buttons — install for marketplace, use+menu for installed */}
-					{skill.source === "installed" ? (
+					{/* Action buttons — install for marketplace, use+menu for managed skills */}
+					{skill.source === "organization" ? (
 						<div className="flex shrink-0 items-center gap-1.5">
 							<Button
 								size="sm"
-								onClick={() => onUse?.(skill.skill_id, skill.display_name || skill.name)}
+								onClick={() => onUse?.(skill.name, skill.display_name || skill.name)}
 								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md transition-all"
 							>
 								去使用
@@ -251,6 +368,7 @@ export function SkillDetailView({
 											size="sm"
 											variant="ghost"
 											{...props}
+											aria-label="更多操作"
 											className="rounded-lg px-2 py-2 hover:bg-[var(--leros-surface-soft)]"
 										>
 											<Ellipsis className="size-4" />
@@ -258,12 +376,23 @@ export function SkillDetailView({
 									)}
 								/>
 								<DropdownMenuContent align="end" className="w-32">
+									{canUpdateOrganization && (
+										<DropdownMenuItem onClick={handleInstall} disabled={installing}>
+											{installing ? (
+												<Loader2 className="size-3.5 mr-2 animate-spin" />
+											) : (
+												<RefreshCw className="size-3.5 mr-2" />
+											)}
+											{installing ? "更新中..." : "更新"}
+										</DropdownMenuItem>
+									)}
 									<DropdownMenuItem
-										onClick={() => onUninstall?.(skill.skill_id)}
+										onClick={() => setDeleteDialogOpen(true)}
+										disabled={installing}
 										className="text-xs text-red-600 focus:text-red-600"
 									>
 										<Trash2 className="size-3.5 mr-2" />
-										卸载
+										删除
 									</DropdownMenuItem>
 								</DropdownMenuContent>
 							</DropdownMenu>
@@ -272,24 +401,43 @@ export function SkillDetailView({
 						<Button
 							size="sm"
 							onClick={handleInstall}
-							disabled={installing || installed}
+							disabled={
+								installing ||
+								marketplaceAction === "checking" ||
+								marketplaceAction === "unavailable" ||
+								marketplaceAction === "installed"
+							}
 							className={cn(
 								"shrink-0 rounded-lg px-4 py-2 text-xs font-medium shadow-sm transition-all",
-								installed
+								marketplaceAction === "installed"
 									? "bg-green-50 text-green-600 border border-green-200 hover:bg-green-50"
-									: "bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md",
+									: marketplaceAction === "unavailable"
+										? "border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] text-[var(--leros-text-subtle)]"
+										: "bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md",
 							)}
 						>
 							{installing ? (
 								<>
 									<Loader2 className="size-3.5 mr-1.5 animate-spin" />
-									安装中...
+									{marketplaceAction === "update" ? "更新中..." : "安装中..."}
 								</>
-							) : installed ? (
+							) : marketplaceAction === "checking" ? (
+								<>
+									<Loader2 className="size-3.5 mr-1.5 animate-spin" />
+									检查状态...
+								</>
+							) : marketplaceAction === "update" ? (
+								<>
+									<RefreshCw className="size-3.5 mr-1.5" />
+									更新技能
+								</>
+							) : marketplaceAction === "installed" ? (
 								<>
 									<CheckCircle className="size-3.5 mr-1.5" />
 									已安装
 								</>
+							) : marketplaceAction === "unavailable" ? (
+								<>状态不可用</>
 							) : (
 								<>
 									<Download className="size-3.5 mr-1.5" />
@@ -310,7 +458,7 @@ export function SkillDetailView({
 						<Star className="size-3.5 text-[var(--leros-primary)]" fill="currentColor" />
 						<span>4.9 评分</span>
 					</div>
-					{isLerosOfficial && (
+					{isOfficialVerified && (
 						<div className="flex items-center gap-1.5 text-[var(--leros-text-muted)] text-xs">
 							<Verified className="size-3.5" />
 							<span>官方认证</span>
@@ -357,7 +505,11 @@ export function SkillDetailView({
 							) : (
 								<div className="flex flex-col items-center justify-center py-10 text-[var(--leros-text-subtle)]">
 									<FileText className="size-6 mb-2 opacity-40" />
-									<p className="text-xs">暂无概述内容</p>
+									<p className="text-xs">
+										{skill.source === "organization" && !skill.has_content_snapshot
+											? "该修订创建于内容索引启用前，暂无内容快照"
+											: "暂无概述内容"}
+									</p>
 								</div>
 							)}
 						</TabsContent>
@@ -365,22 +517,15 @@ export function SkillDetailView({
 						{/* Files Tab */}
 						<TabsContent value="files" className="min-w-0 outline-none">
 							{skill.files && skill.files.length > 0 ? (
-								<ul className="space-y-1">
-									{skill.files.map((file) => (
-										<li
-											key={file}
-											className="flex min-w-0 items-center gap-2 rounded-md px-3 py-2 text-xs text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-surface-soft)]"
-										>
-											<FileText className="size-3.5 shrink-0 text-[var(--leros-text-subtle)]" />
-											<span className="min-w-0 break-all font-mono">{file}</span>
-										</li>
-									))}
-								</ul>
+								<SkillFileTree files={skill.files} />
 							) : (
 								<div className="flex flex-col items-center justify-center py-10 text-[var(--leros-text-subtle)]">
 									<FolderOpen className="size-6 mb-2 opacity-40" />
-									<p className="text-xs">暂无文件</p>
-									<p className="text-[11px] mt-1">安装后可查看技能包含的所有文件</p>
+									<p className="text-xs">
+										{skill.source === "organization" && !skill.has_content_snapshot
+											? "该修订创建于内容索引启用前，暂无内容快照"
+											: "暂无文件"}
+									</p>
 								</div>
 							)}
 						</TabsContent>
@@ -402,69 +547,6 @@ export function SkillDetailView({
 
 				{/* Right Sidebar — top aligns with tab bar, no left border */}
 				<aside className="flex min-w-0 flex-col gap-4 py-3 xl:w-64">
-					{/* Related Skills */}
-					{relatedSkills.length > 0 && (
-						<section>
-							<div className="flex items-center justify-between mb-3">
-								<h5 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-subtle)]">
-									相关推荐
-								</h5>
-								<button
-									type="button"
-									onClick={fetchSkill}
-									className="text-[var(--leros-text-subtle)] hover:text-[var(--leros-text-muted)] transition-colors"
-									title="刷新"
-								>
-									<RefreshCw className="size-3.5" />
-								</button>
-							</div>
-							<div className="space-y-2.5">
-								{relatedSkills.map((related) => (
-									<button
-										type="button"
-										key={related.skill_id}
-										onClick={() => onSkillClick?.(related.skill_id, related.source_type)}
-										className="w-full text-left p-3 bg-[var(--leros-surface)] border border-[var(--leros-control-border)] rounded-xl hover:border-[var(--leros-primary)]/50 transition-all cursor-pointer group"
-									>
-										<div className="flex gap-2.5">
-											{related.icon ? (
-												<img
-													src={related.icon}
-													alt={related.display_name || related.name}
-													className="h-8 w-8 shrink-0 rounded-lg object-cover"
-												/>
-											) : (
-												<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] group-hover:bg-[var(--leros-primary-soft)] group-hover:text-[var(--leros-primary)] transition-colors">
-													<span className="text-sm font-semibold">
-														{(related.display_name || related.name).charAt(0).toUpperCase()}
-													</span>
-												</div>
-											)}
-											<div className="min-w-0">
-												<h6 className="text-xs font-semibold text-[var(--leros-text-strong)] truncate">
-													{related.display_name || related.name}
-												</h6>
-												<div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-[var(--leros-text-subtle)]">
-													<span className="flex items-center gap-0.5">
-														<Star className="size-2.5 fill-amber-500 text-amber-500" />
-														4.5
-													</span>
-													<span>•</span>
-													<span>
-														{related.installs >= 1000
-															? `${(related.installs / 1000).toFixed(1)}K`
-															: related.installs}{" "}
-														次安装
-													</span>
-												</div>
-											</div>
-										</div>
-									</button>
-								))}
-							</div>
-						</section>
-					)}
-
 					{/* Technical Meta Info */}
 					<section className="bg-[var(--leros-surface-soft)]/50 p-4 rounded-xl border border-dashed border-[var(--leros-control-border)]">
 						<h5 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-subtle)] mb-3">
@@ -507,6 +589,27 @@ export function SkillDetailView({
 					</section>
 				</aside>
 			</div>
+
+			<AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>删除技能？</AlertDialogTitle>
+						<AlertDialogDescription>
+							删除后，{displayName} 将从组织插件库中移除，不能再被新项目使用。
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={handleDeleteOrganizationPlugin}
+							disabled={deleting}
+						>
+							{deleting ? "删除中..." : "删除"}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

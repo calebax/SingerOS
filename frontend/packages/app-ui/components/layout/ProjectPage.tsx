@@ -6,15 +6,15 @@ import {
 	buildTaskCapabilityItems,
 	fetchFilePreviewByStorageUri,
 	isSystemDefaultAssistant,
+	type PluginListItem,
 	type Project,
 	type ProjectMember,
 	type ProjectSkill,
 	type ProjectTask,
+	pluginApi,
 	projectFileApi,
 	projectMemberApi,
 	projectMembersToInputs,
-	type SkillInstalledItem,
-	skillMarketplaceApi,
 	useAppStore,
 	useCan,
 	useChatStore,
@@ -583,6 +583,7 @@ function ProjectConfigSidebar({
 	const [skillsLoading, setSkillsLoading] = useState(false);
 	const [skillsLoaded, setSkillsLoaded] = useState(false);
 	const [skillsError, setSkillsError] = useState<string | null>(null);
+	const [projectSkills, setProjectSkills] = useState<ProjectSkill[]>(project.skills);
 	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 
 	useEffect(() => {
@@ -597,15 +598,29 @@ function ProjectConfigSidebar({
 	}, [assistantsLoaded, fetchAssistants]);
 
 	useEffect(() => {
+		let cancelled = false;
+		pluginApi
+			.listProject({ public_id: project.id, kind: "skill" })
+			.then((response) => {
+				if (!cancelled) setProjectSkills(response.data.data.map(pluginToProjectSkill));
+			})
+			.catch(() => {
+				if (!cancelled) setProjectSkills([]);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [project.id]);
+
+	useEffect(() => {
 		if (!skillOpen || skillsLoaded) return;
 
 		setSkillsLoading(true);
 		setSkillsError(null);
-		skillMarketplaceApi
-			.installed()
+		pluginApi
+			.list({ kind: "skill", limit: 100 })
 			.then((response) => {
-				const raw = normalizeInstalledSkillsPayload(response.data);
-				setSkillOptions(raw.map(installedSkillToProjectSkill));
+				setSkillOptions((response.data.data.plugins ?? []).map(pluginToProjectSkill));
 				setSkillsLoaded(true);
 			})
 			.catch((error: unknown) => {
@@ -619,8 +634,8 @@ function ProjectConfigSidebar({
 	}, [skillOpen, skillsLoaded]);
 
 	const selectedSkillCodes = useMemo(
-		() => project.skills.map((skill) => skill.code),
-		[project.skills],
+		() => projectSkills.map((skill) => skill.code),
+		[projectSkills],
 	);
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
@@ -671,29 +686,28 @@ function ProjectConfigSidebar({
 		}
 	};
 
-	const updateProjectSkills = async (nextSkills: ProjectSkill[]) => {
+	const addProjectSkill = async (skill: ProjectSkill) => {
+		if (savingSkills || !skill.publicId || selectedSkillCodes.includes(skill.code)) return;
 		setSavingSkills(true);
 		try {
-			const updated = await onUpdateProject({
-				public_id: project.id,
-				metadata: buildProjectMetadataWithSkills(project, nextSkills),
-			});
-			if (updated) {
-				toast.success("项目技能已更新");
-			}
+			await pluginApi.addToProject({ public_id: project.id, plugin_id: skill.publicId });
+			setProjectSkills((current) => [...current, skill]);
+			toast.success("项目技能已添加");
 		} finally {
 			setSavingSkills(false);
 		}
 	};
 
-	const addProjectSkill = (skill: ProjectSkill) => {
-		if (savingSkills || selectedSkillCodes.includes(skill.code)) return;
-		void updateProjectSkills([...project.skills, skill]);
-	};
-
-	const removeProjectSkill = (skillCode: string) => {
-		if (savingSkills) return;
-		void updateProjectSkills(project.skills.filter((skill) => skill.code !== skillCode));
+	const removeProjectSkill = async (skill: ProjectSkill) => {
+		if (savingSkills || !skill.publicId) return;
+		setSavingSkills(true);
+		try {
+			await pluginApi.removeFromProject({ public_id: project.id, plugin_id: skill.publicId });
+			setProjectSkills((current) => current.filter((item) => item.publicId !== skill.publicId));
+			toast.success("项目技能已移除");
+		} finally {
+			setSavingSkills(false);
+		}
 	};
 	const visibleProjectMembers = useMemo(
 		() =>
@@ -941,7 +955,7 @@ function ProjectConfigSidebar({
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<div className="flex items-center gap-2">
 						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">技能</h2>
-						<span className="text-xs text-[var(--leros-text-subtle)]">{project.skills.length}</span>
+						<span className="text-xs text-[var(--leros-text-subtle)]">{projectSkills.length}</span>
 					</div>
 					<CanGate
 						action={Action.ProjectUpdate}
@@ -999,7 +1013,7 @@ function ProjectConfigSidebar({
 												<CommandItem
 													key={skill.code}
 													value={skill.name}
-													onSelect={() => addProjectSkill(skill)}
+													onSelect={() => void addProjectSkill(skill)}
 													className="rounded-lg px-2 py-1.5"
 												>
 													<SkillPickerIcon />
@@ -1025,15 +1039,15 @@ function ProjectConfigSidebar({
 					</CanGate>
 				</div>
 				<div className="no-scrollbar max-h-[280px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
-					{project.skills.length === 0 ? (
+					{projectSkills.length === 0 ? (
 						<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
 							暂无技能
 						</div>
 					) : (
 						<div className="flex flex-wrap gap-2">
-							{project.skills.map((skill) => (
+							{projectSkills.map((skill) => (
 								<div
-									key={skill.code}
+									key={skill.publicId ?? skill.code}
 									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
 								>
 									<CanGate
@@ -1046,7 +1060,7 @@ function ProjectConfigSidebar({
 											type="button"
 											className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
 											aria-label={`移除技能 ${skill.name}`}
-											onClick={() => removeProjectSkill(skill.code)}
+											onClick={() => void removeProjectSkill(skill)}
 											disabled={savingSkills}
 										>
 											<Sparkles className="size-3.5 transition-opacity group-hover:opacity-0" />
@@ -1077,80 +1091,15 @@ function SkillPickerIcon() {
 	);
 }
 
-function installedSkillToProjectSkill(skill: SkillInstalledItem): ProjectSkill {
+function pluginToProjectSkill(plugin: PluginListItem): ProjectSkill {
 	return {
-		code: skill.name,
-		name: skill.display_name || skill.name,
-		description: skill.description,
-		category: skill.category,
-		source: skill.source,
-		trust: skill.trust,
+		publicId: plugin.public_id,
+		code: plugin.code,
+		name: plugin.name,
+		description: plugin.description,
+		category: plugin.kind,
+		source: "organization",
 	};
-}
-
-function buildProjectMetadataWithSkills(
-	project: Project,
-	skills: ProjectSkill[],
-): Record<string, unknown> {
-	const metadata = project.metadata ?? {};
-	const extra = isPlainRecord(metadata.extra) ? metadata.extra : {};
-
-	return {
-		...metadata,
-		extra: {
-			...extra,
-			skills: skills.map((skill) => ({
-				code: skill.code,
-				name: skill.name,
-				description: skill.description,
-				category: skill.category,
-				source: skill.source,
-				trust: skill.trust,
-			})),
-		},
-	};
-}
-
-function normalizeInstalledSkillsPayload(value: unknown): SkillInstalledItem[] {
-	const toItems = (items: unknown[]) =>
-		items.map(skillItemFromValue).filter((item): item is SkillInstalledItem => item !== null);
-
-	if (Array.isArray(value)) return toItems(value);
-	if (!isPlainRecord(value)) return [];
-
-	const nestedData = value.data;
-	if (isPlainRecord(nestedData)) {
-		if (Array.isArray(nestedData.skills)) return toItems(nestedData.skills);
-		if (Array.isArray(nestedData.items)) return toItems(nestedData.items);
-	}
-
-	if (Array.isArray(value.skills)) return toItems(value.skills);
-	if (Array.isArray(value.items)) return toItems(value.items);
-	return [];
-}
-
-function skillItemFromValue(value: unknown): SkillInstalledItem | null {
-	if (!isPlainRecord(value)) return null;
-
-	const name = stringFromValue(value.name || value.skill_id || value.id);
-	if (!name) return null;
-
-	return {
-		name,
-		display_name: stringFromValue(value.display_name),
-		description: stringFromValue(value.description),
-		category: stringFromValue(value.category),
-		source: stringFromValue(value.source || value.source_type),
-		trust: stringFromValue(value.trust),
-	};
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringFromValue(value: unknown): string {
-	return typeof value === "string" ? value : "";
 }
 
 function ProjectEmptyState({ layout }: { layout: ReturnType<typeof getProjectChatLayoutClasses> }) {

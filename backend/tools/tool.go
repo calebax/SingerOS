@@ -132,6 +132,9 @@ type ToolContext struct {
 type ToolMetadata struct {
 	RepoDir              string
 	ArtifactManifestPath string
+	// SkillDir is the explicit per-run Skill catalog root. Tools must not fall
+	// back to the worker-wide directory when this is set.
+	SkillDir string
 }
 
 type toolContextKey struct{}

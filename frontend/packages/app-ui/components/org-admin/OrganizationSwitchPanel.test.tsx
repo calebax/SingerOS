@@ -13,7 +13,6 @@ const mockFetchAssistants = vi.fn();
 const mockFetchInstalledSkills = vi.fn();
 const mockResetLayout = vi.fn();
 const mockResetAssistants = vi.fn();
-const mockResetSkills = vi.fn();
 const mockResetMessages = vi.fn();
 const mockClearComposerInput = vi.fn();
 const mockSwitchView = vi.fn();
@@ -50,11 +49,6 @@ vi.mock("@leros/store", () => ({
 		selector({
 			fetchAssistants: mockFetchAssistants,
 			resetAuthScopedData: mockResetAssistants,
-		}),
-	useSkillStore: (selector: (state: Record<string, unknown>) => unknown) =>
-		selector({
-			fetchInstalledSkills: mockFetchInstalledSkills,
-			resetAuthScopedData: mockResetSkills,
 		}),
 	useGlobalConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({ edition: mockEdition }),

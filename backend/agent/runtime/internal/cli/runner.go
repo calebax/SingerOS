@@ -73,6 +73,7 @@ func (r *Driver) RunInvocation(
 		Resume:          resumeSession,
 		WorkDir:         workDir,
 		TaskDir:         request.Filesystem.TaskDir,
+		SkillDir:        request.Filesystem.SkillDir,
 		SystemPrompt:    strings.TrimSpace(request.SystemPrompt),
 		Prompt:          request.Prompt,
 		Messages:        append([]agent.Message(nil), request.Messages...),

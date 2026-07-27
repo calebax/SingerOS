@@ -1,6 +1,6 @@
 "use client";
 
-import { type SkillInstalledItem, useSkillStore } from "@leros/store";
+import { type PluginComposerOption, pluginApi, pluginToComposerOption } from "@leros/store";
 import {
 	Command,
 	CommandEmpty,
@@ -22,7 +22,7 @@ import {
 	Sparkles,
 	WandSparkles,
 } from "lucide-react";
-import { type ReactNode, type RefObject, useMemo, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 import type {
@@ -48,13 +48,6 @@ type ComposerActionBarProps = {
 	isGenerating?: boolean;
 };
 
-type SkillOption = {
-	code: string;
-	label: string;
-	description: string;
-	keywords: string[];
-};
-
 function dedupeValues(values: string[]): string[] {
 	return Array.from(new Set(values.filter(Boolean)));
 }
@@ -69,23 +62,6 @@ function parseSelectedSlashLabels(value: string): string[] {
 	return dedupeValues(
 		Array.from(value.matchAll(/(?:^|\s)\/([^\s@/]+)/g)).map((match) => match[1] ?? ""),
 	);
-}
-
-function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
-	const label = skill.display_name || skill.name;
-	return {
-		code: skill.name,
-		label,
-		description: skill.description || skill.category || "已安装技能",
-		keywords: [
-			label,
-			skill.name,
-			skill.description,
-			skill.category,
-			skill.source,
-			skill.trust,
-		].filter(Boolean),
-	};
 }
 
 export function ComposerActionBar({
@@ -104,18 +80,49 @@ export function ComposerActionBar({
 	setExecutionMode,
 	isGenerating,
 }: ComposerActionBarProps) {
-	const { installedSkills, installedSkillsLoaded } = useSkillStore((s) => s);
+	const [orgSkillOptions, setOrgSkillOptions] = useState<PluginComposerOption[]>([]);
+	const [orgSkillsLoaded, setOrgSkillsLoaded] = useState(false);
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [assistantSearch, setAssistantSearch] = useState("");
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
 	const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
 
-	const skillOptions = useMemo<SkillOption[]>(() => {
+	useEffect(() => {
+		if (projectSkillOptions) {
+			setOrgSkillsLoaded(true);
+			return;
+		}
+		let cancelled = false;
+		pluginApi
+			.list({ kind: "skill" })
+			.then((res) => {
+				if (cancelled) return;
+				if (res.data?.code !== 0) {
+					console.warn("Failed to load org skills for composer action bar:", res.data?.message);
+					setOrgSkillsLoaded(true);
+					return;
+				}
+				setOrgSkillOptions(
+					(res.data.data.plugins ?? []).map((item) => pluginToComposerOption(item)),
+				);
+				setOrgSkillsLoaded(true);
+			})
+			.catch((err) => {
+				if (cancelled) return;
+				console.error("Failed to load org skills for composer action bar:", err);
+				setOrgSkillsLoaded(true);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [projectSkillOptions]);
+
+	const skillOptions = useMemo<PluginComposerOption[]>(() => {
 		if (projectSkillOptions) return projectSkillOptions;
-		return installedSkills.map(installedSkillToOption);
-	}, [installedSkills, projectSkillOptions]);
-	const skillsLoading = skillOpen && !projectSkillOptions && !installedSkillsLoaded;
+		return orgSkillOptions;
+	}, [orgSkillOptions, projectSkillOptions]);
+	const skillsLoading = skillOpen && !projectSkillOptions && !orgSkillsLoaded;
 
 	const selectedAssistantNames = useMemo(
 		() => parseSelectedAssistantNames(inputValue),

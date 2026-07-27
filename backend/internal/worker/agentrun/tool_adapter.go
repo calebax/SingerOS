@@ -84,10 +84,11 @@ func (p *registryToolProvider) ToolsFor(
 		ExternalID:        req.Actor.ExternalID,
 		WorkDir:           workspace.WorkDir,
 	}
-	if workspace.RepoDir != "" || workspace.ArtifactManifestPath != "" {
+	if workspace.RepoDir != "" || workspace.ArtifactManifestPath != "" || workspace.SkillDir != "" {
 		toolCtx.Metadata = tools.ToolMetadata{
 			RepoDir:              workspace.RepoDir,
 			ArtifactManifestPath: workspace.ArtifactManifestPath,
+			SkillDir:             workspace.SkillDir,
 		}
 	}
 	for _, legacy := range legacyTools {

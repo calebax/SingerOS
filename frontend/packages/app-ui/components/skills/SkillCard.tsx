@@ -13,7 +13,7 @@ interface SkillCardProps {
 }
 
 export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCardProps) {
-	const isLerosAI = skill.author === "Lework";
+	const isOfficialVerified = skill.source_type === "official" && skill.verified;
 	const isMine = variant === "mine";
 	const displayName = skill.display_name || skill.name;
 
@@ -60,7 +60,7 @@ export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCard
 							<h3 className="max-w-[140px] truncate text-sm font-semibold text-[var(--leros-text-strong)]">
 								{displayName}
 							</h3>
-							{isLerosAI && (
+							{isOfficialVerified && (
 								<span className="inline-flex shrink-0 text-[var(--leros-primary)]" title="已验证">
 									<svg
 										role="img"

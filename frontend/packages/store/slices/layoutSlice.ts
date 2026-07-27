@@ -91,6 +91,7 @@ export type ProjectArtifact = {
 };
 
 export type ProjectSkill = {
+	publicId?: string;
 	code: string;
 	name: string;
 	description?: string;

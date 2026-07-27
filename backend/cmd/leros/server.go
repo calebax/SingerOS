@@ -22,7 +22,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/service"
-	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -60,9 +59,6 @@ func newServerCommand() *cobra.Command {
 				logs.Fatalf("Failed to ensure state dir: %v", err)
 				return
 			}
-			if err := skilllinks.SyncServerSkillsDir(""); err != nil {
-				logs.Warnf("Sync server built-in skills failed: %v", err)
-			}
 
 			natsUrl := "nats://nats:4222"
 			if cfg.NATS != nil && cfg.NATS.URL != "" {
@@ -99,6 +95,26 @@ func newServerCommand() *cobra.Command {
 				if err := service.SeedAITeammateTemplates(cmd.Context(), db, ""); err != nil {
 					logs.Fatalf("Failed to seed AI teammate templates: %v", err)
 					return
+				}
+				report, err := service.SyncBuiltinServerSkillMarketplace(cmd.Context(), db, "")
+				if err != nil {
+					logs.Warnf("Built-in server Skill marketplace sync skipped: %v", err)
+				} else {
+					for _, failure := range report.Failures {
+						logs.Warnf(
+							"Failed to sync built-in server Skill %s: %v",
+							failure.Code,
+							failure.Err,
+						)
+					}
+					logs.Infof(
+						"Built-in server Skill marketplace sync complete: scanned=%d created=%d updated=%d unchanged=%d failed=%d",
+						report.Scanned,
+						report.Created,
+						report.Updated,
+						report.Unchanged,
+						len(report.Failures),
+					)
 				}
 			}
 

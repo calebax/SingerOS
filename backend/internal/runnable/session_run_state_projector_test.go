@@ -2,6 +2,7 @@ package runnable
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -17,6 +18,47 @@ import (
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
+
+func TestRecordSkillInvocationsScopesPluginByOrganization(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s-%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "-"), time.Now().UnixNano())
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.Session{}, &types.Plugin{}, &types.MessageResource{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+	session := &types.Session{PublicID: "session-skill-scope", OrgID: 1, Uin: 7, Status: string(types.SessionStatusActive)}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	for _, plugin := range []types.Plugin{
+		{PublicID: "plugin_other", OrgID: 2, Code: "review", Kind: "skill", Name: "Other", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 1, UpdatedBy: 1},
+		{PublicID: "plugin_current", OrgID: 1, Code: "review", Kind: "skill", Name: "Current", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 1, UpdatedBy: 1},
+	} {
+		if err := database.Create(&plugin).Error; err != nil {
+			t.Fatalf("create plugin: %v", err)
+		}
+	}
+	payload, err := json.Marshal(messaging.ToolCallPayload{
+		ToolCallID: "call-1",
+		Name:       "use_skill",
+		Arguments:  json.RawMessage(`{"skill":"review"}`),
+	})
+	if err != nil {
+		t.Fatalf("marshal tool call: %v", err)
+	}
+	recordSkillInvocationsFromMessaging(context.Background(), database, 1, session.PublicID, []messaging.RunEventRecord{
+		{Type: string(messaging.RunEventToolCallStarted), Payload: payload},
+	})
+	var resource types.MessageResource
+	if err := database.First(&resource).Error; err != nil {
+		t.Fatalf("load message resource: %v", err)
+	}
+	if resource.OrgID != 1 || resource.ResourceID != "plugin_current" {
+		t.Fatalf("message resource = %#v", resource)
+	}
+}
 
 func TestPersistPublishedPlanCreatesFileUploadAndProjectFileIdempotently(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s-%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "-"), time.Now().UnixNano())
@@ -347,10 +389,6 @@ func TestCompleteSessionMessageUsesAssistantIDFromRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
-	if err := database.AutoMigrate(&types.Skill{}); err != nil {
-		t.Fatalf("migrate database: %v", err)
-	}
-
 	svc := &fakeCaptureCompleteService{}
 
 	runEvent := messaging.RunEvent{

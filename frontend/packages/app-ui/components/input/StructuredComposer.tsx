@@ -1,6 +1,6 @@
 "use client";
 
-import { type SkillInstalledItem, useSkillStore } from "@leros/store";
+import { type PluginComposerOption, pluginApi, pluginToComposerOption } from "@leros/store";
 import type { ComposerToken } from "@leros/store/types/chat";
 import {
 	Command,
@@ -244,23 +244,6 @@ function stripAssistantTokensExcept(
 // 中文注释：空 contenteditable 浏览器常会插入 <br>，同步后变成仅含换行的字符串，需视为空值。
 function isEmptyEditorValue(value: string): boolean {
 	return value.trim() === "";
-}
-
-function installedSkillToOption(skill: SkillInstalledItem): ComposerSkillOption {
-	const label = skill.display_name || skill.name;
-	return {
-		code: skill.name,
-		label,
-		description: skill.description || skill.category || "已安装技能",
-		keywords: [
-			label,
-			skill.name,
-			skill.description,
-			skill.category,
-			skill.source,
-			skill.trust,
-		].filter(Boolean),
-	};
 }
 
 function matchesCommandQuery(
@@ -889,7 +872,8 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		},
 		ref,
 	) {
-		const { installedSkills, installedSkillsLoaded } = useSkillStore((s) => s);
+		const [orgSkillOptions, setOrgSkillOptions] = useState<PluginComposerOption[]>([]);
+		const [orgSkillsLoaded, setOrgSkillsLoaded] = useState(false);
 		const editorRef = useRef<HTMLDivElement>(null);
 		const pickerRef = useRef<HTMLDivElement>(null);
 		const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
@@ -905,12 +889,40 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const tokensRef = useRef<InsertedToken[]>([]);
 		const appliedPrefillIdsRef = useRef<Set<string>>(new Set());
 
-		const skillOptions = useMemo<ComposerSkillOption[]>(() => {
+		useEffect(() => {
+			if (projectSkillOptions) {
+				setOrgSkillsLoaded(true);
+				return;
+			}
+			let cancelled = false;
+			pluginApi
+				.list({ kind: "skill" })
+				.then((res) => {
+					if (cancelled) return;
+					if (res.data?.code !== 0) {
+						console.warn("Failed to load org skills for composer:", res.data?.message);
+						setOrgSkillsLoaded(true);
+						return;
+					}
+					setOrgSkillOptions(
+						(res.data.data.plugins ?? []).map((item) => pluginToComposerOption(item)),
+					);
+					setOrgSkillsLoaded(true);
+				})
+				.catch((err) => {
+					if (cancelled) return;
+					console.error("Failed to load org skills for composer:", err);
+					setOrgSkillsLoaded(true);
+				});
+			return () => {
+				cancelled = true;
+			};
+		}, [projectSkillOptions]);
+		const skillOptions = useMemo<PluginComposerOption[]>(() => {
 			if (projectSkillOptions) return projectSkillOptions;
-			return installedSkills.map(installedSkillToOption);
-		}, [installedSkills, projectSkillOptions]);
-		const skillsLoading =
-			trigger?.kind === "command" && !projectSkillOptions && !installedSkillsLoaded;
+			return orgSkillOptions;
+		}, [orgSkillOptions, projectSkillOptions]);
+		const skillsLoading = trigger?.kind === "command" && !projectSkillOptions && !orgSkillsLoaded;
 		const availableAssistantOptions = useMemo<AssistantOption[]>(
 			() => assistantOptions,
 			[assistantOptions],

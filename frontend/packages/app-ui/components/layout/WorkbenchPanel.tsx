@@ -15,7 +15,6 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
-	useSkillStore,
 } from "@leros/store";
 import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
@@ -260,7 +259,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		consumeWorkbenchComposerPrefill,
 	} = useLayoutStore((s) => s);
 	const { assistants, fetchAssistants } = useDAStore((s) => s);
-	const { fetchInstalledSkills } = useSkillStore((s) => s);
 	const { startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -319,11 +317,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		if (!isAuthenticated) return;
 		void fetchAssistants();
 	}, [fetchAssistants, isAuthenticated]);
-
-	useEffect(() => {
-		if (!isAuthenticated) return;
-		void fetchInstalledSkills();
-	}, [fetchInstalledSkills, isAuthenticated]);
 
 	useEffect(() => {
 		if (!isAuthenticated) return;
