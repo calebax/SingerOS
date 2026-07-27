@@ -101,7 +101,7 @@ export type {
 	BackendProjectFileVersionList,
 	BackendTask,
 } from "./api/types";
-export type { UpdateUserParams, UserInfo } from "./api/userApi";
+export type { UpdateCurrentUserParams, UpdateUserParams, UserInfo } from "./api/userApi";
 export { userApi } from "./api/userApi";
 export type { AppAction, AppStore } from "./appStore";
 export {

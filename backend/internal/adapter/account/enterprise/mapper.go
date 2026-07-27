@@ -104,6 +104,39 @@ type iamEditDepartmentEmployeeReq struct {
 	DepartmentIDs []uint `json:"department_ids"`
 }
 
+type iamListEmployeeReq struct {
+	Uins         []uint `json:"uins"`
+	UserIDs      []uint `json:"user_ids"`
+	EmployeeIDs  []uint `json:"employee_ids"`
+	SysRole      string `json:"sys_role"`
+	DepartmentID uint   `json:"department_id"`
+	Nickname     string `json:"nickname"`
+	LoginName    string `json:"login_name"`
+	Phone        string `json:"phone"`
+	Email        string `json:"email"`
+	Offset       int    `json:"offset"`
+	Limit        int    `json:"limit"`
+}
+
+type iamEmployeeItem struct {
+	Uin           uint      `json:"uin"`
+	UserID        uint      `json:"user_id"`
+	EmployeeID    uint      `json:"employee_id"`
+	Nickname      string    `json:"nickname"`
+	LoginName     string    `json:"login_name"`
+	Email         string    `json:"email"`
+	Phone         string    `json:"phone"`
+	AvatarURL     string    `json:"avatar_url"`
+	SysRole       string    `json:"sys_role"`
+	DepartmentIDs []uint    `json:"department_ids"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type iamListEmployeeResp struct {
+	Total int64             `json:"total"`
+	Items []iamEmployeeItem `json:"items"`
+}
+
 // ─── IAM Response Types ────────────────────────────────────────────────────────
 
 type iamLoginThirdResponseBody struct {
@@ -215,7 +248,7 @@ type iamEmployeeInfo struct {
 }
 
 type iamDepartmentInfo struct {
-	ID        uint  `json:"id"`
+	ID        uint   `json:"id"`
 	Name      string `json:"name"`
 	IsPrimary int8   `json:"is_primary"`
 }

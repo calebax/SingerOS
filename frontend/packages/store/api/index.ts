@@ -127,5 +127,5 @@ export type {
 	SSEEventPayload,
 	SSEMessageEvent,
 } from "./types";
-export type { UpdateUserParams, UserInfo } from "./userApi";
+export type { UpdateCurrentUserParams, UpdateUserParams, UserInfo } from "./userApi";
 export { userApi } from "./userApi";

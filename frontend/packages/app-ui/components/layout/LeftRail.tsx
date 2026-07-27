@@ -1140,30 +1140,22 @@ function AccountManagementDialog({
 		onUserChange({ ...user, ...patch });
 	};
 
-	const requirePublicId = () => {
-		if (user?.publicId) return user.publicId;
-		toast.error("当前登录信息缺少用户 ID，请重新登录后再试");
-		return null;
-	};
-
 	const handleSaveName = async () => {
-		const publicId = requirePublicId();
 		const nextName = nameValue.trim();
-		if (!publicId || !nextName || nextName === (user?.uinName ?? user?.name)) {
+		if (!nextName || nextName === (user?.uinName ?? user?.name)) {
 			setEditingName(false);
 			return;
 		}
 
 		setSavingName(true);
 		try {
-			const response = await userApi.update({
-				public_id: publicId,
+			const response = await userApi.updateCurrent({
 				name: nextName,
 			});
 			const updatedUser = response.data.data;
 			if (updatedUser?.name) {
 				updateLocalUser({
-					publicId: updatedUser.public_id || publicId,
+					publicId: updatedUser.public_id || user?.publicId || "",
 					name: updatedUser.name,
 					uinName: updatedUser.name,
 					email: updatedUser.email || user?.email || "",
@@ -1205,19 +1197,14 @@ function AccountManagementDialog({
 				throw new Error("头像上传失败");
 			}
 
-			const publicId = requirePublicId();
-			if (!publicId) return;
-
-			// 中文注释：avatar_url 保存上传文件 public_id，展示时再通过 preview 接口读取头像。
 			const avatarUrl = uploaded.public_id;
-			const response = await userApi.update({
-				public_id: publicId,
+			const response = await userApi.updateCurrent({
 				avatar_url: avatarUrl,
 			});
 			const updatedUser = response.data.data;
 			cacheProtectedImageDataURL(avatarUrl, await blobToDataURL(file));
 			updateLocalUser({
-				publicId: updatedUser?.public_id || publicId,
+				publicId: updatedUser?.public_id || user?.publicId || "",
 				name: updatedUser?.name || user?.name || "",
 				email: updatedUser?.email || user?.email || "",
 				phone: updatedUser?.phone || user?.phone,

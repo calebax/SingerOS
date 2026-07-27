@@ -22,6 +22,7 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, req *CreateUserInput) (*CreateUserResponse, error)
 	GetUser(ctx context.Context, publicID string, phone string) (*UserInfo, error)
 	UpdateUser(ctx context.Context, publicID string, req *UpdateUserInput) (*UserInfo, error)
+	UpdateCurrentUser(ctx context.Context, req *UpdateCurrentUserInput) (*UserInfo, error)
 	DeleteUser(ctx context.Context, publicID string) error
 	ListUser(ctx context.Context, req *ListUserInput) (*UserList, error)
 

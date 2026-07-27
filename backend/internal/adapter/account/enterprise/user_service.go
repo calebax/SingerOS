@@ -59,6 +59,43 @@ func (s *user) GetUser(ctx context.Context, publicID string, phone string) (*acc
 }
 
 func (s *user) UpdateUser(ctx context.Context, publicID string, req *account.UpdateUserInput) (*account.UserInfo, error) {
+	userID, err := strconv.ParseUint(publicID, 10, 64)
+	if err != nil {
+		return nil, accounterror.ErrInvalidArg
+	}
+
+	var listResp iamListEmployeeResp
+	if err := s.client.callWithAuth(ctx, "account.ListEmployee", &iamListEmployeeReq{
+		UserIDs: []uint{uint(userID)},
+	}, &listResp); err != nil {
+		return nil, mapIAMError(err)
+	}
+	if len(listResp.Items) == 0 {
+		return nil, accounterror.ErrUserNotFound
+	}
+	target := listResp.Items[0]
+
+	var editResp iamEditDepartmentEmployeeResponseBody
+	editReq := iamEditDepartmentEmployeeReq{
+		Uin:        target.Uin,
+		EmployeeID: target.EmployeeID,
+		Name:       req.Name,
+	}
+	if req.Email != nil {
+		editReq.Email = *req.Email
+	}
+	if err := s.client.callWithAuth(ctx, "account.EditDepartmentEmployee", &editReq, &editResp); err != nil {
+		return nil, mapIAMError(err)
+	}
+
+	if editResp.Employee == nil {
+		return nil, fmt.Errorf("employee not returned from IAM")
+	}
+	result := mapDepartmentTreeEmployeeToUserInfo(*editResp.Employee)
+	return &result, nil
+}
+
+func (s *user) UpdateCurrentUser(ctx context.Context, req *account.UpdateCurrentUserInput) (*account.UserInfo, error) {
 	iamReq := iamUpdateUserInfoReq{
 		Name:      req.Name,
 		Email:     req.Email,
