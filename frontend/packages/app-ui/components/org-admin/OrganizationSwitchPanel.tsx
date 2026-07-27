@@ -17,6 +17,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ORGANIZATION_DEFAULT_AVATAR_SRC } from "../../assets";
 import { ProtectedImage } from "../avatar/ProtectedImage";
+import { FieldWithError, RequiredMark, useFormFieldValidation } from "../form/formValidation";
 import type { AppNavigation } from "../layout/LeftRail";
 
 type OrganizationSwitchPanelProps = {
@@ -60,6 +61,7 @@ export function OrganizationSwitchPanel({
 	const [switchingOrgId, setSwitchingOrgId] = useState<number | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [waitingForNavigation, setWaitingForNavigation] = useState(false);
+	const { resetValidation, shouldShowError, handleFieldBlur } = useFormFieldValidation();
 	const canCreateOrganization =
 		edition === "enterprise" || Boolean(pendingLogin && pendingLogin.organizations.length === 0);
 
@@ -75,6 +77,13 @@ export function OrganizationSwitchPanel({
 		if (pendingLogin) return;
 		void refreshAuthSession();
 	}, [active, initialMode, pendingLogin, refreshAuthSession]);
+
+	useEffect(() => {
+		if (mode !== "create") return;
+		setOrganizationName("");
+		setUserDisplayName("");
+		resetValidation();
+	}, [mode, resetValidation]);
 
 	useEffect(() => {
 		if (!waitingForNavigation || navigation?.currentPath !== "/workbench") return;
@@ -134,17 +143,23 @@ export function OrganizationSwitchPanel({
 		}
 	};
 
+	const trimmedOrganizationName = organizationName.trim();
+	const trimmedUserDisplayName = userDisplayName.trim();
+	const organizationNameValid = trimmedOrganizationName.length > 0;
+	const userDisplayNameValid = trimmedUserDisplayName.length > 0;
+	const showOrganizationNameError = shouldShowError("organizationName") && !organizationNameValid;
+	const showUserDisplayNameError = shouldShowError("userDisplayName") && !userDisplayNameValid;
+	const canSubmitOrganization = organizationNameValid && userDisplayNameValid;
+
 	const handleCreateOrganization = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		const name = organizationName.trim();
-		const displayName = userDisplayName.trim();
-		if (!name || !displayName || creating || waitingForNavigation) return;
+		if (!canSubmitOrganization || creating || waitingForNavigation) return;
 		setCreating(true);
 		try {
 			if (pendingLogin) {
-				await pendingLogin.onCreate(name, displayName);
+				await pendingLogin.onCreate(trimmedOrganizationName, trimmedUserDisplayName);
 			} else {
-				await createOrganization(name, displayName);
+				await createOrganization(trimmedOrganizationName, trimmedUserDisplayName);
 			}
 			resetOrgScopedData();
 			toast.success(pendingLogin ? "已创建并进入组织" : "已创建并切换组织");
@@ -166,40 +181,48 @@ export function OrganizationSwitchPanel({
 
 	if (mode === "create") {
 		return (
-			<form onSubmit={handleCreateOrganization} className="flex w-full flex-col">
+			<form noValidate onSubmit={handleCreateOrganization} className="flex w-full flex-col">
 				<div className="border-b border-[var(--leros-control-border)] pb-4">
 					<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">创建新组织</h2>
 				</div>
-				<div className="py-5">
-					<label
-						className="block text-sm font-medium text-[var(--leros-text-muted)]"
-						htmlFor="organization-name"
-					>
-						组织名称
-					</label>
-					<Input
-						id="organization-name"
-						value={organizationName}
-						onChange={(event) => setOrganizationName(event.target.value)}
-						placeholder="请输入组织名称"
-						maxLength={50}
-						autoFocus
-						className="mt-2 h-10"
-					/>
-					<label
-						className="mt-4 block text-sm font-medium text-[var(--leros-text-muted)]"
-						htmlFor="user-display-name"
-					>
-						用户昵称
-					</label>
-					<Input
-						id="user-display-name"
-						value={userDisplayName}
-						onChange={(event) => setUserDisplayName(event.target.value)}
-						placeholder="请输入用户昵称"
-						maxLength={50}
-						className="mt-2 h-10"
-					/>
+				<div className="space-y-4 py-5">
+					<FieldWithError error={showOrganizationNameError ? "请输入组织名称" : undefined}>
+						<label
+							className="block text-sm font-medium text-[var(--leros-text-muted)]"
+							htmlFor="organization-name"
+						>
+							组织名称
+							<RequiredMark />
+						</label>
+						<Input
+							id="organization-name"
+							value={organizationName}
+							onChange={(event) => setOrganizationName(event.target.value)}
+							onBlur={handleFieldBlur("organizationName")}
+							placeholder="请输入组织名称"
+							maxLength={50}
+							autoFocus
+							className="mt-2 h-10"
+						/>
+					</FieldWithError>
+					<FieldWithError error={showUserDisplayNameError ? "请输入用户昵称" : undefined}>
+						<label
+							className="block text-sm font-medium text-[var(--leros-text-muted)]"
+							htmlFor="user-display-name"
+						>
+							用户昵称
+							<RequiredMark />
+						</label>
+						<Input
+							id="user-display-name"
+							value={userDisplayName}
+							onChange={(event) => setUserDisplayName(event.target.value)}
+							onBlur={handleFieldBlur("userDisplayName")}
+							placeholder="请输入用户昵称"
+							maxLength={50}
+							className="mt-2 h-10"
+						/>
+					</FieldWithError>
 				</div>
 				<div className="flex justify-end gap-3">
 					<Button type="button" variant="outline" onClick={() => changeMode("switch")}>
@@ -207,7 +230,7 @@ export function OrganizationSwitchPanel({
 					</Button>
 					<Button
 						type="submit"
-						disabled={!organizationName.trim() || !userDisplayName.trim() || creating}
+						disabled={!canSubmitOrganization || creating || waitingForNavigation}
 					>
 						{creating ? <Loader2 className="size-4 animate-spin" /> : null}
 						<span>创建并切换</span>
