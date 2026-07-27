@@ -43,6 +43,12 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+	FieldWithError,
+	isValidPhone,
+	RequiredMark,
+	useFormFieldValidation,
+} from "../form/formValidation";
+import {
 	buildDepartmentTree,
 	countDepartments,
 	type DepartmentTreeNode,
@@ -631,6 +637,7 @@ function AddMemberDialog({
 		defaultDepartmentId ? [defaultDepartmentId] : [],
 	);
 	const [pickerOpen, setPickerOpen] = useState(false);
+	const { shouldShowError, handleFieldBlur, touchField } = useFormFieldValidation();
 
 	const toggleDepartment = (id: number) => {
 		setSelectedIds((prev) => {
@@ -655,21 +662,18 @@ function AddMemberDialog({
 			.filter((item): item is Department => item !== undefined);
 	}, [selectedIds, departmentById]);
 
+	const trimmedName = name.trim();
+	const trimmedPhone = phone.trim();
+	const nameValid = trimmedName.length > 0;
+	const phoneValid = isValidPhone(trimmedPhone);
+	const departmentValid = selectedIds.length > 0;
+	const showNameError = shouldShowError("name") && !nameValid;
+	const showPhoneError = shouldShowError("phone") && !phoneValid;
+	const showDepartmentError = shouldShowError("department") && !departmentValid;
+	const canSubmitMember = nameValid && phoneValid && departmentValid;
+
 	const handleSubmit = () => {
-		const trimmedName = name.trim();
-		const trimmedPhone = phone.trim();
-		if (!trimmedName) {
-			toast.error("姓名不能为空");
-			return;
-		}
-		if (!trimmedPhone) {
-			toast.error("手机号不能为空");
-			return;
-		}
-		if (selectedIds.length === 0) {
-			toast.error("请选择所属部门");
-			return;
-		}
+		if (!canSubmitMember) return;
 		onSubmit(trimmedName, trimmedPhone, email, selectedIds);
 	};
 
@@ -685,36 +689,50 @@ function AddMemberDialog({
 				</DialogHeader>
 
 				<div className="flex min-h-0 flex-1 flex-col gap-4 px-6 py-2">
-					<div className="space-y-2">
+					<FieldWithError error={showNameError ? "请输入成员姓名" : undefined}>
 						<label
 							htmlFor="create-member-name"
 							className="text-sm font-medium text-[var(--leros-text-strong)]"
 						>
 							姓名
+							<RequiredMark />
 						</label>
 						<Input
 							id="create-member-name"
 							value={name}
 							onChange={(event) => setName(event.target.value)}
+							onBlur={handleFieldBlur("name")}
 							placeholder="请输入成员姓名"
 							autoFocus
 						/>
-					</div>
+					</FieldWithError>
 
-					<div className="space-y-2">
+					<FieldWithError
+						error={
+							showPhoneError
+								? trimmedPhone.length === 0
+									? "请输入手机号"
+									: "请输入正确的手机号"
+								: undefined
+						}
+					>
 						<label
 							htmlFor="create-member-phone"
 							className="text-sm font-medium text-[var(--leros-text-strong)]"
 						>
 							手机号
+							<RequiredMark />
 						</label>
 						<Input
 							id="create-member-phone"
+							type="tel"
+							inputMode="numeric"
 							value={phone}
-							onChange={(event) => setPhone(event.target.value)}
+							onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))}
+							onBlur={handleFieldBlur("phone")}
 							placeholder="请输入手机号"
 						/>
-					</div>
+					</FieldWithError>
 
 					<div className="space-y-2">
 						<label
@@ -731,68 +749,76 @@ function AddMemberDialog({
 						/>
 					</div>
 
-					<div className="flex min-h-0 flex-1 flex-col gap-2">
-						<div className="flex items-center justify-between">
-							<span className="text-sm font-medium text-[var(--leros-text-strong)]">所属部门</span>
-							<span className="text-xs text-[var(--leros-text-subtle)]">
-								已选 {selectedIds.length} 个
-							</span>
-						</div>
-						<div className="flex min-h-0 flex-1 flex-col gap-2 rounded-xl border border-[var(--leros-control-border)] p-3">
-							{selectedDepartments.length === 0 ? (
-								<p className="text-sm text-[var(--leros-text-subtle)]">暂未选择部门</p>
-							) : (
-								<ScrollArea className="flex-1">
-									<div className="flex flex-wrap gap-2">
-										{selectedDepartments.map((department, index) => (
-											<Badge
-												key={department.id}
-												variant={index === 0 ? "default" : "secondary"}
-												className="gap-1"
-											>
-												{index === 0 && <span className="text-[10px] opacity-80">主</span>}
-												{department.name}
-												<button
-													type="button"
-													className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
-													onClick={() => toggleDepartment(department.id)}
+					<FieldWithError error={showDepartmentError ? "请选择所属部门" : undefined}>
+						<div className="flex min-h-0 flex-1 flex-col gap-2">
+							<div className="flex items-center justify-between">
+								<span className="text-sm font-medium text-[var(--leros-text-strong)]">
+									所属部门
+									<RequiredMark />
+								</span>
+								<span className="text-xs text-[var(--leros-text-subtle)]">
+									已选 {selectedIds.length} 个
+								</span>
+							</div>
+							<div className="flex min-h-0 flex-1 flex-col gap-2 rounded-xl border border-[var(--leros-control-border)] p-3">
+								{selectedDepartments.length === 0 ? (
+									<p className="text-sm text-[var(--leros-text-subtle)]">暂未选择部门</p>
+								) : (
+									<ScrollArea className="flex-1">
+										<div className="flex flex-wrap gap-2">
+											{selectedDepartments.map((department, index) => (
+												<Badge
+													key={department.id}
+													variant={index === 0 ? "default" : "secondary"}
+													className="gap-1"
 												>
-													<X className="size-3" />
-												</button>
-											</Badge>
-										))}
-									</div>
-								</ScrollArea>
-							)}
-							<div className="flex gap-2 pt-2">
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={() => setPickerOpen(true)}
-								>
-									选择部门
-								</Button>
-								{selectedIds.length > 0 && (
+													{index === 0 && <span className="text-[10px] opacity-80">主</span>}
+													{department.name}
+													<button
+														type="button"
+														className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
+														onClick={() => toggleDepartment(department.id)}
+													>
+														<X className="size-3" />
+													</button>
+												</Badge>
+											))}
+										</div>
+									</ScrollArea>
+								)}
+								<div className="flex gap-2 pt-2">
 									<Button
 										type="button"
-										variant="ghost"
+										variant="outline"
 										size="sm"
-										onClick={() => setSelectedIds([])}
+										onClick={() => {
+											touchField("department");
+											setPickerOpen(true);
+										}}
 									>
-										清空
+										选择部门
 									</Button>
-								)}
+									{selectedIds.length > 0 && (
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											onClick={() => setSelectedIds([])}
+										>
+											清空
+										</Button>
+									)}
+								</div>
 							</div>
 						</div>
-					</div>
+					</FieldWithError>
 				</div>
 
 				<DialogFooter className="shrink-0 px-6 py-4">
 					<Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
 						取消
 					</Button>
-					<Button type="button" onClick={handleSubmit} disabled={submitting}>
+					<Button type="button" onClick={handleSubmit} disabled={!canSubmitMember || submitting}>
 						{submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
 						确认添加
 					</Button>
@@ -806,6 +832,7 @@ function AddMemberDialog({
 				onClose={() => setPickerOpen(false)}
 				onConfirm={(ids) => {
 					setSelectedIds(ids);
+					touchField("department");
 					setPickerOpen(false);
 				}}
 			/>

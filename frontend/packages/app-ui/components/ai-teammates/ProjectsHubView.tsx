@@ -34,6 +34,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
+import { FieldWithError, RequiredMark, useFormFieldValidation } from "../form/formValidation";
 import type { AppNavigation } from "../layout/LeftRail";
 import { ProjectIcon } from "../layout/project-icon";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
@@ -484,6 +485,7 @@ function CreateProjectDialog({
 	const [skillsLoaded, setSkillsLoaded] = useState(false);
 	const [skillsError, setSkillsError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
+	const { resetValidation, shouldShowError, handleFieldBlur } = useFormFieldValidation();
 
 	useEffect(() => {
 		if (!open) {
@@ -494,10 +496,11 @@ function CreateProjectDialog({
 			setSelectedSkills([]);
 			setSkillSearch("");
 			setSubmitting(false);
+			resetValidation();
 			return;
 		}
 		setSelectedMembers((current) => mergeOwnerMember(ownerMembers, current));
-	}, [open, ownerMembers]);
+	}, [open, ownerMembers, resetValidation]);
 
 	useEffect(() => {
 		if (!skillOpen || skillsLoaded) return;
@@ -557,9 +560,12 @@ function CreateProjectDialog({
 		setSelectedSkills((current) => current.filter((skill) => skill.code !== skillCode));
 	};
 
+	const trimmedName = name.trim();
+	const nameValid = trimmedName.length > 0;
+	const showNameError = shouldShowError("name") && !nameValid;
+
 	const submit = async () => {
-		const trimmedName = name.trim();
-		if (!trimmedName || submitting) return;
+		if (!nameValid || submitting) return;
 
 		setSubmitting(true);
 		try {
@@ -600,24 +606,29 @@ function CreateProjectDialog({
 				</DialogHeader>
 
 				<div className="mt-5 space-y-5">
-					<label className="block">
-						<span className="mb-2 block text-sm font-semibold text-[var(--leros-text-strong)]">
-							项目名称
-						</span>
-						<div className="relative">
-							<input
-								value={name}
-								onChange={(event) => setName(event.target.value)}
-								placeholder="请输入项目名称"
-								maxLength={30}
-								autoFocus
-								className="h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-white px-3 pr-14 text-sm text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
-							/>
-							<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--leros-text-subtle)]">
-								{name.length}/30
+					<FieldWithError error={showNameError ? "请输入项目名称" : undefined}>
+						<label className="block" htmlFor="create-project-name">
+							<span className="mb-2 block text-sm font-semibold text-[var(--leros-text-strong)]">
+								项目名称
+								<RequiredMark />
 							</span>
-						</div>
-					</label>
+							<div className="relative">
+								<input
+									id="create-project-name"
+									value={name}
+									onChange={(event) => setName(event.target.value)}
+									onBlur={handleFieldBlur("name")}
+									placeholder="请输入项目名称"
+									maxLength={30}
+									autoFocus
+									className="h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-white px-3 pr-14 text-sm text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
+								/>
+								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--leros-text-subtle)]">
+									{name.length}/30
+								</span>
+							</div>
+						</label>
+					</FieldWithError>
 
 					<label className="block">
 						<span className="mb-2 block text-sm font-semibold text-[var(--leros-text-strong)]">
@@ -779,7 +790,7 @@ function CreateProjectDialog({
 					<Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
 						取消
 					</Button>
-					<Button type="button" onClick={submit} disabled={!name.trim() || submitting}>
+					<Button type="button" onClick={submit} disabled={!nameValid || submitting}>
 						确定
 					</Button>
 				</DialogFooter>
