@@ -15,8 +15,8 @@ type UserInfo struct {
 	Phone       string                `json:"phone,omitempty"`
 	AvatarURL   string                `json:"avatar_url,omitempty"`
 	Departments []OrgMemberDepartment `json:"departments,omitempty"`
-	CreatedAt   time.Time             `json:"created_at"`
-	UpdatedAt   time.Time             `json:"updated_at"`
+	CreatedAt   *time.Time            `json:"created_at,omitempty"`
+	UpdatedAt   *time.Time            `json:"updated_at,omitempty"`
 }
 
 type CreateUserInput struct {
