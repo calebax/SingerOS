@@ -279,32 +279,44 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 	}
 }
 
-func TestSyncSkillEntriesToProject_SkipsNonProjectSession(t *testing.T) {
+func TestResolveSkillMarketplaceScopesPluginByOrganization(t *testing.T) {
 	database := setupTestDB(t)
-	ctx := setupTestContextWithCaller(t)
+	if err := database.AutoMigrate(&types.Plugin{}); err != nil {
+		t.Fatalf("migrate plugins: %v", err)
+	}
+	for _, plugin := range []types.Plugin{
+		{PublicID: "plugin_other", OrgID: 2, Code: "review", Kind: "skill", Name: "Other", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 1, UpdatedBy: 1},
+		{PublicID: "plugin_current", OrgID: 1, Code: "review", Kind: "skill", Name: "Current", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 1, UpdatedBy: 1},
+	} {
+		if err := database.Create(&plugin).Error; err != nil {
+			t.Fatalf("create plugin: %v", err)
+		}
+	}
 	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
-
-	session := &types.Session{PublicID: "sess_no_project", OrgID: 1}
-	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal"})
+	source, skillID, resourceID := poster.resolveSkillMarketplace(context.Background(), 1, "review")
+	if source != "organization" || skillID != "review" || resourceID != "plugin_current" {
+		t.Fatalf("resolved Skill = (%q, %q, %q)", source, skillID, resourceID)
+	}
 }
 
-func TestSyncSkillEntriesToProject_AddsSkill(t *testing.T) {
+func TestWriteSkillInvokeResourcesDoesNotMutateProjectMetadata(t *testing.T) {
 	database := setupTestDB(t)
-	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
-
+	if err := database.AutoMigrate(&types.Plugin{}, &types.MessageResource{}); err != nil {
+		t.Fatalf("migrate Skill invocation models: %v", err)
+	}
 	project := &types.Project{
-		PublicID: "prj_sync_skill_add",
+		PublicID: "project_skill_invoke",
 		OrgID:    1,
 		OwnerID:  1,
-		Name:     "Sync Skill Test",
+		Name:     "Skill Invoke",
 		Status:   string(types.ProjectStatusActive),
+		Metadata: types.ObjectMetadata{Extra: map[string]interface{}{"note": "keep"}},
 	}
 	if err := database.Create(project).Error; err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 	session := &types.Session{
-		PublicID:  "sess_sync_skill_add",
+		PublicID:  "session_skill_invoke",
 		OrgID:     1,
 		Uin:       1,
 		ProjectID: &project.ID,
@@ -313,115 +325,47 @@ func TestSyncSkillEntriesToProject_AddsSkill(t *testing.T) {
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-
-	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal"})
-
-	var refreshed types.Project
-	if err := database.First(&refreshed, project.ID).Error; err != nil {
-		t.Fatalf("reload project: %v", err)
+	message := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleUser),
+		Content:     "/review 请检查",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusPending),
 	}
-	if refreshed.Metadata.Extra == nil {
-		t.Fatal("expected project metadata extra to be initialized")
+	if err := database.Create(message).Error; err != nil {
+		t.Fatalf("create message: %v", err)
 	}
-	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
-	if !ok || len(rawSkills) != 1 {
-		t.Fatalf("expected 1 skill in project metadata, got %d", len(rawSkills))
-	}
-	entry, ok := rawSkills[0].(map[string]interface{})
-	if !ok {
-		t.Fatal("skill entry is not a map")
-	}
-	if entry["code"] != "tech-design-proposal" {
-		t.Fatalf("skill code = %q, want tech-design-proposal", entry["code"])
-	}
-	if entry["name"] != "tech-design-proposal" {
-		t.Fatalf("skill name = %q, want tech-design-proposal", entry["name"])
-	}
-}
-
-func TestSyncSkillEntriesToProject_DeduplicatesSkills(t *testing.T) {
-	database := setupTestDB(t)
-	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
-
-	project := &types.Project{
-		PublicID: "prj_sync_skill_dedup",
-		OrgID:    1,
-		OwnerID:  1,
-		Name:     "Sync Skill Dedup",
-		Status:   string(types.ProjectStatusActive),
-		Metadata: types.ObjectMetadata{
-			Extra: map[string]interface{}{
-				"skills": []interface{}{
-					map[string]interface{}{"code": "code-review", "name": "Code Review"},
-				},
-			},
-		},
-	}
-	if err := database.Create(project).Error; err != nil {
-		t.Fatalf("create project: %v", err)
-	}
-	session := &types.Session{
-		PublicID:  "sess_sync_skill_dedup",
+	plugin := &types.Plugin{
+		PublicID:  "plugin_review",
 		OrgID:     1,
-		Uin:       1,
-		ProjectID: &project.ID,
-		Status:    string(types.SessionStatusActive),
+		Code:      "review",
+		Kind:      "skill",
+		Name:      "Review",
+		Status:    types.PluginStatusActive,
+		Origin:    "org",
+		CreatedBy: 1,
+		UpdatedBy: 1,
 	}
-	if err := database.Create(session).Error; err != nil {
-		t.Fatalf("create session: %v", err)
+	if err := database.Create(plugin).Error; err != nil {
+		t.Fatalf("create plugin: %v", err)
 	}
 
-	poster.syncSkillEntriesToProject(ctx, session, []string{"code-review", "code-review"})
-
-	var refreshed types.Project
-	if err := database.First(&refreshed, project.ID).Error; err != nil {
-		t.Fatalf("reload project: %v", err)
-	}
-	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
-	if !ok {
-		t.Fatal("expected skills in project metadata")
-	}
-	if len(rawSkills) != 1 {
-		t.Fatalf("expected 1 skill after dedup, got %d", len(rawSkills))
-	}
-}
-
-func TestSyncSkillEntriesToProject_MultipleSkills(t *testing.T) {
-	database := setupTestDB(t)
-	ctx := setupTestContextWithCaller(t)
 	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
+	poster.writeSkillInvokeResources(context.Background(), session, message)
 
-	project := &types.Project{
-		PublicID: "prj_sync_skill_multi",
-		OrgID:    1,
-		OwnerID:  1,
-		Name:     "Sync Skill Multi",
-		Status:   string(types.ProjectStatusActive),
+	var resource types.MessageResource
+	if err := database.First(&resource).Error; err != nil {
+		t.Fatalf("load message resource: %v", err)
 	}
-	if err := database.Create(project).Error; err != nil {
-		t.Fatalf("create project: %v", err)
+	if resource.ResourceID != plugin.PublicID {
+		t.Fatalf("resource ID = %q, want %q", resource.ResourceID, plugin.PublicID)
 	}
-	session := &types.Session{
-		PublicID:  "sess_sync_skill_multi",
-		OrgID:     1,
-		Uin:       1,
-		ProjectID: &project.ID,
-		Status:    string(types.SessionStatusActive),
-	}
-	if err := database.Create(session).Error; err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-
-	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal", "code-review"})
-
 	var refreshed types.Project
 	if err := database.First(&refreshed, project.ID).Error; err != nil {
 		t.Fatalf("reload project: %v", err)
 	}
-	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
-	if !ok || len(rawSkills) != 2 {
-		t.Fatalf("expected 2 skills, got %d", len(rawSkills))
+	if _, exists := refreshed.Metadata.Extra["skills"]; exists {
+		t.Fatalf("project metadata unexpectedly contains skills: %#v", refreshed.Metadata.Extra)
 	}
 }
 
@@ -530,36 +474,5 @@ func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T)
 	}
 	if messages[0].Content != "这是当前消息" {
 		t.Errorf("current content = %q, want %q", messages[0].Content, "这是当前消息")
-	}
-}
-
-func TestSkillNameInProjectSkills(t *testing.T) {
-	skills := []interface{}{
-		map[string]interface{}{"code": "code-review", "name": "Code Review"},
-		map[string]interface{}{"code": "tech-design", "name": "tech-design"},
-	}
-
-	tests := []struct {
-		name      string
-		skills    []interface{}
-		skillName string
-		want      bool
-	}{
-		{"exact match code", skills, "code-review", true},
-		{"case insensitive code", skills, "Code-Review", true},
-		{"exact match name", skills, "tech-design", true},
-		{"case insensitive name", skills, "Tech-Design", true},
-		{"not found", skills, "not-a-skill", false},
-		{"empty", skills, "", false},
-		{"nil skills", nil, "anything", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := skillNameInProjectSkills(tt.skills, tt.skillName)
-			if got != tt.want {
-				t.Fatalf("skillNameInProjectSkills(%q) = %v, want %v", tt.skillName, got, tt.want)
-			}
-		})
 	}
 }

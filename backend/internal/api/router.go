@@ -174,13 +174,12 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterUserRoutes(authed, userService)
 		logs.Info("User routes registered successfully")
 
-		skillMarketplaceService := service.NewSkillMarketplaceServiceWithTranslator(db, eventbus, inferrer, service.NewDefaultSkillDescriptionTranslator(db, modelInvoker), filestore.GetStorage(), filestore.DefaultBucket())
-		handler.RegisterSkillMarketplaceRoutes(authed, skillMarketplaceService)
-		logs.Info("Skill marketplace routes registered successfully")
-
-		skillService := service.NewSkillService(db, eventbus, inferrer, modelInvoker)
-		handler.RegisterSkillRoutes(authed, skillService)
-		logs.Info("Skill management routes registered successfully")
+		pluginService := service.NewPluginService(db)
+		handler.RegisterPluginRoutes(authed, pluginService)
+		logs.Info("Plugin repository routes registered successfully")
+		officialPluginMarketplaceService := service.NewOfficialPluginMarketplaceService(db)
+		handler.RegisterOfficialPluginMarketplaceRoutes(authed, officialPluginMarketplaceService)
+		logs.Info("Official plugin marketplace routes registered successfully")
 
 		feedbackService := service.NewFeedbackService(db, fileService, cfg.Feishu, modelInvoker, userRepo)
 		handler.RegisterFeedbackRoutes(v1, feedbackService)
@@ -195,6 +194,8 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 			// Stream projector records the stream lane start seq for SSE replay.
 			go runnable.StartSessionRunStreamProjector(context.Background(), sessionService, eventbus)
 			logs.Info("Session run stream projector started")
+			go service.StartSkillPackageUploadedConsumer(context.Background(), db, eventbus)
+			logs.Info("Skill package uploaded consumer started")
 		} else {
 			logs.Info("Session event consumers disabled by config")
 		}

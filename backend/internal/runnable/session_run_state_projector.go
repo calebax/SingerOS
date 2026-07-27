@@ -413,10 +413,19 @@ func recordSkillInvocationsFromMessaging(ctx context.Context, db *gorm.DB, orgID
 
 		source, skillID := "Leros", skillName
 		resourceID := ""
-		if item, err := infradb.GetBuiltinSkillByID(ctx, db, skillName); err == nil && item != nil {
-			source = "Leros"
-			skillID = item.SkillID
-			resourceID = fmt.Sprintf("%d", item.ID)
+		var plugin types.Plugin
+		if err := db.WithContext(ctx).
+			Where(
+				"owner_scope = ? AND org_id = ? AND code = ? AND kind = ? AND deleted_at IS NULL",
+				types.OwnerScopeOrganization,
+				orgID,
+				skillName,
+				"skill",
+			).
+			First(&plugin).Error; err == nil && plugin.ID != 0 {
+			source = "organization"
+			skillID = plugin.Code
+			resourceID = plugin.PublicID
 		}
 		records = append(records, &types.MessageResource{
 			ResourceID:   resourceID,

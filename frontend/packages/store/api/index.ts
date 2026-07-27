@@ -31,6 +31,15 @@ export type {
 } from "./frontendEventApi";
 export { FRONTEND_EVENT_ENDPOINT, frontendEventApi } from "./frontendEventApi";
 export type {
+	GetOfficialPluginLatestVersionParams,
+	InstallOfficialPluginResponse,
+	ListOfficialPluginMarketplaceItemsParams,
+	ListOfficialPluginMarketplaceItemsResponse,
+	OfficialPluginLatestVersion,
+	OfficialPluginMarketplaceItem,
+} from "./officialPluginMarketplaceApi";
+export { officialPluginMarketplaceApi } from "./officialPluginMarketplaceApi";
+export type {
 	Department,
 	ListDepartmentsResponse,
 	ListUsersResponse,
@@ -38,6 +47,21 @@ export type {
 	User,
 } from "./orgAdminApi";
 export { orgAdminApi } from "./orgAdminApi";
+export type {
+	AddSkillPluginParams,
+	DeletePluginResponse,
+	GetPluginInstallationStatusParams,
+	GetPluginResponse,
+	ListPluginsParams,
+	ListPluginsResponse,
+	PluginInstallationStatus,
+	PluginListItem,
+	PluginRevisionContent,
+	PluginRevisionFile,
+	ProjectPluginItem,
+} from "./pluginApi";
+export { pluginApi, pluginToSkillCard } from "./pluginApi";
+export type { SkillMarketplaceItem } from "./pluginDisplayTypes";
 export type {
 	ListProjectActivitiesParams,
 	ProjectActivityActor,
@@ -66,16 +90,6 @@ export type {
 	UpdateSessionParams,
 } from "./sessionApi";
 export { sessionApi } from "./sessionApi";
-export type {
-	InstalledSkillsResponse,
-	SearchSkillMarketplaceParams,
-	SearchSkillMarketplaceResponse,
-	SkillInstalledItem,
-	SkillMarketplaceItem,
-	UninstallSkillParams,
-	UninstallSkillResponse,
-} from "./skillMarketplaceApi";
-export { installedToCardItem, skillMarketplaceApi } from "./skillMarketplaceApi";
 export type {
 	CreateTaskParams,
 	DeleteTaskParams,

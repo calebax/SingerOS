@@ -5,7 +5,8 @@ import {
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	isSystemDefaultAssistant,
 	type ProjectMember,
-	type ProjectSkill,
+	pluginApi,
+	pluginToComposerOption,
 	projectFileApi,
 	useChatStore,
 	useDAStore,
@@ -144,10 +145,41 @@ export function ChatInput({
 	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
 	const currentProjectId = activeTaskDetailProjectId ?? activeProjectId;
 	const currentProject = projects.find((project) => project.id === currentProjectId);
-	const projectSkillOptions = useMemo<ComposerSkillOption[] | undefined>(() => {
-		if (!isProjectVariant) return undefined;
-		return (currentProject?.skills ?? []).map(projectSkillToComposerOption);
-	}, [currentProject?.skills, isProjectVariant]);
+	const [projectSkillOptions, setProjectSkillOptions] = useState<ComposerSkillOption[] | undefined>(
+		undefined,
+	);
+
+	useEffect(() => {
+		if (!isProjectVariant || !currentProjectId) {
+			setProjectSkillOptions(undefined);
+			return;
+		}
+
+		let cancelled = false;
+		setProjectSkillOptions(undefined);
+		void pluginApi
+			.listProject({ public_id: currentProjectId, kind: "skill" })
+			.then((response) => {
+				if (cancelled) return;
+				if (response.data.code !== 0) {
+					console.warn("Load project skills for composer failed:", response.data.message);
+					setProjectSkillOptions([]);
+					return;
+				}
+				setProjectSkillOptions(
+					response.data.data.map((item) => pluginToComposerOption(item, "项目技能")),
+				);
+			})
+			.catch((error) => {
+				if (cancelled) return;
+				console.warn("Load project skills for composer error:", error);
+				setProjectSkillOptions([]);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [currentProjectId, isProjectVariant]);
 	const projectAssistantOptions = useMemo<ComposerAssistantOption[] | undefined>(() => {
 		if (!isProjectVariant) return undefined;
 		return (
@@ -832,22 +864,6 @@ async function resolveDocxVersionSync(
 		baselinePublicId,
 		baselineVersionNo,
 		selectedVersionPublicId: draft.selectedVersionPublicId,
-	};
-}
-
-function projectSkillToComposerOption(skill: ProjectSkill): ComposerSkillOption {
-	return {
-		code: skill.code,
-		label: skill.name,
-		description: skill.description || skill.category || "项目技能",
-		keywords: [
-			skill.name,
-			skill.code,
-			skill.description,
-			skill.category,
-			skill.source,
-			skill.trust,
-		].filter((item): item is string => Boolean(item)),
 	};
 }
 

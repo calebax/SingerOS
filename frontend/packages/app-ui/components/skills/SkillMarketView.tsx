@@ -1,7 +1,7 @@
 "use client";
 
 import type { SkillMarketplaceItem } from "@leros/store";
-import { skillMarketplaceApi, useLayoutStore, useSkillStore } from "@leros/store";
+import { useLayoutStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	DropdownMenu,
@@ -19,7 +19,6 @@ import { navigateToWorkbench } from "../layout/workbench-navigation";
 import { buildSkillWorkbenchPrefill } from "../layout/workbench-prefill";
 import { MarketplacePanel } from "./MarketplacePanel";
 import { MySkillsPanel } from "./MySkillsPanel";
-import { RecentSkillsPanel } from "./RecentSkillsPanel";
 import { SkillDetailView } from "./SkillDetailView";
 import { SkillImportDialog } from "./SkillImportDialog";
 
@@ -31,18 +30,16 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	const { isAuthenticated, requireAuth } = useAuth();
 	const [activeTab, setActiveTab] = useState<"marketplace" | "mine">("marketplace");
 	const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
-	const [selectedSource, setSelectedSource] = useState<string>("Leros");
-	const [selectedVersion, setSelectedVersion] = useState<string | undefined>(undefined);
+	const [selectedSource, setSelectedSource] = useState<"official" | "organization">("official");
 	const [importDialogOpen, setImportDialogOpen] = useState(false);
 	const [mySkillsRefreshSeq, setMySkillsRefreshSeq] = useState(0);
-	const { installedSkills } = useSkillStore((s) => s);
+	const [marketplaceRefreshSeq, setMarketplaceRefreshSeq] = useState(0);
 	const { setWorkbenchComposerPrefill, selectWorkbenchProject, selectWorkbenchTask, switchView } =
 		useLayoutStore((s) => s);
 
 	const goUseSkill = useCallback(
 		(skillId: string, displayLabel?: string): boolean => {
-			const installed = installedSkills.find((skill) => skill.name === skillId);
-			const label = displayLabel || installed?.display_name || skillId;
+			const label = displayLabel || skillId;
 			const prefill = buildSkillWorkbenchPrefill(label);
 
 			selectWorkbenchProject(null);
@@ -53,7 +50,6 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 			return true;
 		},
 		[
-			installedSkills,
 			navigation,
 			selectWorkbenchProject,
 			selectWorkbenchTask,
@@ -62,23 +58,13 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 		],
 	);
 
-	const handleCardClick = useCallback(
-		(skill: SkillMarketplaceItem) => {
-			setSelectedSkillId(skill.skill_id);
-			setSelectedSource(activeTab === "mine" ? "installed" : skill.source_type || "Leros");
-			setSelectedVersion(skill.version || undefined);
-		},
-		[activeTab],
-	);
+	const handleCardClick = useCallback((skill: SkillMarketplaceItem) => {
+		setSelectedSkillId(skill.skill_id);
+		setSelectedSource(skill.source_type === "organization" ? "organization" : "official");
+	}, []);
 
 	const handleBack = useCallback(() => {
 		setSelectedSkillId(null);
-	}, []);
-
-	const handleSkillClick = useCallback((skillId: string, sourceType?: string) => {
-		setSelectedSkillId(skillId);
-		setSelectedSource(sourceType || "Leros");
-		setSelectedVersion(undefined);
 	}, []);
 
 	const handleUse = useCallback(
@@ -88,24 +74,27 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 		[goUseSkill],
 	);
 
-	const handleUninstallFromDetail = useCallback(async (name: string) => {
-		try {
-			await skillMarketplaceApi.uninstall({ name });
-			toast.success("卸载已提交");
-			setSelectedSkillId(null);
-		} catch (err: any) {
-			const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
-			toast.error(`卸载失败：${msg}`);
-		}
-	}, []);
-
 	const openImportDialog = useCallback(() => {
 		requireAuth(() => setImportDialogOpen(true));
 	}, [requireAuth]);
 
 	const openCreateSkill = useCallback(() => {
-		requireAuth(() => goUseSkill("skill-creator"));
-	}, [goUseSkill, requireAuth]);
+		requireAuth(() => {
+			const label = "skill-creator";
+			const prefill = buildSkillWorkbenchPrefill(label);
+			selectWorkbenchProject(null);
+			selectWorkbenchTask(null);
+			setWorkbenchComposerPrefill(prefill);
+			navigateToWorkbench(navigation, switchView);
+		});
+	}, [
+		requireAuth,
+		navigation,
+		selectWorkbenchProject,
+		selectWorkbenchTask,
+		setWorkbenchComposerPrefill,
+		switchView,
+	]);
 
 	const handleTabChange = useCallback(
 		(nextTab: string) => {
@@ -126,6 +115,12 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 
 	const handleImportSuccess = useCallback(() => {
 		setMySkillsRefreshSeq((seq) => seq + 1);
+		setMarketplaceRefreshSeq((seq) => seq + 1);
+	}, []);
+
+	const handleOfficialInstall = useCallback(() => {
+		setMySkillsRefreshSeq((seq) => seq + 1);
+		setMarketplaceRefreshSeq((seq) => seq + 1);
 	}, []);
 
 	// Show detail view when a skill is selected
@@ -138,11 +133,9 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 				<SkillDetailView
 					skillId={selectedSkillId}
 					source={selectedSource}
-					version={selectedVersion}
 					onBack={handleBack}
-					onSkillClick={handleSkillClick}
 					onUse={handleUse}
-					onUninstall={handleUninstallFromDetail}
+					onOfficialInstalled={handleOfficialInstall}
 				/>
 			</div>
 		);
@@ -194,16 +187,17 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 				</header>
 
 				<TabsContent value="marketplace" className="flex min-h-0 flex-1 flex-col outline-none">
-					<MarketplacePanel isAuthenticated={isAuthenticated} onCardClick={handleCardClick} />
+					<MarketplacePanel
+						isAuthenticated={isAuthenticated}
+						onCardClick={handleCardClick}
+						refreshSeq={marketplaceRefreshSeq}
+					/>
 				</TabsContent>
 
 				<TabsContent value="mine" className="min-h-0 flex-1 overflow-y-auto px-6 py-8 outline-none">
-					<div className="flex flex-col gap-8">
-						<RecentSkillsPanel onCardClick={handleCardClick} />
-						<div>
-							<h3 className="text-sm font-semibold text-[var(--leros-text-strong)] mb-4">已安装</h3>
-							<MySkillsPanel onCardClick={handleCardClick} refreshSeq={mySkillsRefreshSeq} />
-						</div>
+					<div>
+						<h3 className="text-sm font-semibold text-[var(--leros-text-strong)] mb-4">组织技能</h3>
+						<MySkillsPanel onCardClick={handleCardClick} refreshSeq={mySkillsRefreshSeq} />
 					</div>
 				</TabsContent>
 			</Tabs>

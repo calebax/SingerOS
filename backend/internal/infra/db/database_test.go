@@ -23,6 +23,11 @@ func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
 	for _, tableName := range []string{
 		types.TableNameDepartment,
 		types.TableNameMemberDepartment,
+		types.TableNamePlugin,
+		types.TableNamePluginRevision,
+		types.TableNamePluginRevisionContent,
+		types.TableNameProjectPluginBinding,
+		types.TableNamePluginMarketplaceItem,
 	} {
 		if !database.Migrator().HasTable(tableName) {
 			t.Fatalf("expected table %s to be migrated", tableName)

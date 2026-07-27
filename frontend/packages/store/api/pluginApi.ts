@@ -1,0 +1,159 @@
+import { apiClient } from "./client";
+import type { SkillMarketplaceItem } from "./pluginDisplayTypes";
+import type { BackendDataResponse } from "./types";
+
+export interface PluginListItem {
+	public_id: string;
+	code: string;
+	kind: string;
+	name: string;
+	description?: string;
+	status: string;
+	origin: string;
+	current_revision: number;
+}
+
+export interface ListPluginsResponse {
+	scope: string;
+	plugins: PluginListItem[];
+}
+
+export interface GetPluginResponse {
+	scope: string;
+	plugin: PluginListItem;
+	content: PluginRevisionContent | null;
+}
+
+export interface GetPluginInstallationStatusParams {
+	kind: string;
+	code: string;
+}
+
+export interface PluginInstallationStatus {
+	kind: string;
+	code: string;
+	installed: boolean;
+	plugin_id?: string;
+	current_version?: string;
+	marketplace_based: boolean;
+	marketplace_item_id?: string;
+	installed_marketplace_version?: string;
+	marketplace_available: boolean;
+	latest_marketplace_version?: string;
+	update_available: boolean;
+}
+
+export interface PluginRevisionFile {
+	path: string;
+	size_bytes: number;
+	sha256: string;
+}
+
+export interface PluginRevisionContent {
+	schema: string;
+	version: number;
+	entrypoint_path: string;
+	skill_md: string;
+	files: PluginRevisionFile[];
+}
+
+export interface DeletePluginResponse {
+	operation: "deleted" | "project_unbound" | string;
+}
+
+export interface ProjectPluginItem extends PluginListItem {}
+
+export interface ListProjectPluginsParams {
+	public_id: string;
+	kind?: string;
+}
+
+export interface UpdateProjectPluginParams {
+	public_id: string;
+	plugin_id: string;
+}
+
+export interface ListPluginsParams {
+	kind?: string;
+	status?: string;
+	keyword?: string;
+	limit?: number;
+}
+
+export interface AddSkillPluginParams {
+	mode: "file" | "github";
+	file_upload_id?: string;
+	github_url?: string;
+}
+
+function cleanListParams(params: ListPluginsParams): Record<string, string | number> {
+	const result: Record<string, string | number> = {};
+	if (params.kind) result.kind = params.kind;
+	if (params.status) result.status = params.status;
+	if (params.keyword) result.keyword = params.keyword;
+	if (params.limit !== undefined) result.limit = params.limit;
+	return result;
+}
+
+// pluginToSkillCard maps organization plugins to the existing Skill card presentation.
+export function pluginToSkillCard(plugin: PluginListItem): SkillMarketplaceItem {
+	return {
+		source_type: "organization",
+		skill_id: plugin.public_id,
+		name: plugin.code,
+		display_name: plugin.name,
+		description: plugin.description ?? "",
+		version: `r${plugin.current_revision}`,
+		author: "组织插件",
+		category: plugin.kind,
+		tags: [plugin.kind],
+		icon: "",
+		installs: 0,
+		verified: false,
+	};
+}
+
+export interface PluginComposerOption {
+	code: string;
+	label: string;
+	description: string;
+	keywords: string[];
+}
+
+// pluginToComposerOption maps PluginListItem (or ProjectPluginItem) to a composer picker option.
+export function pluginToComposerOption(
+	plugin: PluginListItem,
+	defaultDescription = "组织技能",
+): PluginComposerOption {
+	return {
+		code: plugin.code,
+		label: plugin.name || plugin.code,
+		description: plugin.description || defaultDescription,
+		keywords: [plugin.name, plugin.code, plugin.description, plugin.kind, plugin.origin].filter(
+			(item): item is string => Boolean(item),
+		),
+	};
+}
+
+export const pluginApi = {
+	list: (params: ListPluginsParams = {}) =>
+		apiClient.get<BackendDataResponse<ListPluginsResponse>>("/plugins", {
+			params: cleanListParams(params),
+		}),
+	get: (pluginID: string) =>
+		apiClient.get<BackendDataResponse<GetPluginResponse>>(`/plugins/${pluginID}`),
+	getInstallationStatus: (params: GetPluginInstallationStatusParams) =>
+		apiClient.get<BackendDataResponse<PluginInstallationStatus>>("/plugins/installation-status", {
+			params: { kind: params.kind, code: params.code },
+		}),
+	delete: (pluginID: string) =>
+		apiClient.delete<BackendDataResponse<DeletePluginResponse>>(`/plugins/${pluginID}`),
+	addSkill: (params: AddSkillPluginParams) =>
+		apiClient.post<BackendDataResponse<null>>("/plugins/skills", params),
+	listProject: (params: ListProjectPluginsParams) =>
+		apiClient.post<BackendDataResponse<ProjectPluginItem[]>>("/ListProjectPlugins", params),
+	addToProject: (params: UpdateProjectPluginParams) =>
+		apiClient.post<BackendDataResponse<null>>("/AddProjectPlugin", params),
+	removeFromProject: (params: UpdateProjectPluginParams) =>
+		apiClient.post<BackendDataResponse<null>>("/RemoveProjectPlugin", params),
+};

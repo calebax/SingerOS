@@ -8,7 +8,6 @@ import {
 	useDAStore,
 	useGlobalConfigStore,
 	useLayoutStore,
-	useSkillStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
@@ -51,9 +50,7 @@ export function OrganizationSwitchPanel({
 	const fetchProjects = useLayoutStore((s) => s.fetchProjects);
 	const resetAuthScopedData = useLayoutStore((s) => s.resetAuthScopedData);
 	const resetDAAuthScopedData = useDAStore((s) => s.resetAuthScopedData);
-	const resetSkillAuthScopedData = useSkillStore((s) => s.resetAuthScopedData);
 	const fetchAssistants = useDAStore((s) => s.fetchAssistants);
-	const fetchInstalledSkills = useSkillStore((s) => s.fetchInstalledSkills);
 	const switchView = useLayoutStore((s) => s.switchView);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
@@ -88,7 +85,6 @@ export function OrganizationSwitchPanel({
 	const resetOrgScopedData = () => {
 		resetAuthScopedData();
 		resetDAAuthScopedData();
-		resetSkillAuthScopedData();
 		resetLocalMessages();
 		clearComposerInput();
 
@@ -102,11 +98,9 @@ export function OrganizationSwitchPanel({
 			onDone?.();
 		}
 
-		void Promise.all([fetchProjects(), fetchAssistants(), fetchInstalledSkills()]).catch(
-			(error) => {
-				console.error("preload organization scoped data error:", error);
-			},
-		);
+		void Promise.all([fetchProjects(), fetchAssistants()]).catch((error) => {
+			console.error("preload organization scoped data error:", error);
+		});
 	};
 
 	const handleSwitchOrganization = async (orgId: number) => {

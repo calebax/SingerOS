@@ -69,6 +69,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			RequireApproval: task.Policy.RequireApproval,
 			PermissionMode:  task.Policy.PermissionMode,
 		},
+		Plugins: pluginSnapshotsFromTask(task.Plugins),
 		BusinessKeys: agentrundomain.BusinessKeys{
 			ProjectPKID:       task.ProjectID,
 			SessionPKID:       task.SessionID,
@@ -79,6 +80,17 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			UinPK:             task.Uin,
 		},
 	}
+}
+
+func pluginSnapshotsFromTask(snapshots []messaging.PluginSnapshot) []agentrundomain.PluginSnapshot {
+	if len(snapshots) == 0 {
+		return nil
+	}
+	result := make([]agentrundomain.PluginSnapshot, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		result = append(result, agentrundomain.PluginSnapshot{PluginID: snapshot.PluginID, Code: snapshot.Code, Kind: snapshot.Kind, Revision: snapshot.Revision, Definition: append([]byte(nil), snapshot.Definition...)})
+	}
+	return result
 }
 
 func inputMessagesFromTask(messages []messaging.ChatMessage) []agentrundomain.InputMessage {

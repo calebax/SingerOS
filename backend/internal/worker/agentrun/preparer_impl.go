@@ -32,8 +32,10 @@ type WorkspaceManager interface {
 // WorkspacePreparation is the immutable result of preparing a run workspace.
 type WorkspacePreparation struct {
 	WorkDir              string
+	ProjectRoot          string
 	RepoDir              string
 	TaskDir              string
+	SkillDir             string
 	ArtifactManifestPath string
 	PreRunTreeSHA        string // Git tree SHA captured before agent execution
 }
@@ -99,6 +101,7 @@ func (wm *workspaceManager) PrepareWorkspace(
 	}
 	return WorkspacePreparation{
 		WorkDir:              plan.EffectiveWorkDir,
+		ProjectRoot:          plan.ProjectRoot,
 		RepoDir:              plan.RepoDir,
 		TaskDir:              plan.TaskDir,
 		ArtifactManifestPath: plan.ArtifactManifestPath,
@@ -195,6 +198,7 @@ type preparer struct {
 	attachmentIng AttachmentIngestor
 	toolProvider  ToolProvider
 	sessionStore  ProviderSessionStore
+	skillPreparer SkillPreparer
 }
 
 // NewPreparer creates a new RunPreparer.
@@ -220,12 +224,46 @@ func NewPreparerWithTools(
 	modelStore *modelrouter.ModelStore,
 	toolProvider ToolProvider,
 ) Preparer {
+	return NewPreparerWithSkillPreparer(builder, wm, ai, modelStore, toolProvider, nil)
+}
+
+// NewPreparerWithSkillPreparer creates a preparer with a run-scoped Skill view.
+func NewPreparerWithSkillPreparer(
+	builder *agentruncontext.ContextBuilder,
+	wm WorkspaceManager,
+	ai AttachmentIngestor,
+	modelStore *modelrouter.ModelStore,
+	toolProvider ToolProvider,
+	skillPreparer SkillPreparer,
+) Preparer {
 	return &preparer{
 		builder:       builder,
 		modelStore:    modelStore,
 		workspaceMgr:  wm,
 		attachmentIng: ai,
 		toolProvider:  toolProvider,
+		skillPreparer: skillPreparer,
+	}
+}
+
+// NewPreparerWithSessionStoreAndSkills adds both session resume and run-scoped Skills.
+func NewPreparerWithSessionStoreAndSkills(
+	builder *agentruncontext.ContextBuilder,
+	wm WorkspaceManager,
+	ai AttachmentIngestor,
+	modelStore *modelrouter.ModelStore,
+	toolProvider ToolProvider,
+	sessionStore ProviderSessionStore,
+	skillPreparer SkillPreparer,
+) Preparer {
+	return &preparer{
+		builder:       builder,
+		modelStore:    modelStore,
+		workspaceMgr:  wm,
+		attachmentIng: ai,
+		toolProvider:  toolProvider,
+		sessionStore:  sessionStore,
+		skillPreparer: skillPreparer,
 	}
 }
 
@@ -238,14 +276,7 @@ func NewPreparerWithSessionStore(
 	toolProvider ToolProvider,
 	sessionStore ProviderSessionStore,
 ) Preparer {
-	return &preparer{
-		builder:       builder,
-		modelStore:    modelStore,
-		workspaceMgr:  wm,
-		attachmentIng: ai,
-		toolProvider:  toolProvider,
-		sessionStore:  sessionStore,
-	}
+	return NewPreparerWithSessionStoreAndSkills(builder, wm, ai, modelStore, toolProvider, sessionStore, nil)
 }
 
 // Prepare validates and builds a PreparedRun from the original Request.
@@ -283,6 +314,15 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 	}
 	cloned.Runtime.WorkDir = workspace.WorkDir
 	cloned.Workspace.RepoDir = workspace.RepoDir
+	if p.skillPreparer != nil {
+		skillDir, skillCleanup, skillErr := p.skillPreparer.PrepareSkills(ctx, cloned, workspace)
+		cleanup = chainCleanup(cleanup, skillCleanup)
+		if skillErr != nil {
+			return nil, cleanup, fmt.Errorf("prepare run skills: %w", skillErr)
+		}
+		workspace.SkillDir = skillDir
+		cloned.Workspace.SkillDir = skillDir
+	}
 
 	// Capture pre-run Git tree SHA for diff-based artifact discovery (best-effort).
 	if workspace.RepoDir != "" {
@@ -365,13 +405,27 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			},
 			ProviderSession: providerSession,
 			Filesystem: agent.FilesystemContext{
-				WorkDir: workspace.WorkDir,
-				RepoDir: workspace.RepoDir,
-				TaskDir: workspace.TaskDir,
+				WorkDir:  workspace.WorkDir,
+				RepoDir:  workspace.RepoDir,
+				TaskDir:  workspace.TaskDir,
+				SkillDir: workspace.SkillDir,
 			},
 		},
 		Workspace: workspace,
 	}, cleanup, nil
+}
+
+func chainCleanup(first, second func()) func() {
+	if first == nil {
+		first = func() {}
+	}
+	if second == nil {
+		return first
+	}
+	return func() {
+		second()
+		first()
+	}
 }
 
 // validateModelConfig validates the required model fields.

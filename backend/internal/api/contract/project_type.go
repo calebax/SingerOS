@@ -135,6 +135,29 @@ type ProjectDetail struct {
 	Members []ProjectMemberItem `json:"members"`
 }
 
+// ProjectPlugin is a project-authorized organization plugin.
+type ProjectPlugin struct {
+	PublicID        string `json:"public_id"`
+	Code            string `json:"code"`
+	Kind            string `json:"kind"`
+	Name            string `json:"name"`
+	Description     string `json:"description,omitempty"`
+	Status          string `json:"status"`
+	CurrentRevision int    `json:"current_revision"`
+}
+
+// ListProjectPluginsRequest filters plugins bound to a project.
+type ListProjectPluginsRequest struct {
+	PublicID string `json:"public_id" binding:"required"`
+	Kind     string `json:"kind,omitempty"`
+}
+
+// UpdateProjectPluginRequest binds or unbinds one organization plugin.
+type UpdateProjectPluginRequest struct {
+	PublicID string `json:"public_id" binding:"required"`
+	PluginID string `json:"plugin_id" binding:"required"`
+}
+
 // ProjectTaskItem 项目详情中的任务项，包含关联的会话信息
 type ProjectTaskItem struct {
 	Task

@@ -65,6 +65,7 @@ type runTask struct {
 	Model         messaging.ModelOptions
 	Runtime       messaging.RuntimeOptions
 	Policy        messaging.TaskPolicy
+	Plugins       []messaging.PluginSnapshot
 
 	// 业务主键 ID，从 RunCommandPayload 直接透传，用于 llm_history 关联。
 	ProjectID   uint
@@ -239,6 +240,7 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 		Model:         payload.Model,
 		Runtime:       payload.Runtime,
 		Policy:        payload.Policy,
+		Plugins:       append([]messaging.PluginSnapshot(nil), payload.Plugins...),
 		ProjectID:     payload.ProjectID,
 		SessionID:     payload.SessionID,
 		MessageID:     payload.MessageID,
@@ -580,13 +582,14 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 		Model:         payload.Model,
 		Runtime:       payload.Runtime,
 		Policy:        payload.Policy,
-		DeliverySeqs:  []uint64{rec.StreamSeq},
+		Project:       payload.Project,
+		Plugins:       append([]messaging.PluginSnapshot(nil), payload.Plugins...),
 		ProjectID:     payload.ProjectID,
 		SessionID:     payload.SessionID,
 		MessageID:     payload.MessageID,
 		AssistantID:   payload.AssistantID,
 		Uin:           payload.Uin,
-		Project:       payload.Project,
+		DeliverySeqs:  []uint64{rec.StreamSeq},
 	}
 
 	// Mark processing.

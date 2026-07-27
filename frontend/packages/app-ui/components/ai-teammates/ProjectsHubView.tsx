@@ -4,9 +4,8 @@ import {
 	type AuthUser,
 	type Project,
 	type ProjectMember,
+	pluginApi,
 	projectMembersToInputs,
-	type SkillInstalledItem,
-	skillMarketplaceApi,
 	useLayoutStore,
 	useProjectsMenuCapabilities,
 } from "@leros/store";
@@ -55,65 +54,6 @@ type SkillOption = {
 	description: string;
 	keywords: string[];
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function stringFromValue(value: unknown): string {
-	return typeof value === "string" ? value : "";
-}
-
-function skillItemFromValue(value: unknown): SkillInstalledItem | null {
-	if (!isRecord(value)) return null;
-
-	const name = stringFromValue(value.name || value.skill_id || value.id);
-	if (!name) return null;
-
-	return {
-		name,
-		display_name: stringFromValue(value.display_name),
-		description: stringFromValue(value.description),
-		category: stringFromValue(value.category),
-		source: stringFromValue(value.source || value.source_type),
-		trust: stringFromValue(value.trust),
-	};
-}
-
-function normalizeInstalledSkillsPayload(value: unknown): SkillInstalledItem[] {
-	const toItems = (items: unknown[]) =>
-		items.map(skillItemFromValue).filter((item): item is SkillInstalledItem => item !== null);
-
-	if (Array.isArray(value)) return toItems(value);
-	if (!isRecord(value)) return [];
-
-	const nestedData = value.data;
-	if (isRecord(nestedData)) {
-		if (Array.isArray(nestedData.skills)) return toItems(nestedData.skills);
-		if (Array.isArray(nestedData.items)) return toItems(nestedData.items);
-	}
-
-	if (Array.isArray(value.skills)) return toItems(value.skills);
-	if (Array.isArray(value.items)) return toItems(value.items);
-	return [];
-}
-
-function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
-	const label = skill.display_name || skill.name;
-	return {
-		code: skill.name,
-		label,
-		description: skill.description || skill.category || "已安装技能",
-		keywords: [
-			label,
-			skill.name,
-			skill.description,
-			skill.category,
-			skill.source,
-			skill.trust,
-		].filter(Boolean),
-	};
-}
 
 function buildCreateProjectMetadata(skills: SkillOption[]): Record<string, unknown> {
 	return {
@@ -564,11 +504,20 @@ function CreateProjectDialog({
 
 		setSkillsLoading(true);
 		setSkillsError(null);
-		skillMarketplaceApi
-			.installed()
+		pluginApi
+			.list({ kind: "skill", status: "active" })
 			.then((response) => {
-				const raw = normalizeInstalledSkillsPayload(response.data);
-				setSkillOptions(raw.map(installedSkillToOption));
+				const plugins = response.data.data?.plugins ?? [];
+				setSkillOptions(
+					plugins.map((p) => ({
+						code: p.code,
+						label: p.name || p.code,
+						description: p.description ?? "",
+						keywords: [p.code, p.name, p.description, p.kind].filter((s): s is string =>
+							Boolean(s),
+						),
+					})),
+				);
 				setSkillsLoaded(true);
 			})
 			.catch((error: unknown) => {

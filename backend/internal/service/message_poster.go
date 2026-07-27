@@ -885,6 +885,10 @@ func (p *MessagePoster) publishWorkerTask(
 	})
 	executionTarget := p.buildExecutionTarget(ctx, session, effectiveAssistantID, message)
 	projectContext := p.buildProjectContext(ctx, session, effectiveAssistantID)
+	pluginSnapshots, err := p.resolveProjectPluginSnapshots(ctx, orgID, coalesceUintPtr(session.ProjectID))
+	if err != nil {
+		return fmt.Errorf("resolve project plugin snapshots: %w", err)
+	}
 
 	cmd := withRequestTrace(ctx, messaging.NewRunCommand(
 		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
@@ -923,6 +927,7 @@ func (p *MessagePoster) publishWorkerTask(
 			Model:             modelOptions,
 			Execution:         executionTarget,
 			Project:           projectContext,
+			Plugins:           pluginSnapshots,
 			ProjectID:         coalesceUintPtr(session.ProjectID),
 			SessionID:         session.ID,
 			MessageID:         message.ID,
@@ -944,6 +949,24 @@ func (p *MessagePoster) publishWorkerTask(
 	logs.InfoContextf(ctx, "published run command: topic=%s org_id=%d worker_id=%d assistant_id=%d session_id=%s run_id=%s message_id=%d sequence=%d",
 		topic, orgID, effectiveWorkerID, effectiveAssistantID, session.PublicID, requestID, message.ID, message.Sequence)
 	return nil
+}
+
+func (p *MessagePoster) resolveProjectPluginSnapshots(ctx context.Context, orgID, projectID uint) ([]messaging.PluginSnapshot, error) {
+	if projectID == 0 {
+		return nil, nil
+	}
+	rows, err := infradb.ListProjectPluginSnapshots(ctx, p.db, orgID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]messaging.PluginSnapshot, 0, len(rows))
+	for _, row := range rows {
+		if err := ValidatePluginDefinition(row.Kind, row.Definition); err != nil {
+			return nil, fmt.Errorf("plugin %s revision %d: %w", row.PluginPublicID, row.Revision, err)
+		}
+		result = append(result, messaging.PluginSnapshot{PluginID: row.PluginPublicID, Code: row.Code, Kind: row.Kind, Revision: row.Revision, Definition: append([]byte(nil), row.Definition...)})
+	}
+	return result, nil
 }
 
 func normalizeExecutionMode(mode types.ExecutionMode) types.ExecutionMode {
@@ -1164,7 +1187,7 @@ func (p *MessagePoster) writeSkillInvokeResources(ctx context.Context, session *
 	}
 	records := make([]*types.MessageResource, 0, len(entries))
 	for seq, name := range entries {
-		source, skillID, resourceID := p.resolveSkillMarketplace(ctx, name)
+		source, skillID, resourceID := p.resolveSkillMarketplace(ctx, session.OrgID, name)
 		records = append(records, &types.MessageResource{
 			ResourceID:   resourceID,
 			ResourceKey:  source + ":" + skillID,
@@ -1183,87 +1206,23 @@ func (p *MessagePoster) writeSkillInvokeResources(ctx context.Context, session *
 	} else {
 		logs.InfoContextf(ctx, "Skill invoke message_resource written: count=%d", len(records))
 	}
-
-	p.syncSkillEntriesToProject(ctx, session, entries)
 }
 
-// syncSkillEntriesToProject appends invoked skill names to project.metadata.extra.skills
-// so that the project knows which skills it has used. This is used during skill uninstall
-// to find all referencing projects (see cleanupOrgProjectSkillReferences).
-// Non-project sessions are silently skipped.
-func (p *MessagePoster) syncSkillEntriesToProject(ctx context.Context, session *types.Session, entries []string) {
-	if len(entries) == 0 || session.ProjectID == nil || *session.ProjectID == 0 {
-		return
-	}
-	project, err := infradb.GetProjectByID(ctx, p.db, *session.ProjectID)
-	if err != nil || project == nil {
-		logs.WarnContextf(ctx, "syncSkillEntriesToProject: get project %d failed: %v", *session.ProjectID, err)
-		return
-	}
-
-	if project.Metadata.Extra == nil {
-		project.Metadata.Extra = make(map[string]interface{})
-	}
-	rawSkills, _ := project.Metadata.Extra["skills"].([]interface{})
-
-	changed := false
-	skills := rawSkills
-	for _, name := range entries {
-		if skillNameInProjectSkills(skills, name) {
-			continue
-		}
-		skills = append(skills, map[string]interface{}{
-			"code": name,
-			"name": name,
-		})
-		changed = true
-	}
-	if !changed {
-		return
-	}
-	project.Metadata.Extra["skills"] = skills
-	if err := infradb.UpdateProject(ctx, p.db, project); err != nil {
-		logs.WarnContextf(ctx, "syncSkillEntriesToProject: update project %d failed: %v", project.ID, err)
-	}
-}
-
-// skillNameInProjectSkills checks whether a skill name (case-insensitive) already
-// exists in the project.metadata.extra.skills slice.
-func skillNameInProjectSkills(skills []interface{}, skillName string) bool {
-	target := strings.TrimSpace(strings.ToLower(skillName))
-	for _, item := range skills {
-		entry, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		code, _ := entry["code"].(string)
-		name, _ := entry["name"].(string)
-		if strings.EqualFold(strings.TrimSpace(code), target) ||
-			strings.EqualFold(strings.TrimSpace(name), target) {
-			return true
-		}
-	}
-	return false
-}
-
-// resolveSkillMarketplace looks up the marketplace record for a local skill
-// name. Returns (source, skill_id, db_primary_key_as_string). When no record is
-// found, source and skillID fall back to the name itself and resourceID is empty.
-func (p *MessagePoster) resolveSkillMarketplace(ctx context.Context, name string) (source, skillID, resourceID string) {
-	if item, err := infradb.GetBuiltinSkillByID(ctx, p.db, name); err == nil && item != nil {
-		return "Leros", item.SkillID, fmt.Sprintf("%d", item.ID)
-	}
-	query := p.db.WithContext(ctx).Model(&types.SkillMarketplaceItem{}).
-		Where("name = ?", name).
-		Select("id, source, skill_id")
-	type row struct {
-		ID      uint   `gorm:"column:id"`
-		Source  string `gorm:"column:source"`
-		SkillID string `gorm:"column:skill_id"`
-	}
-	var r row
-	if err := query.First(&r).Error; err == nil && r.Source != "" {
-		return r.Source, r.SkillID, fmt.Sprintf("%d", r.ID)
+// resolveSkillMarketplace looks up a skill by name in one organization's Plugin list.
+// Returns (source, skill_id, resourceID). When no record is found, source and skillID
+// fall back to the name itself and resourceID is empty.
+func (p *MessagePoster) resolveSkillMarketplace(ctx context.Context, orgID uint, name string) (source, skillID, resourceID string) {
+	var plugin types.Plugin
+	if err := p.db.WithContext(ctx).
+		Where(
+			"owner_scope = ? AND org_id = ? AND code = ? AND kind = ? AND deleted_at IS NULL",
+			types.OwnerScopeOrganization,
+			orgID,
+			name,
+			"skill",
+		).
+		First(&plugin).Error; err == nil && plugin.ID != 0 {
+		return "organization", plugin.Code, plugin.PublicID
 	}
 	// Fall back to local .skill-metadata file
 	if meta := p.readLocalSkillMetadata(ctx, name); meta != nil {
@@ -1291,8 +1250,8 @@ func (p *MessagePoster) readLocalSkillMetadata(ctx context.Context, name string)
 	return m
 }
 
-// resolveSkillEntries resolves skill tokens to manifest names, deduplicating
-// case-insensitively and keeping only valid skill names in the catalog.
+// resolveSkillEntries normalizes and deduplicates parsed Skill tokens.
+// Organization Skills need not exist in the worker's local catalog.
 func resolveSkillEntries(tokens []string) []string {
 	if len(tokens) == 0 {
 		return nil
@@ -1300,14 +1259,15 @@ func resolveSkillEntries(tokens []string) []string {
 	seen := make(map[string]bool, len(tokens))
 	result := make([]string, 0, len(tokens))
 	for _, name := range tokens {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
 		key := strings.ToLower(name)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		if _, err := skillcatalog.Get(name); err != nil {
-			continue
-		}
 		result = append(result, name)
 	}
 	return result

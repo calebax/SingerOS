@@ -32,7 +32,7 @@ func NewAppServerInvoker(binary string, extraEnv map[string]string) *AppServerIn
 func (inv *AppServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
 
-	srv, err := startAppServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, req.TaskDir)
+	srv, err := startAppServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, req.TaskDir, req.SkillDir)
 	if err != nil {
 		return nil, fmt.Errorf("start app-server for %s: %w", workDir, err)
 	}
