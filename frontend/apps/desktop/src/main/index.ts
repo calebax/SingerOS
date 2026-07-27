@@ -10,10 +10,18 @@ import {
 	prepareWindowForHide,
 } from "./app-lifecycle";
 import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
+import { configureTrayInteractions } from "./tray-interactions";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let mainWindowHideInProgress = false;
+
+// 中文注释：银河麒麟/UKUI 主要通过 X11 WM_CLASS 将运行窗口关联到 .desktop 启动器。
+// 显式固定 class，避免不同 Electron/Chromium 版本使用产品名或可执行文件名导致匹配失败。
+if (process.platform === "linux") {
+	app.commandLine.appendSwitch("class", "leros-desktop");
+}
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
@@ -152,14 +160,7 @@ function createTray(): void {
 
 	tray = new Tray(trayIcon);
 	tray.setToolTip("Lework");
-	tray.on("click", handleTrayClick);
-	tray.on("right-click", () => {
-		tray?.popUpContextMenu(buildTrayMenu());
-	});
-}
-
-function handleTrayClick(): void {
-	tray?.popUpContextMenu(buildTrayMenu());
+	configureTrayInteractions(tray, process.platform, buildTrayMenu, showMainWindow);
 }
 
 function buildTrayMenu(): Menu {

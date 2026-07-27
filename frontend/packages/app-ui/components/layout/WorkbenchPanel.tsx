@@ -2,10 +2,10 @@
 
 import {
 	buildComposerFolderUploadSummaryMessage,
-	COMPOSER_UPLOAD_ACCEPT,
 	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	getComposerUploadAccept,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,
 	type Project,
@@ -244,6 +244,9 @@ function detectDesktopApp(): boolean {
 }
 
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
+	const composerUploadAccept = getComposerUploadAccept(
+		typeof navigator === "undefined" ? undefined : navigator.platform,
+	);
 	const {
 		projects,
 		activeWorkbenchProjectId,
@@ -988,7 +991,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							ref={fileInputRef}
 							type="file"
 							className="hidden"
-							accept={COMPOSER_UPLOAD_ACCEPT}
+							accept={composerUploadAccept}
 							multiple
 							onChange={handleAttachmentSelect}
 						/>

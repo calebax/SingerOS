@@ -1,11 +1,25 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { ArrowUpCircle, CheckCircle2, Download, LoaderCircle, RefreshCcw, RotateCw } from "lucide-react";
-import { toast } from "sonner";
 import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@leros/ui/components/ui/card";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardFooter,
+	CardHeader,
+	CardTitle,
+} from "@leros/ui/components/ui/card";
 import { Progress } from "@leros/ui/components/ui/progress";
 import { Separator } from "@leros/ui/components/ui/separator";
+import {
+	ArrowUpCircle,
+	CheckCircle2,
+	Download,
+	LoaderCircle,
+	RefreshCcw,
+	RotateCw,
+} from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
+import { toast } from "sonner";
 import type { DesktopUpdateState } from "../../../shared/auto-update";
 
 const initialState: DesktopUpdateState = {
@@ -38,7 +52,9 @@ function formatTime(value?: string) {
 	}).format(new Date(value));
 }
 
-function getPhaseVariant(phase: DesktopUpdateState["phase"]): "default" | "secondary" | "destructive" | "outline" {
+function getPhaseVariant(
+	phase: DesktopUpdateState["phase"],
+): "default" | "secondary" | "destructive" | "outline" {
 	if (phase === "downloaded") {
 		return "default";
 	}
@@ -89,6 +105,12 @@ export function DesktopSettingsPage() {
 			if (nextState.phase === "up-to-date") {
 				toast.success("当前已经是最新版本");
 			}
+			if (nextState.phase === "available") {
+				toast.success(nextState.message);
+			}
+			if (nextState.phase === "error") {
+				toast.error(nextState.message);
+			}
 		} finally {
 			setChecking(false);
 		}
@@ -112,7 +134,7 @@ export function DesktopSettingsPage() {
 				<div className="space-y-2">
 					<h1 className="text-2xl font-semibold tracking-tight text-slate-950">桌面端更新</h1>
 					<p className="max-w-2xl text-sm leading-6 text-slate-600">
-						应用会在启动后自动检查更新，并从对象存储 + CDN 的静态发布目录下载新版本。
+						应用会在启动后检查对象存储 + CDN 的稳定版元数据；Linux 的 .deb 安装包需要手动安装。
 					</p>
 				</div>
 
@@ -126,7 +148,9 @@ export function DesktopSettingsPage() {
 							<div className="text-3xl font-semibold tracking-tight text-slate-950">
 								v{updateState.currentVersion}
 							</div>
-							<Badge variant={getPhaseVariant(updateState.phase)}>{phaseLabelMap[updateState.phase]}</Badge>
+							<Badge variant={getPhaseVariant(updateState.phase)}>
+								{phaseLabelMap[updateState.phase]}
+							</Badge>
 						</div>
 
 						<div className="grid gap-4 md:grid-cols-2">
@@ -166,7 +190,8 @@ export function DesktopSettingsPage() {
 					</CardContent>
 					<CardFooter className="flex flex-wrap justify-between gap-3">
 						<div className="text-xs leading-5 text-slate-500">
-							macOS 使用 `latest-mac.yml`，Windows 使用 `latest.yml`，文件由发布流水线上传到 CDN。
+							macOS 使用 `latest-mac.yml`，Windows 使用 `latest.yml`，Linux 使用
+							`latest-linux.yml`。
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
 							<Button

@@ -120,6 +120,8 @@ export {
 	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	getComposerUploadAccept,
+	getNativeFileInputAccept,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,
 	partitionComposerFolderFiles,

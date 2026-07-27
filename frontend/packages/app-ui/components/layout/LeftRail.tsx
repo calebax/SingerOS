@@ -3,6 +3,7 @@
 import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import {
 	Action,
+	getNativeFileInputAccept,
 	LEFT_RAIL_MAX_WIDTH,
 	LEFT_RAIL_MIN_WIDTH,
 	projectFileApi,
@@ -1279,7 +1280,7 @@ function AccountManagementDialog({
 						<input
 							ref={fileInputRef}
 							type="file"
-							accept="image/*"
+							accept={getNativeFileInputAccept("image/*")}
 							className="hidden"
 							onChange={handleAvatarChange}
 						/>
@@ -1494,6 +1495,12 @@ function DesktopUpdateMenuSection() {
 			setUpdateState(nextState);
 			if (nextState.phase === "up-to-date") {
 				toast.success("当前已经是最新版本");
+			}
+			if (nextState.phase === "available") {
+				toast.success(nextState.message);
+			}
+			if (nextState.phase === "error") {
+				toast.error(nextState.message);
 			}
 			if (nextState.phase === "unsupported") {
 				toast.message(nextState.message);

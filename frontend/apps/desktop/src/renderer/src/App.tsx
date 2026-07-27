@@ -146,6 +146,12 @@ function ClientUpdateGate() {
 			if (nextState.phase === "up-to-date") {
 				toast.message("当前版本已低于服务端最低要求，请等待新版本发布");
 			}
+			if (nextState.phase === "available") {
+				toast.success(nextState.message);
+			}
+			if (nextState.phase === "error") {
+				toast.error(nextState.message);
+			}
 		} finally {
 			setChecking(false);
 		}

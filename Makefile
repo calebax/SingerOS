@@ -30,10 +30,10 @@ uninstall:
 	bash deployments/dev/install.sh --uninstall
 
 docker-build-base:
-	docker build -t $(REGISTRY)/$(PROJECT)/base:latest -f deployments/build/Dockerfile.base .
+	docker build -t $(REGISTRY)/$(PROJECT)/leros-base:latest -f deployments/build/Dockerfile.base .
 
 docker-push-base: docker-build-base
-	docker push $(REGISTRY)/$(PROJECT)/base:latest
+	docker push $(REGISTRY)/$(PROJECT)/leros-base:latest
 
 docker-build:
 	docker build -t $(REGISTRY)/$(PROJECT)/leros:latest -f deployments/build/Dockerfile.leros .
