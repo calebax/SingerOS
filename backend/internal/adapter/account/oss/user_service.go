@@ -166,6 +166,38 @@ func (s *user) UpdateUser(ctx context.Context, publicID string, req *account.Upd
 		if req.Email != nil {
 			user.Email = strings.TrimSpace(*req.Email)
 		}
+
+		return db.UpdateUser(ctx, tx, user)
+	}); err != nil {
+		return nil, err
+	}
+
+	return convertToContractUser(user, nil), nil
+}
+
+func (s *user) UpdateCurrentUser(ctx context.Context, req *account.UpdateCurrentUserInput) (*account.UserInfo, error) {
+	caller, _ := auth.FromContext(ctx)
+	if caller == nil || caller.Uin == 0 {
+		return nil, accounterror.ErrLoginRequired
+	}
+
+	var user *types.User
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		user, err = db.GetUserByUin(ctx, tx, caller.Uin)
+		if err != nil {
+			return err
+		}
+		if user == nil {
+			return accounterror.ErrUserNotFound
+		}
+
+		if strings.TrimSpace(req.Name) != "" {
+			user.Name = strings.TrimSpace(req.Name)
+		}
+		if req.Email != nil {
+			user.Email = strings.TrimSpace(*req.Email)
+		}
 		if strings.TrimSpace(req.AvatarURL) != "" {
 			user.AvatarURL = strings.TrimSpace(req.AvatarURL)
 		}
@@ -267,8 +299,8 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 				if d, ok := deptMap[rel.DepartmentID]; ok {
 					name = d.Name
 				}
-			depts = append(depts, account.OrgMemberDepartment{
-				DepartmentID: rel.DepartmentID,
+				depts = append(depts, account.OrgMemberDepartment{
+					DepartmentID: rel.DepartmentID,
 					Name:         name,
 					IsPrimary:    rel.IsPrimary,
 				})
