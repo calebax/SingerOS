@@ -476,19 +476,17 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 						</div>
 					) : (
 						<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] p-3 sm:p-4">
-							{/* 中文注释：固定列比例并截断过长部门名，避免表格最小内容宽度触发横向滚动。 */}
+							{/* 中文注释：固定列比例并截断过长文本，避免表格最小内容宽度触发横向滚动。 */}
 							<Table className="table-fixed">
 								<colgroup>
-									<col className="w-[18%]" />
-									<col className="w-[20%]" />
-									<col className="w-[20%]" />
-									<col className="w-[18%]" />
-									<col className="w-[24%]" />
+									<col className="w-[25%]" />
+									<col className="w-[25%]" />
+									<col className="w-[25%]" />
+									<col className="w-[25%]" />
 								</colgroup>
 								<TableHeader>
 									<TableRow>
 										<TableHead>用户名</TableHead>
-										<TableHead>所属部门</TableHead>
 										<TableHead>手机号</TableHead>
 										<TableHead>创建时间</TableHead>
 										<TableHead>操作</TableHead>
@@ -497,9 +495,11 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 								<TableBody>
 									{members.map((member) => (
 										<TableRow key={member.public_id}>
-											<TableCell className="font-medium">{member.name ?? "未命名"}</TableCell>
-											<TableCell className="max-w-0 truncate">
-												{selectedDepartment ? <Badge>{selectedDepartment.name}</Badge> : "-"}
+											<TableCell
+												className="max-w-0 truncate font-medium"
+												title={member.name ?? "未命名"}
+											>
+												{member.name ?? "未命名"}
 											</TableCell>
 											<TableCell className="truncate">{member.phone ?? "-"}</TableCell>
 											<TableCell className="truncate">
@@ -886,7 +886,7 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 						<Input value={member.phone ?? "-"} disabled />
 					</div>
 				</div>
-				<DialogFooter>
+				<DialogFooter className="mt-6">
 					<Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
 						取消
 					</Button>
