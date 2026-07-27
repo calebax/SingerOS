@@ -446,7 +446,7 @@ func convertToContractUser(user *types.User, avatarURLMap map[string]string) *ac
 		Email:     user.Email,
 		Phone:     user.Phone,
 		AvatarURL: avatarURL,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
+		CreatedAt: &user.CreatedAt,
+		UpdatedAt: &user.UpdatedAt,
 	}
 }
