@@ -628,7 +628,6 @@ func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *account.O
 			departmentName = department.Name
 		}
 		result.Departments = append(result.Departments, account.OrgMemberDepartment{
-			ID:           relation.ID,
 			DepartmentID: relation.DepartmentID,
 			Name:         departmentName,
 			IsPrimary:    relation.IsPrimary,

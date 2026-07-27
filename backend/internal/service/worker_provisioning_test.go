@@ -391,3 +391,7 @@ func (f *fakeWorkerScheduler) List(ctx context.Context) ([]*worker.WorkerInstanc
 func (f *fakeWorkerScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
 	return f.needsReconcile, nil
 }
+
+func (f *fakeWorkerScheduler) Shutdown(ctx context.Context) error {
+	return nil
+}

@@ -144,7 +144,7 @@ func newServerCommand() *cobra.Command {
 				WorkerProvisioning: workerProvisioning,
 			})
 
-			r := api.SetupRouter(*cfg, edition, publisher, db, modelInvoker)
+			r, workerScheduler := api.SetupRouter(*cfg, edition, publisher, db, modelInvoker)
 
 			srv := &http.Server{
 				Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
@@ -159,6 +159,16 @@ func newServerCommand() *cobra.Command {
 					logs.Fatalf("Failed to start server: %v", err)
 				}
 			}()
+
+			if workerScheduler != nil {
+				lifecycle.Std().AddCloseFunc(func() error {
+					logs.Info("Shutting down worker scheduler")
+					if err := workerScheduler.Shutdown(cmd.Context()); err != nil {
+						logs.Errorf("Worker scheduler shutdown error: %v", err)
+					}
+					return nil
+				})
+			}
 
 			lifecycle.Std().AddCloseFunc(func() error {
 				if err := srv.Shutdown(cmd.Context()); err != nil {
