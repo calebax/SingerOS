@@ -118,6 +118,28 @@ func newServerCommand() *cobra.Command {
 				}
 			}
 
+			workerReport, workerErr := service.SyncBuiltinWorkerSkills(cmd.Context(), db, "")
+			if workerErr != nil {
+				logs.Warnf("Built-in worker Skill sync skipped: %v", workerErr)
+			} else {
+				for _, failure := range workerReport.Failures {
+					logs.Warnf(
+						"Failed to sync built-in worker Skill %s: %v",
+						failure.Code,
+						failure.Err,
+					)
+				}
+				logs.Infof(
+					"Built-in worker Skill sync complete: scanned=%d created=%d updated=%d unchanged=%d restored=%d failed=%d",
+					workerReport.Scanned,
+					workerReport.Created,
+					workerReport.Updated,
+					workerReport.Unchanged,
+					workerReport.Restored,
+					len(workerReport.Failures),
+				)
+			}
+
 			var modelInvoker modelrouter.Invoker
 			if db != nil {
 				modelInvoker = modelrouter.NewModelRouter(

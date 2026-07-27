@@ -78,6 +78,23 @@ vi.mock("@leros/store", () => ({
 				},
 			],
 		}),
+	pluginApi: {
+		list: () => Promise.resolve({ data: { code: 0, message: "success", data: { plugins: [] } } }),
+		listProject: () => Promise.resolve({ data: { code: 0, message: "success", data: [] } }),
+		listBuiltinSkills: () =>
+			Promise.resolve({ data: { code: 0, message: "success", data: { plugins: [] } } }),
+	},
+	pluginToComposerOption: (item: Record<string, unknown>) => ({
+		code: item.code ?? "",
+		label: item.name ?? item.code ?? "",
+		description: (item.description as string) ?? "",
+		keywords: [],
+	}),
+	mergeSkillOptions: (project: unknown[], org: unknown[], builtin: unknown[]) => [
+		...project,
+		...org,
+		...builtin,
+	],
 }));
 
 vi.mock("./StructuredComposer", () => ({

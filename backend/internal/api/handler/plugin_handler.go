@@ -19,6 +19,7 @@ func RegisterPluginRoutes(r gin.IRouter, service contract.PluginService) {
 	r.GET("/plugins/installation-status", getPluginInstallationStatus(service))
 	r.POST("/plugins/skills", addSkillPlugin(service))
 	r.POST("/plugins/skills/download-urls", resolveSkillDownloadURLs(service))
+	r.GET("/plugins/builtin-skills", listBuiltinSkills(service))
 	r.DELETE("/plugins/:plugin_id", deletePlugin(service))
 	r.GET("/plugins/:plugin_id", getPlugin(service))
 	r.GET("/plugins/:plugin_id/versions", listPluginVersions(service))
@@ -188,4 +189,15 @@ func writePluginServiceResult(ctx *gin.Context, result interface{}, err error) {
 		return
 	}
 	ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+}
+
+func listBuiltinSkills(service contract.PluginService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		_, ok := pluginCaller(ctx)
+		if !ok {
+			return
+		}
+		result, err := service.ListBuiltinSkills(ctx)
+		writePluginServiceResult(ctx, result, err)
+	}
 }

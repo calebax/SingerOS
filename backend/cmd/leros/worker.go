@@ -210,6 +210,11 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to ensure state dir: %v", err)
 		return
 	}
+	if report, err := skilllinks.CleanupLegacyGlobalSkillLinksOnce(); err != nil {
+		logs.Warnf("Clean legacy global CLI Skill links failed: %v", err)
+	} else if !report.AlreadyCompleted {
+		logs.Infof("Legacy global CLI Skill link cleanup complete: removed=%d", report.Removed)
+	}
 	if err := skilllinks.SyncToLerosDir(""); err != nil {
 		logs.Warnf("Sync worker built-in skills failed: %v", err)
 	}

@@ -1,6 +1,5 @@
 "use client";
 
-import { type PluginComposerOption, pluginApi, pluginToComposerOption } from "@leros/store";
 import type { ComposerToken } from "@leros/store/types/chat";
 import {
 	Command,
@@ -65,6 +64,7 @@ export type ComposerSkillOption = {
 	label: string;
 	description: string;
 	keywords: string[];
+	origin?: string;
 };
 
 type CommandOption = {
@@ -104,8 +104,10 @@ type StructuredComposerProps = {
 	placeholder: string;
 	isProjectVariant: boolean;
 	assistantOptions?: ComposerAssistantOption[];
-	projectSkillOptions?: ComposerSkillOption[];
+	skillOptions?: ComposerSkillOption[];
+	skillsLoading?: boolean;
 	directivesDisabled?: boolean;
+	assistantDirectivesDisabled?: boolean;
 	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
 	assistantSelectionMode?: "single" | "multiple";
 	prefill?: {
@@ -863,8 +865,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			placeholder,
 			isProjectVariant,
 			assistantOptions = [],
-			projectSkillOptions,
+			skillOptions,
+			skillsLoading,
 			directivesDisabled = false,
+			assistantDirectivesDisabled = false,
 			onProjectTrigger,
 			assistantSelectionMode = "multiple",
 			prefill,
@@ -872,8 +876,6 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		},
 		ref,
 	) {
-		const [orgSkillOptions, setOrgSkillOptions] = useState<PluginComposerOption[]>([]);
-		const [orgSkillsLoaded, setOrgSkillsLoaded] = useState(false);
 		const editorRef = useRef<HTMLDivElement>(null);
 		const pickerRef = useRef<HTMLDivElement>(null);
 		const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
@@ -889,40 +891,6 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const tokensRef = useRef<InsertedToken[]>([]);
 		const appliedPrefillIdsRef = useRef<Set<string>>(new Set());
 
-		useEffect(() => {
-			if (projectSkillOptions) {
-				setOrgSkillsLoaded(true);
-				return;
-			}
-			let cancelled = false;
-			pluginApi
-				.list({ kind: "skill" })
-				.then((res) => {
-					if (cancelled) return;
-					if (res.data?.code !== 0) {
-						console.warn("Failed to load org skills for composer:", res.data?.message);
-						setOrgSkillsLoaded(true);
-						return;
-					}
-					setOrgSkillOptions(
-						(res.data.data.plugins ?? []).map((item) => pluginToComposerOption(item)),
-					);
-					setOrgSkillsLoaded(true);
-				})
-				.catch((err) => {
-					if (cancelled) return;
-					console.error("Failed to load org skills for composer:", err);
-					setOrgSkillsLoaded(true);
-				});
-			return () => {
-				cancelled = true;
-			};
-		}, [projectSkillOptions]);
-		const skillOptions = useMemo<PluginComposerOption[]>(() => {
-			if (projectSkillOptions) return projectSkillOptions;
-			return orgSkillOptions;
-		}, [orgSkillOptions, projectSkillOptions]);
-		const skillsLoading = trigger?.kind === "command" && !projectSkillOptions && !orgSkillsLoaded;
 		const availableAssistantOptions = useMemo<AssistantOption[]>(
 			() => assistantOptions,
 			[assistantOptions],
@@ -962,13 +930,15 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			});
 		}, [assistantSearch, availableAssistantOptions, selectedAssistantNames, trigger?.kind]);
 
+		const mergedSkillOptions = useMemo(() => skillOptions ?? [], [skillOptions]);
+
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? commandSearch : "");
-			return skillOptions.filter((skill) => {
+			return mergedSkillOptions.filter((skill) => {
 				if (selectedSkillLabels.includes(skill.label)) return false;
 				return matchesCommandQuery(skill, query);
 			});
-		}, [commandSearch, selectedSkillLabels, skillOptions, trigger]);
+		}, [commandSearch, selectedSkillLabels, mergedSkillOptions, trigger]);
 
 		const commandOptions = useMemo<CommandOption[]>(
 			() => filteredSkills.map((item) => ({ kind: "skill" as const, item })),
@@ -1200,11 +1170,14 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					return;
 				}
 
-				setTrigger(directivesDisabled || nextTrigger?.kind === "project" ? null : nextTrigger);
+				const shouldBlock =
+					directivesDisabled || (assistantDirectivesDisabled && nextTrigger?.kind === "assistant");
+				setTrigger(shouldBlock || nextTrigger?.kind === "project" ? null : nextTrigger);
 			}
 		}, [
 			availableAssistantOptions,
 			directivesDisabled,
+			assistantDirectivesDisabled,
 			getActiveTrigger,
 			notifyProjectTrigger,
 			onChange,
@@ -1829,8 +1802,15 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 													<Sparkles className="size-3.5" />
 												</div>
 												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium">
-														{renderHighlightedText(skill.label, commandSearch)}
+													<div className="flex items-center gap-1.5 truncate font-medium">
+														<span className="truncate">
+															{renderHighlightedText(skill.label, commandSearch)}
+														</span>
+														{skill.origin === "builtin_worker" && (
+															<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+																系统
+															</span>
+														)}
 													</div>
 													<div className="truncate text-xs text-slate-400">{skill.description}</div>
 												</div>

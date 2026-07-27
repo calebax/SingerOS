@@ -66,6 +66,19 @@ func (s *pluginService) ListPlugins(ctx context.Context, orgID uint, req *contra
 	return &contract.ListPluginsResponse{Plugins: result}, nil
 }
 
+// ListBuiltinSkills returns active builtin_worker system skills ordered by code.
+func (s *pluginService) ListBuiltinSkills(ctx context.Context) (*contract.ListPluginsResponse, error) {
+	plugins, err := infradb.ListActiveSystemPluginsByOrigin(ctx, s.db, "skill", builtinWorkerOrigin)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]contract.PluginView, 0, len(plugins))
+	for _, p := range plugins {
+		result = append(result, pluginView(p))
+	}
+	return &contract.ListPluginsResponse{Plugins: result}, nil
+}
+
 func (s *pluginService) GetPlugin(ctx context.Context, orgID uint, pluginID string, req *contract.GetPluginRequest) (*contract.GetPluginResponse, error) {
 	plugin, err := infradb.GetPluginByPublicID(ctx, s.db, orgID, pluginID)
 	if err != nil {

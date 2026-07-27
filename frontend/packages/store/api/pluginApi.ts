@@ -14,7 +14,6 @@ export interface PluginListItem {
 }
 
 export interface ListPluginsResponse {
-	scope: string;
 	plugins: PluginListItem[];
 }
 
@@ -118,21 +117,52 @@ export interface PluginComposerOption {
 	label: string;
 	description: string;
 	keywords: string[];
+	origin?: string;
 }
 
 // pluginToComposerOption maps PluginListItem (or ProjectPluginItem) to a composer picker option.
-export function pluginToComposerOption(
-	plugin: PluginListItem,
-	defaultDescription = "组织技能",
-): PluginComposerOption {
+export function pluginToComposerOption(plugin: PluginListItem): PluginComposerOption {
 	return {
 		code: plugin.code,
 		label: plugin.name || plugin.code,
-		description: plugin.description || defaultDescription,
+		description: plugin.description ?? "",
+		origin: plugin.origin,
 		keywords: [plugin.name, plugin.code, plugin.description, plugin.kind, plugin.origin].filter(
 			(item): item is string => Boolean(item),
 		),
 	};
+}
+
+/**
+ * Merges project, org, and builtin skill options into a single ordered list.
+ * Order: project-bound org skills > remaining org skills > system builtin skills.
+ * Deduplication (case-insensitive by code and label):
+ *   - Org skill + builtin skill with same code → keep org skill.
+ *   - Project skills always appear before org skills.
+ */
+export function mergeSkillOptions(
+	projectSkills: PluginComposerOption[],
+	orgSkills: PluginComposerOption[],
+	builtinSkills: PluginComposerOption[],
+): PluginComposerOption[] {
+	const seenCodes = new Set<string>();
+	const seenLabels = new Set<string>();
+	const result: PluginComposerOption[] = [];
+
+	const add = (skill: PluginComposerOption) => {
+		const codeKey = skill.code.toLowerCase();
+		const labelKey = skill.label.toLowerCase();
+		if (seenCodes.has(codeKey) || seenLabels.has(labelKey)) return;
+		seenCodes.add(codeKey);
+		seenLabels.add(labelKey);
+		result.push(skill);
+	};
+
+	for (const skill of projectSkills) add(skill);
+	for (const skill of orgSkills) add(skill);
+	for (const skill of builtinSkills) add(skill);
+
+	return result;
 }
 
 export const pluginApi = {
@@ -156,4 +186,6 @@ export const pluginApi = {
 		apiClient.post<BackendDataResponse<null>>("/AddProjectPlugin", params),
 	removeFromProject: (params: UpdateProjectPluginParams) =>
 		apiClient.post<BackendDataResponse<null>>("/RemoveProjectPlugin", params),
+	listBuiltinSkills: () =>
+		apiClient.get<BackendDataResponse<ListPluginsResponse>>("/plugins/builtin-skills"),
 };

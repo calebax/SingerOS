@@ -37,10 +37,10 @@ afterEach(() => {
 });
 
 function TestHarness({
-	projectSkillOptions,
+	skillOptions,
 	onValueChange,
 }: {
-	projectSkillOptions: ComposerSkillOption[];
+	skillOptions: ComposerSkillOption[];
 	onValueChange?: (value: string) => void;
 }) {
 	const [value, setValue] = useState("");
@@ -59,7 +59,7 @@ function TestHarness({
 			onBlur={vi.fn()}
 			placeholder="请输入"
 			isProjectVariant
-			projectSkillOptions={projectSkillOptions}
+			skillOptions={skillOptions}
 		/>
 	);
 }
@@ -91,7 +91,7 @@ function ToolbarHarness({ onValueChange }: { onValueChange?: (value: string) => 
 				onBlur={vi.fn()}
 				placeholder="请输入"
 				isProjectVariant
-				projectSkillOptions={[]}
+				skillOptions={[]}
 			/>
 		</div>
 	);
@@ -132,7 +132,7 @@ function MentionRemoveHarness({ onValueChange }: { onValueChange?: (value: strin
 						avatarUrl: "https://example.com/code-assistant.png",
 					},
 				]}
-				projectSkillOptions={[]}
+				skillOptions={[]}
 			/>
 		</div>
 	);
@@ -165,7 +165,7 @@ function SingleAssistantHarness({ onValueChange }: { onValueChange?: (value: str
 				placeholder="璇疯緭鍏?"
 				isProjectVariant
 				assistantSelectionMode="single"
-				projectSkillOptions={[]}
+				skillOptions={[]}
 			/>
 		</div>
 	);
@@ -203,7 +203,7 @@ function ProjectTriggerHarness({
 				onBlur={vi.fn()}
 				placeholder="请输入"
 				isProjectVariant
-				projectSkillOptions={[]}
+				skillOptions={[]}
 				onProjectTrigger={(query, clearTrigger, dismissTrigger) => {
 					clearTriggerRef.current = clearTrigger;
 					dismissTriggerRef.current = dismissTrigger;
@@ -217,7 +217,7 @@ function ProjectTriggerHarness({
 function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
 	const [value, setValue] = useState("");
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
-	const projectSkillOptions: ComposerSkillOption[] = [
+	const skillOptions: ComposerSkillOption[] = [
 		{
 			code: "anysearch",
 			label: "anysearch",
@@ -248,13 +248,9 @@ function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) =
 				onBlur={vi.fn()}
 				placeholder="请输入"
 				isProjectVariant
-				projectSkillOptions={projectSkillOptions}
+				skillOptions={skillOptions}
 			/>
-			<ComposerActionBar
-				inputValue={value}
-				composerRef={composerRef}
-				projectSkillOptions={projectSkillOptions}
-			/>
+			<ComposerActionBar inputValue={value} composerRef={composerRef} skillOptions={skillOptions} />
 		</div>
 	);
 }
@@ -290,7 +286,7 @@ describe("StructuredComposer", () => {
 		render(
 			<TestHarness
 				onValueChange={handleValueChange}
-				projectSkillOptions={[
+				skillOptions={[
 					{
 						code: "doc-coauthoring",
 						label: "doc-coauthoring",
@@ -325,7 +321,7 @@ describe("StructuredComposer", () => {
 		render(
 			<TestHarness
 				onValueChange={handleValueChange}
-				projectSkillOptions={[
+				skillOptions={[
 					{
 						code: "doc-coauthoring",
 						label: "doc-coauthoring",
