@@ -402,3 +402,86 @@ func TestCallerMiddleware_ZeroUin(t *testing.T) {
 		t.Errorf("expected State AuthStateFailed for zero uin, got %v", caller.State)
 	}
 }
+
+func TestIsWorkerToken_ValidWorkerToken(t *testing.T) {
+	token, _, err := localauth.GenerateWorkerToken(3, 7, testJWTSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate worker token: %v", err)
+	}
+	if !isWorkerToken(token) {
+		t.Error("isWorkerToken should return true for a valid worker token")
+	}
+}
+
+func TestIsWorkerToken_ValidUserToken(t *testing.T) {
+	token, err := generateTestUserJWT(12345)
+	if err != nil {
+		t.Fatalf("failed to generate user token: %v", err)
+	}
+	if isWorkerToken(token) {
+		t.Error("isWorkerToken should return false for a valid user token")
+	}
+}
+
+func TestIsWorkerToken_InvalidFormat(t *testing.T) {
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{"empty", ""},
+		{"plain text", "not-a-jwt"},
+		{"single dot", "abc.def"},
+		{"invalid base64", "a.b==.c"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if isWorkerToken(tt.token) {
+				t.Errorf("isWorkerToken(%q) should return false", tt.token)
+			}
+		})
+	}
+}
+
+func TestCallerMiddleware_WorkerTokenSkipsParseUser(t *testing.T) {
+	database := setupTestDB(t)
+	workerToken, _, err := localauth.GenerateWorkerToken(3, 7, testJWTSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate worker token: %v", err)
+	}
+
+	parser := &recordingTokenParser{secret: testJWTSecret, database: database}
+	ctx, _ := setupTestContext()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+workerToken)
+	ctx.Request = req
+
+	middleware := CallerMiddleware(parser, database)
+	middleware(ctx)
+
+	caller, _ := localauth.FromGinContext(ctx)
+	if caller == nil || caller.Kind != types.CallerKindWorker {
+		t.Fatalf("expected Kind worker, got %v", caller)
+	}
+	if parser.parseUserCalled {
+		t.Error("ParseUser should not be called for worker token")
+	}
+}
+
+type recordingTokenParser struct {
+	secret          string
+	database        *gorm.DB
+	parseUserCalled bool
+}
+
+func (m *recordingTokenParser) ParseUser(ctx context.Context, tokenStr string) (*types.Caller, error) {
+	m.parseUserCalled = true
+	return (&mockTokenParser{secret: m.secret, database: m.database}).ParseUser(ctx, tokenStr)
+}
+
+func (m *recordingTokenParser) ParseWorker(ctx context.Context, tokenStr string) (*types.Caller, error) {
+	return (&mockTokenParser{secret: m.secret, database: m.database}).ParseWorker(ctx, tokenStr)
+}
+
+func (m *recordingTokenParser) IssueWorker(ctx context.Context, orgID, workerID uint, bootstrapToken string) (string, int64, error) {
+	panic("not implemented")
+}

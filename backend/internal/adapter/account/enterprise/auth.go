@@ -126,9 +126,6 @@ func (s *auth) LoginByPhoneCode(ctx context.Context, req *account.LoginByPhoneCo
 	if err != nil {
 		return nil, err
 	}
-	if len(result.Organizations) == 0 {
-		return nil, accounterror.ErrOrgNotFound
-	}
 	result.Edition = account.EditionEnterprise
 	return result, nil
 }

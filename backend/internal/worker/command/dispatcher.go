@@ -240,8 +240,21 @@ func (d *Dispatcher) handleFile(ctx context.Context, msg *nats.Msg) {
 }
 
 func withCommandLogFields(ctx context.Context, cmd messaging.WorkerCommand) context.Context {
-	if cmd.Trace.ReqID == "" {
+	fields := make([]interface{}, 0, 8)
+	if cmd.Trace.ReqID != "" {
+		fields = append(fields, "req_id", cmd.Trace.ReqID)
+	}
+	if cmd.Route.SessionID != "" {
+		fields = append(fields, "session_id", cmd.Route.SessionID)
+	}
+	if cmd.Route.AssistantID != 0 {
+		fields = append(fields, "assistant_id", cmd.Route.AssistantID)
+	}
+	if cmd.Route.WorkerID != 0 {
+		fields = append(fields, "worker_id", cmd.Route.WorkerID)
+	}
+	if len(fields) == 0 {
 		return ctx
 	}
-	return logs.WithContextFields(ctx, "req_id", cmd.Trace.ReqID)
+	return logs.WithContextFields(ctx, fields...)
 }
