@@ -57,9 +57,59 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     libreoffice \
     python3.12 \
     python3-pip \
+    fonts-noto-cjk \
+    fonts-noto-cjk-extra \
+    fonts-wqy-zenhei \
+    fonts-wqy-microhei \
+    fonts-arphic-uming \
+    fonts-arphic-ukai \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
-RUN soffice --version
+# Map common Windows/MS Office CJK font names to the installed Noto/WenQuanYi fonts,
+# so LibreOffice documents requesting SimSun/SimHei/FangSong/KaiTi/Microsoft YaHei/
+# STSong-Light etc. resolve to real CJK glyphs instead of falling back to DejaVu.
+RUN mkdir -p /etc/fonts/conf.d && cat > /etc/fonts/conf.d/30-cjk-aliases.conf <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- Sans (黑体类) -> Noto Sans CJK SC -->
+  <match target="pattern"><test name="family"><string>SimHei</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>黑体</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Microsoft YaHei</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>微软雅黑</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Source Han Sans CN</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Source Han Sans SC</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>思源黑体 CN</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+
+  <!-- Serif (宋体类) -> Noto Serif CJK SC -->
+  <match target="pattern"><test name="family"><string>SimSun</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>宋体</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>NSimSun</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>STSong</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>STSong-Light</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>华文宋体</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Source Han Serif CN</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Source Han Serif SC</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>思源宋体 CN</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+
+  <!-- FangSong (仿宋) -> Noto Serif CJK SC (closest serif; Ubuntu has no fang-dedicated font) -->
+  <match target="pattern"><test name="family"><string>FangSong</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>仿宋</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>STFangsong</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>华文仿宋</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+
+  <!-- KaiTi (楷体) -> AR PL UKai CN (arphic ukai) -->
+  <match target="pattern"><test name="family"><string>KaiTi</string></test><edit name="family" mode="assign" binding="strong"><string>AR PL UKai CN</string></edit></match>
+  <match target="pattern"><test name="family"><string>楷体</string></test><edit name="family" mode="assign" binding="strong"><string>AR PL UKai CN</string></edit></match>
+  <match target="pattern"><test name="family"><string>STKaiti</string></test><edit name="family" mode="assign" binding="strong"><string>AR PL UKai CN</string></edit></match>
+  <match target="pattern"><test name="family"><string>华文楷体</string></test><edit name="family" mode="assign" binding="strong"><string>AR PL UKai CN</string></edit></match>
+</fontconfig>
+EOF
+
+RUN soffice --version \
+    && fc-cache -f \
+    && fc-list :lang=zh-cn | head -20
 
 ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
     PIP_DEFAULT_TIMEOUT=120 \
