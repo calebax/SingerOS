@@ -9,11 +9,84 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 )
+
+type testUserRepo struct {
+	uinMap    map[string]uint
+	userInfos map[uint]*account.UserInfo
+}
+
+func (r *testUserRepo) GetUinMapByPublicIDs(ctx context.Context, orgID uint, publicIDs []string) (map[string]uint, error) {
+	result := make(map[string]uint, len(publicIDs))
+	for _, pid := range publicIDs {
+		if u, ok := r.uinMap[pid]; ok {
+			result[pid] = u
+		}
+	}
+	return result, nil
+}
+
+func (r *testUserRepo) GetUsersByUins(ctx context.Context, uins []uint) (map[uint]*account.UserInfo, error) {
+	result := make(map[uint]*account.UserInfo, len(uins))
+	for _, u := range uins {
+		if info, ok := r.userInfos[u]; ok {
+			result[u] = info
+		}
+	}
+	return result, nil
+}
+
+func (r *testUserRepo) GetUserByUin(ctx context.Context, uin uint) (*account.UserInfo, error) {
+	if info, ok := r.userInfos[uin]; ok {
+		return info, nil
+	}
+	return nil, nil
+}
+
+func (r *testUserRepo) CreateUser(ctx context.Context, req *account.CreateUserInput) (*account.CreateUserResponse, error) {
+	return nil, nil
+}
+func (r *testUserRepo) GetUser(ctx context.Context, publicID string, phone string) (*account.UserInfo, error) {
+	return nil, nil
+}
+func (r *testUserRepo) UpdateUser(ctx context.Context, publicID string, req *account.UpdateUserInput) (*account.UserInfo, error) {
+	return nil, nil
+}
+func (r *testUserRepo) UpdateCurrentUser(ctx context.Context, req *account.UpdateCurrentUserInput) (*account.UserInfo, error) {
+	return nil, nil
+}
+func (r *testUserRepo) DeleteUser(ctx context.Context, publicID string) error { return nil }
+func (r *testUserRepo) ListUser(ctx context.Context, req *account.ListUserInput) (*account.UserList, error) {
+	return nil, nil
+}
+func (r *testUserRepo) GetUserByID(ctx context.Context, id uint) (*account.UserInfo, error) {
+	return nil, nil
+}
+func (r *testUserRepo) GetUserByGithubID(ctx context.Context, githubID int64) (*account.UserInfo, error) {
+	return nil, nil
+}
+func (r *testUserRepo) GetUsersByIDs(ctx context.Context, ids []uint) ([]*account.UserInfo, error) {
+	return nil, nil
+}
+func (r *testUserRepo) GetUsersByPublicIDs(ctx context.Context, publicIDs []string) ([]*account.UserInfo, error) {
+	return nil, nil
+}
+func (r *testUserRepo) ListUin(ctx context.Context) (*account.ListUinOutput, error) { return nil, nil }
+
+func newTestUserRepo(uinMap map[string]uint) account.UserRepository {
+	userInfos := make(map[uint]*account.UserInfo, len(uinMap))
+	for publicID, uin := range uinMap {
+		userInfos[uin] = &account.UserInfo{
+			PublicID: publicID,
+		}
+	}
+	return &testUserRepo{uinMap: uinMap, userInfos: userInfos}
+}
 
 func TestBuildProjectActivitySkillMapUsesPublicIDAndLegacyCode(t *testing.T) {
 	database := setupTestDB(t)
@@ -271,7 +344,9 @@ func TestSyncProjectUserMembers_AdminCannotPromoteToOwner(t *testing.T) {
 	seedProjectResourceBinding(t, database, 1, project.ID, 2, types.ResourceRoleAdmin)
 	seedProjectResourceBinding(t, database, 1, project.ID, 3, types.ResourceRoleMember)
 
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil)
+	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", newTestUserRepo(map[string]uint{
+		"usr_member": 3,
+	}))
 	adminCtx := auth.WithContext(context.Background(), &types.Caller{
 		Uin:   2,
 		OrgID: 1,
@@ -299,7 +374,9 @@ func TestSyncProjectUserMembers_AdminCannotChangeOwnerRole(t *testing.T) {
 	seedProjectResourceBinding(t, database, 1, project.ID, 1, types.ResourceRoleOwner)
 	seedProjectResourceBinding(t, database, 1, project.ID, 2, types.ResourceRoleAdmin)
 
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil)
+	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", newTestUserRepo(map[string]uint{
+		"usr_test": 99,
+	}))
 	adminCtx := setupTestContextWithCallerUin(t, 2)
 
 	_, err := service.UpdateProject(adminCtx, project.PublicID, &contract.UpdateProjectRequest{
@@ -322,7 +399,10 @@ func TestSyncProjectUserMembers_OwnerCanAddMember(t *testing.T) {
 	seedTestUser(t, database, "usr_new_member", 4)
 	seedProjectResourceBinding(t, database, 1, project.ID, 1, types.ResourceRoleOwner)
 
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil)
+	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", newTestUserRepo(map[string]uint{
+		"usr_new_member": 4,
+		"usr_test":       1,
+	}))
 	ownerCtx := setupTestContextWithCaller(t)
 
 	updated, err := service.UpdateProject(ownerCtx, project.PublicID, &contract.UpdateProjectRequest{
@@ -353,12 +433,65 @@ func TestSyncProjectUserMembers_OwnerCanAddMember(t *testing.T) {
 	}
 }
 
+func TestSyncProjectUserMembers_AdminPreservesSelfInMemberList(t *testing.T) {
+	database := setupTestDB(t)
+	seedReadyAssistant(t, database, "default", "默认队友", "默认队友")
+	project, resource := seedProjectWithResource(t, database, "prj_admin_keep_self")
+	seedTestUser(t, database, "usr_owner", 10)
+	seedTestUser(t, database, "usr_admin", 11)
+	seedTestUser(t, database, "usr_member", 12)
+	seedProjectResourceBinding(t, database, 1, project.ID, 10, types.ResourceRoleOwner)
+	seedProjectResourceBinding(t, database, 1, project.ID, 11, types.ResourceRoleAdmin)
+	seedProjectResourceBinding(t, database, 1, project.ID, 12, types.ResourceRoleMember)
+
+	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", newTestUserRepo(map[string]uint{
+		"usr_owner":  10,
+		"usr_admin":  11,
+		"usr_member": 12,
+	}))
+	adminCtx := setupTestContextWithCallerUin(t, 11)
+
+	if _, err := service.UpdateProject(adminCtx, project.PublicID, &contract.UpdateProjectRequest{
+		Members: []contract.MemberInput{
+			{Type: "user", ID: "usr_owner", Role: string(types.ResourceRoleOwner)},
+			{Type: "user", ID: "usr_admin", Role: string(types.ResourceRoleAdmin)},
+			{Type: "user", ID: "usr_member", Role: string(types.ResourceRoleMember)},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateProject: %v", err)
+	}
+
+	binding, err := infradb.GetResourceBindingByUin(context.Background(), database, resource.ID, 11)
+	if err != nil {
+		t.Fatalf("get admin binding: %v", err)
+	}
+	if binding == nil {
+		t.Fatal("expected admin binding to be preserved")
+	}
+	if binding.Role != types.ResourceRoleAdmin {
+		t.Fatalf("expected admin role preserved, got %q", binding.Role)
+	}
+
+	memberBinding, err := infradb.GetResourceBindingByUin(context.Background(), database, resource.ID, 12)
+	if err != nil {
+		t.Fatalf("get member binding: %v", err)
+	}
+	if memberBinding == nil {
+		t.Fatal("expected member binding to be preserved")
+	}
+	if memberBinding.Role != types.ResourceRoleMember {
+		t.Fatalf("expected member role preserved, got %q", memberBinding.Role)
+	}
+}
+
 func TestCreateProject_BindsAssistantMembers(t *testing.T) {
 	database := setupTestDB(t)
 	defaultAsst := seedReadyAssistant(t, database, "default", "默认队友", "默认队友")
 	extraAsst := seedReadyAssistant(t, database, "analyst", "分析专家", "分析专家")
 
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil)
+	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", newTestUserRepo(map[string]uint{
+		"usr_test": 1,
+	}))
 	ownerCtx := setupTestContextWithCaller(t)
 
 	project, err := service.CreateProject(ownerCtx, &contract.CreateProjectRequest{

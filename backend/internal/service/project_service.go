@@ -1075,6 +1075,9 @@ func (s *projectService) syncProjectUserMembers(ctx context.Context, tx *gorm.DB
 			return nil, nil, fmt.Errorf("user not found for member public_id %q", m.PublicID)
 		}
 		if uin == caller.Uin {
+			if b, ok := existingUserBindings[uin]; ok {
+				requestedRoles[uin] = b.Role
+			}
 			continue
 		}
 		requestedRoles[uin] = m.Role
