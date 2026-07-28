@@ -5,6 +5,8 @@ export type Edition = "oss" | "enterprise";
 
 export type GlobalConfig = {
 	edition: Edition;
+	/** 每个用户可创建的组织上限；达到后前端禁用创建组织入口。 */
+	max_orgs_per_user: number;
 };
 
 export const globalConfigApi = {

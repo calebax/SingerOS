@@ -11,6 +11,7 @@ import {
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
 import { Check, ChevronRight, Loader2, Plus } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
@@ -45,6 +46,7 @@ export function OrganizationSwitchPanel({
 }: OrganizationSwitchPanelProps) {
 	const user = useAuthStore((s) => s.authUser);
 	const edition = useGlobalConfigStore((s) => s.edition);
+	const maxOrgsPerUser = useGlobalConfigStore((s) => s.maxOrgsPerUser);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const switchOrganization = useAuthStore((s) => s.switchOrganization);
 	const createOrganization = useAuthStore((s) => s.createOrganization);
@@ -62,8 +64,13 @@ export function OrganizationSwitchPanel({
 	const [creating, setCreating] = useState(false);
 	const [waitingForNavigation, setWaitingForNavigation] = useState(false);
 	const { resetValidation, shouldShowError, handleFieldBlur } = useFormFieldValidation();
+	const organizations = pendingLogin?.organizations ?? user?.organizations ?? [];
+	// 中文注释：OSS 仅允许首次无组织时创建；企业版才展示创建入口。
 	const canCreateOrganization =
 		edition === "enterprise" || Boolean(pendingLogin && pendingLogin.organizations.length === 0);
+	// 中文注释：达到 GlobalConfig.max_orgs_per_user 后禁用创建入口，并用悬浮提示说明原因。
+	const createOrganizationDisabled =
+		maxOrgsPerUser !== null && organizations.length >= maxOrgsPerUser;
 
 	const changeMode = (nextMode: PanelMode) => {
 		setMode(nextMode);
@@ -153,7 +160,14 @@ export function OrganizationSwitchPanel({
 
 	const handleCreateOrganization = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (!canSubmitOrganization || creating || waitingForNavigation) return;
+		if (
+			!canCreateOrganization ||
+			!canSubmitOrganization ||
+			creating ||
+			waitingForNavigation ||
+			createOrganizationDisabled
+		)
+			return;
 		setCreating(true);
 		try {
 			if (pendingLogin) {
@@ -247,19 +261,36 @@ export function OrganizationSwitchPanel({
 			</div>
 			{canCreateOrganization ? (
 				<div className="flex justify-end py-3">
-					<button
-						type="button"
-						onClick={() => changeMode("create")}
-						className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]"
-					>
-						<Plus className="size-4" />
-						<span>创建新组织</span>
-					</button>
+					{createOrganizationDisabled ? (
+						<Tooltip>
+							{/* 中文注释：用 span 承接悬浮，避免原生 disabled 按钮吞掉 pointer 事件导致提示不出现。 */}
+							<TooltipTrigger
+								render={
+									<span className="inline-flex cursor-not-allowed items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] opacity-50" />
+								}
+							>
+								<button type="button" disabled className="inline-flex items-center gap-1.5">
+									<Plus className="size-4" />
+									<span>创建新组织</span>
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="top">每个用户最多可创建 {maxOrgsPerUser} 个组织</TooltipContent>
+						</Tooltip>
+					) : (
+						<button
+							type="button"
+							onClick={() => changeMode("create")}
+							className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]"
+						>
+							<Plus className="size-4" />
+							<span>创建新组织</span>
+						</button>
+					)}
 				</div>
 			) : null}
 			<div className="no-scrollbar min-h-0 max-h-[calc(70dvh-9rem)] flex-1 overflow-y-auto pr-1">
 				<OrganizationList
-					organizations={pendingLogin?.organizations ?? user?.organizations ?? []}
+					organizations={organizations}
 					currentOrgId={pendingLogin ? undefined : user?.currentOrg?.id}
 					switchingOrgId={switchingOrgId}
 					onSwitch={(orgId) => void handleSwitchOrganization(orgId)}
