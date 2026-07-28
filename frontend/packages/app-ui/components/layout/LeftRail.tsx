@@ -4,6 +4,7 @@ import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/s
 import {
 	Action,
 	getNativeFileInputAccept,
+	isPrivateDeployment,
 	LEFT_RAIL_MAX_WIDTH,
 	LEFT_RAIL_MIN_WIDTH,
 	projectFileApi,
@@ -51,6 +52,7 @@ import {
 	Pencil,
 	RefreshCcw,
 	Search,
+	Settings,
 	Trash2,
 	UserRound,
 	Users,
@@ -724,15 +726,25 @@ export function LeftRail({
 								} as CSSProperties
 							}
 						>
-							{/* 暂时仅保留退出登录入口，其他菜单项先注释隐藏；恢复时记得同步恢复对应 import。 */}
+							{isPrivateDeployment ? (
+								<DropdownMenuItem
+									onClick={() => {
+										if (navigation) {
+											navigation.goToRoute("settings");
+											return;
+										}
+										switchView("settings");
+									}}
+								>
+									<Settings className="size-4 shrink-0" />
+									<span>系统设置</span>
+								</DropdownMenuItem>
+							) : null}
+							{/* 其他菜单项先注释隐藏；恢复时记得同步恢复对应 import。 */}
 							{/*
 							<DropdownMenuItem>
 								<UserRound className="size-4" />
 								<span>个人信息</span>
-							</DropdownMenuItem>
-							<DropdownMenuItem>
-								<Settings className="size-4" />
-								<span>系统设置</span>
 							</DropdownMenuItem>
 							<DropdownMenuItem>
 								<CircleHelp className="size-4" />
@@ -761,7 +773,7 @@ export function LeftRail({
 								<ArrowLeftRight className="size-4 shrink-0" />
 								<span>切换组织</span>
 							</DropdownMenuItem>
-							<DesktopUpdateMenuSection />
+							{isPrivateDeployment ? null : <DesktopUpdateMenuSection />}
 							<DropdownMenuItem
 								onClick={() => {
 									if (!requireAuth()) return;

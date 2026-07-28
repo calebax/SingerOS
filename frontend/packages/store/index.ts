@@ -24,7 +24,16 @@ export type {
 	ClientVersionReportParams,
 } from "./api/clientUpdatePolicy";
 export { CLIENT_UPGRADE_REQUIRED_EVENT, getClientVersionReport } from "./api/clientUpdatePolicy";
-export { API_BASE_URL } from "./api/config";
+export {
+	API_BASE_URL,
+	hasPrivateServerConfiguration,
+	isPrivateDeployment,
+	normalizeAPIBaseURL,
+	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
+	readPrivateServerBaseURL,
+	savePrivateServerBaseURL,
+	testServerConnection,
+} from "./api/config";
 export { digitalAssistantApi } from "./api/digitalAssistantApi";
 export type { FeedbackType, SubmitFeedbackParams, SubmitFeedbackResponse } from "./api/feedbackApi";
 export { feedbackApi } from "./api/feedbackApi";
@@ -253,6 +262,7 @@ export {
 export {
 	AUTH_SESSION_EXPIRED_EVENT,
 	authenticatedFetch,
+	clearStoredAuthUser,
 	getValidJwtToken,
 } from "./utils/authStorage";
 export {

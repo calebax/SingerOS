@@ -15,7 +15,16 @@ export type {
 } from "./authApi";
 export { authApi } from "./authApi";
 export { apiClient } from "./client";
-export { API_BASE_URL } from "./config";
+export {
+	API_BASE_URL,
+	hasPrivateServerConfiguration,
+	isPrivateDeployment,
+	normalizeAPIBaseURL,
+	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
+	readPrivateServerBaseURL,
+	savePrivateServerBaseURL,
+	testServerConnection,
+} from "./config";
 export type {
 	CreateDAParams,
 	GetDAParams,

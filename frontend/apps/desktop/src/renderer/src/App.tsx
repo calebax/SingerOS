@@ -3,6 +3,7 @@ import {
 	type ClientUpdatePolicy,
 	type ClientUpgradeRequiredEvent,
 	clientUpdateApi,
+	isPrivateDeployment,
 } from "@leros/store";
 import { ThemeProvider } from "@leros/ui/components/common/theme-provider";
 import { Button } from "@leros/ui/components/ui/button";
@@ -19,6 +20,7 @@ import { useEffect, useState } from "react";
 import { HashRouter } from "react-router-dom";
 import { toast } from "sonner";
 import type { DesktopUpdateState } from "../../shared/auto-update";
+import { PrivateDeploymentGate } from "./components/PrivateDeploymentGate";
 import { AppRoutes } from "./routes";
 
 const initialUpdateState: DesktopUpdateState = {
@@ -40,8 +42,10 @@ export default function App() {
 		<HashRouter>
 			<ThemeProvider defaultTheme="light">
 				<MacTitleBarDragRegion />
-				<AppRoutes />
-				<ClientUpdateGate />
+				<PrivateDeploymentGate>
+					<AppRoutes />
+					{isPrivateDeployment ? null : <ClientUpdateGate />}
+				</PrivateDeploymentGate>
 				<Toaster />
 			</ThemeProvider>
 		</HashRouter>

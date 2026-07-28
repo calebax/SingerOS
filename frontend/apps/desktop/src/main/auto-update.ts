@@ -21,6 +21,11 @@ const initialAutoUpdateDelayMs = 1 * 1000;
 const desktopUpdateBaseURL =
 	"https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/stable";
 const enableDevAutoUpdate = !app.isPackaged;
+const privateDeploymentUnsupportedMessage = "私有化版本请通过离线安装包更新";
+
+function isPrivateDeploymentBuild(): boolean {
+	return process.env.LEROS_DEPLOYMENT_MODE === "private";
+}
 
 let updateState: DesktopUpdateState = createState({
 	phase: "idle",
@@ -286,6 +291,10 @@ function registerAutoUpdaterEvents() {
 }
 
 export async function checkDesktopUpdates(): Promise<DesktopUpdateState> {
+	if (isPrivateDeploymentBuild()) {
+		return updateState;
+	}
+
 	if (canCheckLinuxUpdates()) {
 		try {
 			return await checkLinuxUpdates();
@@ -344,7 +353,9 @@ function scheduleAutoUpdateChecks() {
 }
 
 export function registerDesktopAutoUpdate() {
-	if (canUseNativeAutoUpdate()) {
+	if (isPrivateDeploymentBuild()) {
+		markUnsupported(privateDeploymentUnsupportedMessage);
+	} else if (canUseNativeAutoUpdate()) {
 		registerAutoUpdaterEvents();
 		setState({
 			phase: "idle",
