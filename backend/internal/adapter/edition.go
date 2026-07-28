@@ -14,4 +14,6 @@ type Edition interface {
 	Department() account.DepartmentRepository
 	TokenParser() account.TokenParser
 	Edition() string
+	DeployMode() string
+	MaxOrgsPerUser() int
 }

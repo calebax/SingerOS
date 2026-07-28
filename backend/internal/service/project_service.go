@@ -1746,7 +1746,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 			// 中文注释：项目成员弹窗依赖 public_id 判断候选项是否已加入项目。
 			item.PublicID = u.PublicID
 			item.Name = u.Name
-			item.AvatarURL = u.AvatarURL
+			item.AvatarURL = resolveAvatarField(ctx, s.db, caller.OrgID, u.AvatarURL)
 		}
 		result.Members = append(result.Members, item)
 	}

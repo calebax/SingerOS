@@ -33,3 +33,9 @@ func (e *enterpriseEdition) Org() account.OrgRepository               { return e
 func (e *enterpriseEdition) Department() account.DepartmentRepository { return e.department }
 func (e *enterpriseEdition) TokenParser() account.TokenParser         { return e.tokenParser }
 func (e *enterpriseEdition) Edition() string                          { return "enterprise" }
+
+// TODO: 后续从配置读取 deploy_mode，当前硬编码
+func (e *enterpriseEdition) DeployMode() string { return "saas" }
+
+// TODO: 后续从配置读取 max_orgs_per_user，当前硬编码
+func (e *enterpriseEdition) MaxOrgsPerUser() int { return 1 }

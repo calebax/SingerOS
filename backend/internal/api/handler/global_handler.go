@@ -29,7 +29,7 @@ func RegisterGlobalRoutes(r gin.IRouter, edition adapter.Edition) {
 // GetGlobalConfig 返回服务端通用全局配置信息
 //
 // @Summary 获取全局配置
-// @Description 返回服务端通用全局配置信息（当前返回 edition 字段）
+// @Description 返回服务端通用全局配置信息（edition、deploy_mode、max_orgs_per_user）
 // @Tags Global
 // @Produce json
 // @Success 200 {object} dto.Response{data=dto.GlobalConfigData} "成功响应"
@@ -37,6 +37,8 @@ func RegisterGlobalRoutes(r gin.IRouter, edition adapter.Edition) {
 // @Router /GlobalConfig [get]
 func (h *GlobalHandler) GetGlobalConfig(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(dto.GlobalConfigData{
-		Edition: h.edition.Edition(),
+		Edition:        h.edition.Edition(),
+		DeployMode:     h.edition.DeployMode(),
+		MaxOrgsPerUser: h.edition.MaxOrgsPerUser(),
 	}))
 }
