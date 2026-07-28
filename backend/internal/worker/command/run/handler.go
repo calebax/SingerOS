@@ -460,7 +460,7 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 }
 
 func withRunLogFields(ctx context.Context, task runTask) context.Context {
-	fields := make([]interface{}, 0, 6)
+	fields := make([]interface{}, 0, 10)
 	if task.Trace.ReqID != "" {
 		fields = append(fields, "req_id", task.Trace.ReqID)
 	}
@@ -469,6 +469,12 @@ func withRunLogFields(ctx context.Context, task runTask) context.Context {
 	}
 	if task.Route.SessionID != "" {
 		fields = append(fields, "session_id", task.Route.SessionID)
+	}
+	if task.Route.AssistantID != 0 {
+		fields = append(fields, "assistant_id", task.Route.AssistantID)
+	}
+	if task.Route.WorkerID != 0 {
+		fields = append(fields, "worker_id", task.Route.WorkerID)
 	}
 	if len(fields) == 0 {
 		return ctx
@@ -554,17 +560,15 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 	defer h.releaseAdmission()
 	defer h.releaseInflight(ikey)
 
-	execCtx := h.execCtx
-
 	var cmd messaging.WorkerCommand
 	if err := json.Unmarshal([]byte(rec.Command), &cmd); err != nil {
-		_ = h.runInbox.MarkFailed(execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery unmarshal: %v", err))
+		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery unmarshal: %v", err))
 		return
 	}
 
 	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
 	if err != nil {
-		_ = h.runInbox.MarkFailed(execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery payload decode: %v", err))
+		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery payload decode: %v", err))
 		return
 	}
 
@@ -591,6 +595,8 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 		Uin:           payload.Uin,
 		DeliverySeqs:  []uint64{rec.StreamSeq},
 	}
+
+	execCtx := withRunLogFields(h.execCtx, task)
 
 	// Mark processing.
 	if err := h.runInbox.MarkProcessing(execCtx, topic, rec.StreamSeq); err != nil {
