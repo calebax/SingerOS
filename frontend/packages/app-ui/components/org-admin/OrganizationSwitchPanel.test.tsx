@@ -10,13 +10,13 @@ const mockSwitchOrganization = vi.fn();
 const mockCreateOrganization = vi.fn();
 const mockFetchProjects = vi.fn();
 const mockFetchAssistants = vi.fn();
-const mockFetchInstalledSkills = vi.fn();
 const mockResetLayout = vi.fn();
 const mockResetAssistants = vi.fn();
 const mockResetMessages = vi.fn();
 const mockClearComposerInput = vi.fn();
 const mockSwitchView = vi.fn();
 let mockEdition: "oss" | "enterprise" = "enterprise";
+let mockMaxOrgsPerUser: number | null = 1;
 
 const mockUser = {
 	publicId: "user-1",
@@ -51,7 +51,7 @@ vi.mock("@leros/store", () => ({
 			resetAuthScopedData: mockResetAssistants,
 		}),
 	useGlobalConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
-		selector({ edition: mockEdition }),
+		selector({ edition: mockEdition, maxOrgsPerUser: mockMaxOrgsPerUser }),
 	useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			clearComposerInput: mockClearComposerInput,
@@ -78,13 +78,13 @@ describe("OrganizationSwitchPanel", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockEdition = "enterprise";
+		mockMaxOrgsPerUser = 10;
 		mockRefreshAuthSession.mockResolvedValue(true);
 		mockSwitchOrganization.mockResolvedValue({});
 		mockCreateOrganization.mockResolvedValue({});
 		const pendingRequest = new Promise<never>(() => undefined);
 		mockFetchProjects.mockReturnValue(pendingRequest);
 		mockFetchAssistants.mockReturnValue(pendingRequest);
-		mockFetchInstalledSkills.mockReturnValue(pendingRequest);
 	});
 
 	it("切换成功后立即进入新建任务页，不等待组织数据预加载", async () => {
@@ -116,7 +116,6 @@ describe("OrganizationSwitchPanel", () => {
 		await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
 		expect(mockFetchProjects).toHaveBeenCalledTimes(1);
 		expect(mockFetchAssistants).toHaveBeenCalledTimes(1);
-		expect(mockFetchInstalledSkills).toHaveBeenCalledTimes(1);
 	});
 
 	it("未上传图标的组织使用固定默认头像", () => {
@@ -139,6 +138,23 @@ describe("OrganizationSwitchPanel", () => {
 		await waitFor(() => expect(mockCreateOrganization).toHaveBeenCalledWith("新组织", "新用户"));
 	});
 
+	it("达到组织数量上限时禁用创建组织按钮", () => {
+		mockMaxOrgsPerUser = 1;
+		render(<OrganizationSwitchPanel active />);
+
+		const createButton = screen.getByRole("button", { name: /创建新组织/ });
+		expect(createButton).toBeDisabled();
+		fireEvent.click(createButton);
+		expect(screen.queryByLabelText(/组织名称/)).not.toBeInTheDocument();
+	});
+
+	it("未达组织数量上限时仍可创建组织", () => {
+		mockMaxOrgsPerUser = 10;
+		render(<OrganizationSwitchPanel active />);
+
+		expect(screen.getByRole("button", { name: /创建新组织/ })).toBeEnabled();
+	});
+
 	it("OSS 已有组织时不显示创建组织按钮", () => {
 		mockEdition = "oss";
 		render(<OrganizationSwitchPanel active />);
@@ -148,6 +164,7 @@ describe("OrganizationSwitchPanel", () => {
 
 	it("OSS 首次登录无组织时仍显示创建表单", () => {
 		mockEdition = "oss";
+		mockMaxOrgsPerUser = 1;
 		render(
 			<OrganizationSwitchPanel
 				active
