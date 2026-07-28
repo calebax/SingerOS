@@ -235,7 +235,7 @@ func (s *user) GetUserByUin(ctx context.Context, uin uint) (*account.UserInfo, e
 		ID:        resp.UserID,
 		PublicID:  strconv.FormatUint(uint64(resp.UserID), 10),
 		Uin:       resp.Uin,
-		Name:      resp.UserName,
+		Name:      resp.Name,
 		Email:     resp.Email,
 		Phone:     resp.Phone,
 		AvatarURL: resp.AvatarURL,
