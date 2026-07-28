@@ -35,6 +35,14 @@ docker-build-base:
 docker-push-base: docker-build-base
 	docker push $(REGISTRY)/$(PROJECT)/leros-base:latest
 
+# Worker base: ubuntu + libreoffice + CJK fonts + node + claude-code/codex/opencode + leros user.
+# Independent from leros-base; rebuild whenever Dockerfile.worker-base changes.
+docker-build-worker-base:
+	docker build -t $(REGISTRY)/$(PROJECT)/leros-worker-base:latest -f deployments/build/Dockerfile.worker-base .
+
+docker-push-worker-base: docker-build-worker-base
+	docker push $(REGISTRY)/$(PROJECT)/leros-worker-base:latest
+
 docker-build:
 	docker build -t $(REGISTRY)/$(PROJECT)/leros:latest -f deployments/build/Dockerfile.leros .
 
