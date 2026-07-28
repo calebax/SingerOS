@@ -1,7 +1,11 @@
 import { join } from "node:path";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
-import { type DesktopPolicyDocument, desktopOpenPolicyPdfChannel } from "../shared/auto-update";
+import {
+	type DesktopPolicyDocument,
+	desktopOpenExternalChannel,
+	desktopOpenPolicyPdfChannel,
+} from "../shared/auto-update";
 import {
 	isAppQuitPrepared,
 	isAppQuitting,
@@ -10,6 +14,7 @@ import {
 	prepareWindowForHide,
 } from "./app-lifecycle";
 import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
+import { shouldOpenExternalUrl } from "./external-navigation";
 import { configureTrayInteractions } from "./tray-interactions";
 
 let mainWindow: BrowserWindow | null = null;
@@ -77,6 +82,16 @@ function createWindow(): void {
 	mainWindow.webContents.setWindowOpenHandler((details) => {
 		shell.openExternal(details.url);
 		return { action: "deny" };
+	});
+
+	mainWindow.webContents.on("will-navigate", (event, url) => {
+		const devRendererUrl = is.dev ? process.env.ELECTRON_RENDERER_URL : undefined;
+		if (!shouldOpenExternalUrl(url, devRendererUrl)) {
+			return;
+		}
+
+		event.preventDefault();
+		void shell.openExternal(url);
 	});
 
 	mainWindow.webContents.on("before-input-event", (event, input) => {
@@ -208,6 +223,15 @@ async function quitApp(): Promise<void> {
 ipcMain.handle(desktopOpenPolicyPdfChannel, async (_event, document: DesktopPolicyDocument) => {
 	const result = await shell.openPath(getPolicyPdfPath(document));
 	return result === "";
+});
+
+ipcMain.handle(desktopOpenExternalChannel, async (_event, url: unknown) => {
+	if (typeof url !== "string" || !shouldOpenExternalUrl(url)) {
+		return false;
+	}
+
+	await shell.openExternal(url);
+	return true;
 });
 
 app.whenReady().then(() => {
