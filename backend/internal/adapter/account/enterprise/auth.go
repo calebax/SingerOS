@@ -15,6 +15,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -305,6 +306,11 @@ func (s *auth) AuthSession(ctx context.Context) (*account.AuthSessionOutput, err
 
 	var orgUinName string
 	userInfo := mapIAMUserInfoToAuthUserInfo(&resp.UserInfo)
+	if account.IsFilePublicID(userInfo.AvatarURL) {
+		if resolved := resolveEnterpriseAvatar(ctx, s.db, userInfo.AvatarURL); resolved != "" {
+			userInfo.AvatarURL = resolved
+		}
+	}
 	for _, uin := range resp.UinList {
 		if uin.Uin.ID == resp.EmployeeDetail.Uin {
 			userInfo.UinName = uin.Uin.Name
@@ -374,4 +380,19 @@ func mapIAMError(err error) error {
 		}
 	}
 	return err
+}
+
+func resolveEnterpriseAvatar(ctx context.Context, gdb *gorm.DB, avatar string) string {
+	if !account.IsFilePublicID(avatar) {
+		return ""
+	}
+	fileUpload, err := db.GetFileUploadByPublicID(ctx, gdb, 0, avatar)
+	if err != nil || fileUpload == nil {
+		return ""
+	}
+	url, err := filestore.ResolvePublicURL(ctx, fileUpload.StorageURI)
+	if err != nil {
+		return ""
+	}
+	return url
 }

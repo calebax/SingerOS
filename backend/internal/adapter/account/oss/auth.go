@@ -591,6 +591,13 @@ func (s *authAdapter) AuthSession(ctx context.Context) (*account.AuthSessionOutp
 	if err != nil {
 		return nil, err
 	}
+
+	if account.IsFilePublicID(user.AvatarURL) {
+		if avatarMap, err := resolveSingleAvatarMap(ctx, s.db, userOrg.OrgID, user.AvatarURL); err == nil && avatarMap != nil {
+			user.AvatarURL = avatarMap[user.AvatarURL]
+		}
+	}
+
 	return s.buildAuthSessionResponse(ctx, user, userOrg, org)
 }
 
