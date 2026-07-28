@@ -306,6 +306,9 @@ func (s *permissionCore) memberActionAllowed(action types.Action, operatorRole t
 		}
 		return true
 	case types.ResourceRoleAdmin:
+		if ctx.IsSelf && (action == types.ActionProjectMemberDelete || action == types.ActionProjectMemberLeave) {
+			return false
+		}
 		if ctx.TargetRole == types.ResourceRoleOwner {
 			return false
 		}
