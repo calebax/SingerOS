@@ -26,7 +26,7 @@ import (
 
 const (
 	builtinMarketplaceSourceType = "builtin"
-	builtinMarketplaceAuthor     = "LeWork"
+	builtinMarketplaceAuthor     = "Lework"
 )
 
 var builtinMarketplaceSyncMu sync.Mutex

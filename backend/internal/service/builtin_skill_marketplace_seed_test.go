@@ -32,7 +32,7 @@ func TestSyncBuiltinServerSkillMarketplaceCreatesAndUpdatesSystemRevision(t *tes
 	if err != nil || item == nil {
 		t.Fatalf("marketplace item = %#v, %v", item, err)
 	}
-	if item.Author != "LeWork" || item.PluginID == 0 {
+	if item.Author != "Lework" || item.PluginID == 0 {
 		t.Fatalf("marketplace metadata = %#v", item)
 	}
 	plugin, err := infradb.GetPluginByID(context.Background(), database, item.PluginID)
@@ -117,12 +117,12 @@ func TestRepositoryBuiltinServerSkillsPassUnifiedPublisher(t *testing.T) {
 	}
 	var wrongAuthors int64
 	if err := database.Model(&types.PluginMarketplaceItem{}).
-		Where("author <> ?", "LeWork").
+		Where("author <> ?", "Lework").
 		Count(&wrongAuthors).Error; err != nil {
 		t.Fatalf("count marketplace authors: %v", err)
 	}
 	if wrongAuthors != 0 {
-		t.Fatalf("%d built-in marketplace items have a non-LeWork author", wrongAuthors)
+		t.Fatalf("%d built-in marketplace items have a non-Lework author", wrongAuthors)
 	}
 }
 
