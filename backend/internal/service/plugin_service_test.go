@@ -134,7 +134,7 @@ func createPluginServiceMarketplaceItem(
 		Kind:        "skill",
 		Code:        plugin.Code,
 		Name:        plugin.Name,
-		Author:      "LeWork",
+		Author:      "Lework",
 		SourceType:  "builtin",
 		SourceRef:   plugin.Code,
 		Status:      "published",
@@ -262,7 +262,7 @@ func TestPluginServiceScopesListsAndDeletes(t *testing.T) {
 	if err := database.Create(systemPlugin).Error; err != nil {
 		t.Fatalf("create system plugin: %v", err)
 	}
-	if err := database.Create(&types.PluginMarketplaceItem{PublicID: "mkt_service", PluginID: systemPlugin.ID, Kind: "skill", Code: "service", Name: "Service", Author: "LeWork", SourceType: "builtin", SourceRef: "service", Status: "published", Tags: types.PluginStringList{}, PublishedAt: time.Now()}).Error; err != nil {
+	if err := database.Create(&types.PluginMarketplaceItem{PublicID: "mkt_service", PluginID: systemPlugin.ID, Kind: "skill", Code: "service", Name: "Service", Author: "Lework", SourceType: "builtin", SourceRef: "service", Status: "published", Tags: types.PluginStringList{}, PublishedAt: time.Now()}).Error; err != nil {
 		t.Fatalf("create marketplace item: %v", err)
 	}
 
@@ -535,20 +535,20 @@ func TestOfficialPluginMarketplaceInstallsAndTracksOfficialVersion(t *testing.T)
 	item := &types.PluginMarketplaceItem{
 		PublicID: "mkt_official", PluginID: sourcePlugin.ID, Kind: "skill",
 		Code: "official-skill", Name: "Official Skill", Description: "first",
-		Author: "LeWork", SourceType: "builtin", SourceRef: "official-skill",
+		Author: "Lework", SourceType: "builtin", SourceRef: "official-skill",
 		Status: "published",
 		Tags:   types.PluginStringList{}, PublishedAt: time.Now(),
 	}
 	if err := database.Create(item).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Create(&types.PluginMarketplaceItem{PublicID: "mkt_archived", PluginID: sourcePlugin.ID, Kind: "skill", Code: "archived", Name: "Archived", Author: "LeWork", SourceType: "builtin", SourceRef: "archived", Status: "archived", Tags: types.PluginStringList{}, PublishedAt: time.Now()}).Error; err != nil {
+	if err := database.Create(&types.PluginMarketplaceItem{PublicID: "mkt_archived", PluginID: sourcePlugin.ID, Kind: "skill", Code: "archived", Name: "Archived", Author: "Lework", SourceType: "builtin", SourceRef: "archived", Status: "archived", Tags: types.PluginStringList{}, PublishedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
 	service := NewOfficialPluginMarketplaceService(database)
 	list, err := service.ListOfficialPluginMarketplaceItems(ctx, 7, &contract.ListOfficialPluginMarketplaceItemsRequest{Kind: "skill"})
 	if err != nil || len(list.Items) != 1 || list.Items[0].PublicID != item.PublicID ||
-		list.Items[0].Version != "1" || list.Items[0].Author != "LeWork" {
+		list.Items[0].Version != "1" || list.Items[0].Author != "Lework" {
 		t.Fatalf("official marketplace list = %#v, %v", list, err)
 	}
 
@@ -780,7 +780,7 @@ func TestOfficialPluginLatestVersionReturnsAvailabilityByIdentity(t *testing.T) 
 	)
 	item := &types.PluginMarketplaceItem{
 		PublicID: "mkt_latest", PluginID: sourcePlugin.ID, Kind: "skill",
-		Code: "latest-skill", Name: "Latest Skill", Author: "LeWork",
+		Code: "latest-skill", Name: "Latest Skill", Author: "Lework",
 		SourceType: "builtin", SourceRef: "latest-skill", Status: "published",
 		Tags: types.PluginStringList{}, PublishedAt: time.Now(),
 	}
@@ -836,7 +836,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 	)
 	item := &types.PluginMarketplaceItem{
 		PublicID: "mkt_status", PluginID: sourcePlugin.ID, Kind: "skill",
-		Code: "status-skill", Name: "Status Skill", Author: "LeWork",
+		Code: "status-skill", Name: "Status Skill", Author: "Lework",
 		SourceType: "builtin", SourceRef: "status-skill", Status: "published",
 		Tags: types.PluginStringList{}, PublishedAt: time.Now(),
 	}
@@ -1007,7 +1007,7 @@ func TestPluginInstallationStatusRejectsIncompleteMarketplaceLineage(t *testing.
 	}
 	sourceItem := &types.PluginMarketplaceItem{
 		PublicID: "mkt_invalid_lineage", PluginID: sourcePlugin.ID, Kind: "skill",
-		Code: "invalid-lineage", Name: "Invalid Lineage", Author: "LeWork",
+		Code: "invalid-lineage", Name: "Invalid Lineage", Author: "Lework",
 		SourceType: "builtin", SourceRef: "invalid-lineage", Status: "archived",
 		Tags: types.PluginStringList{}, PublishedAt: time.Now(),
 	}

@@ -191,13 +191,13 @@ func TestPluginDAOEnforcesBusinessConstraints(t *testing.T) {
 	}
 	if err := CreatePluginMarketplaceItem(ctx, database, &types.PluginMarketplaceItem{
 		PublicID: "mkt_invalid_org_source", PluginID: plugin.ID, Kind: "skill",
-		Code: plugin.Code, Name: "Invalid", Author: "LeWork",
+		Code: plugin.Code, Name: "Invalid", Author: "Lework",
 		SourceType: "builtin", SourceRef: "invalid-org-source",
 		Status: "published", Tags: types.PluginStringList{}, PublishedAt: time.Now(),
 	}); err == nil {
 		t.Fatal("marketplace item accepted an organization source plugin")
 	}
-	item := &types.PluginMarketplaceItem{PublicID: "mkt_alpha", PluginID: systemPlugin.ID, Kind: "skill", Code: "alpha", Name: "Alpha", Author: "LeWork", SourceType: "builtin", SourceRef: "alpha", Status: "published", Tags: types.PluginStringList{}, PublishedAt: time.Now()}
+	item := &types.PluginMarketplaceItem{PublicID: "mkt_alpha", PluginID: systemPlugin.ID, Kind: "skill", Code: "alpha", Name: "Alpha", Author: "Lework", SourceType: "builtin", SourceRef: "alpha", Status: "published", Tags: types.PluginStringList{}, PublishedAt: time.Now()}
 	if err := CreatePluginMarketplaceItem(ctx, database, item); err != nil {
 		t.Fatalf("create marketplace item: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestPluginDAOEnforcesBusinessConstraints(t *testing.T) {
 	); err != nil || got != nil {
 		t.Fatalf("marketplace kind isolation = %#v, %v", got, err)
 	}
-	if err := CreatePluginMarketplaceItem(ctx, database, &types.PluginMarketplaceItem{PublicID: "mkt_duplicate", PluginID: systemPlugin.ID, Kind: "skill", Code: "alpha", Name: "Alpha", Author: "LeWork", SourceType: "builtin", SourceRef: "alpha", Status: "published", Tags: types.PluginStringList{}, PublishedAt: time.Now()}); err == nil {
+	if err := CreatePluginMarketplaceItem(ctx, database, &types.PluginMarketplaceItem{PublicID: "mkt_duplicate", PluginID: systemPlugin.ID, Kind: "skill", Code: "alpha", Name: "Alpha", Author: "Lework", SourceType: "builtin", SourceRef: "alpha", Status: "published", Tags: types.PluginStringList{}, PublishedAt: time.Now()}); err == nil {
 		t.Fatal("expected duplicate marketplace source to fail")
 	}
 }

@@ -45,7 +45,7 @@ const officialItem = {
 	kind: "skill",
 	name: "Demo",
 	description: "Demo skill",
-	author: "LeWork",
+	author: "Lework",
 	version: "2",
 	category: "official",
 	tags: [],
