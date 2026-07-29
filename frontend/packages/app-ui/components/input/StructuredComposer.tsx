@@ -25,7 +25,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { createDiceBearAvatarDataUri } from "../avatar/DiceBearAvatar";
+import { CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC } from "../../assets";
 import { loadProtectedImageDisplayURL } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
@@ -523,9 +523,8 @@ function buildAssistantMentionIconShell(
 	avatar.className = "size-4 rounded-full object-cover transition-opacity group-hover:opacity-0";
 	avatar.decoding = "async";
 	avatar.referrerPolicy = "no-referrer";
-	const fallbackAvatarSrc =
-		createDiceBearAvatarDataUri(`digital-assistant:${assistantName}`, 32) ??
-		"data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+	// 中文注释：未上传头像时与列表/卡片共用固定默认图。
+	const fallbackAvatarSrc = CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC;
 	avatar.src = fallbackAvatarSrc;
 	avatar.onerror = () => {
 		if (avatar.src !== fallbackAvatarSrc) avatar.src = fallbackAvatarSrc;
