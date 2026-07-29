@@ -18,7 +18,6 @@ import {
 import type {
 	ApprovalAction,
 	ApprovalRequest,
-	Attachment,
 	ComposerToken,
 	Message,
 	MessageMetadata,
@@ -276,7 +275,7 @@ export function ChatInput({
 					)
 				: undefined;
 			let outgoingContent = trimmedInput;
-			let outgoingAttachments = inputAttachments;
+			const outgoingAttachments = inputAttachments;
 			let composerMetadata = buildComposerMetadata(inputText, composerTokens);
 			let pendingVersionSync: PendingDocxVersionSync | null = null;
 
@@ -292,12 +291,15 @@ export function ChatInput({
 					file: docxSelectionDraft.file,
 					selection: docxSelectionDraft.selection,
 				});
-				if (!request.attachment && !docxSelectionDraft.file.projectPath) {
+				if (
+					!docxSelectionDraft.file.versionPublicId &&
+					!docxSelectionDraft.file.publicId &&
+					!docxSelectionDraft.file.projectPath
+				) {
 					toast.error("当前文件缺少可编辑的文件标识");
 					return;
 				}
 				outgoingContent = request.content;
-				outgoingAttachments = mergeSelectionAttachment(inputAttachments, request.attachment);
 				const visibleMetadata = buildComposerMetadata(inputText, composerTokens);
 				composerMetadata = {
 					...visibleMetadata,
@@ -810,19 +812,6 @@ function buildComposerMetadata(
 		}))
 		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
 	return composerTokens.length > 0 ? { composerTokens } : undefined;
-}
-
-function mergeSelectionAttachment(
-	attachments: Attachment[],
-	selectionAttachment?: Attachment,
-): Attachment[] {
-	if (!selectionAttachment) return attachments;
-	return [
-		...attachments.filter(
-			(attachment) => attachment.fileUploadId !== selectionAttachment.fileUploadId,
-		),
-		selectionAttachment,
-	];
 }
 
 async function resolveDocxVersionSync(
