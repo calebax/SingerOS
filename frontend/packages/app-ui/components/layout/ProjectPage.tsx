@@ -6,6 +6,7 @@ import {
 	buildTaskCapabilityItems,
 	fetchFilePreviewByStorageUri,
 	isSystemDefaultAssistant,
+	type PluginComposerOption,
 	type PluginListItem,
 	type Project,
 	type ProjectMember,
@@ -44,7 +45,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import {
-	Check,
 	ChevronDown,
 	ChevronRight,
 	ChevronsLeft,
@@ -63,6 +63,11 @@ import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
+import {
+	bindSkillToProject,
+	ProjectSkillBindingError,
+	useSkillPickerOptions,
+} from "../input/useSkillPickerOptions";
 import { CanGate } from "../permission/CanGate";
 import {
 	isSameProjectMember,
@@ -579,12 +584,13 @@ function ProjectConfigSidebar({
 	const [savingSkills, setSavingSkills] = useState(false);
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
-	const [skillOptions, setSkillOptions] = useState<ProjectSkill[]>([]);
-	const [skillsLoading, setSkillsLoading] = useState(false);
-	const [skillsLoaded, setSkillsLoaded] = useState(false);
-	const [skillsError, setSkillsError] = useState<string | null>(null);
 	const [projectSkills, setProjectSkills] = useState<ProjectSkill[]>(project.skills);
 	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
+	const { skillOptions, skillsLoading, skillsError, reloadSkillOptions } = useSkillPickerOptions({
+		projectId: project.id,
+		includeBuiltin: false,
+		enabled: skillOpen,
+	});
 
 	useEffect(() => {
 		if (!editingDescription) {
@@ -612,40 +618,21 @@ function ProjectConfigSidebar({
 		};
 	}, [project.id]);
 
-	useEffect(() => {
-		if (!skillOpen || skillsLoaded) return;
-
-		setSkillsLoading(true);
-		setSkillsError(null);
-		pluginApi
-			.list({ kind: "skill", limit: 100 })
-			.then((response) => {
-				setSkillOptions((response.data.data.plugins ?? []).map(pluginToProjectSkill));
-				setSkillsLoaded(true);
-			})
-			.catch((error: unknown) => {
-				const message = error instanceof Error ? error.message : "技能加载失败";
-				setSkillsError(message);
-				setSkillOptions([]);
-			})
-			.finally(() => {
-				setSkillsLoading(false);
-			});
-	}, [skillOpen, skillsLoaded]);
-
 	const selectedSkillCodes = useMemo(
 		() => projectSkills.map((skill) => skill.code),
 		[projectSkills],
 	);
+	const selectedSkillCodeSet = useMemo(
+		() => new Set(selectedSkillCodes.map((code) => code.toLowerCase())),
+		[selectedSkillCodes],
+	);
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
-		return skillOptions.filter((skill) => {
-			if (selectedSkillCodes.includes(skill.code)) return false;
+		return (skillOptions ?? []).filter((skill) => {
 			if (!query) return true;
-			// 中文注释：技能弹窗仅按名称搜索。
-			return [skill.name, skill.code].join(" ").toLowerCase().includes(query);
+			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
-	}, [selectedSkillCodes, skillOptions, skillSearch]);
+	}, [skillOptions, skillSearch]);
 	const projectMembersWithLatestAssistantAvatar = useMemo(
 		() =>
 			project.members.map((member) => {
@@ -686,13 +673,34 @@ function ProjectConfigSidebar({
 		}
 	};
 
-	const addProjectSkill = async (skill: ProjectSkill) => {
-		if (savingSkills || !skill.publicId || selectedSkillCodes.includes(skill.code)) return;
+	const addProjectSkill = async (skill: PluginComposerOption) => {
+		if (
+			savingSkills ||
+			skill.projectAssociated ||
+			selectedSkillCodeSet.has(skill.code.toLowerCase())
+		) {
+			return;
+		}
 		setSavingSkills(true);
+		let installedDuringAction = false;
 		try {
-			await pluginApi.addToProject({ public_id: project.id, plugin_id: skill.publicId });
-			setProjectSkills((current) => [...current, skill]);
+			const resolved = await bindSkillToProject(project.id, skill);
+			installedDuringAction = resolved.installedDuringAction;
+			setProjectSkills((current) => [
+				...current,
+				composerOptionToProjectSkill(skill, resolved.pluginId),
+			]);
+			await reloadSkillOptions();
 			toast.success("项目技能已添加");
+		} catch (error) {
+			if (error instanceof ProjectSkillBindingError) {
+				installedDuringAction = error.installedDuringAction;
+			}
+			const message = error instanceof Error ? error.message : "项目技能添加失败";
+			toast.error(installedDuringAction ? "技能已安装，但项目关联失败" : message);
+			if (installedDuringAction) {
+				await reloadSkillOptions();
+			}
 		} finally {
 			setSavingSkills(false);
 		}
@@ -1012,14 +1020,18 @@ function ProjectConfigSidebar({
 											{filteredSkills.map((skill) => (
 												<CommandItem
 													key={skill.code}
-													value={skill.name}
+													value={skill.label}
+													disabled={
+														skill.projectAssociated ||
+														selectedSkillCodeSet.has(skill.code.toLowerCase())
+													}
 													onSelect={() => void addProjectSkill(skill)}
 													className="rounded-lg px-2 py-1.5"
 												>
 													<SkillPickerIcon />
 													<div className="min-w-0 flex-1">
 														<div className="truncate font-medium">
-															{renderHighlightedText(skill.name, skillSearch)}
+															{renderHighlightedText(skill.label, skillSearch)}
 														</div>
 														<div className="truncate text-xs text-slate-400">
 															{renderHighlightedText(
@@ -1028,7 +1040,6 @@ function ProjectConfigSidebar({
 															)}
 														</div>
 													</div>
-													<Check className="size-4 opacity-0" />
 												</CommandItem>
 											))}
 										</CommandGroup>
@@ -1098,6 +1109,20 @@ function pluginToProjectSkill(plugin: PluginListItem): ProjectSkill {
 		name: plugin.name,
 		description: plugin.description,
 		category: plugin.kind,
+		source: "organization",
+	};
+}
+
+function composerOptionToProjectSkill(
+	option: PluginComposerOption,
+	pluginId: string,
+): ProjectSkill {
+	return {
+		publicId: pluginId,
+		code: option.code,
+		name: option.label,
+		description: option.description,
+		category: "skill",
 		source: "organization",
 	};
 }

@@ -17,16 +17,29 @@ type officialPluginMarketplaceHandlerTestService struct {
 	installOrgID uint
 	installUIN   uint
 	installID    string
+	listOrgID    uint
+	detailOrgID  uint
+	detailID     string
 	latestKind   string
 	latestCode   string
 }
 
-func (*officialPluginMarketplaceHandlerTestService) ListOfficialPluginMarketplaceItems(context.Context, *contract.ListOfficialPluginMarketplaceItemsRequest) (*contract.ListOfficialPluginMarketplaceItemsResponse, error) {
+func (s *officialPluginMarketplaceHandlerTestService) ListOfficialPluginMarketplaceItems(
+	_ context.Context,
+	orgID uint,
+	_ *contract.ListOfficialPluginMarketplaceItemsRequest,
+) (*contract.ListOfficialPluginMarketplaceItemsResponse, error) {
+	s.listOrgID = orgID
 	return &contract.ListOfficialPluginMarketplaceItemsResponse{Items: []contract.OfficialPluginMarketplaceItemView{}}, nil
 }
 
-func (*officialPluginMarketplaceHandlerTestService) GetOfficialPluginMarketplaceItem(context.Context, string) (*contract.OfficialPluginMarketplaceItemView, error) {
-	return nil, contract.ErrPluginNotFound
+func (s *officialPluginMarketplaceHandlerTestService) GetOfficialPluginMarketplaceItem(
+	_ context.Context,
+	orgID uint,
+	itemID string,
+) (*contract.OfficialPluginMarketplaceItemView, error) {
+	s.detailOrgID, s.detailID = orgID, itemID
+	return &contract.OfficialPluginMarketplaceItemView{PublicID: itemID}, nil
 }
 
 func (s *officialPluginMarketplaceHandlerTestService) GetOfficialPluginLatestVersion(
@@ -60,6 +73,42 @@ func TestOfficialPluginMarketplaceInstallUsesCallerOrganization(t *testing.T) {
 	}
 	if service.installOrgID != 42 || service.installUIN != 7 || service.installID != "mkt_official" {
 		t.Fatalf("install caller = org=%d uin=%d item=%q", service.installOrgID, service.installUIN, service.installID)
+	}
+}
+
+func TestOfficialPluginMarketplaceReadsUseCallerOrganization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &officialPluginMarketplaceHandlerTestService{}
+	router := gin.New()
+	router.Use(func(ctx *gin.Context) {
+		auth.WithGinContext(ctx, &types.Caller{OrgID: 42, Uin: 7, State: types.AuthStateSucc}, nil, "")
+		ctx.Next()
+	})
+	RegisterOfficialPluginMarketplaceRoutes(router, service)
+
+	listRecorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		listRecorder,
+		httptest.NewRequest(http.MethodGet, "/plugin-marketplace/items?kind=skill", nil),
+	)
+	if listRecorder.Code != http.StatusOK || service.listOrgID != 42 {
+		t.Fatalf("list status = %d, org = %d", listRecorder.Code, service.listOrgID)
+	}
+
+	detailRecorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		detailRecorder,
+		httptest.NewRequest(http.MethodGet, "/plugin-marketplace/items/mkt_official", nil),
+	)
+	if detailRecorder.Code != http.StatusOK ||
+		service.detailOrgID != 42 ||
+		service.detailID != "mkt_official" {
+		t.Fatalf(
+			"detail status = %d, org = %d, item = %q",
+			detailRecorder.Code,
+			service.detailOrgID,
+			service.detailID,
+		)
 	}
 }
 

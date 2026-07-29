@@ -50,6 +50,12 @@ const officialItem = {
 	category: "official",
 	tags: [],
 	verified: true,
+	installed: true,
+	installed_plugin_id: "plugin_demo",
+	marketplace_available: true,
+	latest_version: "2",
+	update_available: true,
+	organization_override: false,
 	content: null,
 };
 
@@ -95,14 +101,79 @@ describe("SkillDetailView installation status", () => {
 		});
 	});
 
-	it("uses update as the marketplace action when a newer revision is available", async () => {
-		render(<SkillDetailView skillId="mkt_demo" source="official" />);
+	it("uses an official Skill by code and exposes only an available update", async () => {
+		const onUse = vi.fn();
+		render(<SkillDetailView skillId="mkt_demo" source="official" onUse={onUse} />);
 
 		expect(await screen.findByText("有更新")).toBeInTheDocument();
-		const updateButton = screen.getByRole("button", { name: "更新技能" });
-		fireEvent.click(updateButton);
+		fireEvent.click(screen.getByRole("button", { name: "去使用" }));
+
+		expect(onUse).toHaveBeenCalledWith("demo", "Demo");
+		expect(screen.queryByRole("button", { name: "更多操作" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "安装技能" })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "更新" })).toBeInTheDocument();
+		expect(mockInstall).not.toHaveBeenCalled();
+	});
+
+	it("updates an installed marketplace Skill from its detail action", async () => {
+		render(<SkillDetailView skillId="mkt_demo" source="official" />);
+
+		fireEvent.click(await screen.findByRole("button", { name: "更新" }));
 
 		await waitFor(() => expect(mockInstall).toHaveBeenCalledWith("mkt_demo"));
+		expect(mockOfficialGet).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps an archived installed Skill usable without an update action", async () => {
+		mockOfficialGet.mockResolvedValueOnce({
+			data: {
+				data: {
+					...officialItem,
+					marketplace_available: false,
+					update_available: false,
+				},
+			},
+		});
+		const onUse = vi.fn();
+		render(<SkillDetailView skillId="mkt_demo" source="official" onUse={onUse} />);
+
+		expect(await screen.findByText("已下架")).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "更新" })).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "去使用" }));
+		expect(onUse).toHaveBeenCalledWith("demo", "Demo");
+	});
+
+	it("shows a missing installed snapshot without falling back to marketplace content", async () => {
+		mockOfficialGet.mockResolvedValueOnce({
+			data: {
+				data: {
+					...officialItem,
+					content: null,
+				},
+			},
+		});
+		render(<SkillDetailView skillId="mkt_demo" source="official" />);
+
+		expect(await screen.findByText("暂无内容快照")).toBeInTheDocument();
+		expect(screen.queryByText("latest marketplace content")).not.toBeInTheDocument();
+	});
+
+	it("warns when an organization Skill overrides the marketplace code", async () => {
+		mockOfficialGet.mockResolvedValueOnce({
+			data: {
+				data: {
+					...officialItem,
+					installed: false,
+					installed_plugin_id: undefined,
+					update_available: false,
+					organization_override: true,
+				},
+			},
+		});
+		render(<SkillDetailView skillId="mkt_demo" source="official" />);
+
+		expect(await screen.findByText("组织同名版本")).toBeInTheDocument();
+		expect(screen.getByText(/“去使用”将执行组织版本，市场版本不会覆盖它/)).toBeInTheDocument();
 	});
 
 	it("shows update in the organization detail overflow menu", async () => {

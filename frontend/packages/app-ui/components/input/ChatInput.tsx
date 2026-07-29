@@ -137,7 +137,7 @@ export function ChatInput({
 	} | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const folderInputRef = useRef<HTMLInputElement>(null);
-	const previousProjectSkillLabelsRef = useRef<string[] | null>(null);
+	const previousProjectSkillCodesRef = useRef<string[] | null>(null);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
 	const { draft: docxSelectionDraft } = useDocxSelectionComposerStore();
 
@@ -190,8 +190,8 @@ export function ChatInput({
 				})
 		);
 	}, [assistants, assistantsLoaded, currentProject?.members, isProjectVariant]);
-	const projectSkillLabels = useMemo(
-		() => skillOptions?.map((skill) => skill.label) ?? [],
+	const projectSkillCodes = useMemo(
+		() => skillOptions?.filter((skill) => skill.projectAssociated).map((skill) => skill.code) ?? [],
 		[skillOptions],
 	);
 	const isNewProjectTaskView = isProjectVariant && currentView === "project";
@@ -242,24 +242,24 @@ export function ChatInput({
 
 	useEffect(() => {
 		if (!isProjectVariant) {
-			previousProjectSkillLabelsRef.current = null;
+			previousProjectSkillCodesRef.current = null;
 			return;
 		}
 
-		const previousLabels = previousProjectSkillLabelsRef.current;
-		previousProjectSkillLabelsRef.current = projectSkillLabels;
-		if (!previousLabels) return;
+		const previousCodes = previousProjectSkillCodesRef.current;
+		previousProjectSkillCodesRef.current = projectSkillCodes;
+		if (!previousCodes) return;
 
-		const currentLabels = new Set(projectSkillLabels);
-		const removedLabels = previousLabels.filter((label) => !currentLabels.has(label));
-		if (removedLabels.length === 0) return;
+		const currentCodes = new Set(projectSkillCodes);
+		const removedCodes = previousCodes.filter((code) => !currentCodes.has(code));
+		if (removedCodes.length === 0) return;
 
-		const nextInput = removeSkillDirectives(inputText, removedLabels);
+		const nextInput = removeSkillDirectives(inputText, removedCodes);
 		if (nextInput !== inputText) {
 			// 中文注释：项目维度移除技能后，同步清理输入框中已经插入的对应技能指令。
 			setInputText(nextInput);
 		}
-	}, [inputText, isProjectVariant, projectSkillLabels, setInputText]);
+	}, [inputText, isProjectVariant, projectSkillCodes, setInputText]);
 
 	const submitMessage = useCallback(async () => {
 		// 中文注释：真实 SessionEvents 当前由单条 SSE 连接接管，生成中先阻止重复发送。

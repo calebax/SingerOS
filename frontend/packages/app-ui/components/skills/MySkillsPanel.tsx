@@ -2,16 +2,28 @@
 
 import type { SkillMarketplaceItem } from "@leros/store";
 import { pluginApi, pluginToSkillCard } from "@leros/store";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { SkillCard } from "./SkillCard";
+import { filterSkillsByCategory, type SkillCatalogCategory } from "./skillCatalog";
 
 interface MySkillsPanelProps {
 	/** Called when a skill card is clicked (for navigation to detail page) */
 	onCardClick?: (skill: SkillMarketplaceItem) => void;
+	onUse?: (skill: SkillMarketplaceItem) => void;
 	refreshSeq?: number;
+	keyword?: string;
+	category?: SkillCatalogCategory;
+	onCountChange?: (count: number) => void;
 }
 
-export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProps) {
+export function MySkillsPanel({
+	onCardClick,
+	onUse,
+	refreshSeq = 0,
+	keyword = "",
+	category = "all",
+	onCountChange,
+}: MySkillsPanelProps) {
 	const [skills, setSkills] = useState<SkillMarketplaceItem[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -25,7 +37,12 @@ export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProp
 		setLoading(true);
 		setError(null);
 		try {
-			const resp = await pluginApi.list({ kind: "skill", status: "active" });
+			const resp = await pluginApi.list({
+				kind: "skill",
+				status: "active",
+				exclude_marketplace_based: true,
+				...(keyword ? { keyword } : {}),
+			});
 			const list = (resp.data.data.plugins ?? []).map(pluginToSkillCard);
 			setSkills(list);
 		} catch (err: any) {
@@ -34,12 +51,18 @@ export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProp
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [keyword]);
 
 	useEffect(() => {
 		if (!mounted) return;
 		fetchInstalled();
 	}, [mounted, fetchInstalled, refreshSeq]);
+
+	const visibleSkills = useMemo(() => filterSkillsByCategory(skills, category), [skills, category]);
+
+	useEffect(() => {
+		onCountChange?.(visibleSkills.length);
+	}, [onCountChange, visibleSkills.length]);
 
 	// Not yet mounted (SSR hydration guard)
 	if (!mounted) {
@@ -76,20 +99,30 @@ export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProp
 	}
 
 	// Empty state
-	if (skills.length === 0) {
+	if (visibleSkills.length === 0) {
 		return (
-			<div className="flex flex-col items-center justify-center py-16 text-[var(--leros-text-subtle)]">
-				<p className="text-sm">暂无组织技能</p>
-				<p className="text-xs mt-1">前往"技能市场"发现并安装技能</p>
+			<div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--leros-control-border)] bg-white py-20 text-[var(--leros-text-subtle)]">
+				<p className="text-sm">
+					{keyword || category !== "all" ? "暂无符合条件的技能" : "暂无组织技能"}
+				</p>
+				{!keyword && category === "all" && (
+					<p className="mt-1 text-xs">可通过创作或导入添加组织自有技能</p>
+				)}
 			</div>
 		);
 	}
 
 	// Data grid
 	return (
-		<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-			{skills.map((skill) => (
-				<SkillCard key={skill.skill_id} skill={skill} variant="mine" onClick={onCardClick} />
+		<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+			{visibleSkills.map((skill) => (
+				<SkillCard
+					key={skill.skill_id}
+					skill={skill}
+					variant="mine"
+					onClick={onCardClick}
+					onUse={onUse}
+				/>
 			))}
 		</div>
 	);

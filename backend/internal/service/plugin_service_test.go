@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -117,6 +118,78 @@ func createPluginServiceSystemSkill(
 		t.Fatalf("create system plugin: %v", err)
 	}
 	file, revision := addPluginServiceSystemRevision(t, database, plugin, 1, body)
+	return file, plugin, revision
+}
+
+func createPluginServiceMarketplaceItem(
+	t *testing.T,
+	database *gorm.DB,
+	plugin *types.Plugin,
+	publicID string,
+) *types.PluginMarketplaceItem {
+	t.Helper()
+	item := &types.PluginMarketplaceItem{
+		PublicID:    publicID,
+		PluginID:    plugin.ID,
+		Kind:        "skill",
+		Code:        plugin.Code,
+		Name:        plugin.Name,
+		Author:      "LeWork",
+		SourceType:  "builtin",
+		SourceRef:   plugin.Code,
+		Status:      "published",
+		Tags:        types.PluginStringList{},
+		PublishedAt: time.Now(),
+	}
+	if err := database.Create(item).Error; err != nil {
+		t.Fatalf("create marketplace item: %v", err)
+	}
+	return item
+}
+
+func createPluginServiceOrganizationSkill(
+	t *testing.T,
+	database *gorm.DB,
+	orgID, ownerID uint,
+	code, body string,
+) (*types.FileUpload, *types.Plugin, *types.PluginRevision) {
+	t.Helper()
+	file, definition := uploadPluginServiceSkillArtifact(
+		t,
+		database,
+		orgID,
+		ownerID,
+		code,
+		body,
+	)
+	plugin := &types.Plugin{
+		PublicID:        "plugin_org_" + code,
+		OwnerScope:      types.OwnerScopeOrganization,
+		OrgID:           orgID,
+		Code:            code,
+		Kind:            "skill",
+		Name:            code,
+		Status:          types.PluginStatusActive,
+		Origin:          "org",
+		CurrentRevision: 1,
+		CreatedBy:       ownerID,
+		UpdatedBy:       ownerID,
+	}
+	if err := database.Create(plugin).Error; err != nil {
+		t.Fatalf("create organization plugin: %v", err)
+	}
+	revision := &types.PluginRevision{
+		PluginID:        plugin.ID,
+		Revision:        1,
+		Status:          "published",
+		Definition:      definition,
+		PublishedByType: "user",
+		PublishedByID:   ownerID,
+		PublishedAt:     time.Now(),
+	}
+	if err := database.Create(revision).Error; err != nil {
+		t.Fatalf("create organization revision: %v", err)
+	}
 	return file, plugin, revision
 }
 
@@ -473,7 +546,7 @@ func TestOfficialPluginMarketplaceInstallsAndTracksOfficialVersion(t *testing.T)
 		t.Fatal(err)
 	}
 	service := NewOfficialPluginMarketplaceService(database)
-	list, err := service.ListOfficialPluginMarketplaceItems(ctx, &contract.ListOfficialPluginMarketplaceItemsRequest{Kind: "skill"})
+	list, err := service.ListOfficialPluginMarketplaceItems(ctx, 7, &contract.ListOfficialPluginMarketplaceItemsRequest{Kind: "skill"})
 	if err != nil || len(list.Items) != 1 || list.Items[0].PublicID != item.PublicID ||
 		list.Items[0].Version != "1" || list.Items[0].Author != "LeWork" {
 		t.Fatalf("official marketplace list = %#v, %v", list, err)
@@ -527,6 +600,171 @@ func TestOfficialPluginMarketplaceInstallsAndTracksOfficialVersion(t *testing.T)
 	alreadyCurrent, err := service.InstallOfficialPlugin(ctx, 7, 9, item.PublicID)
 	if err != nil || alreadyCurrent.Operation != "already_current" || alreadyCurrent.Plugin.CurrentRevision != 2 {
 		t.Fatalf("idempotent official install = %#v, %v", alreadyCurrent, err)
+	}
+}
+
+func TestOfficialPluginMarketplaceUsesInstalledVersionAndKeepsArchivedItemVisible(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	ctx := context.Background()
+	_, sourcePlugin, _ := createPluginServiceSystemSkill(
+		t,
+		database,
+		"effective-market",
+		"Installed body.",
+	)
+	sourcePlugin.Name = "Effective Market"
+	item := createPluginServiceMarketplaceItem(t, database, sourcePlugin, "mkt_effective_market")
+	item.Name = "Effective Market"
+	item.Description = "Installed description"
+	if err := database.Save(item).Error; err != nil {
+		t.Fatalf("update marketplace metadata: %v", err)
+	}
+	service := &pluginService{db: database}
+
+	latest, err := service.GetOfficialPluginMarketplaceItem(ctx, 7, item.PublicID)
+	if err != nil || latest.Installed || !latest.MarketplaceAvailable ||
+		latest.Version != "1" || latest.LatestVersion != "1" ||
+		latest.Content == nil || latest.Content.SkillMD != "Installed body." {
+		t.Fatalf("uninstalled marketplace detail = %#v, %v", latest, err)
+	}
+	if _, err := service.InstallOfficialPlugin(ctx, 7, 9, item.PublicID); err != nil {
+		t.Fatalf("install marketplace Skill: %v", err)
+	}
+	if _, _ = addPluginServiceSystemRevision(t, database, sourcePlugin, 2, "Latest body."); sourcePlugin.CurrentRevision != 2 {
+		t.Fatalf("source current revision = %d", sourcePlugin.CurrentRevision)
+	}
+	if err := database.Model(item).Updates(map[string]interface{}{
+		"name":        "Effective Market v2",
+		"description": "Latest description",
+	}).Error; err != nil {
+		t.Fatalf("update latest marketplace metadata: %v", err)
+	}
+
+	installed, err := service.GetOfficialPluginMarketplaceItem(ctx, 7, item.PublicID)
+	if err != nil || !installed.Installed || installed.InstalledPluginID == "" ||
+		!installed.MarketplaceAvailable || installed.Version != "1" ||
+		installed.LatestVersion != "2" || !installed.UpdateAvailable ||
+		installed.Name != "Effective Market" ||
+		installed.Description != "Installed description" ||
+		installed.Content == nil || installed.Content.Version != 1 ||
+		installed.Content.SkillMD != "Installed body." {
+		t.Fatalf("installed marketplace detail = %#v, %v", installed, err)
+	}
+	otherOrg, err := service.GetOfficialPluginMarketplaceItem(ctx, 8, item.PublicID)
+	if err != nil || otherOrg.Installed || otherOrg.Version != "2" ||
+		otherOrg.Content == nil || otherOrg.Content.SkillMD != "Latest body." {
+		t.Fatalf("other organization detail = %#v, %v", otherOrg, err)
+	}
+	installedPlugin, err := infradb.GetPluginByPublicID(
+		ctx,
+		database,
+		7,
+		installed.InstalledPluginID,
+	)
+	if err != nil || installedPlugin == nil {
+		t.Fatalf("load installed marketplace plugin = %#v, %v", installedPlugin, err)
+	}
+	installedRevision, err := infradb.GetCurrentPluginRevision(ctx, database, installedPlugin)
+	if err != nil || installedRevision == nil {
+		t.Fatalf("load installed marketplace revision = %#v, %v", installedRevision, err)
+	}
+	if err := database.Where("plugin_revision_id = ?", installedRevision.ID).
+		Delete(&types.PluginRevisionContent{}).Error; err != nil {
+		t.Fatalf("delete installed content snapshot: %v", err)
+	}
+	missingContent, err := service.GetOfficialPluginMarketplaceItem(ctx, 7, item.PublicID)
+	if err != nil || missingContent.Version != "1" || missingContent.Content != nil {
+		t.Fatalf("installed marketplace detail without snapshot = %#v, %v", missingContent, err)
+	}
+
+	if err := database.Model(item).Update("status", "archived").Error; err != nil {
+		t.Fatalf("archive marketplace item: %v", err)
+	}
+	archivedList, err := service.ListOfficialPluginMarketplaceItems(
+		ctx,
+		7,
+		&contract.ListOfficialPluginMarketplaceItemsRequest{Kind: "skill"},
+	)
+	if err != nil || len(archivedList.Items) != 1 ||
+		archivedList.Items[0].PublicID != item.PublicID ||
+		archivedList.Items[0].Version != "1" ||
+		archivedList.Items[0].MarketplaceAvailable ||
+		archivedList.Items[0].UpdateAvailable {
+		t.Fatalf("archived installed marketplace list = %#v, %v", archivedList, err)
+	}
+	otherList, err := service.ListOfficialPluginMarketplaceItems(
+		ctx,
+		8,
+		&contract.ListOfficialPluginMarketplaceItemsRequest{Kind: "skill"},
+	)
+	if err != nil || len(otherList.Items) != 0 {
+		t.Fatalf("other organization archived marketplace list = %#v, %v", otherList, err)
+	}
+	if _, err := service.GetOfficialPluginMarketplaceItem(ctx, 8, item.PublicID); !errors.Is(
+		err,
+		contract.ErrPluginNotFound,
+	) {
+		t.Fatalf("other organization archived detail error = %v", err)
+	}
+}
+
+func TestOfficialPluginMarketplaceMarksOrganizationOverrideAndFiltersMySkills(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	ctx := context.Background()
+	_, sourcePlugin, _ := createPluginServiceSystemSkill(
+		t,
+		database,
+		"a-market-skill",
+		"Market body.",
+	)
+	item := createPluginServiceMarketplaceItem(t, database, sourcePlugin, "mkt_filter_market")
+	service := &pluginService{db: database}
+	if _, err := service.InstallOfficialPlugin(ctx, 7, 9, item.PublicID); err != nil {
+		t.Fatalf("install marketplace Skill: %v", err)
+	}
+	_, customPlugin, _ := createPluginServiceOrganizationSkill(
+		t,
+		database,
+		7,
+		9,
+		"z-custom-skill",
+		"Custom body.",
+	)
+
+	filtered, err := service.ListPlugins(ctx, 7, &contract.ListPluginsRequest{
+		Kind:                    "skill",
+		Status:                  types.PluginStatusActive,
+		Limit:                   1,
+		ExcludeMarketplaceBased: true,
+	})
+	if err != nil || len(filtered.Plugins) != 1 ||
+		filtered.Plugins[0].PublicID != customPlugin.PublicID {
+		t.Fatalf("filtered organization Skills = %#v, %v", filtered, err)
+	}
+
+	_, conflictPlugin, _ := createPluginServiceOrganizationSkill(
+		t,
+		database,
+		8,
+		9,
+		item.Code,
+		"Organization override.",
+	)
+	conflict, err := service.GetOfficialPluginMarketplaceItem(ctx, 8, item.PublicID)
+	if err != nil || conflict.Installed || !conflict.OrganizationOverride ||
+		conflict.Version != "1" || conflict.InstalledPluginID != "" {
+		t.Fatalf("organization override marketplace detail = %#v, %v", conflict, err)
+	}
+	conflictMine, err := service.ListPlugins(ctx, 8, &contract.ListPluginsRequest{
+		Kind:                    "skill",
+		Status:                  types.PluginStatusActive,
+		ExcludeMarketplaceBased: true,
+	})
+	if err != nil || len(conflictMine.Plugins) != 1 ||
+		conflictMine.Plugins[0].PublicID != conflictPlugin.PublicID {
+		t.Fatalf("organization override My Skills = %#v, %v", conflictMine, err)
 	}
 }
 
@@ -864,7 +1102,7 @@ func TestOfficialMarketplaceArtifactDownloadsWithoutCopyingFileUpload(t *testing
 	if err := database.Model(&types.FileUpload{}).Count(&before).Error; err != nil {
 		t.Fatalf("count file uploads: %v", err)
 	}
-	resolved, err := service.ResolveSkillDownloadURLs(ctx, 7, &contract.ResolveSkillDownloadURLsRequest{
+	resolved, err := service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindUser, 1, &contract.ResolveSkillDownloadURLsRequest{
 		SkillCodes: []string{item.Code},
 	})
 	if err != nil || len(resolved.Skills) != 1 || resolved.Skills[0].DownloadURL == "" {
@@ -884,7 +1122,7 @@ func TestOfficialMarketplaceArtifactDownloadsWithoutCopyingFileUpload(t *testing
 	if err := database.Model(item).Update("status", "archived").Error; err != nil {
 		t.Fatalf("archive marketplace item: %v", err)
 	}
-	resolved, err = service.ResolveSkillDownloadURLs(ctx, 7, &contract.ResolveSkillDownloadURLsRequest{
+	resolved, err = service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindUser, 1, &contract.ResolveSkillDownloadURLsRequest{
 		SkillCodes: []string{item.Code},
 	})
 	if err != nil || len(resolved.Skills) != 1 {
@@ -893,7 +1131,7 @@ func TestOfficialMarketplaceArtifactDownloadsWithoutCopyingFileUpload(t *testing
 	if err := database.Model(sourceFile).Update("status", "inactive").Error; err != nil {
 		t.Fatalf("deactivate marketplace file: %v", err)
 	}
-	resolved, err = service.ResolveSkillDownloadURLs(ctx, 7, &contract.ResolveSkillDownloadURLsRequest{
+	resolved, err = service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindUser, 1, &contract.ResolveSkillDownloadURLsRequest{
 		SkillCodes: []string{item.Code},
 	})
 	if err != nil || len(resolved.Skills) != 0 {
@@ -905,13 +1143,13 @@ func TestOfficialMarketplaceArtifactDownloadsWithoutCopyingFileUpload(t *testing
 	}).Error; err != nil {
 		t.Fatalf("change marketplace file hash: %v", err)
 	}
-	resolved, err = service.ResolveSkillDownloadURLs(ctx, 7, &contract.ResolveSkillDownloadURLsRequest{
+	resolved, err = service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindUser, 1, &contract.ResolveSkillDownloadURLsRequest{
 		SkillCodes: []string{item.Code},
 	})
 	if err != nil || len(resolved.Skills) != 0 {
 		t.Fatalf("mismatched marketplace file resolution = %#v, %v", resolved, err)
 	}
-	otherOrg, err := service.ResolveSkillDownloadURLs(ctx, 8, &contract.ResolveSkillDownloadURLsRequest{
+	otherOrg, err := service.ResolveSkillDownloadURLs(ctx, 8, types.CallerKindUser, 1, &contract.ResolveSkillDownloadURLsRequest{
 		SkillCodes: []string{item.Code},
 	})
 	if err != nil || len(otherOrg.Skills) != 0 {
@@ -980,7 +1218,7 @@ func TestOrganizationSkillDownloadResolvesCurrentRevisionByCode(t *testing.T) {
 	}
 	resolved, err := (&pluginService{db: database}).ResolveSkillDownloadURLs(
 		ctx,
-		7,
+		7, types.CallerKindUser, 1,
 		&contract.ResolveSkillDownloadURLsRequest{SkillCodes: []string{plugin.Code}},
 	)
 	if err != nil || len(resolved.Skills) != 1 {
@@ -988,6 +1226,377 @@ func TestOrganizationSkillDownloadResolvesCurrentRevisionByCode(t *testing.T) {
 	}
 	if resolved.Skills[0].Revision != 2 || resolved.Skills[0].SHA256 != second.Sha256 {
 		t.Fatalf("resolved current Skill = %#v", resolved.Skills[0])
+	}
+}
+
+func TestSkillDownloadURLsAutoInstallsMarketplaceSkillOnlyForWorker(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	ctx := context.Background()
+	sourceFile, sourcePlugin, sourceRevision := createPluginServiceSystemSkill(
+		t,
+		database,
+		"worker-auto",
+		"Worker auto install.",
+	)
+	item := createPluginServiceMarketplaceItem(
+		t,
+		database,
+		sourcePlugin,
+		"mkt_worker_auto",
+	)
+	service := &pluginService{db: database}
+	request := &contract.ResolveSkillDownloadURLsRequest{
+		SkillCodes: []string{item.Code},
+	}
+
+	userResult, err := service.ResolveSkillDownloadURLs(
+		ctx,
+		7,
+		types.CallerKindUser,
+		8,
+		request,
+	)
+	if err != nil || len(userResult.Skills) != 0 {
+		t.Fatalf("user missing Skill resolution = %#v, %v", userResult, err)
+	}
+	userPlugin, err := infradb.GetOrganizationPluginByIdentity(
+		ctx,
+		database,
+		7,
+		"skill",
+		item.Code,
+	)
+	if err != nil || userPlugin != nil {
+		t.Fatalf("user request must not install Skill = %#v, %v", userPlugin, err)
+	}
+
+	workerResult, err := service.ResolveSkillDownloadURLs(
+		ctx,
+		7,
+		types.CallerKindWorker,
+		19,
+		request,
+	)
+	if err != nil || len(workerResult.Skills) != 1 {
+		t.Fatalf("worker auto-install resolution = %#v, %v", workerResult, err)
+	}
+	if workerResult.Skills[0].Code != item.Code ||
+		workerResult.Skills[0].SHA256 != sourceFile.Sha256 ||
+		workerResult.Skills[0].DownloadURL == "" {
+		t.Fatalf("worker auto-install download = %#v", workerResult.Skills[0])
+	}
+	plugin, err := infradb.GetOrganizationPluginByIdentity(
+		ctx,
+		database,
+		7,
+		"skill",
+		item.Code,
+	)
+	if err != nil || plugin == nil {
+		t.Fatalf("load auto-installed Skill = %#v, %v", plugin, err)
+	}
+	if plugin.Origin != "marketplace" || plugin.CreatedBy != 19 ||
+		plugin.UpdatedBy != 19 || plugin.CurrentRevision != 1 {
+		t.Fatalf("auto-installed Skill identity = %#v", plugin)
+	}
+	revision, err := infradb.GetCurrentPluginRevision(ctx, database, plugin)
+	if err != nil || revision == nil {
+		t.Fatalf("load auto-installed revision = %#v, %v", revision, err)
+	}
+	if revision.PublishedByType != "worker" || revision.PublishedByID != 19 ||
+		revision.SourceMarketplaceItemID == nil ||
+		*revision.SourceMarketplaceItemID != item.ID ||
+		revision.SourcePluginRevisionID == nil ||
+		*revision.SourcePluginRevisionID != sourceRevision.ID {
+		t.Fatalf("auto-installed revision audit = %#v", revision)
+	}
+	sourceContent, err := infradb.GetPluginRevisionContent(ctx, database, sourceRevision.ID)
+	if err != nil || sourceContent == nil {
+		t.Fatalf("load source content = %#v, %v", sourceContent, err)
+	}
+	installedContent, err := infradb.GetPluginRevisionContent(ctx, database, revision.ID)
+	if err != nil || installedContent == nil {
+		t.Fatalf("load installed content = %#v, %v", installedContent, err)
+	}
+	if installedContent.ArtifactSHA256 != sourceContent.ArtifactSHA256 ||
+		installedContent.EntrypointContent != sourceContent.EntrypointContent ||
+		len(installedContent.FileIndex) != len(sourceContent.FileIndex) {
+		t.Fatalf("installed content = %#v, source = %#v", installedContent, sourceContent)
+	}
+	var bindingCount int64
+	if err := database.Model(&types.ProjectPluginBinding{}).
+		Where("plugin_id = ?", plugin.ID).
+		Count(&bindingCount).Error; err != nil {
+		t.Fatalf("count auto-install project bindings: %v", err)
+	}
+	if bindingCount != 0 {
+		t.Fatalf("auto-install project bindings = %d, want 0", bindingCount)
+	}
+	mySkills, err := service.ListPlugins(ctx, 7, &contract.ListPluginsRequest{
+		Kind:                    "skill",
+		Status:                  types.PluginStatusActive,
+		ExcludeMarketplaceBased: true,
+	})
+	if err != nil || len(mySkills.Plugins) != 0 {
+		t.Fatalf("Worker-installed Skill must be hidden from My Skills = %#v, %v", mySkills, err)
+	}
+}
+
+func TestSkillDownloadURLsPreservesOrganizationSkillsAndSortsMixedResults(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	ctx := context.Background()
+
+	_, marketPlugin, _ := createPluginServiceSystemSkill(
+		t,
+		database,
+		"a-market",
+		"Marketplace Skill.",
+	)
+	createPluginServiceMarketplaceItem(t, database, marketPlugin, "mkt_a_market")
+
+	_, existingMarketPlugin, _ := createPluginServiceSystemSkill(
+		t,
+		database,
+		"z-existing",
+		"Marketplace replacement.",
+	)
+	createPluginServiceMarketplaceItem(
+		t,
+		database,
+		existingMarketPlugin,
+		"mkt_z_existing",
+	)
+	existingFile, existingPlugin, _ := createPluginServiceOrganizationSkill(
+		t,
+		database,
+		7,
+		8,
+		"z-existing",
+		"Organization version.",
+	)
+
+	_, invalidMarketPlugin, _ := createPluginServiceSystemSkill(
+		t,
+		database,
+		"b-invalid",
+		"Marketplace fallback.",
+	)
+	createPluginServiceMarketplaceItem(
+		t,
+		database,
+		invalidMarketPlugin,
+		"mkt_b_invalid",
+	)
+	_, invalidPlugin, invalidRevision := createPluginServiceOrganizationSkill(
+		t,
+		database,
+		7,
+		8,
+		"b-invalid",
+		"Invalid organization artifact.",
+	)
+	if err := database.Model(invalidRevision).Update(
+		"definition",
+		json.RawMessage(`{"schema":"skill/v1","artifact":{"file_upload_id":"missing","sha256":"invalid"}}`),
+	).Error; err != nil {
+		t.Fatalf("invalidate organization revision: %v", err)
+	}
+
+	resolved, err := (&pluginService{db: database}).ResolveSkillDownloadURLs(
+		ctx,
+		7,
+		types.CallerKindWorker,
+		19,
+		&contract.ResolveSkillDownloadURLsRequest{
+			SkillCodes: []string{"z-existing", "missing", "b-invalid", "a-market"},
+		},
+	)
+	if err != nil || len(resolved.Skills) != 2 {
+		t.Fatalf("mixed Skill resolution = %#v, %v", resolved, err)
+	}
+	if resolved.Skills[0].Code != "a-market" ||
+		resolved.Skills[1].Code != "z-existing" ||
+		resolved.Skills[1].SHA256 != existingFile.Sha256 {
+		t.Fatalf("sorted mixed Skills = %#v", resolved.Skills)
+	}
+	var reloadedExisting types.Plugin
+	if err := database.First(&reloadedExisting, existingPlugin.ID).Error; err != nil {
+		t.Fatalf("reload existing organization Skill: %v", err)
+	}
+	if reloadedExisting.Origin != "org" || reloadedExisting.CurrentRevision != 1 {
+		t.Fatalf("existing organization Skill was replaced: %#v", reloadedExisting)
+	}
+	var existingRevisionCount int64
+	if err := database.Model(&types.PluginRevision{}).
+		Where("plugin_id = ?", existingPlugin.ID).
+		Count(&existingRevisionCount).Error; err != nil {
+		t.Fatalf("count existing revisions: %v", err)
+	}
+	if existingRevisionCount != 1 {
+		t.Fatalf("existing revision count = %d, want 1", existingRevisionCount)
+	}
+	var reloadedInvalid types.Plugin
+	if err := database.First(&reloadedInvalid, invalidPlugin.ID).Error; err != nil {
+		t.Fatalf("reload invalid organization Skill: %v", err)
+	}
+	if reloadedInvalid.Origin != "org" || reloadedInvalid.CurrentRevision != 1 {
+		t.Fatalf("invalid organization Skill was replaced: %#v", reloadedInvalid)
+	}
+}
+
+func TestSkillDownloadURLsAutoInstallRestoresSoftDeletedSkill(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	ctx := context.Background()
+	_, sourcePlugin, _ := createPluginServiceSystemSkill(
+		t,
+		database,
+		"restore-auto",
+		"Restore automatic install.",
+	)
+	createPluginServiceMarketplaceItem(
+		t,
+		database,
+		sourcePlugin,
+		"mkt_restore_auto",
+	)
+	service := &pluginService{db: database}
+	request := &contract.ResolveSkillDownloadURLsRequest{
+		SkillCodes: []string{sourcePlugin.Code},
+	}
+	if result, err := service.ResolveSkillDownloadURLs(
+		ctx,
+		7,
+		types.CallerKindWorker,
+		19,
+		request,
+	); err != nil || len(result.Skills) != 1 {
+		t.Fatalf("initial auto-install = %#v, %v", result, err)
+	}
+	plugin, err := infradb.GetOrganizationPluginByIdentity(
+		ctx,
+		database,
+		7,
+		"skill",
+		sourcePlugin.Code,
+	)
+	if err != nil || plugin == nil {
+		t.Fatalf("load initial auto-install = %#v, %v", plugin, err)
+	}
+	if err := database.Delete(plugin).Error; err != nil {
+		t.Fatalf("soft delete auto-installed Skill: %v", err)
+	}
+	if result, err := service.ResolveSkillDownloadURLs(
+		ctx,
+		7,
+		types.CallerKindWorker,
+		20,
+		request,
+	); err != nil || len(result.Skills) != 1 {
+		t.Fatalf("restored auto-install = %#v, %v", result, err)
+	}
+	restored, err := infradb.GetOrganizationPluginByIdentity(
+		ctx,
+		database,
+		7,
+		"skill",
+		sourcePlugin.Code,
+	)
+	if err != nil || restored == nil {
+		t.Fatalf("load restored auto-install = %#v, %v", restored, err)
+	}
+	if restored.ID != plugin.ID || restored.CurrentRevision != 2 ||
+		restored.UpdatedBy != 20 {
+		t.Fatalf("restored auto-install identity = %#v", restored)
+	}
+}
+
+func TestSkillDownloadURLsConcurrentAutoInstallRemainsUnique(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	_, sourcePlugin, _ := createPluginServiceSystemSkill(
+		t,
+		database,
+		"concurrent-auto",
+		"Concurrent automatic install.",
+	)
+	createPluginServiceMarketplaceItem(
+		t,
+		database,
+		sourcePlugin,
+		"mkt_concurrent_auto",
+	)
+	service := &pluginService{db: database}
+	request := &contract.ResolveSkillDownloadURLsRequest{
+		SkillCodes: []string{sourcePlugin.Code},
+	}
+
+	type resolveResult struct {
+		response *contract.ResolveSkillDownloadURLsResponse
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan resolveResult, 2)
+	var wait sync.WaitGroup
+	for _, workerID := range []uint{19, 20} {
+		wait.Add(1)
+		go func(id uint) {
+			defer wait.Done()
+			<-start
+			response, err := service.ResolveSkillDownloadURLs(
+				context.Background(),
+				7,
+				types.CallerKindWorker,
+				id,
+				request,
+			)
+			results <- resolveResult{response: response, err: err}
+		}(workerID)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	for result := range results {
+		if result.err != nil || result.response == nil ||
+			len(result.response.Skills) != 1 {
+			t.Fatalf("concurrent auto-install = %#v, %v", result.response, result.err)
+		}
+	}
+	var pluginCount int64
+	if err := database.Unscoped().Model(&types.Plugin{}).
+		Where(
+			"owner_scope = ? AND org_id = ? AND kind = ? AND code = ?",
+			types.OwnerScopeOrganization,
+			7,
+			"skill",
+			sourcePlugin.Code,
+		).
+		Count(&pluginCount).Error; err != nil {
+		t.Fatalf("count concurrent organization Skills: %v", err)
+	}
+	if pluginCount != 1 {
+		t.Fatalf("concurrent organization Skill count = %d, want 1", pluginCount)
+	}
+	var revisionCount int64
+	if err := database.Model(&types.PluginRevision{}).
+		Joins(
+			"JOIN "+types.TableNamePlugin+" AS p ON p.id = "+
+				types.TableNamePluginRevision+".plugin_id",
+		).
+		Where(
+			"p.owner_scope = ? AND p.org_id = ? AND p.kind = ? AND p.code = ?",
+			types.OwnerScopeOrganization,
+			7,
+			"skill",
+			sourcePlugin.Code,
+		).
+		Count(&revisionCount).Error; err != nil {
+		t.Fatalf("count concurrent revisions: %v", err)
+	}
+	if revisionCount != 1 {
+		t.Fatalf("concurrent revision count = %d, want 1", revisionCount)
 	}
 }
 

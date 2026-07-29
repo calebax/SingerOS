@@ -5,9 +5,9 @@ import {
 	officialPluginMarketplaceApi,
 	type SkillMarketplaceItem,
 } from "@leros/store";
-import { Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SkillCard } from "./SkillCard";
+import { filterSkillsByCategory, type SkillCatalogCategory } from "./skillCatalog";
 
 const PAGE_SIZE = 90;
 
@@ -25,39 +25,44 @@ function officialToSkillCard(item: OfficialPluginMarketplaceItem): SkillMarketpl
 		icon: item.icon ?? "",
 		installs: 0,
 		verified: item.verified,
+		installed: item.installed,
+		marketplace_available: item.marketplace_available,
+		latest_version: item.latest_version,
+		update_available: item.update_available,
+		organization_override: item.organization_override,
 	};
 }
 
 interface MarketplacePanelProps {
 	/** Called when a skill card is clicked (for navigation to detail page) */
 	onCardClick?: (skill: SkillMarketplaceItem) => void;
+	onUse?: (skill: SkillMarketplaceItem) => void;
 	isAuthenticated?: boolean;
 	/** Changes after an official plugin installation so the catalogue is reloaded. */
 	refreshSeq?: number;
+	keyword?: string;
+	category?: SkillCatalogCategory;
+	onCountChange?: (count: number) => void;
 }
 
 export function MarketplacePanel({
 	onCardClick,
+	onUse,
 	isAuthenticated = true,
 	refreshSeq = 0,
+	keyword = "",
+	category = "all",
+	onCountChange,
 }: MarketplacePanelProps) {
 	const [items, setItems] = useState<SkillMarketplaceItem[]>([]);
 	const [loading, setLoading] = useState(true);
-	const [keyword, setKeyword] = useState("");
-	const [debouncedKeyword, setDebouncedKeyword] = useState("");
 	const [mounted, setMounted] = useState(false);
 
-	// debounce keyword
 	useEffect(() => {
 		setMounted(true);
 	}, []);
 
-	useEffect(() => {
-		const timer = setTimeout(() => setDebouncedKeyword(keyword), 300);
-		return () => clearTimeout(timer);
-	}, [keyword]);
-
-	const searchKeyword = isAuthenticated ? debouncedKeyword : "";
+	const searchKeyword = isAuthenticated ? keyword : "";
 	// Fetch the official plugin catalogue on keyword change.
 	useEffect(() => {
 		if (!mounted) return;
@@ -90,42 +95,29 @@ export function MarketplacePanel({
 		};
 	}, [mounted, isAuthenticated, searchKeyword, refreshSeq]);
 
-	return (
-		<>
-			{/* Search + Filters */}
-			<div className="flex items-center border-b border-[var(--leros-control-border)] px-6 py-3">
-				<div className="relative flex-1 max-w-xs">
-					<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-[var(--leros-text-subtle)]" />
-					<input
-						type="text"
-						placeholder="搜索技能..."
-						value={keyword}
-						onChange={(e) => setKeyword(e.target.value)}
-						className="w-full rounded-md border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] py-1.5 pl-7 pr-2 text-xs text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white focus:outline-none transition-colors"
-					/>
-				</div>
-			</div>
+	const visibleItems = useMemo(() => filterSkillsByCategory(items, category), [items, category]);
 
-			{/* Marketplace grid */}
-			<div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
-				<div>
-					{!mounted || (isAuthenticated && loading) ? (
-						<div className="flex items-center justify-center py-16 text-sm text-[var(--leros-text-subtle)]">
-							加载中...
-						</div>
-					) : items.length === 0 ? (
-						<div className="flex flex-col items-center justify-center py-16 text-[var(--leros-text-subtle)]">
-							<p className="text-sm">暂无符合条件的技能</p>
-						</div>
-					) : (
-						<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-							{items.map((skill) => (
-								<SkillCard key={skill.skill_id} skill={skill} onClick={onCardClick} />
-							))}
-						</div>
-					)}
+	useEffect(() => {
+		onCountChange?.(visibleItems.length);
+	}, [onCountChange, visibleItems.length]);
+
+	return (
+		<div>
+			{!mounted || (isAuthenticated && loading) ? (
+				<div className="flex items-center justify-center py-20 text-sm text-[var(--leros-text-subtle)]">
+					加载中...
 				</div>
-			</div>
-		</>
+			) : visibleItems.length === 0 ? (
+				<div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--leros-control-border)] bg-white py-20 text-[var(--leros-text-subtle)]">
+					<p className="text-sm">暂无符合条件的技能</p>
+				</div>
+			) : (
+				<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+					{visibleItems.map((skill) => (
+						<SkillCard key={skill.skill_id} skill={skill} onClick={onCardClick} onUse={onUse} />
+					))}
+				</div>
+			)}
+		</div>
 	);
 }
