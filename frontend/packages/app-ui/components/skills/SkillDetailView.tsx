@@ -27,15 +27,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/u
 import {
 	ArrowLeft,
 	Calendar,
-	Download,
 	Ellipsis,
 	FileText,
 	FolderOpen,
 	Loader2,
 	RefreshCw,
-	Star,
 	Trash2,
-	Verified,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -55,9 +52,6 @@ interface SkillDetailData {
 	category: string;
 	tags: string[];
 	icon: string;
-	installs: number;
-	verified: boolean;
-	source_type: string;
 	installed: boolean;
 	marketplace_available: boolean;
 	latest_version?: string;
@@ -95,6 +89,7 @@ export function SkillDetailView({
 	);
 	const [activeTab, setActiveTab] = useState("overview");
 	const [mounted, setMounted] = useState(false);
+	const [stickyHeaderActive, setStickyHeaderActive] = useState(false);
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 
@@ -107,6 +102,7 @@ export function SkillDetailView({
 		setLoading(true);
 		setError(null);
 		setInstallationStatus(null);
+		setStickyHeaderActive(false);
 		const cancelled = false;
 		const fetchInstallationStatus = async (kind: string, code: string) => {
 			try {
@@ -136,9 +132,6 @@ export function SkillDetailView({
 					category: item.category,
 					tags: item.tags,
 					icon: item.icon ?? "",
-					installs: 0,
-					verified: item.verified,
-					source_type: "official",
 					installed: item.installed,
 					marketplace_available: item.marketplace_available,
 					latest_version: item.latest_version,
@@ -166,9 +159,6 @@ export function SkillDetailView({
 					category: plugin.kind,
 					tags: [plugin.kind],
 					icon: "",
-					installs: 0,
-					verified: false,
-					source_type: "organization",
 					installed: true,
 					marketplace_available: false,
 					update_available: false,
@@ -238,7 +228,11 @@ export function SkillDetailView({
 		}
 	}, [onBack, skill]);
 
-	const isOfficialVerified = skill?.verified && skill?.source_type === "official";
+	const handleUse = useCallback(() => {
+		if (!skill) return;
+		onUse?.(skill.name, skill.display_name || skill.name);
+	}, [onUse, skill]);
+
 	const canUpdateOrganization = canUpdateOrganizationSkill(installationStatus);
 	const canUpdateMarketplace =
 		skill?.source === "official" &&
@@ -291,21 +285,54 @@ export function SkillDetailView({
 	const displayName = skill.display_name || skill.name;
 
 	return (
-		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--leros-app-bg)] [scrollbar-gutter:stable]">
-			{/* Top section: back + header + metrics (full width) */}
-			<div className="min-w-0 px-6 pt-4 lg:px-12 xl:px-16">
-				{/* Back button */}
-				{onBack && (
-					<button
-						type="button"
-						onClick={onBack}
-						className="inline-flex items-center gap-1 text-xs text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] transition-colors mb-4"
-					>
-						<ArrowLeft className="size-3.5" />
-						返回
-					</button>
-				)}
+		<div
+			data-slot="skill-detail-scroll"
+			onScroll={(event) => setStickyHeaderActive(event.currentTarget.scrollTop > 0)}
+			className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--leros-app-bg)] [scrollbar-gutter:stable]"
+		>
+			{/* Keep the primary navigation available while the detail content scrolls. */}
+			{onBack && (
+				<div
+					data-slot="skill-detail-back-bar"
+					data-stuck={stickyHeaderActive}
+					className={`sticky top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-4 border-b bg-[var(--leros-app-bg)] px-6 lg:px-12 xl:px-16 ${
+						stickyHeaderActive
+							? "border-[var(--leros-control-border)] shadow-sm"
+							: "border-transparent"
+					}`}
+				>
+					<div className="flex min-w-0 items-center gap-3">
+						<button
+							type="button"
+							onClick={onBack}
+							className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-text-strong)]"
+						>
+							<ArrowLeft className="size-3.5" />
+							返回
+						</button>
+						{stickyHeaderActive && (
+							<>
+								<span className="h-3.5 w-px shrink-0 bg-[var(--leros-control-border)]" />
+								<span className="truncate text-sm font-semibold text-[var(--leros-text-strong)]">
+									{displayName}
+								</span>
+							</>
+						)}
+					</div>
+					{stickyHeaderActive && (
+						<Button
+							size="sm"
+							onClick={handleUse}
+							className="h-7 shrink-0 rounded-lg px-3 text-xs font-medium bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90"
+						>
+							去使用
+						</Button>
+					)}
+				</div>
+			)}
 
+			{/* Top section: skill identity and actions (full width) */}
+			<div className={`min-w-0 px-6 lg:px-12 xl:px-16 ${onBack ? "" : "pt-4"}`}>
 				{/* Skill Header */}
 				<div className="mb-5 flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
 					<div className="flex min-w-0 gap-4">
@@ -368,7 +395,7 @@ export function SkillDetailView({
 						<div className="flex shrink-0 items-center gap-1.5">
 							<Button
 								size="sm"
-								onClick={() => onUse?.(skill.name, skill.display_name || skill.name)}
+								onClick={handleUse}
 								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md transition-all"
 							>
 								去使用
@@ -413,7 +440,7 @@ export function SkillDetailView({
 						<div className="flex shrink-0 items-center gap-2">
 							<Button
 								size="sm"
-								onClick={() => onUse?.(skill.name, skill.display_name || skill.name)}
+								onClick={handleUse}
 								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md transition-all"
 							>
 								去使用
@@ -443,28 +470,13 @@ export function SkillDetailView({
 						组织中存在同 code 的自建 Skill；“去使用”将执行组织版本，市场版本不会覆盖它。
 					</div>
 				)}
-
-				{/* Metrics Banner */}
-				<div className="flex items-center gap-6 mb-4 py-0.5">
-					<div className="flex items-center gap-1.5 text-[var(--leros-text-muted)] text-xs">
-						<Download className="size-3.5" />
-						<span>{skill.installs ? `${(skill.installs / 1000).toFixed(1)}K` : "—"} 下载</span>
-					</div>
-					<div className="flex items-center gap-1.5 text-[var(--leros-text-muted)] text-xs">
-						<Star className="size-3.5 text-[var(--leros-primary)]" fill="currentColor" />
-						<span>4.9 评分</span>
-					</div>
-					{isOfficialVerified && (
-						<div className="flex items-center gap-1.5 text-[var(--leros-text-muted)] text-xs">
-							<Verified className="size-3.5" />
-							<span>官方认证</span>
-						</div>
-					)}
-				</div>
 			</div>
 
 			{/* Bottom section: tabs + sidebar side by side */}
-			<div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-6 px-6 lg:px-12 xl:grid-cols-[minmax(0,1fr)_16rem] xl:px-16">
+			<div
+				data-slot="skill-detail-content"
+				className="grid min-w-0 flex-1 grid-cols-1 gap-6 px-6 pb-12 lg:px-12 lg:pb-16 xl:grid-cols-[minmax(0,1fr)_16rem] xl:px-16"
+			>
 				{/* Left: tabbed content */}
 				<div className="min-w-0">
 					<Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 w-full">
@@ -539,8 +551,10 @@ export function SkillDetailView({
 
 				{/* Right Sidebar — top aligns with tab bar, no left border */}
 				<aside className="flex min-w-0 flex-col gap-4 py-3 xl:w-64">
-					{/* Technical Meta Info */}
-					<section className="bg-[var(--leros-surface-soft)]/50 p-4 rounded-xl border border-dashed border-[var(--leros-control-border)]">
+					<section
+						data-slot="skill-detail-metadata"
+						className="bg-[var(--leros-surface-soft)]/50 p-4 rounded-xl border border-dashed border-[var(--leros-control-border)]"
+					>
 						<h5 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-subtle)] mb-3">
 							元数据
 						</h5>
@@ -552,31 +566,11 @@ export function SkillDetailView({
 								</span>
 							</div>
 							<div className="flex justify-between">
-								<span className="text-[var(--leros-text-subtle)]">类型</span>
+								<span className="text-[var(--leros-text-subtle)]">作者</span>
 								<span className="text-[var(--leros-text-strong)] font-medium">
-									{skill.verified ? "官方核心技能" : "社区技能"}
+									{skill.author || "—"}
 								</span>
 							</div>
-							<div className="flex justify-between">
-								<span className="text-[var(--leros-text-subtle)]">来源</span>
-								<span className="text-[var(--leros-text-strong)] font-medium capitalize">
-									{skill.source_type}
-								</span>
-							</div>
-							<div className="flex justify-between">
-								<span className="text-[var(--leros-text-subtle)]">分类</span>
-								<span className="text-[var(--leros-text-strong)] font-medium">
-									{skill.category || "—"}
-								</span>
-							</div>
-							{skill.author && (
-								<div className="flex justify-between">
-									<span className="text-[var(--leros-text-subtle)]">作者</span>
-									<span className="text-[var(--leros-text-strong)] font-medium">
-										{skill.author}
-									</span>
-								</div>
-							)}
 						</div>
 					</section>
 				</aside>

@@ -93,7 +93,10 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 
 	const openCreateSkill = useCallback(() => {
 		requireAuth(() => {
-			const prefill = buildSkillWorkbenchPrefill("skill-creator", "请创建一个xxxxxx能力的skill");
+			const prefill = buildSkillWorkbenchPrefill(
+				"skill-creator",
+				"请创建一个用于「XXXXXX」的技能。",
+			);
 			selectWorkbenchProject(null);
 			selectWorkbenchTask(null);
 			setWorkbenchComposerPrefill(prefill);
@@ -217,7 +220,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 										<input
 											type="search"
 											aria-label="搜索技能"
-											placeholder="搜索技能名称、说明或标签"
+											placeholder="搜索技能名称、说明"
 											value={keyword}
 											onChange={(event) => setKeyword(event.target.value)}
 											className="h-9 w-full rounded-md border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] pl-9 pr-3 text-xs text-[var(--leros-text)] outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
