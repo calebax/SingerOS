@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.3.5] - 2026-07-29
+
+### 部署配置与 Worker 基础镜像、桌面端与企业版稳定性修复
+
+本版本扩展 edition 部署配置能力，拆分 Worker 基础镜像并补齐中文字体，同时修复桌面端外链、主题与企业版登录协作相关问题。
+
+- 新增 DeployMode、MaxOrgsPerUser 至 edition 接口与全局配置，前端按 `max_orgs_per_user` 控制创建组织入口
+- 拆分 `worker-base` 镜像并补齐中文字体与字体别名映射，简化 `Dockerfile.worker`；固定 opencode 版本为 1.17.20
+- 桌面端拦截外链导航并改用系统浏览器打开；Web 与 Desktop 固定使用亮色主题
+- 企业版无组织成员登录链路加固，`send_user_name` 改为取 `user_identification.name`
+- 修复更新项目成员时 admin 角色丢失、反馈提交用户查询失败，以及文档选区工具栏菜单位置异常
+
 ## [v0.3.4] - 2026-07-28
 
 ### 桌面端 Linux 更新与私有化部署、插件技能市场与企业版能力增强
