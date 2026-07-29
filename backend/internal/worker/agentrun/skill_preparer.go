@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,12 @@ type PluginSkillPreparer struct {
 type skillInstallRecord struct {
 	SHA256   string
 	Revision int
+}
+
+type skillInstallManifest struct {
+	Records      map[string]skillInstallRecord
+	RefreshCodes []string
+	Warnings     []string
 }
 
 type skillDownloadURLResponse struct {
@@ -91,7 +98,9 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 		return "", cleanup, fmt.Errorf("link worker system skills: %w", err)
 	}
 	p.preparePluginSkills(ctx, req.Plugins, viewRoot)
-	p.prepareInvokedSkills(ctx, req.Input.Messages, req.Plugins, viewRoot)
+	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot); err != nil {
+		return "", cleanup, fmt.Errorf("prepare invoked skills: %w", err)
+	}
 	return viewRoot, cleanup, nil
 }
 
@@ -110,7 +119,7 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 		return
 	}
 	manifestPath := filepath.Join(skillsRoot, ".seed-manifest")
-	installed, err := readSkillInstallManifest(manifestPath)
+	installed, err := p.readAndRepairSkillInstallManifest(ctx, manifestPath)
 	if err != nil {
 		logs.WarnContextf(ctx, "read worker Skill install manifest failed: %v", err)
 		return
@@ -158,6 +167,7 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 				installed[code] = skillInstallRecord{SHA256: download.SHA256, Revision: download.Revision}
 				available[code] = content
 				installedCodes = append(installedCodes, code)
+				logs.InfoContextf(ctx, "installed project Skill %q revision=%d", code, download.Revision)
 			}
 			if err := writeSkillInstallManifest(manifestPath, installed); err != nil {
 				logs.WarnContextf(ctx, "write worker Skill install manifest failed: %v", err)
@@ -173,10 +183,9 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 	}
 }
 
-// prepareInvokedSkills installs the latest organization Skill only when a user
-// explicitly invokes one that is neither built in nor part of the project.
-func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages []agentrundomain.InputMessage, snapshots []agentrundomain.PluginSnapshot, viewRoot string) {
-	projectSkills := projectSkillCodes(snapshots)
+// prepareInvokedSkills installs the latest organization Skill when an explicit
+// invocation is not actually available in the prepared run view.
+func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages []agentrundomain.InputMessage, viewRoot string) error {
 	missing := make(map[string]struct{})
 	for _, message := range messages {
 		if message.Role != "user" {
@@ -188,91 +197,77 @@ func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages
 				logs.WarnContextf(ctx, "skip invalid invoked Skill %q: %v", token, err)
 				continue
 			}
-			if projectSkills[code] || isSystemSkill(code) {
+			if isSystemSkill(code) || hasSkillDocument(filepath.Join(viewRoot, code)) {
 				continue
 			}
-			if _, err := os.Lstat(filepath.Join(viewRoot, code)); err == nil {
-				continue
-			} else if !os.IsNotExist(err) {
+			if _, err := os.Lstat(filepath.Join(viewRoot, code)); err != nil && !os.IsNotExist(err) {
 				logs.WarnContextf(ctx, "inspect invoked Skill %q in run view: %v", code, err)
-				continue
+				return fmt.Errorf("inspect Skill %q in run view: %w", code, err)
 			}
 			missing[code] = struct{}{}
 		}
 	}
 	if len(missing) == 0 {
-		return
+		return nil
 	}
 	codes := make([]string, 0, len(missing))
 	for code := range missing {
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
-	p.installLatestSkills(ctx, codes, viewRoot)
-}
-
-func projectSkillCodes(snapshots []agentrundomain.PluginSnapshot) map[string]bool {
-	codes := make(map[string]bool)
-	for _, snapshot := range snapshots {
-		if !strings.EqualFold(snapshot.Kind, "skill") {
-			continue
-		}
-		code, err := organizationSkillName(snapshot.Code)
-		if err == nil {
-			codes[code] = true
-		}
-	}
-	return codes
+	return p.installLatestSkills(ctx, codes, viewRoot)
 }
 
 func isSystemSkill(code string) bool {
 	return hasSkillDocument(filepath.Join(systemSkillsDir(), code))
 }
 
-func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []string, viewRoot string) {
+func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []string, viewRoot string) error {
 	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
 	if err != nil {
-		logs.WarnContextf(ctx, "resolve worker Skill directory for invoked Skills failed: %v", err)
-		return
+		return fmt.Errorf("resolve worker Skill directory: %w", err)
 	}
 	lockValue, _ := skillInstallLocks.LoadOrStore(skillsRoot, &sync.Mutex{})
 	installLock := lockValue.(*sync.Mutex)
 	installLock.Lock()
 	defer installLock.Unlock()
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
-		logs.WarnContextf(ctx, "create worker Skill directory for invoked Skills failed: %v", err)
-		return
+		return fmt.Errorf("create worker Skill directory: %w", err)
 	}
 	manifestPath := filepath.Join(skillsRoot, ".seed-manifest")
-	installed, err := readSkillInstallManifest(manifestPath)
+	installed, err := p.readAndRepairSkillInstallManifest(ctx, manifestPath)
 	if err != nil {
-		logs.WarnContextf(ctx, "read worker Skill install manifest for invoked Skills failed: %v", err)
-		return
+		return fmt.Errorf("read worker Skill install manifest: %w", err)
 	}
 	downloads, err := p.resolveDownloadURLs(ctx, codes)
 	if err != nil {
-		logs.WarnContextf(ctx, "resolve invoked Skill download URLs failed: %v", err)
-		return
+		return fmt.Errorf("resolve download URLs: %w", err)
 	}
 	changed := false
 	installedCodes := make([]string, 0, len(codes))
+	installErrors := make([]error, 0)
 	for _, code := range codes {
 		download, ok := downloads[code]
 		if !ok {
 			logs.WarnContextf(ctx, "skip invoked Skill %q: server returned no download URL", code)
+			installErrors = append(installErrors, fmt.Errorf("Skill %q: server returned no download URL", code))
 			continue
 		}
 		content, err := installSkillFromURL(ctx, skillsRoot, code, download)
 		if err != nil {
 			logs.WarnContextf(ctx, "skip invoked Skill %q: %v", code, err)
+			installErrors = append(installErrors, fmt.Errorf("Skill %q: %w", code, err))
 			continue
 		}
 		installed[code] = skillInstallRecord{SHA256: download.SHA256, Revision: download.Revision}
-		changed = true
-		installedCodes = append(installedCodes, code)
 		if err := replaceRunSkillLink(content, filepath.Join(viewRoot, code)); err != nil {
 			logs.WarnContextf(ctx, "skip invoked Skill %q link: %v", code, err)
+			installErrors = append(installErrors, fmt.Errorf("Skill %q link: %w", code, err))
+			continue
 		}
+		changed = true
+		installedCodes = append(installedCodes, code)
+		logs.InfoContextf(ctx, "installed invoked Skill %q revision=%d", code, download.Revision)
 	}
 	if changed {
 		if err := writeSkillInstallManifest(manifestPath, installed); err != nil {
@@ -281,14 +276,15 @@ func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []s
 			p.commitInstalledBaseline(ctx, installedCodes)
 		}
 	}
+	return errors.Join(installErrors...)
 }
 
 func (p *PluginSkillPreparer) commitInstalledBaseline(ctx context.Context, codes []string) {
-	if p == nil || p.baselineCommitter == nil || len(codes) == 0 {
+	if p == nil || p.baselineCommitter == nil {
 		return
 	}
 	if err := p.baselineCommitter.CommitInstalled(ctx, codes); err != nil {
-		logs.WarnContextf(ctx, "commit installed Server Skills as baseline failed: %v", err)
+		logs.WarnContextf(ctx, "commit Worker Skill baseline failed: %v", err)
 	}
 }
 
@@ -459,42 +455,99 @@ func hasSkillDocument(root string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func readSkillInstallManifest(path string) (map[string]skillInstallRecord, error) {
+func (p *PluginSkillPreparer) readAndRepairSkillInstallManifest(
+	ctx context.Context,
+	path string,
+) (map[string]skillInstallRecord, error) {
+	manifest, err := readSkillInstallManifest(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(manifest.Warnings) == 0 {
+		return manifest.Records, nil
+	}
+	logs.WarnContextf(
+		ctx,
+		"repair worker Skill install manifest: issues=%d refresh=%v warnings=%v",
+		len(manifest.Warnings),
+		manifest.RefreshCodes,
+		manifest.Warnings,
+	)
+	if err := writeSkillInstallManifest(path, manifest.Records); err != nil {
+		logs.WarnContextf(ctx, "repair worker Skill install manifest failed: %v", err)
+		return manifest.Records, nil
+	}
+	p.commitInstalledBaseline(ctx, nil)
+	return manifest.Records, nil
+}
+
+func readSkillInstallManifest(path string) (*skillInstallManifest, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return make(map[string]skillInstallRecord), nil
+		return &skillInstallManifest{Records: make(map[string]skillInstallRecord)}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	entries := make(map[string]skillInstallRecord)
+	manifest := &skillInstallManifest{Records: make(map[string]skillInstallRecord)}
+	occurrences := make(map[string]int)
+	untrustedCodes := make(map[string]struct{})
+	refreshCodes := make(map[string]struct{})
 	for lineNumber, line := range strings.Split(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		parts := strings.Split(line, ":")
-		if len(parts) != 3 {
-			return nil, fmt.Errorf("line %d must be skill_name:sha256:revision", lineNumber+1)
-		}
 		name, err := organizationSkillName(parts[0])
 		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNumber+1, err)
+			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d has invalid skill name", lineNumber+1))
+			continue
+		}
+		occurrences[name]++
+		if len(parts) != 2 && len(parts) != 3 {
+			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d has invalid field count", lineNumber+1))
+			untrustedCodes[name] = struct{}{}
+			continue
 		}
 		hash, err := normalizedSHA256(parts[1])
 		if err != nil {
-			return nil, fmt.Errorf("line %d has invalid sha256", lineNumber+1)
+			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d has invalid sha256", lineNumber+1))
+			untrustedCodes[name] = struct{}{}
+			continue
+		}
+		if len(parts) == 2 {
+			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d uses legacy format", lineNumber+1))
+			untrustedCodes[name] = struct{}{}
+			refreshCodes[name] = struct{}{}
+			continue
 		}
 		revision, err := strconv.Atoi(strings.TrimSpace(parts[2]))
 		if err != nil || revision <= 0 {
-			return nil, fmt.Errorf("line %d has invalid revision", lineNumber+1)
+			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d has invalid revision", lineNumber+1))
+			untrustedCodes[name] = struct{}{}
+			continue
 		}
-		if _, exists := entries[name]; exists {
-			return nil, fmt.Errorf("line %d duplicates skill %q", lineNumber+1, name)
-		}
-		entries[name] = skillInstallRecord{SHA256: hash, Revision: revision}
+		manifest.Records[name] = skillInstallRecord{SHA256: hash, Revision: revision}
 	}
-	return entries, nil
+	for name, count := range occurrences {
+		if count <= 1 {
+			continue
+		}
+		delete(manifest.Records, name)
+		untrustedCodes[name] = struct{}{}
+		refreshCodes[name] = struct{}{}
+		manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("skill %q has duplicate records", name))
+	}
+	for name := range untrustedCodes {
+		delete(manifest.Records, name)
+	}
+	manifest.RefreshCodes = make([]string, 0, len(refreshCodes))
+	for name := range refreshCodes {
+		manifest.RefreshCodes = append(manifest.RefreshCodes, name)
+	}
+	sort.Strings(manifest.RefreshCodes)
+	return manifest, nil
 }
 
 func writeSkillInstallManifest(path string, entries map[string]skillInstallRecord) error {

@@ -270,7 +270,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const uploadAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
-	const { skillOptions, skillsLoading } = useComposerSkillOptions(activeWorkbenchProjectId ?? null);
+	const { skillOptions, skillsLoading } = useComposerSkillOptions(
+		activeWorkbenchProjectId ?? null,
+		isAuthenticated,
+	);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
 	const projectTriggerDismissRef = useRef<(() => void) | null>(null);
 	const pickerRootRef = useRef<HTMLDivElement>(null);
@@ -1053,6 +1056,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									}}
 									assistantOptions={availableAssistantOptions}
 									assistantSelectionMode="single"
+									skillOptions={skillOptions}
+									skillsLoading={skillsLoading}
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
 									isGenerating={isSending}

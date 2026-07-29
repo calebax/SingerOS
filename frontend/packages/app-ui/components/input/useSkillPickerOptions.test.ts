@@ -6,12 +6,14 @@ import {
 	type PluginListItem,
 	pluginApi,
 } from "@leros/store";
+import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	bindSkillsToProject,
 	bindSkillToProject,
 	loadSkillPickerOptions,
 	marketplaceToSkillOption,
+	useSkillPickerOptions,
 } from "./useSkillPickerOptions";
 
 function plugin(code: string, name: string, origin = "org"): PluginListItem {
@@ -140,6 +142,41 @@ describe("Skill picker option merging", () => {
 		expect(result.options.map((item) => item.code)).toEqual(["market"]);
 		expect(builtin).not.toHaveBeenCalled();
 		expect(install).not.toHaveBeenCalled();
+	});
+
+	it("loads Skills after authentication enables the picker", async () => {
+		const organization = vi.spyOn(pluginApi, "list").mockResolvedValue({
+			data: {
+				code: 0,
+				message: "success",
+				data: { plugins: [plugin("org", "Organization")] },
+			},
+		} as Awaited<ReturnType<typeof pluginApi.list>>);
+		vi.spyOn(officialPluginMarketplaceApi, "list").mockResolvedValue({
+			data: { code: 0, message: "success", data: { items: [] } },
+		} as unknown as Awaited<ReturnType<typeof officialPluginMarketplaceApi.list>>);
+		vi.spyOn(pluginApi, "listBuiltinSkills").mockResolvedValue({
+			data: { code: 0, message: "success", data: { plugins: [] } },
+		} as unknown as Awaited<ReturnType<typeof pluginApi.listBuiltinSkills>>);
+
+		const { result, rerender } = renderHook(
+			({ enabled }) =>
+				useSkillPickerOptions({
+					includeBuiltin: true,
+					enabled,
+				}),
+			{ initialProps: { enabled: false } },
+		);
+
+		expect(organization).not.toHaveBeenCalled();
+		expect(result.current.skillsLoading).toBe(false);
+
+		rerender({ enabled: true });
+
+		await waitFor(() => {
+			expect(result.current.skillOptions?.map((item) => item.code)).toEqual(["org"]);
+		});
+		expect(organization).toHaveBeenCalledOnce();
 	});
 });
 
