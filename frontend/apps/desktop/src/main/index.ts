@@ -20,6 +20,8 @@ import { configureTrayInteractions } from "./tray-interactions";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let mainWindowHideInProgress = false;
+// F9 不能作为系统修饰键，需自行跟踪按住状态，用于正式版开发者工具快捷键。
+let isF9HeldForDevTools = false;
 
 // 中文注释：银河麒麟/UKUI 主要通过 X11 WM_CLASS 将运行窗口关联到 .desktop 启动器。
 // 显式固定 class，避免不同 Electron/Chromium 版本使用产品名或可执行文件名导致匹配失败。
@@ -95,10 +97,22 @@ function createWindow(): void {
 	});
 
 	mainWindow.webContents.on("before-input-event", (event, input) => {
+		if (input.key === "F9") {
+			// F9 无焦点切换等默认副作用，按住时拦截，避免单独按下产生其它行为。
+			event.preventDefault();
+			isF9HeldForDevTools = input.type === "keyDown";
+			return;
+		}
+
+		// 正式版开发者工具：F9 + Ctrl + Alt + I（掺入功能键，避免纯 Ctrl/Alt/Shift 组合易冲突）。
 		const isDevToolsShortcut =
-			input.key.toLowerCase() === "d" &&
-			((process.platform === "darwin" && input.meta && input.shift) ||
-				(process.platform !== "darwin" && input.control && input.alt));
+			input.type === "keyDown" &&
+			input.key.toLowerCase() === "i" &&
+			isF9HeldForDevTools &&
+			input.control &&
+			input.alt &&
+			!input.shift &&
+			!input.meta;
 
 		if (!isDevToolsShortcut) return;
 
@@ -109,6 +123,10 @@ function createWindow(): void {
 		}
 	});
 
+	mainWindow.on("blur", () => {
+		isF9HeldForDevTools = false;
+	});
+
 	mainWindow.on("close", (event) => {
 		if (isAppQuitting()) return;
 
@@ -117,6 +135,7 @@ function createWindow(): void {
 	});
 
 	mainWindow.on("closed", () => {
+		isF9HeldForDevTools = false;
 		mainWindow = null;
 	});
 
