@@ -175,7 +175,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 						<div className="space-y-1.5">
 							<span className="text-xs font-medium text-slate-700">头像</span>
 							<div className="flex items-center gap-3">
-								{/* 中文注释：默认头像种子固定使用保存前的名称，编辑名称时不应改变当前头像外观。 */}
+								{/* 中文注释：未上传时展示固定默认头像；编辑名称不影响默认头像外观。 */}
 								<AssistantAvatar name={assistant.name} src={previewAvatar || avatar} />
 								<label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">
 									<ImagePlus className="mr-2 size-4" />

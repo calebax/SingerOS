@@ -30,11 +30,11 @@ import {
 	Wrench,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC } from "../../assets";
 import {
 	SHOW_ASSISTANT_MESSAGE_METRICS,
 	SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON,
 } from "../../constants/temporaryUiFlags";
-import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { openPlanPreview, openProjectArtifactPreview } from "../layout/file-preview-store";
@@ -83,9 +83,12 @@ function resolveReplyPreviewContent(message: Message): string | null {
 
 function ChatAssistantAvatar({ name, src }: { name: string; src?: string }) {
 	const className = "size-8 shrink-0 rounded-full object-cover";
+	// 中文注释：未上传头像时与列表/卡片共用固定默认图。
 	const fallback = (
-		<DiceBearAvatar seed={`digital-assistant:${name}`} alt={name} className={className} size={64} />
+		<img src={CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC} alt={name} className={className} />
 	);
+
+	if (!src) return fallback;
 
 	// 中文注释：聊天头像只展示图片本身，不复用卡片头像的渐变底和装饰样式。
 	return <ProtectedImage src={src} alt={name} className={className} fallback={fallback} />;
