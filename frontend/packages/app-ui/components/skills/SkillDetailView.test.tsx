@@ -115,6 +115,54 @@ describe("SkillDetailView installation status", () => {
 		expect(mockInstall).not.toHaveBeenCalled();
 	});
 
+	it("keeps the back action in a sticky bar", async () => {
+		const onBack = vi.fn();
+		const { container } = render(
+			<SkillDetailView skillId="mkt_demo" source="official" onBack={onBack} onUse={vi.fn()} />,
+		);
+
+		await screen.findByText("Demo");
+		const backBar = container.querySelector('[data-slot="skill-detail-back-bar"]');
+		expect(backBar).toHaveClass("sticky", "top-0");
+		expect(backBar).toHaveAttribute("data-stuck", "false");
+		expect(backBar).not.toHaveTextContent("Demo");
+
+		const scrollContainer = container.querySelector('[data-slot="skill-detail-scroll"]');
+		expect(scrollContainer).not.toBeNull();
+		if (!scrollContainer) throw new Error("技能详情滚动容器不存在");
+		fireEvent.scroll(scrollContainer, { target: { scrollTop: 32 } });
+
+		expect(backBar).toHaveAttribute("data-stuck", "true");
+		expect(backBar).toHaveTextContent("Demo");
+		expect(backBar?.querySelector("button:last-child")).toHaveTextContent("去使用");
+
+		fireEvent.click(screen.getByRole("button", { name: "返回" }));
+		expect(onBack).toHaveBeenCalledOnce();
+	});
+
+	it("shows only version and author metadata without marketplace metrics", async () => {
+		const { container } = render(<SkillDetailView skillId="mkt_demo" source="official" />);
+
+		await screen.findByText("Demo");
+		const metadata = container.querySelector('[data-slot="skill-detail-metadata"]');
+		expect(metadata).toHaveTextContent("版本v2作者Lework");
+		expect(metadata).not.toHaveTextContent("类型");
+		expect(metadata).not.toHaveTextContent("来源");
+		expect(metadata).not.toHaveTextContent("分类");
+		expect(screen.queryByText(/下载$/)).not.toBeInTheDocument();
+		expect(screen.queryByText("4.9 评分")).not.toBeInTheDocument();
+		expect(screen.queryByText("官方认证")).not.toBeInTheDocument();
+	});
+
+	it("lets long detail content expand before applying bottom spacing", async () => {
+		const { container } = render(<SkillDetailView skillId="mkt_demo" source="official" />);
+
+		await screen.findByText("Demo");
+		const content = container.querySelector('[data-slot="skill-detail-content"]');
+		expect(content).toHaveClass("pb-12", "lg:pb-16");
+		expect(content).not.toHaveClass("min-h-0");
+	});
+
 	it("updates an installed marketplace Skill from its detail action", async () => {
 		render(<SkillDetailView skillId="mkt_demo" source="official" />);
 
