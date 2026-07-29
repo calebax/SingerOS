@@ -55,6 +55,10 @@ func prepareSkillPackage(rawArchive []byte) (*preparedSkillPackage, error) {
 	if skillDocument == nil {
 		return nil, fmt.Errorf("root SKILL.md is required")
 	}
+	skillDocument, err = skillcatalog.NormalizeDocument(skillDocument)
+	if err != nil {
+		return nil, fmt.Errorf("normalize SKILL.md: %w", err)
+	}
 	if err := validateSkillMDFromBytes(skillDocument); err != nil {
 		return nil, err
 	}
