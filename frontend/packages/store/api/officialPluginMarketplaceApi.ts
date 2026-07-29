@@ -14,6 +14,12 @@ export interface OfficialPluginMarketplaceItem {
 	tags: string[];
 	icon?: string;
 	verified: boolean;
+	installed: boolean;
+	installed_plugin_id?: string;
+	marketplace_available: boolean;
+	latest_version?: string;
+	update_available: boolean;
+	organization_override: boolean;
 	content?: PluginRevisionContent | null;
 }
 

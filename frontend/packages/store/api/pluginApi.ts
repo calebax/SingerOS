@@ -77,6 +77,7 @@ export interface ListPluginsParams {
 	status?: string;
 	keyword?: string;
 	limit?: number;
+	exclude_marketplace_based?: boolean;
 }
 
 export interface AddSkillPluginParams {
@@ -91,6 +92,9 @@ function cleanListParams(params: ListPluginsParams): Record<string, string | num
 	if (params.status) result.status = params.status;
 	if (params.keyword) result.keyword = params.keyword;
 	if (params.limit !== undefined) result.limit = params.limit;
+	if (params.exclude_marketplace_based !== undefined) {
+		result.exclude_marketplace_based = params.exclude_marketplace_based ? 1 : 0;
+	}
 	return result;
 }
 
@@ -117,49 +121,59 @@ export interface PluginComposerOption {
 	label: string;
 	description: string;
 	keywords: string[];
+	source?: "project" | "organization" | "marketplace" | "builtin";
 	origin?: string;
+	pluginId?: string;
+	marketplaceItemId?: string;
+	projectAssociated?: boolean;
+	organizationOverride?: boolean;
 }
 
 // pluginToComposerOption maps PluginListItem (or ProjectPluginItem) to a composer picker option.
-export function pluginToComposerOption(plugin: PluginListItem): PluginComposerOption {
+export function pluginToComposerOption(
+	plugin: PluginListItem,
+	source?: "project" | "organization" | "builtin",
+): PluginComposerOption {
+	const resolvedSource =
+		source ?? (plugin.origin === "builtin_worker" ? "builtin" : "organization");
 	return {
 		code: plugin.code,
 		label: plugin.name || plugin.code,
 		description: plugin.description ?? "",
+		source: resolvedSource,
 		origin: plugin.origin,
-		keywords: [plugin.name, plugin.code, plugin.description, plugin.kind, plugin.origin].filter(
-			(item): item is string => Boolean(item),
+		pluginId: resolvedSource === "builtin" ? undefined : plugin.public_id,
+		projectAssociated: resolvedSource === "project",
+		keywords: [plugin.name, plugin.code, plugin.description].filter((item): item is string =>
+			Boolean(item),
 		),
 	};
 }
 
 /**
- * Merges project, org, and builtin skill options into a single ordered list.
- * Order: project-bound org skills > remaining org skills > system builtin skills.
- * Deduplication (case-insensitive by code and label):
- *   - Org skill + builtin skill with same code → keep org skill.
- *   - Project skills always appear before org skills.
+ * Merges every Skill source into one ordered list.
+ * Order: project-bound > organization > marketplace > system builtin.
+ * Duplicate codes are matched case-insensitively; display labels do not affect identity.
  */
 export function mergeSkillOptions(
 	projectSkills: PluginComposerOption[],
 	orgSkills: PluginComposerOption[],
+	marketplaceSkills: PluginComposerOption[],
 	builtinSkills: PluginComposerOption[],
 ): PluginComposerOption[] {
 	const seenCodes = new Set<string>();
-	const seenLabels = new Set<string>();
 	const result: PluginComposerOption[] = [];
 
 	const add = (skill: PluginComposerOption) => {
 		const codeKey = skill.code.toLowerCase();
-		const labelKey = skill.label.toLowerCase();
-		if (seenCodes.has(codeKey) || seenLabels.has(labelKey)) return;
+		if (seenCodes.has(codeKey)) return;
 		seenCodes.add(codeKey);
-		seenLabels.add(labelKey);
 		result.push(skill);
 	};
 
 	for (const skill of projectSkills) add(skill);
 	for (const skill of orgSkills) add(skill);
+	for (const skill of marketplaceSkills) add(skill);
 	for (const skill of builtinSkills) add(skill);
 
 	return result;

@@ -24,11 +24,9 @@ import {
 	DropdownMenuTrigger,
 } from "@leros/ui/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
-import { cn } from "@leros/ui/lib/utils";
 import {
 	ArrowLeft,
 	Calendar,
-	CheckCircle,
 	Download,
 	Ellipsis,
 	FileText,
@@ -43,10 +41,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { SkillFileTree } from "./SkillFileTree";
-import {
-	canUpdateOrganizationSkill,
-	resolveMarketplaceSkillAction,
-} from "./skillInstallationState";
+import { canUpdateOrganizationSkill } from "./skillInstallationState";
 
 interface SkillDetailData {
 	skill_id: string;
@@ -63,6 +58,11 @@ interface SkillDetailData {
 	installs: number;
 	verified: boolean;
 	source_type: string;
+	installed: boolean;
+	marketplace_available: boolean;
+	latest_version?: string;
+	update_available: boolean;
+	organization_override: boolean;
 	files: PluginRevisionFile[];
 	has_content_snapshot: boolean;
 }
@@ -75,7 +75,7 @@ interface SkillDetailViewProps {
 	onBack?: () => void;
 	/** Called when user clicks "去使用" for an organization skill */
 	onUse?: (skillId: string, displayLabel?: string) => void;
-	/** Called after an official marketplace item is installed into the organization. */
+	/** Called after an official marketplace item is updated in the organization. */
 	onOfficialInstalled?: () => void;
 }
 
@@ -93,8 +93,6 @@ export function SkillDetailView({
 	const [installationStatus, setInstallationStatus] = useState<PluginInstallationStatus | null>(
 		null,
 	);
-	const [installationStatusLoading, setInstallationStatusLoading] = useState(true);
-	const [installationStatusError, setInstallationStatusError] = useState(false);
 	const [activeTab, setActiveTab] = useState("overview");
 	const [mounted, setMounted] = useState(false);
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -109,8 +107,6 @@ export function SkillDetailView({
 		setLoading(true);
 		setError(null);
 		setInstallationStatus(null);
-		setInstallationStatusLoading(true);
-		setInstallationStatusError(false);
 		const cancelled = false;
 		const fetchInstallationStatus = async (kind: string, code: string) => {
 			try {
@@ -118,11 +114,8 @@ export function SkillDetailView({
 				if (!cancelled) setInstallationStatus(response.data.data);
 			} catch (statusError) {
 				if (!cancelled) {
-					setInstallationStatusError(true);
 					console.error("Failed to fetch skill installation status:", statusError);
 				}
-			} finally {
-				if (!cancelled) setInstallationStatusLoading(false);
 			}
 		};
 		try {
@@ -146,10 +139,14 @@ export function SkillDetailView({
 					installs: 0,
 					verified: item.verified,
 					source_type: "official",
+					installed: item.installed,
+					marketplace_available: item.marketplace_available,
+					latest_version: item.latest_version,
+					update_available: item.update_available,
+					organization_override: item.organization_override,
 					files: content?.files ?? [],
 					has_content_snapshot: content != null,
 				});
-				await fetchInstallationStatus(item.kind, item.code);
 				return;
 			}
 			if (source === "organization") {
@@ -172,6 +169,10 @@ export function SkillDetailView({
 					installs: 0,
 					verified: false,
 					source_type: "organization",
+					installed: true,
+					marketplace_available: false,
+					update_available: false,
+					organization_override: false,
 					files: content?.files ?? [],
 					has_content_snapshot: content !== null,
 				});
@@ -186,7 +187,6 @@ export function SkillDetailView({
 		} finally {
 			if (!cancelled) {
 				setLoading(false);
-				setInstallationStatusLoading(false);
 			}
 		}
 	}, [skillId, source]);
@@ -239,12 +239,12 @@ export function SkillDetailView({
 	}, [onBack, skill]);
 
 	const isOfficialVerified = skill?.verified && skill?.source_type === "official";
-	const marketplaceAction = resolveMarketplaceSkillAction(
-		installationStatus,
-		installationStatusLoading,
-		installationStatusError,
-	);
 	const canUpdateOrganization = canUpdateOrganizationSkill(installationStatus);
+	const canUpdateMarketplace =
+		skill?.source === "official" &&
+		skill.installed &&
+		skill.marketplace_available &&
+		skill.update_available;
 
 	// Loading state
 	if (loading) {
@@ -333,13 +333,25 @@ export function SkillDetailView({
 										{skill.category}
 									</span>
 								)}
-								{installationStatus?.update_available ? (
+								{skill.source === "official" && skill.installed && !skill.marketplace_available ? (
+									<span className="inline-flex rounded border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+										已下架
+									</span>
+								) : skill.source === "official" && skill.update_available ? (
 									<span className="inline-flex rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
 										有更新
 									</span>
-								) : installationStatus?.installed && skill.source !== "organization" ? (
+								) : skill.source === "official" && skill.installed ? (
 									<span className="inline-flex rounded border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
 										已安装
+									</span>
+								) : skill.source === "official" && skill.organization_override ? (
+									<span className="inline-flex rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+										组织同名版本
+									</span>
+								) : installationStatus?.update_available && skill.source === "organization" ? (
+									<span className="inline-flex rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+										有更新
 									</span>
 								) : null}
 							</div>
@@ -351,7 +363,7 @@ export function SkillDetailView({
 						</div>
 					</div>
 
-					{/* Action buttons — install for marketplace, use+menu for managed skills */}
+					{/* Action buttons — direct use for marketplace, use+menu for managed skills */}
 					{skill.source === "organization" ? (
 						<div className="flex shrink-0 items-center gap-1.5">
 							<Button
@@ -398,55 +410,39 @@ export function SkillDetailView({
 							</DropdownMenu>
 						</div>
 					) : (
-						<Button
-							size="sm"
-							onClick={handleInstall}
-							disabled={
-								installing ||
-								marketplaceAction === "checking" ||
-								marketplaceAction === "unavailable" ||
-								marketplaceAction === "installed"
-							}
-							className={cn(
-								"shrink-0 rounded-lg px-4 py-2 text-xs font-medium shadow-sm transition-all",
-								marketplaceAction === "installed"
-									? "bg-green-50 text-green-600 border border-green-200 hover:bg-green-50"
-									: marketplaceAction === "unavailable"
-										? "border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] text-[var(--leros-text-subtle)]"
-										: "bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md",
+						<div className="flex shrink-0 items-center gap-2">
+							<Button
+								size="sm"
+								onClick={() => onUse?.(skill.name, skill.display_name || skill.name)}
+								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md transition-all"
+							>
+								去使用
+							</Button>
+							{canUpdateMarketplace && (
+								<Button
+									size="sm"
+									variant="outline"
+									onClick={handleInstall}
+									disabled={installing}
+									className="rounded-lg px-4 py-2 text-xs font-medium"
+								>
+									{installing ? (
+										<Loader2 className="mr-1.5 size-3.5 animate-spin" />
+									) : (
+										<RefreshCw className="mr-1.5 size-3.5" />
+									)}
+									{installing ? "更新中..." : "更新"}
+								</Button>
 							)}
-						>
-							{installing ? (
-								<>
-									<Loader2 className="size-3.5 mr-1.5 animate-spin" />
-									{marketplaceAction === "update" ? "更新中..." : "安装中..."}
-								</>
-							) : marketplaceAction === "checking" ? (
-								<>
-									<Loader2 className="size-3.5 mr-1.5 animate-spin" />
-									检查状态...
-								</>
-							) : marketplaceAction === "update" ? (
-								<>
-									<RefreshCw className="size-3.5 mr-1.5" />
-									更新技能
-								</>
-							) : marketplaceAction === "installed" ? (
-								<>
-									<CheckCircle className="size-3.5 mr-1.5" />
-									已安装
-								</>
-							) : marketplaceAction === "unavailable" ? (
-								<>状态不可用</>
-							) : (
-								<>
-									<Download className="size-3.5 mr-1.5" />
-									安装技能
-								</>
-							)}
-						</Button>
+						</div>
 					)}
 				</div>
+
+				{skill.source === "official" && skill.organization_override && (
+					<div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+						组织中存在同 code 的自建 Skill；“去使用”将执行组织版本，市场版本不会覆盖它。
+					</div>
+				)}
 
 				{/* Metrics Banner */}
 				<div className="flex items-center gap-6 mb-4 py-0.5">
@@ -506,9 +502,7 @@ export function SkillDetailView({
 								<div className="flex flex-col items-center justify-center py-10 text-[var(--leros-text-subtle)]">
 									<FileText className="size-6 mb-2 opacity-40" />
 									<p className="text-xs">
-										{skill.source === "organization" && !skill.has_content_snapshot
-											? "该修订创建于内容索引启用前，暂无内容快照"
-											: "暂无概述内容"}
+										{!skill.has_content_snapshot ? "暂无内容快照" : "暂无概述内容"}
 									</p>
 								</div>
 							)}
@@ -522,9 +516,7 @@ export function SkillDetailView({
 								<div className="flex flex-col items-center justify-center py-10 text-[var(--leros-text-subtle)]">
 									<FolderOpen className="size-6 mb-2 opacity-40" />
 									<p className="text-xs">
-										{skill.source === "organization" && !skill.has_content_snapshot
-											? "该修订创建于内容索引启用前，暂无内容快照"
-											: "暂无文件"}
+										{!skill.has_content_snapshot ? "暂无内容快照" : "暂无文件"}
 									</p>
 								</div>
 							)}

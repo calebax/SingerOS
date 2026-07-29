@@ -1,5 +1,6 @@
 "use client";
 
+import type { PluginComposerOption } from "@leros/store";
 import type { ComposerToken } from "@leros/store/types/chat";
 import {
 	Command,
@@ -59,13 +60,7 @@ export type ComposerAssistantOption = {
 
 type AssistantOption = ComposerAssistantOption;
 
-export type ComposerSkillOption = {
-	code: string;
-	label: string;
-	description: string;
-	keywords: string[];
-	origin?: string;
-};
+export type ComposerSkillOption = PluginComposerOption;
 
 type CommandOption = {
 	kind: "skill";
@@ -249,12 +244,11 @@ function isEmptyEditorValue(value: string): boolean {
 }
 
 function matchesCommandQuery(
-	option: Pick<ComposerSkillOption, "label" | "code">,
+	option: Pick<ComposerSkillOption, "label" | "code" | "description">,
 	query: string,
 ): boolean {
 	if (!query) return true;
-	// 中文注释：技能弹窗搜索只按技能名称匹配，避免描述里的英文命中导致结果看起来不相关。
-	return [option.label, option.code].join(" ").toLowerCase().includes(query);
+	return [option.label, option.code, option.description].join(" ").toLowerCase().includes(query);
 }
 
 function assistantPickerValue(option: AssistantOption): string {
@@ -908,7 +902,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				),
 			[displayTokens],
 		);
-		const selectedSkillLabels = useMemo(
+		const selectedSkillCodes = useMemo(
 			() =>
 				dedupeValues(
 					displayTokens
@@ -935,10 +929,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? commandSearch : "");
 			return mergedSkillOptions.filter((skill) => {
-				if (selectedSkillLabels.includes(skill.label)) return false;
+				if (selectedSkillCodes.includes(skill.code)) return false;
 				return matchesCommandQuery(skill, query);
 			});
-		}, [commandSearch, selectedSkillLabels, mergedSkillOptions, trigger]);
+		}, [commandSearch, selectedSkillCodes, mergedSkillOptions, trigger]);
 
 		const commandOptions = useMemo<CommandOption[]>(
 			() => filteredSkills.map((item) => ({ kind: "skill" as const, item })),
@@ -1480,18 +1474,18 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			) => {
 				const isAssistant = kind === "assistant";
 				const assistantName = isAssistant ? (option as AssistantOption).name : "";
-				const skillLabel = kind === "skill" ? (option as ComposerSkillOption).label : "";
+				const skillCode = kind === "skill" ? (option as ComposerSkillOption).code : "";
 				if (isAssistant && selectedAssistantNames.includes(assistantName)) {
 					dismissTrigger(false);
 					return;
 				}
-				if (kind === "skill" && selectedSkillLabels.includes(skillLabel)) {
+				if (kind === "skill" && selectedSkillCodes.includes(skillCode)) {
 					dismissTrigger(false);
 					return;
 				}
 				const label = isAssistant
 					? `@${(option as AssistantOption).name}`
-					: `/${(option as ComposerSkillOption).label}`;
+					: `/${(option as ComposerSkillOption).code}`;
 				const currentValue = valueRef.current;
 				const currentTokens = tokensRef.current;
 				const followingText = currentValue.slice(activeTrigger.end);
@@ -1536,7 +1530,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				commitProgrammaticEdit,
 				dismissTrigger,
 				selectedAssistantNames,
-				selectedSkillLabels,
+				selectedSkillCodes,
 			],
 		);
 
@@ -1806,7 +1800,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 														<span className="truncate">
 															{renderHighlightedText(skill.label, commandSearch)}
 														</span>
-														{skill.origin === "builtin_worker" && (
+														{(skill.source === "builtin" || skill.origin === "builtin_worker") && (
 															<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
 																系统
 															</span>

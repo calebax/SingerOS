@@ -101,7 +101,7 @@ func TestProcessSkillPackageUploadedIsIdempotentAndDoesNotCreateProjectFile(t *t
 	}
 	downloads, err := (&pluginService{db: database}).ResolveSkillDownloadURLs(
 		ctx,
-		7,
+		7, types.CallerKindUser, 1,
 		&contract.ResolveSkillDownloadURLsRequest{SkillCodes: []string{"demo"}},
 	)
 	if err != nil || len(downloads.Skills) != 1 || downloads.Skills[0].DownloadURL == "" {

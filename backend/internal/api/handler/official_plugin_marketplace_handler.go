@@ -20,12 +20,16 @@ func RegisterOfficialPluginMarketplaceRoutes(r gin.IRouter, service contract.Off
 
 func listOfficialPluginMarketplaceItems(service contract.OfficialPluginMarketplaceService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		caller, ok := pluginCaller(ctx)
+		if !ok {
+			return
+		}
 		var req contract.ListOfficialPluginMarketplaceItemsRequest
 		if err := ctx.ShouldBindQuery(&req); err != nil {
 			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 			return
 		}
-		result, err := service.ListOfficialPluginMarketplaceItems(ctx, &req)
+		result, err := service.ListOfficialPluginMarketplaceItems(ctx, caller.OrgID, &req)
 		writeOfficialPluginMarketplaceResult(ctx, result, err)
 	}
 }
@@ -48,12 +52,16 @@ func getOfficialPluginLatestVersion(service contract.OfficialPluginMarketplaceSe
 
 func getOfficialPluginMarketplaceItem(service contract.OfficialPluginMarketplaceService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		caller, ok := pluginCaller(ctx)
+		if !ok {
+			return
+		}
 		itemID := strings.TrimSpace(ctx.Param("item_id"))
 		if itemID == "" {
 			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "item_id is required"))
 			return
 		}
-		result, err := service.GetOfficialPluginMarketplaceItem(ctx, itemID)
+		result, err := service.GetOfficialPluginMarketplaceItem(ctx, caller.OrgID, itemID)
 		writeOfficialPluginMarketplaceResult(ctx, result, err)
 	}
 }

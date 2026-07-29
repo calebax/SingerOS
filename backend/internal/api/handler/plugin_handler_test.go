@@ -16,10 +16,13 @@ import (
 )
 
 type pluginHandlerTestService struct {
-	listOrgID   uint
-	statusOrgID uint
-	statusKind  string
-	statusCode  string
+	listOrgID          uint
+	statusOrgID        uint
+	statusKind         string
+	statusCode         string
+	downloadOrgID      uint
+	downloadCallerKind types.CallerKind
+	downloadCallerID   uint
 }
 
 func (s *pluginHandlerTestService) ListPlugins(_ context.Context, orgID uint, req *contract.ListPluginsRequest) (*contract.ListPluginsResponse, error) {
@@ -54,7 +57,16 @@ func (*pluginHandlerTestService) AddSkillPlugin(context.Context, uint, uint, *co
 	return nil
 }
 
-func (*pluginHandlerTestService) ResolveSkillDownloadURLs(context.Context, uint, *contract.ResolveSkillDownloadURLsRequest) (*contract.ResolveSkillDownloadURLsResponse, error) {
+func (s *pluginHandlerTestService) ResolveSkillDownloadURLs(
+	_ context.Context,
+	orgID uint,
+	callerKind types.CallerKind,
+	callerID uint,
+	_ *contract.ResolveSkillDownloadURLsRequest,
+) (*contract.ResolveSkillDownloadURLsResponse, error) {
+	s.downloadOrgID = orgID
+	s.downloadCallerKind = callerKind
+	s.downloadCallerID = callerID
 	return &contract.ResolveSkillDownloadURLsResponse{Skills: []contract.SkillDownloadURL{}}, nil
 }
 
@@ -63,10 +75,25 @@ func (*pluginHandlerTestService) ListBuiltinSkills(context.Context) (*contract.L
 }
 
 func newPluginHandlerTestRouter(service contract.PluginService) *gin.Engine {
+	return newPluginHandlerTestRouterWithCaller(
+		service,
+		&types.Caller{
+			OrgID: 42,
+			Uin:   7,
+			Kind:  types.CallerKindUser,
+			State: types.AuthStateSucc,
+		},
+	)
+}
+
+func newPluginHandlerTestRouterWithCaller(
+	service contract.PluginService,
+	caller *types.Caller,
+) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(func(ctx *gin.Context) {
-		auth.WithGinContext(ctx, &types.Caller{OrgID: 42, Uin: 7, State: types.AuthStateSucc}, nil, "")
+		auth.WithGinContext(ctx, caller, nil, "")
 		ctx.Next()
 	})
 	RegisterPluginRoutes(router, service)
@@ -151,12 +178,55 @@ func TestPluginInstallationStatusUsesCallerOrganizationAndValidatesIdentity(t *t
 }
 
 func TestPluginSkillDownloadURLsAcceptsCodeArray(t *testing.T) {
-	router := newPluginHandlerTestRouter(&pluginHandlerTestService{})
+	service := &pluginHandlerTestService{}
+	router := newPluginHandlerTestRouter(service)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/plugins/skills/download-urls", bytes.NewBufferString(`{"skill_codes":["xlsx"]}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if service.downloadOrgID != 42 ||
+		service.downloadCallerKind != types.CallerKindUser ||
+		service.downloadCallerID != 7 {
+		t.Fatalf(
+			"user download caller = org=%d kind=%q id=%d",
+			service.downloadOrgID,
+			service.downloadCallerKind,
+			service.downloadCallerID,
+		)
+	}
+
+	workerService := &pluginHandlerTestService{}
+	workerRouter := newPluginHandlerTestRouterWithCaller(
+		workerService,
+		&types.Caller{
+			OrgID:    43,
+			WorkerID: 19,
+			Kind:     types.CallerKindWorker,
+			State:    types.AuthStateSucc,
+		},
+	)
+	workerRecorder := httptest.NewRecorder()
+	workerRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/plugins/skills/download-urls",
+		bytes.NewBufferString(`{"skill_codes":["xlsx"]}`),
+	)
+	workerRequest.Header.Set("Content-Type", "application/json")
+	workerRouter.ServeHTTP(workerRecorder, workerRequest)
+	if workerRecorder.Code != http.StatusOK {
+		t.Fatalf("worker status = %d, want %d", workerRecorder.Code, http.StatusOK)
+	}
+	if workerService.downloadOrgID != 43 ||
+		workerService.downloadCallerKind != types.CallerKindWorker ||
+		workerService.downloadCallerID != 19 {
+		t.Fatalf(
+			"worker download caller = org=%d kind=%q id=%d",
+			workerService.downloadOrgID,
+			workerService.downloadCallerKind,
+			workerService.downloadCallerID,
+		)
 	}
 }

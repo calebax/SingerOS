@@ -2,9 +2,9 @@
 
 import {
 	type AuthUser,
+	type PluginComposerOption,
 	type Project,
 	type ProjectMember,
-	pluginApi,
 	projectMembersToInputs,
 	useLayoutStore,
 	useProjectsMenuCapabilities,
@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
 import { FieldWithError, RequiredMark, useFormFieldValidation } from "../form/formValidation";
+import { bindSkillsToProject, useSkillPickerOptions } from "../input/useSkillPickerOptions";
 import type { AppNavigation } from "../layout/LeftRail";
 import { ProjectIcon } from "../layout/project-icon";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
@@ -48,25 +49,6 @@ import {
 type ProjectsHubViewProps = {
 	navigation?: AppNavigation;
 };
-
-type SkillOption = {
-	code: string;
-	label: string;
-	description: string;
-	keywords: string[];
-};
-
-function buildCreateProjectMetadata(skills: SkillOption[]): Record<string, unknown> {
-	return {
-		extra: {
-			skills: skills.map((skill) => ({
-				code: skill.code,
-				name: skill.label,
-				description: skill.description,
-			})),
-		},
-	};
-}
 
 function authUserToOwnerMember(user: AuthUser | null): ProjectMember[] {
 	if (!user?.publicId) return [];
@@ -477,15 +459,15 @@ function CreateProjectDialog({
 	const [description, setDescription] = useState("");
 	const [selectedMembers, setSelectedMembers] = useState<ProjectMember[]>(ownerMembers);
 	const [memberOpen, setMemberOpen] = useState(false);
-	const [selectedSkills, setSelectedSkills] = useState<SkillOption[]>([]);
+	const [selectedSkills, setSelectedSkills] = useState<PluginComposerOption[]>([]);
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
-	const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
-	const [skillsLoading, setSkillsLoading] = useState(false);
-	const [skillsLoaded, setSkillsLoaded] = useState(false);
-	const [skillsError, setSkillsError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 	const { resetValidation, shouldShowError, handleFieldBlur } = useFormFieldValidation();
+	const { skillOptions, skillsLoading, skillsError } = useSkillPickerOptions({
+		includeBuiltin: false,
+		enabled: open && skillOpen,
+	});
 
 	useEffect(() => {
 		if (!open) {
@@ -502,62 +484,36 @@ function CreateProjectDialog({
 		setSelectedMembers((current) => mergeOwnerMember(ownerMembers, current));
 	}, [open, ownerMembers, resetValidation]);
 
-	useEffect(() => {
-		if (!skillOpen || skillsLoaded) return;
-
-		setSkillsLoading(true);
-		setSkillsError(null);
-		pluginApi
-			.list({ kind: "skill", status: "active" })
-			.then((response) => {
-				const plugins = response.data.data?.plugins ?? [];
-				setSkillOptions(
-					plugins.map((p) => ({
-						code: p.code,
-						label: p.name || p.code,
-						description: p.description ?? "",
-						keywords: [p.code, p.name, p.description, p.kind].filter((s): s is string =>
-							Boolean(s),
-						),
-					})),
-				);
-				setSkillsLoaded(true);
-			})
-			.catch((error: unknown) => {
-				const message = error instanceof Error ? error.message : "技能加载失败";
-				setSkillsError(message);
-				setSkillOptions([]);
-			})
-			.finally(() => {
-				setSkillsLoading(false);
-			});
-	}, [skillOpen, skillsLoaded]);
-
 	const selectedSkillCodes = useMemo(
 		() => selectedSkills.map((skill) => skill.code),
 		[selectedSkills],
 	);
+	const selectedSkillCodeSet = useMemo(
+		() => new Set(selectedSkillCodes.map((code) => code.toLowerCase())),
+		[selectedSkillCodes],
+	);
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
-		return skillOptions.filter((skill) => {
-			if (selectedSkillCodes.includes(skill.code)) return false;
+		return (skillOptions ?? []).filter((skill) => {
+			if (selectedSkillCodeSet.has(skill.code.toLowerCase())) return false;
 			if (!query) return true;
-			return [skill.label, skill.code, skill.description, ...skill.keywords]
-				.join(" ")
-				.toLowerCase()
-				.includes(query);
+			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
-	}, [selectedSkillCodes, skillOptions, skillSearch]);
+	}, [selectedSkillCodeSet, skillOptions, skillSearch]);
 
-	const addSkill = (skill: SkillOption) => {
+	const addSkill = (skill: PluginComposerOption) => {
 		setSelectedSkills((current) => {
-			if (current.some((item) => item.code === skill.code)) return current;
+			if (current.some((item) => item.code.toLowerCase() === skill.code.toLowerCase())) {
+				return current;
+			}
 			return [...current, skill];
 		});
 	};
 
 	const removeSkill = (skillCode: string) => {
-		setSelectedSkills((current) => current.filter((skill) => skill.code !== skillCode));
+		setSelectedSkills((current) =>
+			current.filter((skill) => skill.code.toLowerCase() !== skillCode.toLowerCase()),
+		);
 	};
 
 	const trimmedName = name.trim();
@@ -569,17 +525,21 @@ function CreateProjectDialog({
 
 		setSubmitting(true);
 		try {
-			const metadata =
-				selectedSkills.length > 0 ? buildCreateProjectMetadata(selectedSkills) : undefined;
-			// 中文注释：成员走 CreateProject.members 正式字段，技能仍保存在项目元数据里。
 			const project = await onCreate({
 				name: trimmedName,
 				description: description.trim(),
 				members: projectMembersToInputs(mergeOwnerMember(ownerMembers, selectedMembers)),
-				metadata,
 			});
 			if (project) {
+				const binding = await bindSkillsToProject(project.id, selectedSkills);
 				onCreated(project);
+				if (binding.failedCount > 0) {
+					toast.error(
+						binding.installedButUnboundCount > 0
+							? `${binding.failedCount} 个技能关联失败，其中 ${binding.installedButUnboundCount} 个已安装到组织`
+							: `${binding.failedCount} 个技能关联失败`,
+					);
+				}
 			}
 		} finally {
 			setSubmitting(false);

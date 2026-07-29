@@ -96,7 +96,7 @@ func TestSyncBuiltinServerSkillMarketplaceCreatesAndUpdatesSystemRevision(t *tes
 	assertBuiltinSkillRecordCounts(t, database, 1, 2, 2, 2)
 
 	view, err := (&pluginService{db: database}).GetOfficialPluginMarketplaceItem(
-		context.Background(), item.PublicID,
+		context.Background(), 1, item.PublicID,
 	)
 	if err != nil || view.Version != "2" || view.Content == nil ||
 		view.Content.Version != 2 || view.Content.SkillMD != "Second body." {

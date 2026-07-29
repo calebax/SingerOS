@@ -36,7 +36,7 @@ func resolveSkillDownloadURLs(service contract.PluginService) gin.HandlerFunc {
 			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 			return
 		}
-		result, err := service.ResolveSkillDownloadURLs(ctx, caller.OrgID, &req)
+		result, err := service.ResolveSkillDownloadURLs(ctx, caller.OrgID, caller.Kind, callerID(caller), &req)
 		writePluginServiceResult(ctx, result, err)
 	}
 }
@@ -173,6 +173,13 @@ func pluginCaller(ctx *gin.Context) (*types.Caller, bool) {
 		return nil, false
 	}
 	return caller, true
+}
+
+func callerID(caller *types.Caller) uint {
+	if caller.Kind == types.CallerKindWorker {
+		return caller.WorkerID
+	}
+	return caller.Uin
 }
 
 func writePluginServiceResult(ctx *gin.Context, result interface{}, err error) {

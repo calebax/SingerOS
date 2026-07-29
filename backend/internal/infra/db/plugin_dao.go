@@ -62,10 +62,11 @@ func ListProjectPluginSnapshots(ctx context.Context, database *gorm.DB, orgID, p
 
 // PluginListFilter constrains an organization plugin list query.
 type PluginListFilter struct {
-	Kind    string
-	Status  string
-	Keyword string
-	Limit   int
+	Kind                    string
+	Status                  string
+	Keyword                 string
+	Limit                   int
+	ExcludeMarketplaceBased bool
 }
 
 // PluginMarketplaceListFilter constrains a marketplace list query.
@@ -74,6 +75,23 @@ type PluginMarketplaceListFilter struct {
 	Category string
 	Keyword  string
 	Limit    int
+}
+
+// OrganizationPluginMarketplaceState projects one active organization plugin
+// and the marketplace lineage of its current revision.
+type OrganizationPluginMarketplaceState struct {
+	PluginID                 uint
+	PluginPublicID           string
+	Kind                     string
+	Code                     string
+	Name                     string
+	Description              string
+	CurrentRevision          int
+	RevisionID               uint
+	SourceMarketplaceItemID  *uint
+	SourcePluginRevisionID   *uint
+	SourceMarketplaceVersion int
+	SourcePluginID           uint
 }
 
 // CreatePlugin inserts one validated scope-owned plugin identity.
@@ -129,26 +147,83 @@ func GetOrganizationPluginByIdentity(
 
 // ListPlugins returns organization plugins ordered for stable API responses.
 func ListPlugins(ctx context.Context, database *gorm.DB, orgID uint, filter PluginListFilter) ([]types.Plugin, error) {
-	query := database.WithContext(ctx).Where("owner_scope = ? AND org_id = ?", types.OwnerScopeOrganization, orgID)
+	query := database.WithContext(ctx).
+		Table(types.TableNamePlugin+" AS p").
+		Select("p.*").
+		Where(
+			"p.owner_scope = ? AND p.org_id = ? AND p.deleted_at IS NULL",
+			types.OwnerScopeOrganization,
+			orgID,
+		)
 	if kind := strings.TrimSpace(filter.Kind); kind != "" {
-		query = query.Where("kind = ?", kind)
+		query = query.Where("p.kind = ?", kind)
 	}
 	if status := strings.TrimSpace(filter.Status); status != "" {
-		query = query.Where("status = ?", status)
+		query = query.Where("p.status = ?", status)
 	}
 	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("code LIKE ? OR name LIKE ? OR description LIKE ?", like, like, like)
+		query = query.Where("p.code LIKE ? OR p.name LIKE ? OR p.description LIKE ?", like, like, like)
+	}
+	if filter.ExcludeMarketplaceBased {
+		query = query.Where(
+			"NOT EXISTS (SELECT 1 FROM " + types.TableNamePluginRevision + " AS current_revision " +
+				"WHERE current_revision.plugin_id = p.id AND current_revision.revision = p.current_revision " +
+				"AND current_revision.deleted_at IS NULL AND current_revision.source_marketplace_item_id IS NOT NULL " +
+				"AND current_revision.source_plugin_revision_id IS NOT NULL)",
+		)
 	}
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit)
 	}
 
 	var plugins []types.Plugin
-	if err := query.Order("kind ASC, code ASC, public_id ASC").Find(&plugins).Error; err != nil {
+	if err := query.Order("p.kind ASC, p.code ASC, p.public_id ASC").Find(&plugins).Error; err != nil {
 		return nil, err
 	}
 	return plugins, nil
+}
+
+// ListOrganizationPluginMarketplaceStates returns active organization plugins
+// with their current revision lineage in one query.
+func ListOrganizationPluginMarketplaceStates(
+	ctx context.Context,
+	database *gorm.DB,
+	orgID uint,
+	kind string,
+) ([]OrganizationPluginMarketplaceState, error) {
+	query := database.WithContext(ctx).
+		Table(types.TableNamePlugin+" AS p").
+		Select(
+			"p.id AS plugin_id, p.public_id AS plugin_public_id, p.kind, p.code, p.name, p.description, "+
+				"p.current_revision, current_revision.id AS revision_id, "+
+				"current_revision.source_marketplace_item_id, current_revision.source_plugin_revision_id, "+
+				"source_revision.revision AS source_marketplace_version, source_revision.plugin_id AS source_plugin_id",
+		).
+		Joins(
+			"JOIN "+types.TableNamePluginRevision+" AS current_revision "+
+				"ON current_revision.plugin_id = p.id AND current_revision.revision = p.current_revision "+
+				"AND current_revision.deleted_at IS NULL",
+		).
+		Joins(
+			"LEFT JOIN "+types.TableNamePluginRevision+" AS source_revision "+
+				"ON source_revision.id = current_revision.source_plugin_revision_id "+
+				"AND source_revision.deleted_at IS NULL",
+		).
+		Where(
+			"p.owner_scope = ? AND p.org_id = ? AND p.status = ? AND p.deleted_at IS NULL",
+			types.OwnerScopeOrganization,
+			orgID,
+			types.PluginStatusActive,
+		)
+	if kind = strings.TrimSpace(kind); kind != "" {
+		query = query.Where("p.kind = ?", kind)
+	}
+	var states []OrganizationPluginMarketplaceState
+	if err := query.Order("p.kind ASC, p.code ASC, p.public_id ASC").Find(&states).Error; err != nil {
+		return nil, err
+	}
+	return states, nil
 }
 
 // CreatePluginRevision inserts an immutable plugin revision.
@@ -469,6 +544,24 @@ func GetPluginMarketplaceItemByPublicID(ctx context.Context, database *gorm.DB, 
 	return &item, nil
 }
 
+// GetPluginMarketplaceItemByPublicIDIncludingDeleted resolves an installed
+// directory item even after it is unpublished or soft-deleted.
+func GetPluginMarketplaceItemByPublicIDIncludingDeleted(
+	ctx context.Context,
+	database *gorm.DB,
+	publicID string,
+) (*types.PluginMarketplaceItem, error) {
+	var item types.PluginMarketplaceItem
+	err := database.WithContext(ctx).Unscoped().Where("public_id = ?", publicID).First(&item).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
 // GetPublishedPluginMarketplaceItemByPublicID returns one visible official marketplace item.
 func GetPublishedPluginMarketplaceItemByPublicID(ctx context.Context, database *gorm.DB, publicID string) (*types.PluginMarketplaceItem, error) {
 	var item types.PluginMarketplaceItem
@@ -513,6 +606,25 @@ func GetPluginMarketplaceItemByIDIncludingDeleted(ctx context.Context, database 
 		return nil, err
 	}
 	return &item, nil
+}
+
+// ListPluginMarketplaceItemsByIDsIncludingDeleted preserves installed
+// marketplace lineage after a directory item is unpublished or soft-deleted.
+func ListPluginMarketplaceItemsByIDsIncludingDeleted(
+	ctx context.Context,
+	database *gorm.DB,
+	ids []uint,
+) ([]types.PluginMarketplaceItem, error) {
+	if len(ids) == 0 {
+		return []types.PluginMarketplaceItem{}, nil
+	}
+	var items []types.PluginMarketplaceItem
+	err := database.WithContext(ctx).
+		Unscoped().
+		Where("id IN ?", ids).
+		Order("published_at DESC, public_id ASC").
+		Find(&items).Error
+	return items, err
 }
 
 // ListPluginMarketplaceItems returns published marketplace items ordered for stable API responses.

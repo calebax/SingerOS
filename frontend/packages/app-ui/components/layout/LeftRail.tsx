@@ -34,6 +34,7 @@ import { Input } from "@leros/ui/components/ui/input";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	ArrowLeftRight,
+	Blocks,
 	Building2,
 	Camera,
 	Check,
@@ -57,7 +58,6 @@ import {
 	UserRound,
 	Users,
 	X,
-	Zap,
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -112,7 +112,7 @@ const iconMap: Record<string, React.ReactNode> = {
 	IconTask: <ClipboardList className="size-5" />,
 	IconAITeammate: <Users className="size-5" />,
 	IconProjectsHub: <ProjectIcon className="size-5" />,
-	IconSkill: <Zap className="size-5" />,
+	IconSkill: <Blocks className="size-5" />,
 	IconKnowledge: <Inbox className="size-5" />,
 	IconProject: <ProjectIcon className="size-4" />,
 };

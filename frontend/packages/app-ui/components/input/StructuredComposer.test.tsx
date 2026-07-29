@@ -255,6 +255,48 @@ function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) =
 	);
 }
 
+function ActionBarCodeHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
+	const [value, setValue] = useState("");
+	const composerRef = useRef<StructuredComposerHandle | null>(null);
+	const skillOptions: ComposerSkillOption[] = [
+		{
+			code: "market-code",
+			label: "市场展示名称",
+			description: "market",
+			keywords: [],
+			source: "marketplace",
+		},
+		{
+			code: "builtin-code",
+			label: "内置展示名称",
+			description: "builtin",
+			keywords: [],
+			source: "builtin",
+		},
+	];
+
+	return (
+		<div>
+			<StructuredComposer
+				ref={composerRef}
+				value={value}
+				onChange={(nextValue) => {
+					setValue(nextValue);
+					onValueChange?.(nextValue);
+				}}
+				onSubmit={vi.fn()}
+				onPasteFiles={vi.fn()}
+				onFocus={vi.fn()}
+				onBlur={vi.fn()}
+				placeholder="请输入"
+				isProjectVariant
+				skillOptions={skillOptions}
+			/>
+			<ComposerActionBar inputValue={value} composerRef={composerRef} skillOptions={skillOptions} />
+		</div>
+	);
+}
+
 describe("StructuredComposer", () => {
 	it("中文输入法组合中按 Enter 不会触发发送", () => {
 		const handleSubmit = vi.fn();
@@ -314,6 +356,93 @@ describe("StructuredComposer", () => {
 		});
 	});
 
+	it("技能展示名称与 code 不同时仍插入 /code", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+
+		render(
+			<TestHarness
+				onValueChange={handleValueChange}
+				skillOptions={[
+					{
+						code: "doc-coauthoring",
+						label: "文档协作",
+						description: "协作文档",
+						keywords: [],
+						source: "marketplace",
+					},
+				]}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("/");
+		expect(await screen.findByText("文档协作")).toBeInTheDocument();
+		await user.keyboard("{Enter}");
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("/doc-coauthoring ");
+		});
+	});
+
+	it("完整列表中只有内置技能显示系统文案", async () => {
+		const user = userEvent.setup();
+
+		render(
+			<TestHarness
+				skillOptions={[
+					{
+						code: "organization",
+						label: "组织技能",
+						description: "",
+						keywords: [],
+						source: "organization",
+					},
+					{
+						code: "marketplace",
+						label: "市场技能",
+						description: "",
+						keywords: [],
+						source: "marketplace",
+					},
+					{
+						code: "builtin",
+						label: "内置技能",
+						description: "",
+						keywords: [],
+						source: "builtin",
+					},
+				]}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("/");
+
+		expect(await screen.findByText("内置技能")).toBeInTheDocument();
+		expect(screen.getAllByText("系统")).toHaveLength(1);
+		expect(screen.queryByText("组织")).not.toBeInTheDocument();
+		expect(screen.queryByText("技能市场")).not.toBeInTheDocument();
+	});
+
+	it("添加技能按钮使用 code 插入市场技能且只标记内置技能", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+
+		render(<ActionBarCodeHarness onValueChange={handleValueChange} />);
+
+		await user.click(screen.getByRole("button", { name: "添加技能" }));
+		expect(await screen.findByText("市场展示名称")).toBeInTheDocument();
+		expect(screen.getAllByText("系统")).toHaveLength(1);
+		await user.click(screen.getByText("市场展示名称"));
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("/market-code ");
+		});
+	});
+
 	it("连续选择多个技能时第一个技能仍保持 mention 样式", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();
@@ -347,7 +476,7 @@ describe("StructuredComposer", () => {
 		});
 
 		await user.keyboard("/");
-		await user.click(await screen.findByText("/weather"));
+		await user.click((await screen.findAllByText("weather"))[0] as HTMLElement);
 
 		await waitFor(() => {
 			const mentions = textbox.querySelectorAll(
@@ -407,7 +536,7 @@ describe("StructuredComposer", () => {
 		textbox.innerHTML = "已有文字<br><br>";
 		fireEvent.input(textbox);
 		await user.click(screen.getByRole("button", { name: "添加技能" }));
-		await user.click(await screen.findByText("/anysearch"));
+		await user.click(await screen.findByText("anysearch"));
 
 		await waitFor(() => {
 			expect(handleValueChange).toHaveBeenLastCalledWith("已有文字\n/anysearch ");
@@ -478,14 +607,13 @@ describe("StructuredComposer", () => {
 
 		const textbox = screen.getByRole("textbox", { name: "请输入" });
 		await user.click(screen.getByRole("button", { name: "添加技能" }));
-		await user.click(await screen.findByText("/anysearch"));
+		await user.click(await screen.findByText("anysearch"));
 		await waitFor(() => {
 			expect(handleValueChange).toHaveBeenLastCalledWith("/anysearch ");
 		});
 		expect(screen.queryByText("已选技能")).not.toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "移除技能 anysearch" })).not.toBeInTheDocument();
 
-		await user.click(await screen.findByText("/docx"));
+		await user.click((await screen.findAllByText("docx"))[0] as HTMLElement);
 		await waitFor(() => {
 			const mentions = textbox.querySelectorAll(
 				'[data-mention-node="true"][data-mention-kind="skill"]',

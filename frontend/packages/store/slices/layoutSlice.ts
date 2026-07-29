@@ -480,7 +480,7 @@ const _initialState: LayoutState = {
 				{ id: "workbench", label: "新建任务", icon: "IconTask" },
 				{ id: "ai-teammates", label: "AI队友", icon: "IconAITeammate" },
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
-				{ id: "skills", label: "技能库", icon: "IconSkill" },
+				{ id: "skills", label: "插件", icon: "IconSkill" },
 				{ id: "knowledge", label: "资源库", icon: "IconKnowledge" },
 			],
 		},

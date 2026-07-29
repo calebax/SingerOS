@@ -13,4 +13,9 @@ export interface SkillMarketplaceItem {
 	icon: string;
 	installs: number;
 	verified: boolean;
+	installed?: boolean;
+	marketplace_available?: boolean;
+	latest_version?: string;
+	update_available?: boolean;
+	organization_override?: boolean;
 }

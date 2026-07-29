@@ -90,11 +90,8 @@ export function ComposerActionBar({
 		[inputValue],
 	);
 	const selectedSlashLabels = useMemo(() => parseSelectedSlashLabels(inputValue), [inputValue]);
-	const selectedSkillLabels = useMemo(
-		() =>
-			selectedSlashLabels.filter((label) =>
-				skillOptions.some((option) => option.label === label || option.code === label),
-			),
+	const selectedSkillCodes = useMemo(
+		() => selectedSlashLabels.filter((code) => skillOptions.some((option) => option.code === code)),
 		[selectedSlashLabels, skillOptions],
 	);
 	const filteredAssistants = useMemo(() => {
@@ -116,12 +113,11 @@ export function ComposerActionBar({
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
 		return skillOptions.filter((skill) => {
-			if (selectedSkillLabels.includes(skill.label)) return false;
+			if (selectedSkillCodes.includes(skill.code)) return false;
 			if (!query) return true;
-			// 中文注释：技能搜索只按名称/code 匹配，描述和标签不参与搜索，避免弱相关结果排在前面。
-			return [skill.label, skill.code].join(" ").toLowerCase().includes(query);
+			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
-	}, [selectedSkillLabels, skillOptions, skillSearch]);
+	}, [selectedSkillCodes, skillOptions, skillSearch]);
 
 	const allowAction = () => (onBeforeAction ? onBeforeAction() : true);
 	const assistantSkillButtonClassName = cn(
@@ -347,7 +343,7 @@ export function ComposerActionBar({
 										key={skill.code}
 										value={skill.label}
 										onSelect={() => {
-											composerRef.current?.insertSkill(skill.label);
+											composerRef.current?.insertSkill(skill.code);
 										}}
 										className="rounded-lg px-2 py-1.5"
 									>
@@ -359,7 +355,7 @@ export function ComposerActionBar({
 												<span className="truncate">
 													{renderHighlightedText(skill.label, skillSearch)}
 												</span>
-												{skill.origin === "builtin_worker" && (
+												{(skill.source === "builtin" || skill.origin === "builtin_worker") && (
 													<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
 														系统
 													</span>

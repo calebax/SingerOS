@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/insmtx/Leros/backend/types"
 )
 
 var (
@@ -19,11 +21,12 @@ const (
 
 // ListPluginsRequest describes filters for organization plugin lists.
 type ListPluginsRequest struct {
-	Kind     string `form:"kind" json:"kind,omitempty"`
-	Status   string `form:"status" json:"status,omitempty"`
-	Category string `form:"category" json:"category,omitempty"`
-	Keyword  string `form:"keyword" json:"keyword,omitempty"`
-	Limit    int    `form:"limit" json:"limit,omitempty"`
+	Kind                    string `form:"kind" json:"kind,omitempty"`
+	Status                  string `form:"status" json:"status,omitempty"`
+	Category                string `form:"category" json:"category,omitempty"`
+	Keyword                 string `form:"keyword" json:"keyword,omitempty"`
+	Limit                   int    `form:"limit" json:"limit,omitempty"`
+	ExcludeMarketplaceBased bool   `form:"exclude_marketplace_based" json:"exclude_marketplace_based,omitempty"`
 }
 
 // PluginView is the safe API representation of an organization plugin.
@@ -141,18 +144,24 @@ type SkillDownloadURL struct {
 
 // OfficialPluginMarketplaceItemView is the public projection of one official plugin.
 type OfficialPluginMarketplaceItemView struct {
-	PublicID    string                     `json:"public_id"`
-	Code        string                     `json:"code"`
-	Kind        string                     `json:"kind"`
-	Name        string                     `json:"name"`
-	Description string                     `json:"description,omitempty"`
-	Author      string                     `json:"author"`
-	Version     string                     `json:"version"`
-	Category    string                     `json:"category"`
-	Tags        []string                   `json:"tags"`
-	Icon        string                     `json:"icon,omitempty"`
-	Verified    bool                       `json:"verified"`
-	Content     *PluginRevisionContentView `json:"content,omitempty"`
+	PublicID             string                     `json:"public_id"`
+	Code                 string                     `json:"code"`
+	Kind                 string                     `json:"kind"`
+	Name                 string                     `json:"name"`
+	Description          string                     `json:"description,omitempty"`
+	Author               string                     `json:"author"`
+	Version              string                     `json:"version"`
+	Category             string                     `json:"category"`
+	Tags                 []string                   `json:"tags"`
+	Icon                 string                     `json:"icon,omitempty"`
+	Verified             bool                       `json:"verified"`
+	Installed            bool                       `json:"installed"`
+	InstalledPluginID    string                     `json:"installed_plugin_id,omitempty"`
+	MarketplaceAvailable bool                       `json:"marketplace_available"`
+	LatestVersion        string                     `json:"latest_version,omitempty"`
+	UpdateAvailable      bool                       `json:"update_available"`
+	OrganizationOverride bool                       `json:"organization_override"`
+	Content              *PluginRevisionContentView `json:"content,omitempty"`
 }
 
 // ListOfficialPluginMarketplaceItemsRequest filters the official plugin catalogue.
@@ -189,8 +198,8 @@ type InstallOfficialPluginResponse struct {
 
 // OfficialPluginMarketplaceService isolates official catalogue reads and installs from organization plugin APIs.
 type OfficialPluginMarketplaceService interface {
-	ListOfficialPluginMarketplaceItems(ctx context.Context, req *ListOfficialPluginMarketplaceItemsRequest) (*ListOfficialPluginMarketplaceItemsResponse, error)
-	GetOfficialPluginMarketplaceItem(ctx context.Context, itemID string) (*OfficialPluginMarketplaceItemView, error)
+	ListOfficialPluginMarketplaceItems(ctx context.Context, orgID uint, req *ListOfficialPluginMarketplaceItemsRequest) (*ListOfficialPluginMarketplaceItemsResponse, error)
+	GetOfficialPluginMarketplaceItem(ctx context.Context, orgID uint, itemID string) (*OfficialPluginMarketplaceItemView, error)
 	GetOfficialPluginLatestVersion(ctx context.Context, req *GetOfficialPluginLatestVersionRequest) (*OfficialPluginLatestVersionResponse, error)
 	InstallOfficialPlugin(ctx context.Context, orgID, uin uint, itemID string) (*InstallOfficialPluginResponse, error)
 }
@@ -208,6 +217,6 @@ type PluginService interface {
 	ListPluginVersions(ctx context.Context, orgID uint, pluginID string) (*ListPluginVersionsResponse, error)
 	DeletePlugin(ctx context.Context, orgID, uin uint, pluginID string, req *DeletePluginRequest) (*DeletePluginResponse, error)
 	AddSkillPlugin(ctx context.Context, orgID, uin uint, req *AddSkillPluginRequest) error
-	ResolveSkillDownloadURLs(ctx context.Context, orgID uint, req *ResolveSkillDownloadURLsRequest) (*ResolveSkillDownloadURLsResponse, error)
+	ResolveSkillDownloadURLs(ctx context.Context, orgID uint, callerKind types.CallerKind, callerID uint, req *ResolveSkillDownloadURLsRequest) (*ResolveSkillDownloadURLsResponse, error)
 	ListBuiltinSkills(ctx context.Context) (*ListPluginsResponse, error)
 }
