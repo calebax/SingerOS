@@ -132,6 +132,31 @@ func TestCommitInstalledMakesServerSkillBaseline(t *testing.T) {
 	}
 }
 
+func TestCommitInstalledCanCommitManifestOnly(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	repository, err := NewRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".seed-manifest"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CommitInstalled(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	status, err := repository.git(ctx, "status", "--porcelain=v1", "--", ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status) != 0 {
+		t.Fatalf("manifest-only baseline left repository dirty: %q", status)
+	}
+}
+
 func TestProcessorRestoresOnlyAfterPublishConfirmation(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()

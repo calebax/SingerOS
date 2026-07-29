@@ -12,7 +12,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
@@ -157,33 +159,83 @@ func (s *skillBaselineCommitterStub) CommitInstalled(_ context.Context, codes []
 	return nil
 }
 
-func TestPluginSkillPreparerSkipsSkillsWhenInstallManifestIsInvalid(t *testing.T) {
+func TestPluginSkillPreparerRepairsLegacyAndInvalidManifestEntries(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
 	skillsRoot := filepath.Join(workspaceRoot, ".leros", "skills")
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(skillsRoot, ".seed-manifest"), []byte("xlsx:not-a-hash:1\n"), 0o644); err != nil {
+	packageBytes := testSkillPackage(t, "xlsx", "migrated")
+	legacyHash := testPackageHash([]byte("legacy"))
+	stableHash := testPackageHash([]byte("stable"))
+	duplicateHash := testPackageHash([]byte("duplicate"))
+	manifestPath := filepath.Join(skillsRoot, ".seed-manifest")
+	manifest := "docx:" + stableHash + ":2\n" +
+		"xlsx:" + legacyHash + "\n" +
+		"bad-line\n" +
+		"broken:not-a-hash:1\n" +
+		"duplicate:" + duplicateHash + ":1\n" +
+		"duplicate:" + duplicateHash + ":2\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	packageBytes := testSkillPackage(t, "xlsx", "should not install")
 	requests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/plugins/skills/download-urls":
+			requests++
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"skills": []map[string]any{{
+						"code":         "xlsx",
+						"revision":     1,
+						"sha256":       testPackageHash(packageBytes),
+						"download_url": server.URL + "/package",
+					}},
+				},
+			})
+		case "/package":
+			_, _ = writer.Write(packageBytes)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
 	defer server.Close()
-	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "").PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-invalid", Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 1, packageBytes)}}, WorkspacePreparation{ProjectRoot: t.TempDir()})
+	baseline := &skillBaselineCommitterStub{}
+	prepared, cleanup, err := NewPluginSkillPreparerWithBaseline(server.URL, "", baseline).PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{
+			RunID:   "run-invalid",
+			Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 1, packageBytes)},
+		},
+		WorkspacePreparation{ProjectRoot: t.TempDir()},
+	)
 	defer cleanup()
 	if err != nil {
-		t.Fatalf("invalid manifest must not fail run preparation: %v", err)
+		t.Fatalf("repair manifest and install Skill: %v", err)
 	}
-	if requests != 0 {
-		t.Fatalf("invalid manifest must fail before download, got %d requests", requests)
+	if requests != 1 {
+		t.Fatalf("legacy Skill must be refreshed once, got %d requests", requests)
 	}
-	if _, err := os.Stat(filepath.Join(skillsRoot, "xlsx")); !os.IsNotExist(err) {
-		t.Fatalf("invalid manifest must not install skill, err=%v", err)
+	if !hasSkillDocument(filepath.Join(skillsRoot, "xlsx")) ||
+		!hasSkillDocument(filepath.Join(prepared, "xlsx")) {
+		t.Fatal("migrated Skill must be installed and linked into the run view")
 	}
-	if _, err := os.Lstat(filepath.Join(prepared, "xlsx")); !os.IsNotExist(err) {
-		t.Fatalf("invalid manifest must not create run skill link, err=%v", err)
+	got, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "docx:" + stableHash + ":2\nxlsx:" + testPackageHash(packageBytes) + ":1\n"
+	if string(got) != want {
+		t.Fatalf("repaired manifest = %q, want %q", got, want)
+	}
+	if len(baseline.commits) != 2 ||
+		len(baseline.commits[0]) != 0 ||
+		len(baseline.commits[1]) != 1 || baseline.commits[1][0] != "xlsx" {
+		t.Fatalf("manifest repair and install baseline commits = %#v", baseline.commits)
 	}
 }
 
@@ -260,7 +312,98 @@ func TestPluginSkillPreparerFetchesMissingInvokedSkill(t *testing.T) {
 	}
 }
 
-func TestSkillInstallManifestIsStrictAndSorted(t *testing.T) {
+func TestPluginSkillPreparerRetriesInvokedProjectSkillAfterProjectPreparationFails(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	packageBytes := testSkillPackage(t, "car-selection", "choose a car")
+	requests := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/plugins/skills/download-urls":
+			requests++
+			skills := []map[string]any{}
+			if requests == 2 {
+				skills = append(skills, map[string]any{
+					"code":         "car-selection",
+					"revision":     1,
+					"sha256":       testPackageHash(packageBytes),
+					"download_url": server.URL + "/package",
+				})
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{"skills": skills},
+			})
+		case "/package":
+			_, _ = writer.Write(packageBytes)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{
+			RunID: "run-project-fallback",
+			Plugins: []agentrundomain.PluginSnapshot{
+				testPluginSkillSnapshot("car-selection", 1, packageBytes),
+			},
+			Input: agentrundomain.InputContext{
+				Messages: []agentrundomain.InputMessage{{
+					Role: "user", Content: "/car-selection choose a family car",
+				}},
+			},
+		},
+		WorkspacePreparation{ProjectRoot: t.TempDir()},
+	)
+	defer cleanup()
+	if err != nil {
+		t.Fatalf("fallback invoked project Skill: %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("download URL requests = %d, want project attempt plus invoked fallback", requests)
+	}
+	catalog, err := skillcatalog.NewCatalog(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalog.Get("car-selection"); err != nil {
+		t.Fatalf("fallback Skill must be available in run view: %v", err)
+	}
+}
+
+func TestPluginSkillPreparerReturnsInvokedSkillPreparationError(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/plugins/skills/download-urls" {
+			http.NotFound(writer, request)
+			return
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"code": 0,
+			"data": map[string]any{"skills": []any{}},
+		})
+	}))
+	defer server.Close()
+	_, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{
+			RunID: "run-missing-invoked",
+			Input: agentrundomain.InputContext{
+				Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/missing do work"}},
+			},
+		},
+		WorkspacePreparation{ProjectRoot: t.TempDir()},
+	)
+	defer cleanup()
+	if err == nil || !strings.Contains(err.Error(), `Skill "missing": server returned no download URL`) {
+		t.Fatalf("explicit Skill error = %v", err)
+	}
+}
+
+func TestSkillInstallManifestIsTolerantAndSorted(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), ".seed-manifest")
 	hashA := testPackageHash([]byte("a"))
 	hashB := testPackageHash([]byte("b"))
@@ -279,17 +422,63 @@ func TestSkillInstallManifestIsStrictAndSorted(t *testing.T) {
 	if string(got) != want {
 		t.Fatalf("manifest = %q, want %q", got, want)
 	}
-	if _, err := readSkillInstallManifest(filepath.Join(t.TempDir(), "missing")); err != nil {
+	missing, err := readSkillInstallManifest(filepath.Join(t.TempDir(), "missing"))
+	if err != nil {
 		t.Fatalf("missing manifest should be empty: %v", err)
 	}
-	for _, manifest := range []string{"xlsx:" + hashA + "\n", "xlsx:not-a-hash:1\n", "xlsx:" + hashA + ":0\n", "xlsx:" + hashA + ":1\nxlsx:" + hashB + ":2\n"} {
-		path := filepath.Join(t.TempDir(), ".seed-manifest")
-		if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := readSkillInstallManifest(path); err == nil {
-			t.Fatalf("expected invalid manifest %q to fail", manifest)
-		}
+	if len(missing.Records) != 0 || len(missing.Warnings) != 0 {
+		t.Fatalf("missing manifest = %#v", missing)
+	}
+
+	tolerantPath := filepath.Join(t.TempDir(), ".seed-manifest")
+	raw := "docx:" + hashA + ":1\n" +
+		"xlsx:" + hashB + "\n" +
+		"bad-line\n" +
+		"invalid:not-a-hash:1\n" +
+		"zero:" + hashA + ":0\n" +
+		"duplicate:" + hashA + ":1\n" +
+		"duplicate:" + hashB + ":2\n"
+	if err := os.WriteFile(tolerantPath, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := readSkillInstallManifest(tolerantPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Records) != 1 ||
+		parsed.Records["docx"] != (skillInstallRecord{SHA256: hashA, Revision: 1}) {
+		t.Fatalf("trusted manifest records = %#v", parsed.Records)
+	}
+	if !slices.Equal(parsed.RefreshCodes, []string{"duplicate", "xlsx"}) {
+		t.Fatalf("refresh codes = %#v", parsed.RefreshCodes)
+	}
+	if len(parsed.Warnings) != 5 {
+		t.Fatalf("manifest warnings = %#v", parsed.Warnings)
+	}
+}
+
+func TestRepairSkillInstallManifestWriteFailureKeepsValidRecords(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".seed-manifest")
+	hash := testPackageHash([]byte("valid"))
+	if err := os.WriteFile(path, []byte("docx:"+hash+":1\nbad-line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path+".tmp", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	baseline := &skillBaselineCommitterStub{}
+	records, err := NewPluginSkillPreparerWithBaseline("", "", baseline).
+		readAndRepairSkillInstallManifest(context.Background(), path)
+	if err != nil {
+		t.Fatalf("repair write failure must not discard valid records: %v", err)
+	}
+	if len(records) != 1 ||
+		records["docx"] != (skillInstallRecord{SHA256: hash, Revision: 1}) {
+		t.Fatalf("valid records after repair failure = %#v", records)
+	}
+	if len(baseline.commits) != 0 {
+		t.Fatalf("failed repair must not commit baseline: %#v", baseline.commits)
 	}
 }
 
