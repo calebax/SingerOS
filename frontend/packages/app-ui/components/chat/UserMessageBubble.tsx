@@ -54,7 +54,10 @@ export function UserMessageBubble({ message }: { message: Message }) {
 		message.author.id === "current-user" ||
 		(currentUserId !== undefined && message.author.id === currentUserId) ||
 		message.author.name === "我";
-	const authorName = isOwnMessage ? (authUser?.name ?? message.author?.name) : message.author?.name;
+	// 中文注释：与左下角个人中心一致，优先组织内 uin_name，避免跨组织显示成全局 name。
+	const authorName = isOwnMessage
+		? (authUser?.uinName ?? authUser?.name ?? message.author?.name)
+		: message.author?.name;
 
 	return (
 		<div
