@@ -64,6 +64,7 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameProjectFile, column: "node_type"},
 	{table: types.TableNameProjectFile, column: "parent_id"},
 	{table: types.TableNameProjectFile, column: "parent_ids"},
+	{table: types.TableNameUserOrg, column: "uin"},
 	{table: types.TableNameUser, column: "github_id"},
 	{table: types.TableNameUser, column: "github_login"},
 	{table: types.TableNameUser, column: "bio"},
@@ -412,7 +413,7 @@ func backfillUinFromUserOrgID(db *gorm.DB) error {
 		err := db.Exec(`
 			UPDATE leros_rel_user_org_department
 			SET uin = (
-				SELECT uo.uin FROM leros_user_org uo
+				SELECT uo.id FROM leros_user_org uo
 				WHERE uo.id = leros_rel_user_org_department.user_org_id
 			)
 			WHERE user_org_id > 0 AND uin = 0
@@ -427,7 +428,7 @@ func backfillUinFromUserOrgID(db *gorm.DB) error {
 		err := db.Exec(`
 			UPDATE leros_auth_refresh_token
 			SET uin = (
-				SELECT uo.uin FROM leros_user_org uo
+				SELECT uo.id FROM leros_user_org uo
 				WHERE uo.id = leros_auth_refresh_token.user_org_id
 			)
 			WHERE user_org_id > 0 AND uin = 0
@@ -449,7 +450,7 @@ func backfillMemberDepartmentOrgID(db *gorm.DB) error {
 		UPDATE leros_rel_user_org_department
 		SET org_id = (
 			SELECT uo.org_id FROM leros_user_org uo
-			WHERE uo.uin = leros_rel_user_org_department.uin
+			WHERE uo.id = leros_rel_user_org_department.uin
 		)
 		WHERE org_id = 0 AND uin > 0
 	`).Error
@@ -790,13 +791,13 @@ func backfillMemberDefaultDepartments(d *gorm.DB) error {
 			WHERE rn = 1
 		)
 		INSERT INTO leros_rel_user_org_department (uin, org_id, department_id, is_primary, created_at, updated_at)
-		SELECT uo.uin, uo.org_id, dd.id, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		SELECT uo.id, uo.org_id, dd.id, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 		FROM leros_user_org uo
 		JOIN default_departments dd ON dd.org_id = uo.org_id
 		WHERE uo.deleted_at IS NULL
 		  AND NOT EXISTS (
 			SELECT 1 FROM leros_rel_user_org_department md
-			WHERE md.uin = uo.uin AND md.org_id = uo.org_id AND md.deleted_at IS NULL
+			WHERE md.uin = uo.id AND md.org_id = uo.org_id AND md.deleted_at IS NULL
 		  )
 	`).Error
 	if err != nil {
@@ -924,7 +925,6 @@ func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
 		}
 
 		userOrg := &types.UserOrg{
-			Uin:       user.ID,
 			UserID:    user.ID,
 			OrgID:     org.ID,
 			IsDefault: true,
@@ -932,7 +932,7 @@ func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
 		if err := db.Create(userOrg).Error; err != nil {
 			return fmt.Errorf("failed to create default user-org: %w", err)
 		}
-		logs.Infof("Default user-org association created (uin=%d, user_id=%d, org_id=%d)", userOrg.Uin, userOrg.UserID, userOrg.OrgID)
+		logs.Infof("Default user-org association created (id=%d, user_id=%d, org_id=%d)", userOrg.ID, userOrg.UserID, userOrg.OrgID)
 	}
 
 	if err := seedDefaultWorkerDeployment(db); err != nil {

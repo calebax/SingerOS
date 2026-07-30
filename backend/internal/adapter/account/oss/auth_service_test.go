@@ -150,51 +150,28 @@ func TestAuthServiceRegisterByEmail(t *testing.T) {
 	if registered.RefreshToken == "" {
 		t.Fatal("expected refresh token")
 	}
-	if registered.LoginStatus != account.LoginStatusNeedCreateCompany {
-		t.Fatalf("expected login_status %q, got %q", account.LoginStatusNeedCreateCompany, registered.LoginStatus)
+	if registered.LoginStatus != account.LoginStatusSuccess {
+		t.Fatalf("expected login_status success with auto join default org, got %q", registered.LoginStatus)
 	}
 	if registered.UserInfo.Email != "new.user@example.com" {
 		t.Fatalf("expected normalized email, got %q", registered.UserInfo.Email)
 	}
-
-	var orgCount int64
-	if err := database.Model(&types.Organization{}).Count(&orgCount).Error; err != nil {
-		t.Fatalf("count organizations: %v", err)
-	}
-	if orgCount != 1 {
-		t.Fatalf("expected registration not to create organization, got %d organizations", orgCount)
+	if len(registered.Organizations) != 1 {
+		t.Fatalf("expected 1 organization from auto join default org, got %d", len(registered.Organizations))
 	}
 
 	var userOrgCount int64
 	if err := database.Model(&types.UserOrg{}).Count(&userOrgCount).Error; err != nil {
 		t.Fatalf("count user_orgs: %v", err)
 	}
-	if userOrgCount != 0 {
-		t.Fatalf("expected no user_org records, got %d", userOrgCount)
-	}
-
-	// Create organization via refresh_token
-	created, err := service.CreateOrganization(ctx, &account.CreateOrganizationInput{
-		Name:         "新组织",
-		RefreshToken: registered.RefreshToken,
-	})
-	if err != nil {
-		t.Fatalf("CreateOrganization with refresh token failed: %v", err)
-	}
-	if created.Org.Name != "新组织" {
-		t.Fatalf("expected org name '新组织', got %q", created.Org.Name)
-	}
-	if created.JwtToken != "" {
-		t.Fatal("expected no jwt token from CreateOrganization")
-	}
-	if created.Uin == 0 {
-		t.Fatal("expected uin in create response")
+	if userOrgCount != 1 {
+		t.Fatalf("expected 1 user_org record from auto join default org, got %d", userOrgCount)
 	}
 
 	// ChooseUin to get JWT
 	chosen, err := service.ChooseUin(ctx, &account.ChooseUinInput{
 		RefreshToken: registered.RefreshToken,
-		Uin:          created.Uin,
+		Uin:          registered.Organizations[0].Uin,
 		UserID:       registered.UserInfo.ID,
 	})
 	if err != nil {
@@ -203,11 +180,19 @@ func TestAuthServiceRegisterByEmail(t *testing.T) {
 	if chosen.JwtToken == "" {
 		t.Fatal("expected jwt token from ChooseUin")
 	}
-	if chosen.Uin != created.Uin {
-		t.Fatalf("expected uin %d, got %d", created.Uin, chosen.Uin)
+	if chosen.Uin != registered.Organizations[0].Uin {
+		t.Fatalf("expected uin %d, got %d", registered.Organizations[0].Uin, chosen.Uin)
 	}
 	if len(chosen.Organizations) != 1 {
 		t.Fatalf("expected 1 organization, got %d", len(chosen.Organizations))
+	}
+
+	// OSS 版本不支持创建组织
+	_, err = service.CreateOrganization(ctx, &account.CreateOrganizationInput{
+		Name: "新组织",
+	})
+	if !errors.Is(err, accounterror.ErrNotImplementedEdition) {
+		t.Fatalf("expected CreateOrganization to be unsupported in OSS, got %v", err)
 	}
 }
 
@@ -224,20 +209,14 @@ func TestAuthServiceLoginByEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterByEmail failed: %v", err)
 	}
-
-	// Create organization first
-	created, err := service.CreateOrganization(ctx, &account.CreateOrganizationInput{
-		Name:         "我的组织",
-		RefreshToken: registered.RefreshToken,
-	})
-	if err != nil {
-		t.Fatalf("CreateOrganization failed: %v", err)
+	if len(registered.Organizations) != 1 {
+		t.Fatalf("expected 1 organization from auto join default org, got %d", len(registered.Organizations))
 	}
 
-	// ChooseUin to enter
+	// ChooseUin to get JWT
 	chosen, err := service.ChooseUin(ctx, &account.ChooseUinInput{
 		RefreshToken: registered.RefreshToken,
-		Uin:          created.Uin,
+		Uin:          registered.Organizations[0].Uin,
 		UserID:       registered.UserInfo.ID,
 	})
 	if err != nil {
@@ -268,7 +247,7 @@ func TestAuthServiceLoginByEmail(t *testing.T) {
 	// Use the new refresh token to ChooseUin and get JWT
 	chosen2, err := service.ChooseUin(ctx, &account.ChooseUinInput{
 		RefreshToken: loggedIn.RefreshToken,
-		Uin:          created.Uin,
+		Uin:          registered.Organizations[0].Uin,
 		UserID:       loggedIn.UserInfo.ID,
 	})
 	if err != nil {
@@ -332,51 +311,54 @@ func TestAuthServiceCreateOrganizationWithRefreshToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoginByPhoneCode failed: %v", err)
 	}
-	if loggedIn.LoginStatus != account.LoginStatusNeedCreateCompany {
-		t.Fatalf("expected need_create_company, got %q", loggedIn.LoginStatus)
+	if loggedIn.LoginStatus != account.LoginStatusSuccess {
+		t.Fatalf("expected success with auto join default org, got %q", loggedIn.LoginStatus)
 	}
 	if loggedIn.JwtToken != "" {
 		t.Fatal("expected no jwt token for new user")
 	}
+	if len(loggedIn.Organizations) != 1 {
+		t.Fatalf("expected 1 organization from auto join default org, got %d", len(loggedIn.Organizations))
+	}
 
-	created, err := service.CreateOrganization(ctx, &account.CreateOrganizationInput{
-		Name:         "手机登录组织",
-		RefreshToken: loggedIn.RefreshToken,
+	// OSS 版本不支持创建组织
+	_, err = service.CreateOrganization(ctx, &account.CreateOrganizationInput{
+		Name: "手机登录组织",
 	})
-	if err != nil {
-		t.Fatalf("CreateOrganization failed: %v", err)
-	}
-	if created.Org.Name != "手机登录组织" {
-		t.Fatalf("unexpected org name: %q", created.Org.Name)
-	}
-	if created.JwtToken != "" {
-		t.Fatal("expected no jwt token from CreateOrganization")
+	if !errors.Is(err, accounterror.ErrNotImplementedEdition) {
+		t.Fatalf("expected CreateOrganization to be unsupported, got %v", err)
 	}
 
-	userOrg, err := db.GetUserOrgByUin(ctx, database, created.Uin)
+	// Verify user_org was auto-created for default org
+	defaultOrg, err := db.NewOrgEntityDao(database).GetByCond(ctx, &db.OrgCond{Code: "default_org"})
 	if err != nil {
-		t.Fatalf("GetUserOrgByUin failed: %v", err)
+		t.Fatalf("GetOrgByCode failed: %v", err)
 	}
-	if userOrg == nil || userOrg.OrgID != created.Org.ID {
-		t.Fatalf("unexpected user org: %#v", userOrg)
+	userOrgs, err := db.NewUserOrgEntityDao(database).ListByCond(ctx, &db.UserOrgCond{UserID: loggedIn.UserInfo.ID, OrgID: defaultOrg.ID})
+	if err != nil {
+		t.Fatalf("ListUserOrgs failed: %v", err)
 	}
+	if len(userOrgs) != 1 {
+		t.Fatalf("expected 1 user_org record for default org, got %d", len(userOrgs))
+	}
+	userOrg := userOrgs[0]
 	if !userOrg.IsDefault {
-		t.Fatal("expected IsDefault true for first org")
+		t.Fatal("expected IsDefault true for default org")
 	}
 
 	// Verify department was created
-	department, err := db.GetDepartmentByName(ctx, database, created.Org.ID, created.Org.Name)
+	department, err := db.NewDepartmentEntityDao(database).GetByCond(ctx, &db.DepartmentCond{OrgID: defaultOrg.ID, Name: defaultOrg.Name})
 	if err != nil {
 		t.Fatalf("GetDepartmentByName failed: %v", err)
 	}
 	if department == nil {
-		t.Fatalf("expected default department with name %q", created.Org.Name)
+		t.Fatalf("expected default department with name %q", defaultOrg.Name)
 	}
 
 	// Verify member department relation
-	relations, err := db.ListMemberDepartmentsByUin(ctx, database, userOrg.Uin)
+	relations, err := db.ListMemberDepartmentsByUinAndOrgID(ctx, database, userOrg.ID, userOrg.OrgID)
 	if err != nil {
-		t.Fatalf("ListMemberDepartmentsByUin failed: %v", err)
+		t.Fatalf("ListMemberDepartmentsByUinAndOrgID failed: %v", err)
 	}
 	if len(relations) != 1 || relations[0].DepartmentID != department.ID || !relations[0].IsPrimary {
 		t.Fatalf("unexpected department relation: %#v", relations)
@@ -387,7 +369,7 @@ func TestAuthServiceCreateOrganizationWithJWT(t *testing.T) {
 	service, _ := setupAuthServiceTest(t)
 	ctx := context.Background()
 
-	// Register, create org, choose uin to get a JWT caller
+	// Register, auto-join default org, choose uin to get a JWT caller
 	registered, err := service.RegisterByEmail(ctx, &account.RegisterByEmailInput{
 		Email:           "jwt.create@example.com",
 		Password:        "Password123",
@@ -397,24 +379,27 @@ func TestAuthServiceCreateOrganizationWithJWT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterByEmail failed: %v", err)
 	}
+	if len(registered.Organizations) != 1 {
+		t.Fatalf("expected 1 organization from auto join default org, got %d", len(registered.Organizations))
+	}
 
-	created, err := service.CreateOrganization(ctx, &account.CreateOrganizationInput{
-		Name:         "第一个组织",
-		RefreshToken: registered.RefreshToken,
+	// OSS 版本不支持 CreateOrganization
+	_, err = service.CreateOrganization(ctx, &account.CreateOrganizationInput{
+		Name: "第一个组织",
 	})
-	if err != nil {
-		t.Fatalf("CreateOrganization failed: %v", err)
+	if !errors.Is(err, accounterror.ErrNotImplementedEdition) {
+		t.Fatalf("expected CreateOrganization to be unsupported in OSS, got %v", err)
 	}
 
 	chosen, err := service.ChooseUin(ctx, &account.ChooseUinInput{
 		RefreshToken: registered.RefreshToken,
-		Uin:          created.Uin,
+		Uin:          registered.Organizations[0].Uin,
 	})
 	if err != nil {
 		t.Fatalf("ChooseUin failed: %v", err)
 	}
 
-	// Single tenant: already has 1 org, creating another should hit limit
+	// Single tenant: OSS 不支持创建组织，无论怎样
 	authCtx := localauth.WithContext(ctx, &types.Caller{
 		Uin:   chosen.Uin,
 		OrgID: chosen.Org.ID,
@@ -422,8 +407,8 @@ func TestAuthServiceCreateOrganizationWithJWT(t *testing.T) {
 		State: types.AuthStateSucc,
 	}, &types.Trace{})
 	_, err = service.CreateOrganization(authCtx, &account.CreateOrganizationInput{Name: "第二个组织"})
-	if !errors.Is(err, accounterror.ErrOrganizationLimitExceeded) {
-		t.Fatalf("expected organization limit error, got %v", err)
+	if !errors.Is(err, accounterror.ErrNotImplementedEdition) {
+		t.Fatalf("expected CreateOrganization to be unsupported, got %v", err)
 	}
 }
 
@@ -568,8 +553,8 @@ func TestAuthServicePhoneCodeLoginNewUser(t *testing.T) {
 	if loggedIn.RefreshToken == "" {
 		t.Fatal("expected refresh token")
 	}
-	if loggedIn.LoginStatus != account.LoginStatusNeedCreateCompany {
-		t.Fatalf("expected need_create_company, got %q", loggedIn.LoginStatus)
+	if loggedIn.LoginStatus != account.LoginStatusSuccess {
+		t.Fatalf("expected success with auto join default org, got %q", loggedIn.LoginStatus)
 	}
 	if loggedIn.UserInfo.Phone != "13800138000" {
 		t.Fatalf("expected phone in user info, got %q", loggedIn.UserInfo.Phone)
@@ -577,8 +562,11 @@ func TestAuthServicePhoneCodeLoginNewUser(t *testing.T) {
 	if loggedIn.UserInfo.Name != "13800138000" {
 		t.Fatalf("expected default name to use phone, got %q", loggedIn.UserInfo.Name)
 	}
+	if len(loggedIn.Organizations) != 1 {
+		t.Fatalf("expected 1 organization from auto join default org, got %d", len(loggedIn.Organizations))
+	}
 
-	user, err := db.GetUserByPhone(ctx, database, "13800138000")
+	user, err := db.NewUserEntityDao(database).GetByCond(ctx, &db.UserCond{Phone: "13800138000"})
 	if err != nil {
 		t.Fatalf("GetUserByPhone failed: %v", err)
 	}
@@ -586,18 +574,10 @@ func TestAuthServicePhoneCodeLoginNewUser(t *testing.T) {
 		t.Fatal("expected user to be auto registered")
 	}
 
-	// Full flow: create org + ChooseUin
-	created, err := service.CreateOrganization(ctx, &account.CreateOrganizationInput{
-		Name:         "手机组织",
-		RefreshToken: loggedIn.RefreshToken,
-	})
-	if err != nil {
-		t.Fatalf("CreateOrganization failed: %v", err)
-	}
-
+	// Full flow: ChooseUin directly (already has default org)
 	chosen, err := service.ChooseUin(ctx, &account.ChooseUinInput{
 		RefreshToken: loggedIn.RefreshToken,
-		Uin:          created.Uin,
+		Uin:          loggedIn.Organizations[0].Uin,
 		UserID:       loggedIn.UserInfo.ID,
 	})
 	if err != nil {
@@ -656,7 +636,7 @@ func TestAuthServicePhoneCodeRejectsResendWithinTwoMinutes(t *testing.T) {
 }
 
 func TestAuthServiceRefreshTokenAfterChooseUin(t *testing.T) {
-	service, database := setupAuthServiceTest(t)
+	service, _ := setupAuthServiceTest(t)
 	ctx := context.Background()
 
 	_, err := service.SendPhoneLoginCode(ctx, &account.SendPhoneLoginCodeInput{
@@ -673,18 +653,13 @@ func TestAuthServiceRefreshTokenAfterChooseUin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoginByPhoneCode failed: %v", err)
 	}
-
-	created, err := service.CreateOrganization(ctx, &account.CreateOrganizationInput{
-		Name:         "刷令牌组织",
-		RefreshToken: loggedIn.RefreshToken,
-	})
-	if err != nil {
-		t.Fatalf("CreateOrganization failed: %v", err)
+	if len(loggedIn.Organizations) != 1 {
+		t.Fatalf("expected 1 organization from auto join default org, got %d", len(loggedIn.Organizations))
 	}
 
 	chosen, err := service.ChooseUin(ctx, &account.ChooseUinInput{
 		RefreshToken: loggedIn.RefreshToken,
-		Uin:          created.Uin,
+		Uin:          loggedIn.Organizations[0].Uin,
 	})
 	if err != nil {
 		t.Fatalf("ChooseUin failed: %v", err)
@@ -700,8 +675,6 @@ func TestAuthServiceRefreshTokenAfterChooseUin(t *testing.T) {
 	if refreshed.Uin != chosen.Uin {
 		t.Fatalf("expected uin %d, got %d", chosen.Uin, refreshed.Uin)
 	}
-
-	_ = database
 }
 
 func TestAuthServiceChooseUinRejectsInvalidToken(t *testing.T) {
@@ -734,34 +707,17 @@ func TestAuthServiceChooseUinRejectsWrongUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoginByPhoneCode failed: %v", err)
 	}
-
-	// Register another user and create org, then try to ChooseUin their org
-	reg2, err := service.RegisterByEmail(ctx, &account.RegisterByEmailInput{
-		Email:           "other.user@example.com",
-		Password:        "Password123",
-		ConfirmPassword: "Password123",
-		Name:            "Other User",
-	})
-	if err != nil {
-		t.Fatalf("RegisterByEmail failed: %v", err)
-	}
-	created2, err := service.CreateOrganization(ctx, &account.CreateOrganizationInput{
-		Name:         "别人的组织",
-		RefreshToken: reg2.RefreshToken,
-	})
-	if err != nil {
-		t.Fatalf("CreateOrganization failed: %v", err)
+	if len(loggedIn.Organizations) != 1 {
+		t.Fatalf("expected 1 organization from auto join default org, got %d", len(loggedIn.Organizations))
 	}
 
+	// Try ChooseUin with a non-existent Uin
 	_, err = service.ChooseUin(ctx, &account.ChooseUinInput{
 		RefreshToken: loggedIn.RefreshToken,
-		Uin:          created2.Uin,
+		Uin:          99999,
 	})
-	if err == nil {
-		t.Fatalf("expected user org not allowed error, got nil, created2.Uin=%d", created2.Uin)
-	}
-	if !errors.Is(err, accounterror.ErrUserOrgNotAllowed) {
-		t.Fatalf("expected user org not allowed, got %v, created2.Uin=%d", err, created2.Uin)
+	if !errors.Is(err, accounterror.ErrUserOrgNotFound) {
+		t.Fatalf("expected ErrUserOrgNotFound for non-existent uin, got %v", err)
 	}
 }
 
@@ -778,18 +734,13 @@ func TestAuthServiceAuthSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterByEmail failed: %v", err)
 	}
-
-	created, err := service.CreateOrganization(ctx, &account.CreateOrganizationInput{
-		Name:         "会话组织",
-		RefreshToken: registered.RefreshToken,
-	})
-	if err != nil {
-		t.Fatalf("CreateOrganization failed: %v", err)
+	if len(registered.Organizations) != 1 {
+		t.Fatalf("expected 1 organization from auto join default org, got %d", len(registered.Organizations))
 	}
 
 	chosen, err := service.ChooseUin(ctx, &account.ChooseUinInput{
 		RefreshToken: registered.RefreshToken,
-		Uin:          created.Uin,
+		Uin:          registered.Organizations[0].Uin,
 	})
 	if err != nil {
 		t.Fatalf("ChooseUin failed: %v", err)

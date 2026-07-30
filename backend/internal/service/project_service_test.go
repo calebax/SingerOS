@@ -278,7 +278,6 @@ func seedTestUser(t *testing.T, database *gorm.DB, publicID string, uin uint) *t
 		t.Fatalf("create user: %v", err)
 	}
 	if err := database.Create(&types.UserOrg{
-		Uin:    uin,
 		UserID: user.ID,
 		OrgID:  1,
 	}).Error; err != nil {

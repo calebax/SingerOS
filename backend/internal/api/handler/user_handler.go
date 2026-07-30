@@ -235,7 +235,10 @@ func (h *UserHandler) ListUin(ctx *gin.Context) {
 }
 
 func handleUserServiceError(ctx *gin.Context, err error) {
-	if errors.Is(err, accounterror.ErrPhoneOrEmailRequired) {
+	if errors.Is(err, accounterror.ErrPhoneOrEmailRequired) ||
+		errors.Is(err, accounterror.ErrInvalidArg) ||
+		errors.Is(err, accounterror.ErrEmailAlreadyExists) ||
+		errors.Is(err, accounterror.ErrPhoneAlreadyExists) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
