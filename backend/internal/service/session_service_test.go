@@ -85,7 +85,6 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err := db.Create(&types.UserOrg{
 		UserID: 1,
 		OrgID:  1,
-		Uin:    1,
 	}).Error; err != nil {
 		t.Fatalf("failed to seed test user org: %v", err)
 	}

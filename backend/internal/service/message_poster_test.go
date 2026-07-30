@@ -13,16 +13,16 @@ import (
 
 func TestMessagePosterPostMessageFillsSenderNameFromUserOrgUin(t *testing.T) {
 	database := setupTestDB(t)
-	if err := database.Create(&types.UserOrg{
+	userOrg := &types.UserOrg{
 		UserID: 1,
 		OrgID:  2,
-		Uin:    100,
-	}).Error; err != nil {
+	}
+	if err := database.Create(userOrg).Error; err != nil {
 		t.Fatalf("seed second user org: %v", err)
 	}
 
 	ctx := auth.WithContext(context.Background(), &types.Caller{
-		Uin:   100,
+		Uin:   userOrg.ID,
 		OrgID: 2,
 		State: types.AuthStateSucc,
 	}, &types.Trace{

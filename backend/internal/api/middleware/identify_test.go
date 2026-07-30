@@ -39,7 +39,7 @@ func (m *mockTokenParser) ParseUser(ctx context.Context, tokenStr string) (*type
 	}
 	orgID := uint(0)
 	if m.database != nil {
-		userOrg, dbErr := db.GetUserOrgByUin(ctx, m.database, claims.Uin)
+		userOrg, dbErr := db.NewUserOrgEntityDao(m.database).GetByCond(ctx, &db.UserOrgCond{BaseCond: &db.BaseCond{ID: claims.Uin}})
 		if dbErr == nil && userOrg != nil {
 			orgID = userOrg.OrgID
 		}
@@ -98,14 +98,11 @@ func generateTestUserJWT(uin uint) (string, error) {
 
 func generateRawUserJWT(claims localauth.UserClaims) (string, error) {
 	now := time.Now()
-	claims.StandardClaims = jwt.StandardClaims{
-		Subject:   "test-user",
-		Issuer:    localauth.UserTokenIssuer,
-		Audience:  localauth.UserTokenAudience,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: now.Add(time.Hour).Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &claims)
+	claims.IssuedAt = now.Unix()
+	claims.ExpiresAt = now.Add(time.Hour).Unix()
+	claims.Issuer = localauth.UserTokenIssuer
+	claims.Audience = localauth.UserTokenAudience
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(testJWTSecret))
 }
 
@@ -175,20 +172,18 @@ func TestCallerMiddleware_InvalidToken(t *testing.T) {
 
 func TestCallerMiddleware_ValidV2UserToken(t *testing.T) {
 	testUserID := uint(8)
-	testUin := uint(12345)
 	testOrgID := uint(2)
 	database := setupTestDB(t)
 	userOrg := &types.UserOrg{
-		Uin:       testUin,
 		UserID:    testUserID,
 		OrgID:     testOrgID,
 		IsDefault: true,
 	}
-	if err := db.CreateUserOrg(context.Background(), database, userOrg); err != nil {
+	if err := db.NewUserOrgEntityDao(database).Insert(context.Background(), userOrg); err != nil {
 		t.Fatalf("failed to create user org: %v", err)
 	}
 
-	token, err := generateTestUserJWT(testUin)
+	token, err := generateTestUserJWT(userOrg.ID)
 	if err != nil {
 		t.Fatalf("failed to generate token: %v", err)
 	}
@@ -205,8 +200,8 @@ func TestCallerMiddleware_ValidV2UserToken(t *testing.T) {
 	if caller == nil {
 		t.Fatal("caller should not be nil")
 	}
-	if caller.Uin != testUin {
-		t.Errorf("expected Uin %d, got %d", testUin, caller.Uin)
+	if caller.Uin != userOrg.ID {
+		t.Errorf("expected Uin %d, got %d", userOrg.ID, caller.Uin)
 	}
 	if caller.OrgID != testOrgID {
 		t.Errorf("expected OrgID %d, got %d", testOrgID, caller.OrgID)

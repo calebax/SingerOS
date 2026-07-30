@@ -92,6 +92,9 @@ func reconcileWorkerDeployment(
 	}
 	if assistant == nil || assistant.Status != string(contract.DigitalAssistantStatusActive) {
 		if err := workerScheduler.Stop(ctx, deployment.DeploymentName); err != nil {
+			if errors.Is(err, worker.ErrWorkerNotFound) {
+				return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusStopped), "")
+			}
 			return fmt.Errorf("stop inactive worker: %w", err)
 		}
 		return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusStopped), "")

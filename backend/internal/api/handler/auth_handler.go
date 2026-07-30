@@ -299,9 +299,9 @@ func isAuthBadRequestError(err error) bool {
 		return true
 	case "最多只能加入两个组织":
 		return true
-	case "account: 当前版本不支持此特性":
+	case "当前版本不支持此特性":
 		return true
-	case "account: 请先创建或加入组织":
+	case "请先创建或加入组织":
 		return true
 	default:
 		return false

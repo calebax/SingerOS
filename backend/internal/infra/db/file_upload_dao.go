@@ -45,9 +45,12 @@ func GetFileUploadsByPublicIDs(ctx context.Context, db *gorm.DB, orgID uint, pub
 		return nil, nil
 	}
 	var files []types.FileUpload
-	err := db.WithContext(ctx).
-		Where("public_id IN ? AND owner_scope = ? AND org_id = ?", publicIDs, types.OwnerScopeOrganization, orgID).
-		Find(&files).Error
+	query := db.WithContext(ctx).
+		Where("public_id IN ? AND owner_scope = ?", publicIDs, types.OwnerScopeOrganization)
+	if orgID != 0 {
+		query = query.Where("org_id = ?", orgID)
+	}
+	err := query.Find(&files).Error
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +59,12 @@ func GetFileUploadsByPublicIDs(ctx context.Context, db *gorm.DB, orgID uint, pub
 
 func GetFileUploadByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publicID string) (*types.FileUpload, error) {
 	var file types.FileUpload
-	err := db.WithContext(ctx).
-		Where("public_id = ? AND owner_scope = ? AND org_id = ?", publicID, types.OwnerScopeOrganization, orgID).
-		First(&file).Error
+	query := db.WithContext(ctx).
+		Where("public_id = ? AND owner_scope = ?", publicID, types.OwnerScopeOrganization)
+	if orgID != 0 {
+		query = query.Where("org_id = ?", orgID)
+	}
+	err := query.First(&file).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
