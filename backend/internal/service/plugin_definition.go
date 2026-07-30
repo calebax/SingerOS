@@ -25,15 +25,20 @@ type skillDefinition struct {
 	Artifact *ArtifactDefinition    `json:"artifact"`
 	Source   *SkillSourceDefinition `json:"source"`
 }
-type mcpDefinition struct {
+
+// MCPDefinition is the immutable MCP configuration stored in a plugin revision.
+type MCPDefinition struct {
 	Schema        string            `json:"schema"`
 	Transport     string            `json:"transport"`
 	Name          string            `json:"name"`
-	URL           string            `json:"url"`
-	Command       string            `json:"command"`
-	Args          []string          `json:"args"`
-	SecretRefs    map[string]string `json:"secret_refs"`
-	EnvSecretRefs map[string]string `json:"env_secret_refs"`
+	Provider      string            `json:"provider,omitempty"`
+	URL           string            `json:"url,omitempty"`
+	BearerToken   string            `json:"bearer_token,omitempty"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	Command       string            `json:"command,omitempty"`
+	Args          []string          `json:"args,omitempty"`
+	SecretRefs    map[string]string `json:"secret_refs,omitempty"`
+	EnvSecretRefs map[string]string `json:"env_secret_refs,omitempty"`
 }
 type workflowDefinition struct {
 	Schema     string          `json:"schema"`
@@ -62,7 +67,7 @@ func ValidatePluginDefinition(kind string, raw json.RawMessage) error {
 		}
 		return fmt.Errorf("skill definition requires artifact file_upload_id and sha256, or a github source")
 	case "mcp":
-		var value mcpDefinition
+		var value MCPDefinition
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return err
 		}
@@ -97,6 +102,18 @@ func ValidatePluginDefinition(kind string, raw json.RawMessage) error {
 	default:
 		return fmt.Errorf("unsupported plugin kind %q", kind)
 	}
+}
+
+// MCPFromDefinition decodes one validated MCP revision definition.
+func MCPFromDefinition(raw json.RawMessage) (*MCPDefinition, error) {
+	if err := ValidatePluginDefinition("mcp", raw); err != nil {
+		return nil, err
+	}
+	var value MCPDefinition
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	return &value, nil
 }
 
 // ArtifactFromDefinition obtains the bundle metadata used by worker download code.

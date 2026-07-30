@@ -65,3 +65,30 @@ func TestBuildConfigContentSetsBuildAgentPrompt(t *testing.T) {
 		t.Fatalf("build agent prompt = %q, want %q", buildAgent.Prompt, openCodeBuildAgentPrompt)
 	}
 }
+
+func TestBuildMCPConfigIncludesProjectHeadersAndPreservesExplicitAuthorization(t *testing.T) {
+	sourceHeaders := map[string]string{"Authorization": "Custom token", "X-Tenant": "one"}
+	config := buildMCPConfig([]agent.MCPServerConfig{
+		{
+			Name:        "docs",
+			URL:         "https://example.com/mcp",
+			Headers:     sourceHeaders,
+			BearerToken: "builtin-token",
+		},
+	})
+	entry, ok := config["docs"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP entry = %#v", config["docs"])
+	}
+	headers, ok := entry["headers"].(map[string]string)
+	if !ok {
+		t.Fatalf("MCP headers = %#v", entry["headers"])
+	}
+	if headers["Authorization"] != "Custom token" || headers["X-Tenant"] != "one" {
+		t.Fatalf("MCP headers = %#v", headers)
+	}
+	headers["X-Tenant"] = "changed"
+	if sourceHeaders["X-Tenant"] != "one" {
+		t.Fatalf("buildMCPConfig mutated request headers: %#v", sourceHeaders)
+	}
+}

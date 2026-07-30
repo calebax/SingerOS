@@ -18,9 +18,58 @@ export interface ListPluginsResponse {
 }
 
 export interface GetPluginResponse {
-	scope: string;
 	plugin: PluginListItem;
 	content: PluginRevisionContent | null;
+	definition?: MCPPluginDefinition;
+}
+
+export interface MCPPluginDefinition {
+	schema: "mcp/v1";
+	transport: "http";
+	name: string;
+	provider?: string;
+	url: string;
+	bearer_token?: string;
+	headers?: Record<string, string>;
+}
+
+export interface MCPPluginConfig {
+	code?: string;
+	name: string;
+	description?: string;
+	url: string;
+	bearer_token?: string;
+	headers?: Record<string, string>;
+}
+
+export interface TestMCPPluginParams {
+	url: string;
+	bearer_token?: string;
+	headers?: Record<string, string>;
+}
+
+export interface TestMCPPluginResponse {
+	ok: boolean;
+	tool_count: number;
+}
+
+export interface MCPPlatform {
+	code: string;
+	name: string;
+	description: string;
+	auto_connect_supported: boolean;
+	connected: boolean;
+	plugin_id?: string;
+}
+
+export interface ListMCPPlatformsResponse {
+	platforms: MCPPlatform[];
+}
+
+export interface ConnectMCPPlatformResponse {
+	platform: MCPPlatform;
+	plugin: PluginListItem;
+	tool_count: number;
 }
 
 export interface GetPluginInstallationStatusParams {
@@ -194,6 +243,18 @@ export const pluginApi = {
 		apiClient.delete<BackendDataResponse<DeletePluginResponse>>(`/plugins/${pluginID}`),
 	addSkill: (params: AddSkillPluginParams) =>
 		apiClient.post<BackendDataResponse<null>>("/plugins/skills", params),
+	addMCP: (params: MCPPluginConfig) =>
+		apiClient.post<BackendDataResponse<PluginListItem>>("/plugins/mcp", params),
+	updateMCP: (pluginID: string, params: MCPPluginConfig) =>
+		apiClient.put<BackendDataResponse<PluginListItem>>(`/plugins/mcp/${pluginID}`, params),
+	testMCP: (params: TestMCPPluginParams) =>
+		apiClient.post<BackendDataResponse<TestMCPPluginResponse>>("/plugins/mcp/test", params),
+	listMCPPlatforms: () =>
+		apiClient.get<BackendDataResponse<ListMCPPlatformsResponse>>("/plugins/mcp/platforms"),
+	connectMCPPlatform: (platformCode: string) =>
+		apiClient.post<BackendDataResponse<ConnectMCPPlatformResponse>>(
+			`/plugins/mcp/platforms/${platformCode}/connect`,
+		),
 	listProject: (params: ListProjectPluginsParams) =>
 		apiClient.post<BackendDataResponse<ProjectPluginItem[]>>("/ListProjectPlugins", params),
 	addToProject: (params: UpdateProjectPluginParams) =>

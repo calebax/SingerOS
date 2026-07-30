@@ -222,6 +222,80 @@ func TestPluginDAOEnforcesBusinessConstraints(t *testing.T) {
 	}
 }
 
+func TestListProjectPluginSnapshotsIncludesOnlyBoundMCPCurrentRevision(t *testing.T) {
+	database := setupPluginDAOTestDB(t)
+	ctx := context.Background()
+	project := &types.Project{PublicID: "project_mcp_snapshot", OrgID: 1, OwnerID: 9, Name: "MCP"}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	bound := &types.Plugin{
+		PublicID: "plugin_bound_mcp", OrgID: 1, Code: "docs", Kind: "mcp",
+		Name: "Docs", Status: types.PluginStatusActive, Origin: "org",
+		CurrentRevision: 1, CreatedBy: 9, UpdatedBy: 9,
+	}
+	if err := CreatePlugin(ctx, database, bound); err != nil {
+		t.Fatalf("create bound MCP: %v", err)
+	}
+	revisionOne := []byte(
+		`{"schema":"mcp/v1","transport":"http","name":"docs","url":"https://v1.example.com/mcp"}`,
+	)
+	if err := CreatePluginRevision(ctx, database, &types.PluginRevision{
+		PluginID: bound.ID, Revision: 1, Status: "published", Definition: revisionOne,
+		PublishedByType: "user", PublishedByID: 9, PublishedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("create MCP revision 1: %v", err)
+	}
+	if err := CreateProjectPluginBinding(ctx, database, &types.ProjectPluginBinding{
+		ProjectID: project.ID, PluginID: bound.ID, Enabled: true, Config: []byte(`{}`),
+		CreatedBy: 9, UpdatedBy: 9,
+	}); err != nil {
+		t.Fatalf("bind MCP: %v", err)
+	}
+	unbound := &types.Plugin{
+		PublicID: "plugin_unbound_mcp", OrgID: 1, Code: "crm", Kind: "mcp",
+		Name: "CRM", Status: types.PluginStatusActive, Origin: "org",
+		CurrentRevision: 1, CreatedBy: 9, UpdatedBy: 9,
+	}
+	if err := CreatePlugin(ctx, database, unbound); err != nil {
+		t.Fatalf("create unbound MCP: %v", err)
+	}
+	if err := CreatePluginRevision(ctx, database, &types.PluginRevision{
+		PluginID: unbound.ID, Revision: 1, Status: "published",
+		Definition: []byte(
+			`{"schema":"mcp/v1","transport":"http","name":"crm","url":"https://crm.example.com/mcp"}`,
+		),
+		PublishedByType: "user", PublishedByID: 9, PublishedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("create unbound revision: %v", err)
+	}
+
+	frozen, err := ListProjectPluginSnapshots(ctx, database, 1, project.ID)
+	if err != nil {
+		t.Fatalf("ListProjectPluginSnapshots() error = %v", err)
+	}
+	if len(frozen) != 1 || frozen[0].Code != "docs" || frozen[0].Revision != 1 {
+		t.Fatalf("frozen snapshots = %#v", frozen)
+	}
+
+	revisionTwo := []byte(
+		`{"schema":"mcp/v1","transport":"http","name":"docs","url":"https://v2.example.com/mcp"}`,
+	)
+	if err := CreatePluginRevision(ctx, database, &types.PluginRevision{
+		PluginID: bound.ID, Revision: 2, Status: "published", Definition: revisionTwo,
+		PublishedByType: "user", PublishedByID: 9, PublishedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("create MCP revision 2: %v", err)
+	}
+	if err := database.Model(&types.Plugin{}).Where("id = ?", bound.ID).
+		Update("current_revision", 2).Error; err != nil {
+		t.Fatalf("activate MCP revision 2: %v", err)
+	}
+	if frozen[0].Revision != 1 || string(frozen[0].Definition) != string(revisionOne) {
+		t.Fatalf("previously frozen snapshot changed = %#v", frozen[0])
+	}
+}
+
 func TestPluginOwnerScopeConstraintsAndOrganizationVisibility(t *testing.T) {
 	database := setupPluginDAOTestDB(t)
 	ctx := context.Background()
@@ -299,5 +373,57 @@ func TestPluginOwnerScopeConstraintsAndOrganizationVisibility(t *testing.T) {
 		"shared",
 	); err != nil || got != nil {
 		t.Fatalf("organization identity isolation = %#v, %v", got, err)
+	}
+}
+
+func TestListPluginsFiltersOnlyMCPByCreator(t *testing.T) {
+	database := setupPluginDAOTestDB(t)
+	ctx := context.Background()
+	plugins := []types.Plugin{
+		{
+			PublicID: "plugin_mcp_mine", OwnerScope: types.OwnerScopeOrganization,
+			OrgID: 1, Code: "mcp-mine", Kind: "mcp", Name: "Mine",
+			Status: types.PluginStatusActive, Origin: "org", CreatedBy: 10, UpdatedBy: 10,
+		},
+		{
+			PublicID: "plugin_mcp_other", OwnerScope: types.OwnerScopeOrganization,
+			OrgID: 1, Code: "mcp-other", Kind: "mcp", Name: "Other",
+			Status: types.PluginStatusActive, Origin: "org", CreatedBy: 11, UpdatedBy: 11,
+		},
+		{
+			PublicID: "plugin_skill_shared", OwnerScope: types.OwnerScopeOrganization,
+			OrgID: 1, Code: "skill-shared", Kind: "skill", Name: "Shared",
+			Status: types.PluginStatusActive, Origin: "org", CreatedBy: 11, UpdatedBy: 11,
+		},
+	}
+	for index := range plugins {
+		if err := CreatePlugin(ctx, database, &plugins[index]); err != nil {
+			t.Fatalf("create plugin %d: %v", index, err)
+		}
+	}
+
+	visible, err := ListPlugins(ctx, database, 1, PluginListFilter{ViewerUin: 10})
+	if err != nil {
+		t.Fatalf("ListPlugins() error = %v", err)
+	}
+	ids := make(map[string]bool, len(visible))
+	for _, plugin := range visible {
+		ids[plugin.PublicID] = true
+	}
+	if !ids["plugin_mcp_mine"] || !ids["plugin_skill_shared"] || ids["plugin_mcp_other"] {
+		t.Fatalf("visible plugins = %#v", visible)
+	}
+
+	mcps, err := ListPlugins(ctx, database, 1, PluginListFilter{
+		Kind: "mcp", ViewerUin: 10,
+	})
+	if err != nil || len(mcps) != 1 || mcps[0].PublicID != "plugin_mcp_mine" {
+		t.Fatalf("personal MCP list = %#v, %v", mcps, err)
+	}
+	skills, err := ListPlugins(ctx, database, 1, PluginListFilter{
+		Kind: "skill", ViewerUin: 10,
+	})
+	if err != nil || len(skills) != 1 || skills[0].PublicID != "plugin_skill_shared" {
+		t.Fatalf("shared Skill list = %#v, %v", skills, err)
 	}
 }

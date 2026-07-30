@@ -63,3 +63,23 @@ type TokenParser interface {
 	ParseWorker(ctx context.Context, tokenStr string) (*types.Caller, error)
 	IssueWorker(ctx context.Context, orgID, workerID uint, bootstrapToken string) (token string, expiredAt int64, err error)
 }
+
+// CreateAPIKeyInput describes a user-owned API key requested from the identity provider.
+type CreateAPIKeyInput struct {
+	Name         string
+	Purpose      string
+	ResourceType string
+	ResourceID   uint
+	ExpireHours  int
+}
+
+// CreatedAPIKey contains the opaque API key returned once by the identity provider.
+type CreatedAPIKey struct {
+	ID     uint
+	APIKey string
+}
+
+// APIKeyIssuer creates API keys for the user carried by the request context.
+type APIKeyIssuer interface {
+	CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (*CreatedAPIKey, error)
+}

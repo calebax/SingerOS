@@ -21,6 +21,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
@@ -48,7 +49,9 @@ var skillAutoInstallLocks = struct {
 }
 
 type pluginService struct {
-	db *gorm.DB
+	db           *gorm.DB
+	apiKeyIssuer account.APIKeyIssuer
+	coreKGMCPURL string
 }
 
 // NewPluginService creates the independent plugin repository service.
@@ -56,12 +59,38 @@ func NewPluginService(database *gorm.DB) contract.PluginService {
 	return &pluginService{db: database}
 }
 
+// NewPluginServiceWithAPIKeyIssuer enables platform connectors backed by the configured IAM service.
+func NewPluginServiceWithAPIKeyIssuer(
+	database *gorm.DB,
+	issuer account.APIKeyIssuer,
+	authBaseURL string,
+) contract.PluginService {
+	return &pluginService{
+		db:           database,
+		apiKeyIssuer: issuer,
+		coreKGMCPURL: coreKGMCPURLFromAuthBase(authBaseURL),
+	}
+}
+
 // NewOfficialPluginMarketplaceService creates the dedicated official catalogue service.
 func NewOfficialPluginMarketplaceService(database *gorm.DB) contract.OfficialPluginMarketplaceService {
 	return &pluginService{db: database}
 }
 
-func (s *pluginService) ListPlugins(ctx context.Context, orgID uint, req *contract.ListPluginsRequest) (*contract.ListPluginsResponse, error) {
+func (s *pluginService) ListPlugins(
+	ctx context.Context,
+	orgID, uin uint,
+	req *contract.ListPluginsRequest,
+) (*contract.ListPluginsResponse, error) {
+	kind := strings.TrimSpace(req.Kind)
+	status := strings.TrimSpace(req.Status)
+	if kind == "mcp" &&
+		(status == "" || status == types.PluginStatusActive) &&
+		s.coreKGAutoConnectSupported() {
+		if _, err := s.ConnectMCPPlatform(ctx, orgID, uin, coreKGPlatformCode); err != nil {
+			return nil, fmt.Errorf("ensure CoreKG MCP platform: %w", err)
+		}
+	}
 	limit := normalizePluginListLimit(req.Limit)
 
 	plugins, err := infradb.ListPlugins(ctx, s.db, orgID, infradb.PluginListFilter{
@@ -70,6 +99,7 @@ func (s *pluginService) ListPlugins(ctx context.Context, orgID uint, req *contra
 		Keyword:                 req.Keyword,
 		Limit:                   limit,
 		ExcludeMarketplaceBased: req.ExcludeMarketplaceBased,
+		ViewerUin:               uin,
 	})
 	if err != nil {
 		return nil, err
@@ -94,12 +124,17 @@ func (s *pluginService) ListBuiltinSkills(ctx context.Context) (*contract.ListPl
 	return &contract.ListPluginsResponse{Plugins: result}, nil
 }
 
-func (s *pluginService) GetPlugin(ctx context.Context, orgID uint, pluginID string, req *contract.GetPluginRequest) (*contract.GetPluginResponse, error) {
+func (s *pluginService) GetPlugin(
+	ctx context.Context,
+	orgID, uin uint,
+	pluginID string,
+	req *contract.GetPluginRequest,
+) (*contract.GetPluginResponse, error) {
 	plugin, err := infradb.GetPluginByPublicID(ctx, s.db, orgID, pluginID)
 	if err != nil {
 		return nil, err
 	}
-	if plugin == nil {
+	if plugin == nil || !pluginVisibleToUser(plugin, uin) {
 		return nil, contract.ErrPluginNotFound
 	}
 	view := pluginView(*plugin)
@@ -109,6 +144,12 @@ func (s *pluginService) GetPlugin(ctx context.Context, orgID uint, pluginID stri
 	}
 	if revision == nil {
 		return &contract.GetPluginResponse{Plugin: &view}, nil
+	}
+	if !isBundleDefinition(plugin.Kind) {
+		return &contract.GetPluginResponse{
+			Plugin:     &view,
+			Definition: append(json.RawMessage(nil), revision.Definition...),
+		}, nil
 	}
 	content, err := infradb.GetPluginRevisionContent(ctx, s.db, revision.ID)
 	if err != nil {
@@ -124,7 +165,7 @@ func (s *pluginService) GetPlugin(ctx context.Context, orgID uint, pluginID stri
 // GetPluginInstallationStatus reports one organization's installed revision and official update state.
 func (s *pluginService) GetPluginInstallationStatus(
 	ctx context.Context,
-	orgID uint,
+	orgID, uin uint,
 	req *contract.GetPluginInstallationStatusRequest,
 ) (*contract.PluginInstallationStatusResponse, error) {
 	if req == nil {
@@ -150,6 +191,9 @@ func (s *pluginService) GetPluginInstallationStatus(
 		return nil, err
 	}
 	if plugin == nil {
+		return result, nil
+	}
+	if !pluginVisibleToUser(plugin, uin) {
 		return result, nil
 	}
 	result.Installed = true
@@ -594,12 +638,16 @@ func lockSkillAutoInstall(orgID uint, code string) func() {
 	}
 }
 
-func (s *pluginService) ListPluginVersions(ctx context.Context, orgID uint, pluginID string) (*contract.ListPluginVersionsResponse, error) {
+func (s *pluginService) ListPluginVersions(
+	ctx context.Context,
+	orgID, uin uint,
+	pluginID string,
+) (*contract.ListPluginVersionsResponse, error) {
 	plugin, err := infradb.GetPluginByPublicID(ctx, s.db, orgID, pluginID)
 	if err != nil {
 		return nil, err
 	}
-	if plugin == nil {
+	if plugin == nil || !pluginVisibleToUser(plugin, uin) {
 		return nil, contract.ErrPluginNotFound
 	}
 	revisions, err := infradb.ListPluginRevisions(ctx, s.db, orgID, pluginID)
@@ -639,6 +687,9 @@ func (s *pluginService) DeletePlugin(ctx context.Context, orgID, uin uint, plugi
 		}
 		return &contract.DeletePluginResponse{Operation: "project_unbound"}, nil
 	}
+	if !pluginVisibleToUser(plugin, uin) {
+		return nil, contract.ErrPluginNotFound
+	}
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		deleted, err := infradb.SoftDeletePlugin(ctx, tx, orgID, pluginID, uin)
@@ -654,6 +705,10 @@ func (s *pluginService) DeletePlugin(ctx context.Context, orgID, uin uint, plugi
 		return nil, err
 	}
 	return &contract.DeletePluginResponse{Operation: "deleted"}, nil
+}
+
+func pluginVisibleToUser(plugin *types.Plugin, uin uint) bool {
+	return plugin != nil && (plugin.Kind != "mcp" || plugin.CreatedBy == uin)
 }
 
 func (s *pluginService) AddSkillPlugin(ctx context.Context, orgID, uin uint, req *contract.AddSkillPluginRequest) error {

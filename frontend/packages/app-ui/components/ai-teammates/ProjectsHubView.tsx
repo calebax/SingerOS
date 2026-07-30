@@ -3,8 +3,10 @@
 import {
 	type AuthUser,
 	type PluginComposerOption,
+	type PluginListItem,
 	type Project,
 	type ProjectMember,
+	pluginApi,
 	projectMembersToInputs,
 	useLayoutStore,
 	useProjectsMenuCapabilities,
@@ -29,10 +31,21 @@ import {
 } from "@leros/ui/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, CalendarDays, Check, MessageSquare, Plus, Search, Sparkles, X } from "lucide-react";
+import {
+	Bot,
+	CalendarDays,
+	Check,
+	MessageSquare,
+	Plus,
+	Search,
+	Server,
+	Sparkles,
+	X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
+import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { FieldWithError, RequiredMark, useFormFieldValidation } from "../form/formValidation";
 import { bindSkillsToProject, useSkillPickerOptions } from "../input/useSkillPickerOptions";
@@ -462,6 +475,11 @@ function CreateProjectDialog({
 	const [selectedSkills, setSelectedSkills] = useState<PluginComposerOption[]>([]);
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
+	const [selectedMCPs, setSelectedMCPs] = useState<PluginListItem[]>([]);
+	const [mcpOptions, setMCPOptions] = useState<PluginListItem[]>([]);
+	const [mcpOpen, setMCPOpen] = useState(false);
+	const [mcpSearch, setMCPSearch] = useState("");
+	const [mcpsLoading, setMCPsLoading] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const { resetValidation, shouldShowError, handleFieldBlur } = useFormFieldValidation();
 	const { skillOptions, skillsLoading, skillsError } = useSkillPickerOptions({
@@ -477,12 +495,35 @@ function CreateProjectDialog({
 			setMemberOpen(false);
 			setSelectedSkills([]);
 			setSkillSearch("");
+			setSelectedMCPs([]);
+			setMCPOptions([]);
+			setMCPSearch("");
 			setSubmitting(false);
 			resetValidation();
 			return;
 		}
 		setSelectedMembers((current) => mergeOwnerMember(ownerMembers, current));
 	}, [open, ownerMembers, resetValidation]);
+
+	useEffect(() => {
+		if (!open || !mcpOpen) return;
+		let cancelled = false;
+		setMCPsLoading(true);
+		pluginApi
+			.list({ kind: "mcp", status: "active", limit: 100 })
+			.then((response) => {
+				if (!cancelled) setMCPOptions(response.data.data.plugins ?? []);
+			})
+			.catch(() => {
+				if (!cancelled) setMCPOptions([]);
+			})
+			.finally(() => {
+				if (!cancelled) setMCPsLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [mcpOpen, open]);
 
 	const selectedSkillCodes = useMemo(
 		() => selectedSkills.map((skill) => skill.code),
@@ -500,6 +541,22 @@ function CreateProjectDialog({
 			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
 	}, [selectedSkillCodeSet, skillOptions, skillSearch]);
+	const selectedMCPIDs = useMemo(
+		() => new Set(selectedMCPs.map((connector) => connector.public_id)),
+		[selectedMCPs],
+	);
+	const filteredMCPs = useMemo(() => {
+		const query = mcpSearch.trim().toLowerCase();
+		return mcpOptions.filter((connector) => {
+			if (selectedMCPIDs.has(connector.public_id)) return false;
+			if (!query) return true;
+			return [connector.name, connector.code, connector.description]
+				.filter(Boolean)
+				.join(" ")
+				.toLowerCase()
+				.includes(query);
+		});
+	}, [mcpOptions, mcpSearch, selectedMCPIDs]);
 
 	const addSkill = (skill: PluginComposerOption) => {
 		setSelectedSkills((current) => {
@@ -532,6 +589,15 @@ function CreateProjectDialog({
 			});
 			if (project) {
 				const binding = await bindSkillsToProject(project.id, selectedSkills);
+				const mcpResults = await Promise.allSettled(
+					selectedMCPs.map((connector) =>
+						pluginApi.addToProject({
+							public_id: project.id,
+							plugin_id: connector.public_id,
+						}),
+					),
+				);
+				const failedMCPCount = mcpResults.filter((result) => result.status === "rejected").length;
 				onCreated(project);
 				if (binding.failedCount > 0) {
 					toast.error(
@@ -539,6 +605,9 @@ function CreateProjectDialog({
 							? `${binding.failedCount} 个技能关联失败，其中 ${binding.installedButUnboundCount} 个已安装到组织`
 							: `${binding.failedCount} 个技能关联失败`,
 					);
+				}
+				if (failedMCPCount > 0) {
+					toast.error(`${failedMCPCount} 个 MCP 连接器关联失败`);
 				}
 			}
 		} finally {
@@ -737,6 +806,89 @@ function CreateProjectDialog({
 											className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-xs text-violet-700 transition-colors hover:bg-violet-100"
 										>
 											{skill.label}
+											<X className="size-3" />
+										</button>
+									))}
+								</div>
+							)}
+						</div>
+
+						<div className="rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5">
+							<div className="flex items-center justify-between gap-3">
+								<div className="flex items-center gap-2">
+									<Server className="size-4 text-[var(--leros-text-muted)]" />
+									<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+										MCP 连接器{" "}
+										<span className="font-normal text-[var(--leros-text-subtle)]">（可选）</span>
+									</div>
+								</div>
+								<Popover open={mcpOpen} onOpenChange={setMCPOpen}>
+									<PopoverTrigger
+										type="button"
+										className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium hover:bg-[var(--leros-surface-soft)]"
+									>
+										+ 添加
+									</PopoverTrigger>
+									<PopoverContent
+										align="end"
+										side="top"
+										sideOffset={10}
+										className="w-[340px] p-1.5"
+									>
+										<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+											<div className="px-2 py-1 text-sm font-semibold text-slate-800">
+												选择 MCP 连接器
+											</div>
+											<CommandInput
+												value={mcpSearch}
+												onValueChange={setMCPSearch}
+												placeholder="搜索 MCP 连接器"
+											/>
+											<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+											<CommandList className="max-h-64 px-1">
+												<CommandEmpty className="py-6 text-slate-400">
+													没有可继续添加的 MCP 连接器
+												</CommandEmpty>
+												<CommandGroup className="p-0">
+													{mcpsLoading && (
+														<div className="px-2 py-1.5 text-xs text-slate-400">加载中...</div>
+													)}
+													{filteredMCPs.map((connector) => (
+														<CommandItem
+															key={connector.public_id}
+															value={connector.name}
+															onSelect={() => setSelectedMCPs((current) => [...current, connector])}
+															className="rounded-lg px-2 py-1.5"
+														>
+															<MCPConnectorIcon code={connector.code} name={connector.name} />
+															<div className="min-w-0 flex-1">
+																<div className="truncate font-medium">{connector.name}</div>
+																<div className="truncate text-xs text-slate-400">
+																	{connector.description || connector.code}
+																</div>
+															</div>
+														</CommandItem>
+													))}
+												</CommandGroup>
+											</CommandList>
+										</Command>
+									</PopoverContent>
+								</Popover>
+							</div>
+							{selectedMCPs.length > 0 && (
+								<div className="mt-3 flex flex-wrap gap-1.5">
+									{selectedMCPs.map((connector) => (
+										<button
+											key={connector.public_id}
+											type="button"
+											onClick={() =>
+												setSelectedMCPs((current) =>
+													current.filter((item) => item.public_id !== connector.public_id),
+												)
+											}
+											className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:bg-blue-100"
+										>
+											{connector.name}
 											<X className="size-3" />
 										</button>
 									))}

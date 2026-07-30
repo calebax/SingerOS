@@ -67,6 +67,7 @@ type PluginListFilter struct {
 	Keyword                 string
 	Limit                   int
 	ExcludeMarketplaceBased bool
+	ViewerUin               uint
 }
 
 // PluginMarketplaceListFilter constrains a marketplace list query.
@@ -157,6 +158,14 @@ func ListPlugins(ctx context.Context, database *gorm.DB, orgID uint, filter Plug
 		)
 	if kind := strings.TrimSpace(filter.Kind); kind != "" {
 		query = query.Where("p.kind = ?", kind)
+	}
+	if filter.ViewerUin > 0 {
+		switch strings.TrimSpace(filter.Kind) {
+		case "mcp":
+			query = query.Where("p.created_by = ?", filter.ViewerUin)
+		case "":
+			query = query.Where("p.kind <> ? OR p.created_by = ?", "mcp", filter.ViewerUin)
+		}
 	}
 	if status := strings.TrimSpace(filter.Status); status != "" {
 		query = query.Where("p.status = ?", status)

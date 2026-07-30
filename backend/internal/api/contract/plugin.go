@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -13,6 +14,8 @@ var (
 	ErrPluginNotFound = errors.New("plugin not found")
 	// ErrPluginImportNotImplemented indicates that package publication is deferred to a later phase.
 	ErrPluginImportNotImplemented = errors.New("plugin import is not implemented")
+	// ErrInvalidPluginConfig indicates that a plugin configuration failed validation.
+	ErrInvalidPluginConfig = errors.New("invalid plugin config")
 )
 
 const (
@@ -53,6 +56,8 @@ type GetPluginRequest struct{}
 type GetPluginResponse struct {
 	Plugin  *PluginView                `json:"plugin,omitempty"`
 	Content *PluginRevisionContentView `json:"content"`
+	// Definition is returned for non-bundle plugin kinds such as MCP.
+	Definition json.RawMessage `json:"definition,omitempty"`
 }
 
 // GetPluginInstallationStatusRequest identifies one organization plugin by stable identity.
@@ -126,6 +131,63 @@ type AddSkillPluginRequest struct {
 	Mode         string `json:"mode"`
 	FileUploadID string `json:"file_upload_id"`
 	GitHubURL    string `json:"github_url"`
+}
+
+// MCPPluginConfig is the organization-managed remote HTTP MCP configuration.
+// Code is optional on create and update; the service generates it for new plugins.
+type MCPPluginConfig struct {
+	Code        string            `json:"code,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	URL         string            `json:"url"`
+	BearerToken string            `json:"bearer_token,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Provider    string            `json:"-"`
+}
+
+// AddMCPPluginRequest creates one organization MCP plugin.
+type AddMCPPluginRequest struct {
+	MCPPluginConfig
+}
+
+// UpdateMCPPluginRequest replaces one organization MCP configuration.
+type UpdateMCPPluginRequest struct {
+	MCPPluginConfig
+}
+
+// TestMCPPluginRequest tests a draft remote HTTP MCP configuration without storing it.
+type TestMCPPluginRequest struct {
+	URL         string            `json:"url"`
+	BearerToken string            `json:"bearer_token,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
+// TestMCPPluginResponse contains the result of one stateless MCP handshake.
+type TestMCPPluginResponse struct {
+	OK        bool `json:"ok"`
+	ToolCount int  `json:"tool_count"`
+}
+
+// MCPPlatformView describes one built-in platform and the caller's connection state.
+type MCPPlatformView struct {
+	Code                 string `json:"code"`
+	Name                 string `json:"name"`
+	Description          string `json:"description"`
+	AutoConnectSupported bool   `json:"auto_connect_supported"`
+	Connected            bool   `json:"connected"`
+	PluginID             string `json:"plugin_id,omitempty"`
+}
+
+// ListMCPPlatformsResponse contains the built-in MCP platform catalogue.
+type ListMCPPlatformsResponse struct {
+	Platforms []MCPPlatformView `json:"platforms"`
+}
+
+// ConnectMCPPlatformResponse returns the connected platform and created plugin.
+type ConnectMCPPlatformResponse struct {
+	Platform  MCPPlatformView `json:"platform"`
+	Plugin    PluginView      `json:"plugin"`
+	ToolCount int             `json:"tool_count"`
 }
 
 // ResolveSkillDownloadURLsRequest selects the current downloadable artifacts by Skill code.
@@ -211,12 +273,17 @@ type ResolveSkillDownloadURLsResponse struct {
 
 // PluginService defines the new organization plugin management contract.
 type PluginService interface {
-	ListPlugins(ctx context.Context, orgID uint, req *ListPluginsRequest) (*ListPluginsResponse, error)
-	GetPlugin(ctx context.Context, orgID uint, pluginID string, req *GetPluginRequest) (*GetPluginResponse, error)
-	GetPluginInstallationStatus(ctx context.Context, orgID uint, req *GetPluginInstallationStatusRequest) (*PluginInstallationStatusResponse, error)
-	ListPluginVersions(ctx context.Context, orgID uint, pluginID string) (*ListPluginVersionsResponse, error)
+	ListPlugins(ctx context.Context, orgID, uin uint, req *ListPluginsRequest) (*ListPluginsResponse, error)
+	GetPlugin(ctx context.Context, orgID, uin uint, pluginID string, req *GetPluginRequest) (*GetPluginResponse, error)
+	GetPluginInstallationStatus(ctx context.Context, orgID, uin uint, req *GetPluginInstallationStatusRequest) (*PluginInstallationStatusResponse, error)
+	ListPluginVersions(ctx context.Context, orgID, uin uint, pluginID string) (*ListPluginVersionsResponse, error)
 	DeletePlugin(ctx context.Context, orgID, uin uint, pluginID string, req *DeletePluginRequest) (*DeletePluginResponse, error)
 	AddSkillPlugin(ctx context.Context, orgID, uin uint, req *AddSkillPluginRequest) error
+	AddMCPPlugin(ctx context.Context, orgID, uin uint, req *AddMCPPluginRequest) (*PluginView, error)
+	UpdateMCPPlugin(ctx context.Context, orgID, uin uint, pluginID string, req *UpdateMCPPluginRequest) (*PluginView, error)
+	TestMCPPlugin(ctx context.Context, req *TestMCPPluginRequest) (*TestMCPPluginResponse, error)
+	ListMCPPlatforms(ctx context.Context, orgID, uin uint) (*ListMCPPlatformsResponse, error)
+	ConnectMCPPlatform(ctx context.Context, orgID, uin uint, platformCode string) (*ConnectMCPPlatformResponse, error)
 	ResolveSkillDownloadURLs(ctx context.Context, orgID uint, callerKind types.CallerKind, callerID uint, req *ResolveSkillDownloadURLsRequest) (*ResolveSkillDownloadURLsResponse, error)
 	ListBuiltinSkills(ctx context.Context) (*ListPluginsResponse, error)
 }
