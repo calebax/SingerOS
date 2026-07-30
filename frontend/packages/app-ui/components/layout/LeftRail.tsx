@@ -344,6 +344,25 @@ export function LeftRail({
 		resetProjectExpansionState();
 	}, [user?.currentOrg?.id, resetProjectExpansionState]);
 
+	// 中文注释：组织管理后台仅组织创建者可见；enterprise 用 createdByUserId，OSS 用 createdByUin。
+	const currentOrgMeta =
+		user?.organizations?.find((org) => org.id === user?.currentOrg?.id) ?? user?.currentOrg;
+	const isOrgCreator = Boolean(
+		user &&
+			currentOrgMeta &&
+			((currentOrgMeta.createdByUserId != null &&
+				currentOrgMeta.createdByUserId !== 0 &&
+				user.userId === currentOrgMeta.createdByUserId) ||
+				(currentOrgMeta.createdByUin != null &&
+					currentOrgMeta.createdByUin !== 0 &&
+					user.uin === currentOrgMeta.createdByUin)),
+	);
+
+	useEffect(() => {
+		if (isOrgCreator || !orgAdminDialogOpen) return;
+		setOrgAdminDialogOpen(false);
+	}, [isOrgCreator, orgAdminDialogOpen]);
+
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
 		const navigate = () => {
@@ -755,15 +774,17 @@ export function LeftRail({
 								<UserRound className="size-4 shrink-0" />
 								<span>账户管理</span>
 							</DropdownMenuItem>
-							<DropdownMenuItem
-								onClick={() => {
-									if (!requireAuth()) return;
-									setOrgAdminDialogOpen(true);
-								}}
-							>
-								<Building2 className="size-4 shrink-0" />
-								<span>组织管理后台</span>
-							</DropdownMenuItem>
+							{isOrgCreator ? (
+								<DropdownMenuItem
+									onClick={() => {
+										if (!requireAuth()) return;
+										setOrgAdminDialogOpen(true);
+									}}
+								>
+									<Building2 className="size-4 shrink-0" />
+									<span>组织管理后台</span>
+								</DropdownMenuItem>
+							) : null}
 							<DropdownMenuItem
 								onClick={() => {
 									if (!requireAuth()) return;

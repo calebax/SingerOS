@@ -542,8 +542,8 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 			</div>
 
 			<Dialog open={dialogMode !== null} onOpenChange={(open) => !open && setDialogMode(null)}>
-				<DialogContent className="sm:max-w-md">
-					<DialogHeader>
+				<DialogContent className="flex w-[min(440px,95vw)] max-w-none flex-col gap-0 sm:max-w-none">
+					<DialogHeader className="gap-2 text-left">
 						<DialogTitle>
 							{dialogMode?.type === "create"
 								? "新建部门"
@@ -561,15 +561,24 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 					</DialogHeader>
 
 					{dialogMode?.type !== "delete" ? (
-						<Input
-							value={dialogValue}
-							onChange={(event) => setDialogValue(event.target.value)}
-							placeholder="部门名称"
-							autoFocus
-						/>
+						<div className="mt-5 space-y-2">
+							<label
+								htmlFor="department-dialog-name"
+								className="text-sm font-medium text-[var(--leros-text-strong)]"
+							>
+								部门名称
+							</label>
+							<Input
+								id="department-dialog-name"
+								value={dialogValue}
+								onChange={(event) => setDialogValue(event.target.value)}
+								placeholder="请输入部门名称"
+								autoFocus
+							/>
+						</div>
 					) : null}
 
-					<DialogFooter>
+					<DialogFooter className="mt-6">
 						<Button
 							type="button"
 							variant="outline"

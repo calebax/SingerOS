@@ -51,6 +51,8 @@ type RefreshTokenPayload = {
 			name: string;
 			logo?: string;
 			is_default?: boolean;
+			created_by_uin?: number;
+			created_by_user_id?: number;
 		};
 		organizations: {
 			id: number;
@@ -60,6 +62,8 @@ type RefreshTokenPayload = {
 			name: string;
 			logo?: string;
 			is_default?: boolean;
+			created_by_uin?: number;
+			created_by_user_id?: number;
 		}[];
 		user_info: {
 			id: number;
@@ -230,6 +234,7 @@ function toStoredAuthOrg(org: {
 	name: string;
 	logo?: string;
 	is_default?: boolean;
+	created_by_uin?: number;
 	created_by_user_id?: number;
 }): StoredAuthOrg {
 	return {
@@ -240,6 +245,7 @@ function toStoredAuthOrg(org: {
 		name: org.name,
 		logo: org.logo,
 		isDefault: org.is_default,
+		createdByUin: org.created_by_uin,
 		createdByUserId: org.created_by_user_id,
 	};
 }
