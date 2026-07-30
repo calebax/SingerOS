@@ -1,8 +1,8 @@
 package agentrun
 
 import (
-	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/agent"
@@ -10,26 +10,50 @@ import (
 	"github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 )
 
-type mcpPluginDefinition struct {
-	Schema    string   `json:"schema"`
-	Transport string   `json:"transport"`
-	Name      string   `json:"name"`
-	URL       string   `json:"url"`
-	Command   string   `json:"command"`
-	Args      []string `json:"args"`
-}
-
 // MCPServerConfigFromPluginSnapshot decodes a validated MCP snapshot.
 func MCPServerConfigFromPluginSnapshot(snapshot domain.PluginSnapshot) (agent.MCPServerConfig, error) {
 	if !strings.EqualFold(snapshot.Kind, "mcp") {
-		return agent.MCPServerConfig{}, fmt.Errorf("plugin %s is not an mcp plugin", snapshot.PluginID)
+		return agent.MCPServerConfig{}, fmt.Errorf("snapshot kind is not mcp")
 	}
-	if err := service.ValidatePluginDefinition(snapshot.Kind, snapshot.Definition); err != nil {
+	code := strings.ToLower(strings.TrimSpace(snapshot.Code))
+	if code == "" {
+		return agent.MCPServerConfig{}, fmt.Errorf("mcp snapshot code is required")
+	}
+	if code == "leros" {
+		return agent.MCPServerConfig{}, fmt.Errorf("mcp snapshot uses a reserved code")
+	}
+	definition, err := service.MCPFromDefinition(snapshot.Definition)
+	if err != nil {
 		return agent.MCPServerConfig{}, err
 	}
-	var definition mcpPluginDefinition
-	if err := json.Unmarshal(snapshot.Definition, &definition); err != nil {
-		return agent.MCPServerConfig{}, err
+	switch definition.Transport {
+	case "http":
+		parsed, parseErr := url.Parse(strings.TrimSpace(definition.URL))
+		if parseErr != nil || parsed == nil || parsed.Host == "" ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+			return agent.MCPServerConfig{}, fmt.Errorf("mcp snapshot has an invalid HTTP URL")
+		}
+	case "stdio":
+	default:
+		return agent.MCPServerConfig{}, fmt.Errorf("mcp snapshot transport is unsupported")
 	}
-	return agent.MCPServerConfig{Name: definition.Name, URL: definition.URL, Command: definition.Command, Args: append([]string(nil), definition.Args...)}, nil
+	return agent.MCPServerConfig{
+		Name:        code,
+		URL:         definition.URL,
+		Command:     definition.Command,
+		Args:        append([]string(nil), definition.Args...),
+		Headers:     cloneMCPStringMap(definition.Headers),
+		BearerToken: definition.BearerToken,
+	}, nil
+}
+
+func cloneMCPStringMap(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }

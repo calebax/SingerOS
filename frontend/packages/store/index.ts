@@ -80,12 +80,17 @@ export type {
 	GetPluginResponse,
 	ListPluginsParams,
 	ListPluginsResponse,
+	MCPPlatform,
+	MCPPluginConfig,
+	MCPPluginDefinition,
 	PluginComposerOption,
 	PluginInstallationStatus,
 	PluginListItem,
 	PluginRevisionContent,
 	PluginRevisionFile,
 	ProjectPluginItem,
+	TestMCPPluginParams,
+	TestMCPPluginResponse,
 } from "./api/pluginApi";
 export {
 	mergeSkillOptions,

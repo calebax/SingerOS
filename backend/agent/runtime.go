@@ -75,6 +75,7 @@ type ExecutionRequest struct {
 	Messages        []Message
 	Model           ModelConfig
 	Tools           []Tool
+	MCPServers      []MCPServerConfig
 	Policy          ExecutionPolicy
 	Filesystem      FilesystemContext
 	ProviderSession ProviderSession

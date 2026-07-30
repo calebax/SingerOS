@@ -61,6 +61,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { toast } from "sonner";
 import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
 import { useAuth } from "../auth";
+import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
 import {
@@ -585,6 +586,12 @@ function ProjectConfigSidebar({
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
 	const [projectSkills, setProjectSkills] = useState<ProjectSkill[]>(project.skills);
+	const [projectMCPs, setProjectMCPs] = useState<PluginListItem[]>([]);
+	const [mcpOptions, setMCPOptions] = useState<PluginListItem[]>([]);
+	const [mcpOpen, setMCPOpen] = useState(false);
+	const [mcpSearch, setMCPSearch] = useState("");
+	const [savingMCPs, setSavingMCPs] = useState(false);
+	const [mcpsLoading, setMCPsLoading] = useState(false);
 	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 	const { skillOptions, skillsLoading, skillsError, reloadSkillOptions } = useSkillPickerOptions({
 		projectId: project.id,
@@ -618,6 +625,27 @@ function ProjectConfigSidebar({
 		};
 	}, [project.id]);
 
+	const reloadProjectMCPs = useCallback(async () => {
+		setMCPsLoading(true);
+		try {
+			const [organizationResponse, projectResponse] = await Promise.all([
+				pluginApi.list({ kind: "mcp", status: "active", limit: 100 }),
+				pluginApi.listProject({ public_id: project.id, kind: "mcp" }),
+			]);
+			setMCPOptions(organizationResponse.data.data.plugins ?? []);
+			setProjectMCPs(projectResponse.data.data ?? []);
+		} catch {
+			setMCPOptions([]);
+			setProjectMCPs([]);
+		} finally {
+			setMCPsLoading(false);
+		}
+	}, [project.id]);
+
+	useEffect(() => {
+		void reloadProjectMCPs();
+	}, [reloadProjectMCPs]);
+
 	const selectedSkillCodes = useMemo(
 		() => projectSkills.map((skill) => skill.code),
 		[projectSkills],
@@ -633,6 +661,22 @@ function ProjectConfigSidebar({
 			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
 	}, [skillOptions, skillSearch]);
+	const selectedMCPIDs = useMemo(
+		() => new Set(projectMCPs.map((connector) => connector.public_id)),
+		[projectMCPs],
+	);
+	const filteredMCPs = useMemo(() => {
+		const query = mcpSearch.trim().toLowerCase();
+		return mcpOptions.filter((connector) => {
+			if (selectedMCPIDs.has(connector.public_id)) return false;
+			if (!query) return true;
+			return [connector.name, connector.code, connector.description]
+				.filter(Boolean)
+				.join(" ")
+				.toLowerCase()
+				.includes(query);
+		});
+	}, [mcpOptions, mcpSearch, selectedMCPIDs]);
 	const projectMembersWithLatestAssistantAvatar = useMemo(
 		() =>
 			project.members.map((member) => {
@@ -715,6 +759,38 @@ function ProjectConfigSidebar({
 			toast.success("项目技能已移除");
 		} finally {
 			setSavingSkills(false);
+		}
+	};
+	const addProjectMCP = async (connector: PluginListItem) => {
+		if (savingMCPs || selectedMCPIDs.has(connector.public_id)) return;
+		setSavingMCPs(true);
+		try {
+			await pluginApi.addToProject({
+				public_id: project.id,
+				plugin_id: connector.public_id,
+			});
+			setProjectMCPs((current) => [...current, connector]);
+			toast.success("MCP 连接器已关联");
+		} catch (requestError) {
+			toast.error(requestError instanceof Error ? requestError.message : "MCP 连接器关联失败");
+		} finally {
+			setSavingMCPs(false);
+		}
+	};
+	const removeProjectMCP = async (connector: PluginListItem) => {
+		if (savingMCPs) return;
+		setSavingMCPs(true);
+		try {
+			await pluginApi.removeFromProject({
+				public_id: project.id,
+				plugin_id: connector.public_id,
+			});
+			setProjectMCPs((current) => current.filter((item) => item.public_id !== connector.public_id));
+			toast.success("MCP 连接器已移除");
+		} catch (requestError) {
+			toast.error(requestError instanceof Error ? requestError.message : "MCP 连接器移除失败");
+		} finally {
+			setSavingMCPs(false);
 		}
 	};
 	const visibleProjectMembers = useMemo(
@@ -1082,6 +1158,116 @@ function ProjectConfigSidebar({
 									</CanGate>
 									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--leros-text)]">
 										{skill.name}
+									</span>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+			</section>
+
+			<section>
+				<div className="mb-3 flex items-center justify-between gap-3">
+					<div className="flex items-center gap-2">
+						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">MCP 连接器</h2>
+						<span className="text-xs text-[var(--leros-text-subtle)]">{projectMCPs.length}</span>
+					</div>
+					<CanGate
+						action={Action.ProjectUpdate}
+						resource={{ type: "project", publicId: project.id }}
+					>
+						<Popover
+							open={mcpOpen}
+							onOpenChange={(open) => {
+								setMCPOpen(open);
+								if (!open) setMCPSearch("");
+							}}
+						>
+							<PopoverTrigger
+								type="button"
+								className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+								aria-label="添加 MCP 连接器"
+							>
+								<Plus className="size-4" />
+							</PopoverTrigger>
+							<PopoverContent align="end" side="top" sideOffset={10} className="w-[340px] p-1.5">
+								<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+									<div className="px-2 py-1 text-sm font-semibold text-slate-800">
+										选择 MCP 连接器
+									</div>
+									<CommandInput
+										value={mcpSearch}
+										onValueChange={setMCPSearch}
+										placeholder="搜索 MCP 连接器"
+										className="placeholder:text-slate-300"
+									/>
+									<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+									<CommandList className="max-h-64 px-1">
+										<CommandEmpty className="py-6 text-slate-400">
+											没有可继续添加的 MCP 连接器
+										</CommandEmpty>
+										<CommandGroup className="p-0">
+											{mcpsLoading && (
+												<div className="px-2 py-1.5 text-xs text-slate-400">加载中...</div>
+											)}
+											{filteredMCPs.map((connector) => (
+												<CommandItem
+													key={connector.public_id}
+													value={connector.name}
+													disabled={savingMCPs}
+													onSelect={() => void addProjectMCP(connector)}
+													className="rounded-lg px-2 py-1.5"
+												>
+													<MCPConnectorIcon code={connector.code} name={connector.name} />
+													<div className="min-w-0 flex-1">
+														<div className="truncate font-medium">{connector.name}</div>
+														<div className="truncate text-xs text-slate-400">
+															{connector.description || connector.code}
+														</div>
+													</div>
+												</CommandItem>
+											))}
+										</CommandGroup>
+									</CommandList>
+								</Command>
+							</PopoverContent>
+						</Popover>
+					</CanGate>
+				</div>
+				<div className="no-scrollbar max-h-[220px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
+					{projectMCPs.length === 0 ? (
+						<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
+							暂无 MCP 连接器
+						</div>
+					) : (
+						<div className="flex flex-wrap gap-2">
+							{projectMCPs.map((connector) => (
+								<div
+									key={connector.public_id}
+									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
+								>
+									<CanGate
+										action={Action.ProjectUpdate}
+										resource={{ type: "project", publicId: project.id }}
+										fallback={<MCPConnectorIcon code={connector.code} name={connector.name} />}
+									>
+										<button
+											type="button"
+											className="relative flex size-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 disabled:opacity-50"
+											aria-label={`移除 MCP 连接器 ${connector.name}`}
+											onClick={() => void removeProjectMCP(connector)}
+											disabled={savingMCPs}
+										>
+											<MCPConnectorIcon
+												code={connector.code}
+												name={connector.name}
+												className="transition-opacity group-hover:opacity-0"
+											/>
+											<X className="absolute size-3 opacity-0 transition-opacity group-hover:opacity-100" />
+										</button>
+									</CanGate>
+									<span className="max-w-[140px] truncate text-xs font-medium">
+										{connector.name}
 									</span>
 								</div>
 							))}

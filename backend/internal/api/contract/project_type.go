@@ -106,6 +106,8 @@ type ProjectActivitySkill struct {
 type ProjectActivityPayloadView struct {
 	AddedSkills        []ProjectActivitySkill `json:"added_skills"`
 	RemovedSkills      []ProjectActivitySkill `json:"removed_skills"`
+	AddedMCPs          []ProjectActivitySkill `json:"added_mcps"`
+	RemovedMCPs        []ProjectActivitySkill `json:"removed_mcps"`
 	AddedMembers       []ProjectActivityActor `json:"added_members"`
 	RemovedMembers     []ProjectActivityActor `json:"removed_members"`
 	AddedAITeammates   []ProjectActivityActor `json:"added_ai_teammates"`

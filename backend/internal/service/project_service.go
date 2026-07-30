@@ -367,11 +367,22 @@ func (s *projectService) AddProjectPlugin(ctx context.Context, req *contract.Upd
 		if project == nil {
 			return errors.New("project not found")
 		}
+		if err := s.permWithDB(tx).RequireProject(
+			ctx,
+			FromTypeCaller(caller),
+			project,
+			types.ActionProjectUpdate,
+		); err != nil {
+			return err
+		}
 		plugin, err := db.GetPluginByPublicID(ctx, tx, caller.OrgID, req.PluginID)
 		if err != nil {
 			return err
 		}
 		if plugin == nil || plugin.Status != types.PluginStatusActive {
+			return errors.New("plugin not found")
+		}
+		if plugin.Kind == "mcp" && plugin.CreatedBy != caller.Uin {
 			return errors.New("plugin not found")
 		}
 		bound, err := db.ListProjectPlugins(ctx, tx, caller.OrgID, project.ID, plugin.Kind)
@@ -386,7 +397,8 @@ func (s *projectService) AddProjectPlugin(ctx context.Context, req *contract.Upd
 		if err := db.CreateProjectPluginBinding(ctx, tx, &types.ProjectPluginBinding{ProjectID: project.ID, PluginID: plugin.ID, Enabled: true, Config: []byte(`{}`), CreatedBy: caller.Uin, UpdatedBy: caller.Uin}); err != nil {
 			return err
 		}
-		return s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, types.ProjectActivityActionSkillsChanged, types.ProjectActivityPayload{AddedSkillIDs: []string{plugin.PublicID}}, nil)
+		action, payload := projectPluginActivity(plugin, true)
+		return s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, action, payload, nil)
 	})
 }
 
@@ -407,6 +419,14 @@ func (s *projectService) RemoveProjectPlugin(ctx context.Context, req *contract.
 		if project == nil {
 			return errors.New("project not found")
 		}
+		if err := s.permWithDB(tx).RequireProject(
+			ctx,
+			FromTypeCaller(caller),
+			project,
+			types.ActionProjectUpdate,
+		); err != nil {
+			return err
+		}
 		plugin, err := db.GetPluginByPublicID(ctx, tx, caller.OrgID, req.PluginID)
 		if err != nil {
 			return err
@@ -421,8 +441,32 @@ func (s *projectService) RemoveProjectPlugin(ctx context.Context, req *contract.
 		if !removed {
 			return errors.New("project plugin not found")
 		}
-		return s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, types.ProjectActivityActionSkillsChanged, types.ProjectActivityPayload{RemovedSkillIDs: []string{plugin.PublicID}}, nil)
+		action, payload := projectPluginActivity(plugin, false)
+		return s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, action, payload, nil)
 	})
+}
+
+func projectPluginActivity(
+	plugin *types.Plugin,
+	added bool,
+) (types.ProjectActivityAction, types.ProjectActivityPayload) {
+	payload := types.ProjectActivityPayload{}
+	if plugin != nil && strings.EqualFold(plugin.Kind, "mcp") {
+		if added {
+			payload.AddedMCPIDs = []string{plugin.PublicID}
+		} else {
+			payload.RemovedMCPIDs = []string{plugin.PublicID}
+		}
+		return types.ProjectActivityActionMCPsChanged, payload
+	}
+	if plugin != nil {
+		if added {
+			payload.AddedSkillIDs = []string{plugin.PublicID}
+		} else {
+			payload.RemovedSkillIDs = []string{plugin.PublicID}
+		}
+	}
+	return types.ProjectActivityActionSkillsChanged, payload
 }
 
 func (s *projectService) DeleteProject(ctx context.Context, publicID string) error {
@@ -1204,6 +1248,12 @@ func normalizeProjectActivityPayload(payload types.ProjectActivityPayload) types
 	if payload.RemovedSkillIDs == nil {
 		payload.RemovedSkillIDs = []string{}
 	}
+	if payload.AddedMCPIDs == nil {
+		payload.AddedMCPIDs = []string{}
+	}
+	if payload.RemovedMCPIDs == nil {
+		payload.RemovedMCPIDs = []string{}
+	}
 	if payload.AddedMemberIDs == nil {
 		payload.AddedMemberIDs = []string{}
 	}
@@ -1227,6 +1277,7 @@ func (s *projectService) buildProjectActivityItems(ctx context.Context, orgID ui
 	userIDs := make([]string, 0, len(activities))
 	assistantIDs := make([]string, 0)
 	skillIDs := make([]string, 0)
+	mcpIDs := make([]string, 0)
 	for _, activity := range activities {
 		userIDs = append(userIDs, activity.OperatorID)
 		payload := normalizeProjectActivityPayload(activity.Payload)
@@ -1236,6 +1287,8 @@ func (s *projectService) buildProjectActivityItems(ctx context.Context, orgID ui
 		assistantIDs = append(assistantIDs, payload.RemovedAITeammateIDs...)
 		skillIDs = append(skillIDs, payload.AddedSkillIDs...)
 		skillIDs = append(skillIDs, payload.RemovedSkillIDs...)
+		mcpIDs = append(mcpIDs, payload.AddedMCPIDs...)
+		mcpIDs = append(mcpIDs, payload.RemovedMCPIDs...)
 	}
 
 	users, err := s.userRepo.GetUsersByPublicIDs(ctx, uniqueStringSlice(userIDs))
@@ -1260,6 +1313,10 @@ func (s *projectService) buildProjectActivityItems(ctx context.Context, orgID ui
 	if err != nil {
 		return nil, err
 	}
+	mcpMap, err := s.buildProjectActivityPluginMap(ctx, orgID, "mcp", mcpIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	items := make([]contract.ProjectActivityItem, 0, len(activities))
 	for _, activity := range activities {
@@ -1273,6 +1330,8 @@ func (s *projectService) buildProjectActivityItems(ctx context.Context, orgID ui
 			Payload: contract.ProjectActivityPayloadView{
 				AddedSkills:        skillRefsFromMap(skillMap, payload.AddedSkillIDs),
 				RemovedSkills:      skillRefsFromMap(skillMap, payload.RemovedSkillIDs),
+				AddedMCPs:          skillRefsFromMap(mcpMap, payload.AddedMCPIDs),
+				RemovedMCPs:        skillRefsFromMap(mcpMap, payload.RemovedMCPIDs),
 				AddedMembers:       userRefsFromMap(userMap, payload.AddedMemberIDs),
 				RemovedMembers:     userRefsFromMap(userMap, payload.RemovedMemberIDs),
 				AddedAITeammates:   s.assistantRefsFromMap(ctx, orgID, assistantMap, payload.AddedAITeammateIDs),
@@ -1283,6 +1342,35 @@ func (s *projectService) buildProjectActivityItems(ctx context.Context, orgID ui
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func (s *projectService) buildProjectActivityPluginMap(
+	ctx context.Context,
+	orgID uint,
+	kind string,
+	pluginIDs []string,
+) (map[string]contract.ProjectActivitySkill, error) {
+	ids := uniqueStringSlice(pluginIDs)
+	result := make(map[string]contract.ProjectActivitySkill, len(ids))
+	for _, id := range ids {
+		result[id] = contract.ProjectActivitySkill{ID: id}
+	}
+	if len(ids) == 0 {
+		return result, nil
+	}
+	plugins, err := db.ListPlugins(ctx, s.db, orgID, db.PluginListFilter{Kind: kind})
+	if err != nil {
+		return nil, err
+	}
+	for _, plugin := range plugins {
+		if _, requested := result[plugin.PublicID]; requested {
+			result[plugin.PublicID] = contract.ProjectActivitySkill{
+				ID:   plugin.PublicID,
+				Name: plugin.Name,
+			}
+		}
+	}
+	return result, nil
 }
 
 func (s *projectService) buildProjectActivitySkillMap(ctx context.Context, orgID uint, skillIDs []string) (map[string]contract.ProjectActivitySkill, error) {

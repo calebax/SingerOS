@@ -267,14 +267,14 @@ func TestPluginServiceScopesListsAndDeletes(t *testing.T) {
 	}
 
 	service := NewPluginService(database)
-	list, err := service.ListPlugins(ctx, 1, &contract.ListPluginsRequest{})
+	list, err := service.ListPlugins(ctx, 1, 8, &contract.ListPluginsRequest{})
 	if err != nil || len(list.Plugins) != 1 || list.Plugins[0].PublicID != plugin.PublicID {
 		t.Fatalf("organization list = %#v, %v", list, err)
 	}
-	if _, err := service.GetPlugin(ctx, 2, plugin.PublicID, &contract.GetPluginRequest{}); !errors.Is(err, contract.ErrPluginNotFound) {
+	if _, err := service.GetPlugin(ctx, 2, 8, plugin.PublicID, &contract.GetPluginRequest{}); !errors.Is(err, contract.ErrPluginNotFound) {
 		t.Fatalf("cross-org detail error = %v, want not found", err)
 	}
-	versions, err := service.ListPluginVersions(ctx, 1, plugin.PublicID)
+	versions, err := service.ListPluginVersions(ctx, 1, 8, plugin.PublicID)
 	if err != nil || len(versions.Versions) != 1 || versions.Versions[0].Revision != 1 {
 		t.Fatalf("versions = %#v, %v", versions, err)
 	}
@@ -287,11 +287,11 @@ func TestPluginServiceScopesListsAndDeletes(t *testing.T) {
 	if err != nil || result.Operation != "deleted" {
 		t.Fatalf("delete = %#v, %v", result, err)
 	}
-	list, err = service.ListPlugins(ctx, 1, &contract.ListPluginsRequest{})
+	list, err = service.ListPlugins(ctx, 1, 8, &contract.ListPluginsRequest{})
 	if err != nil || len(list.Plugins) != 0 {
 		t.Fatalf("default list after delete = %#v, %v", list, err)
 	}
-	if _, err := service.GetPlugin(ctx, 1, plugin.PublicID, &contract.GetPluginRequest{}); !errors.Is(err, contract.ErrPluginNotFound) {
+	if _, err := service.GetPlugin(ctx, 1, 8, plugin.PublicID, &contract.GetPluginRequest{}); !errors.Is(err, contract.ErrPluginNotFound) {
 		t.Fatalf("deleted plugin detail error = %v, want not found", err)
 	}
 	var deleted types.Plugin
@@ -336,7 +336,7 @@ func TestPluginServiceReturnsCurrentContentSnapshot(t *testing.T) {
 		t.Fatalf("create revision content: %v", err)
 	}
 
-	result, err := (&pluginService{db: database}).GetPlugin(ctx, 1, plugin.PublicID, &contract.GetPluginRequest{})
+	result, err := (&pluginService{db: database}).GetPlugin(ctx, 1, 8, plugin.PublicID, &contract.GetPluginRequest{})
 	if err != nil {
 		t.Fatalf("get plugin detail: %v", err)
 	}
@@ -733,7 +733,7 @@ func TestOfficialPluginMarketplaceMarksOrganizationOverrideAndFiltersMySkills(t 
 		"Custom body.",
 	)
 
-	filtered, err := service.ListPlugins(ctx, 7, &contract.ListPluginsRequest{
+	filtered, err := service.ListPlugins(ctx, 7, 9, &contract.ListPluginsRequest{
 		Kind:                    "skill",
 		Status:                  types.PluginStatusActive,
 		Limit:                   1,
@@ -757,7 +757,7 @@ func TestOfficialPluginMarketplaceMarksOrganizationOverrideAndFiltersMySkills(t 
 		conflict.Version != "1" || conflict.InstalledPluginID != "" {
 		t.Fatalf("organization override marketplace detail = %#v, %v", conflict, err)
 	}
-	conflictMine, err := service.ListPlugins(ctx, 8, &contract.ListPluginsRequest{
+	conflictMine, err := service.ListPlugins(ctx, 8, 9, &contract.ListPluginsRequest{
 		Kind:                    "skill",
 		Status:                  types.PluginStatusActive,
 		ExcludeMarketplaceBased: true,
@@ -849,7 +849,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 		Code: "status-skill",
 	}
 
-	notInstalled, err := service.GetPluginInstallationStatus(ctx, 7, request)
+	notInstalled, err := service.GetPluginInstallationStatus(ctx, 7, 9, request)
 	if err != nil || notInstalled.Installed || notInstalled.MarketplaceBased ||
 		!notInstalled.MarketplaceAvailable ||
 		notInstalled.LatestMarketplaceVersion != "1" ||
@@ -873,7 +873,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 	}).Error; err != nil {
 		t.Fatalf("create local revision: %v", err)
 	}
-	localStatus, err := service.GetPluginInstallationStatus(ctx, 8, request)
+	localStatus, err := service.GetPluginInstallationStatus(ctx, 8, 9, request)
 	if err != nil || !localStatus.Installed || localStatus.CurrentVersion != "1" ||
 		localStatus.MarketplaceBased || !localStatus.MarketplaceAvailable ||
 		localStatus.UpdateAvailable {
@@ -883,7 +883,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 	if _, err := service.InstallOfficialPlugin(ctx, 7, 9, item.PublicID); err != nil {
 		t.Fatalf("install official plugin: %v", err)
 	}
-	currentStatus, err := service.GetPluginInstallationStatus(ctx, 7, request)
+	currentStatus, err := service.GetPluginInstallationStatus(ctx, 7, 9, request)
 	if err != nil || !currentStatus.Installed || !currentStatus.MarketplaceBased ||
 		currentStatus.InstalledMarketplaceVersion != "1" ||
 		currentStatus.LatestMarketplaceVersion != "1" ||
@@ -922,7 +922,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 		t.Fatalf("set organization current revision: %v", err)
 	}
 
-	updateStatus, err := service.GetPluginInstallationStatus(ctx, 7, request)
+	updateStatus, err := service.GetPluginInstallationStatus(ctx, 7, 9, request)
 	if err != nil || updateStatus.CurrentVersion != "5" ||
 		updateStatus.InstalledMarketplaceVersion != "1" ||
 		updateStatus.LatestMarketplaceVersion != "2" ||
@@ -935,7 +935,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 		updated.Plugin.CurrentRevision != 6 {
 		t.Fatalf("update official plugin = %#v, %v", updated, err)
 	}
-	updatedStatus, err := service.GetPluginInstallationStatus(ctx, 7, request)
+	updatedStatus, err := service.GetPluginInstallationStatus(ctx, 7, 9, request)
 	if err != nil || updatedStatus.CurrentVersion != "6" ||
 		updatedStatus.InstalledMarketplaceVersion != "2" ||
 		updatedStatus.LatestMarketplaceVersion != "2" ||
@@ -949,7 +949,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 	if err := database.Model(item).Update("status", "archived").Error; err != nil {
 		t.Fatalf("archive marketplace item: %v", err)
 	}
-	archivedStatus, err := service.GetPluginInstallationStatus(ctx, 7, request)
+	archivedStatus, err := service.GetPluginInstallationStatus(ctx, 7, 9, request)
 	if err != nil || !archivedStatus.MarketplaceBased ||
 		archivedStatus.InstalledMarketplaceVersion != "2" ||
 		archivedStatus.MarketplaceAvailable ||
@@ -958,7 +958,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 		t.Fatalf("archived marketplace status = %#v, %v", archivedStatus, err)
 	}
 
-	otherOrg, err := service.GetPluginInstallationStatus(ctx, 9, request)
+	otherOrg, err := service.GetPluginInstallationStatus(ctx, 9, 9, request)
 	if err != nil || otherOrg.Installed || otherOrg.MarketplaceAvailable {
 		t.Fatalf("other organization status = %#v, %v", otherOrg, err)
 	}
@@ -988,6 +988,7 @@ func TestPluginInstallationStatusRejectsIncompleteMarketplaceLineage(t *testing.
 	_, err := (&pluginService{db: database}).GetPluginInstallationStatus(
 		ctx,
 		7,
+		9,
 		&contract.GetPluginInstallationStatusRequest{
 			Kind: "skill",
 			Code: "incomplete-lineage",
@@ -1054,6 +1055,7 @@ func TestPluginInstallationStatusRejectsIncompleteMarketplaceLineage(t *testing.
 	_, err = (&pluginService{db: database}).GetPluginInstallationStatus(
 		ctx,
 		7,
+		9,
 		&contract.GetPluginInstallationStatusRequest{
 			Kind: "skill",
 			Code: "invalid-lineage",
@@ -1333,7 +1335,7 @@ func TestSkillDownloadURLsAutoInstallsMarketplaceSkillOnlyForWorker(t *testing.T
 	if bindingCount != 0 {
 		t.Fatalf("auto-install project bindings = %d, want 0", bindingCount)
 	}
-	mySkills, err := service.ListPlugins(ctx, 7, &contract.ListPluginsRequest{
+	mySkills, err := service.ListPlugins(ctx, 7, 9, &contract.ListPluginsRequest{
 		Kind:                    "skill",
 		Status:                  types.PluginStatusActive,
 		ExcludeMarketplaceBased: true,

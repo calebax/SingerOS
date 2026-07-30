@@ -7,6 +7,7 @@ type MCPServerConfig struct {
 	Command     string
 	Args        []string
 	Env         map[string]string
+	Headers     map[string]string
 	BearerToken string
 }
 

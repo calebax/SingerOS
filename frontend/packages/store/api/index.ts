@@ -63,11 +63,16 @@ export type {
 	GetPluginResponse,
 	ListPluginsParams,
 	ListPluginsResponse,
+	MCPPlatform,
+	MCPPluginConfig,
+	MCPPluginDefinition,
 	PluginInstallationStatus,
 	PluginListItem,
 	PluginRevisionContent,
 	PluginRevisionFile,
 	ProjectPluginItem,
+	TestMCPPluginParams,
+	TestMCPPluginResponse,
 } from "./pluginApi";
 export { pluginApi, pluginToSkillCard } from "./pluginApi";
 export type { SkillMarketplaceItem } from "./pluginDisplayTypes";

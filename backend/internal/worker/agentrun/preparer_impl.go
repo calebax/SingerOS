@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -384,6 +385,10 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			return nil, cleanup, fmt.Errorf("prepare runtime tools: %w", err)
 		}
 	}
+	var mcpServers []agent.MCPServerConfig
+	if strings.EqualFold(strings.TrimSpace(cloned.Runtime.Kind), agent.RuntimeKindOpenCode) {
+		mcpServers = prepareMCPServers(ctx, cloned.Plugins)
+	}
 
 	return &PreparedRun{
 		Request: req,
@@ -398,6 +403,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			Prompt:       prompt,
 			Messages:     messages,
 			Tools:        runtimeTools,
+			MCPServers:   mcpServers,
 			Model:        model,
 			Policy: agent.ExecutionPolicy{
 				AllowedTools:   append([]string(nil), cloned.Capability.AllowedTools...),
@@ -413,6 +419,35 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 		},
 		Workspace: workspace,
 	}, cleanup, nil
+}
+
+func prepareMCPServers(
+	ctx context.Context,
+	snapshots []agentrundomain.PluginSnapshot,
+) []agent.MCPServerConfig {
+	configs := make([]agent.MCPServerConfig, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if !strings.EqualFold(strings.TrimSpace(snapshot.Kind), "mcp") {
+			continue
+		}
+		config, err := MCPServerConfigFromPluginSnapshot(snapshot)
+		if err != nil {
+			logs.WarnContextf(
+				ctx,
+				"skip invalid MCP plugin snapshot: plugin_id=%s code=%s revision=%d error=%v",
+				snapshot.PluginID,
+				snapshot.Code,
+				snapshot.Revision,
+				err,
+			)
+			continue
+		}
+		configs = append(configs, config)
+	}
+	sort.Slice(configs, func(i, j int) bool {
+		return strings.ToLower(configs[i].Name) < strings.ToLower(configs[j].Name)
+	})
+	return configs
 }
 
 func chainCleanup(first, second func()) func() {
