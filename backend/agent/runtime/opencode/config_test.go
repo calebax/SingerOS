@@ -92,3 +92,26 @@ func TestBuildMCPConfigIncludesProjectHeadersAndPreservesExplicitAuthorization(t
 		t.Fatalf("buildMCPConfig mutated request headers: %#v", sourceHeaders)
 	}
 }
+
+func TestBuildMCPConfigIncludesStdioEnvironment(t *testing.T) {
+	config := buildMCPConfig([]agent.MCPServerConfig{
+		{
+			Name:    "sqlite",
+			Command: "npx",
+			Args:    []string{"-y", "@example/mcp"},
+			Env:     map[string]string{"LOG_LEVEL": "debug"},
+		},
+	})
+	entry, ok := config["sqlite"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP entry = %#v", config["sqlite"])
+	}
+	command, ok := entry["command"].([]string)
+	if !ok || len(command) != 3 || command[0] != "npx" {
+		t.Fatalf("MCP command = %#v", entry["command"])
+	}
+	environment, ok := entry["environment"].(map[string]string)
+	if !ok || environment["LOG_LEVEL"] != "debug" {
+		t.Fatalf("MCP environment = %#v", entry["environment"])
+	}
+}

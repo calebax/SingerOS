@@ -133,15 +133,19 @@ type AddSkillPluginRequest struct {
 	GitHubURL    string `json:"github_url"`
 }
 
-// MCPPluginConfig is the organization-managed remote HTTP MCP configuration.
+// MCPPluginConfig is the organization-managed HTTP or stdio MCP configuration.
 // Code is optional on create and update; the service generates it for new plugins.
 type MCPPluginConfig struct {
 	Code        string            `json:"code,omitempty"`
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
-	URL         string            `json:"url"`
+	Transport   string            `json:"transport,omitempty"`
+	URL         string            `json:"url,omitempty"`
 	BearerToken string            `json:"bearer_token,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
 	Provider    string            `json:"-"`
 }
 
@@ -157,6 +161,7 @@ type UpdateMCPPluginRequest struct {
 
 // TestMCPPluginRequest tests a draft remote HTTP MCP configuration without storing it.
 type TestMCPPluginRequest struct {
+	Transport   string            `json:"transport,omitempty"`
 	URL         string            `json:"url"`
 	BearerToken string            `json:"bearer_token,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`

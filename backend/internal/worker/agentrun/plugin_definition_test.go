@@ -22,6 +22,22 @@ func TestMCPServerConfigFromPluginSnapshot(t *testing.T) {
 	}
 }
 
+func TestMCPServerConfigFromStdioPluginSnapshot(t *testing.T) {
+	config, err := MCPServerConfigFromPluginSnapshot(domain.PluginSnapshot{
+		PluginID: "plg_stdio",
+		Code:     "sqlite",
+		Kind:     "mcp",
+		Definition: json.RawMessage(
+			`{"schema":"mcp/v1","transport":"stdio","name":"sqlite","command":"npx",` +
+				`"args":["-y","@example/mcp"],"env":{"LOG_LEVEL":"debug"}}`,
+		),
+	})
+	if err != nil || config.Name != "sqlite" || config.Command != "npx" ||
+		len(config.Args) != 2 || config.Env["LOG_LEVEL"] != "debug" {
+		t.Fatalf("config=%#v err=%v", config, err)
+	}
+}
+
 func TestPrepareMCPServersSortsAndSkipsInvalidSnapshots(t *testing.T) {
 	configs := prepareMCPServers(t.Context(), []domain.PluginSnapshot{
 		{
@@ -38,6 +54,15 @@ func TestPrepareMCPServersSortsAndSkipsInvalidSnapshots(t *testing.T) {
 			Kind:     "mcp",
 			Definition: json.RawMessage(
 				`{"schema":"mcp/v1","transport":"http","name":"invalid","url":"file:///tmp/mcp"}`,
+			),
+		},
+		{
+			PluginID: "plg_invalid_stdio",
+			Code:     "invalid-stdio",
+			Kind:     "mcp",
+			Definition: json.RawMessage(
+				`{"schema":"mcp/v1","transport":"stdio","command":"mcp-server",` +
+					`"env":{"BAD-NAME":"value"}}`,
 			),
 		},
 		{

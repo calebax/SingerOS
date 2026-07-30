@@ -37,6 +37,7 @@ type MCPDefinition struct {
 	Headers       map[string]string `json:"headers,omitempty"`
 	Command       string            `json:"command,omitempty"`
 	Args          []string          `json:"args,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
 	SecretRefs    map[string]string `json:"secret_refs,omitempty"`
 	EnvSecretRefs map[string]string `json:"env_secret_refs,omitempty"`
 }
@@ -80,8 +81,8 @@ func ValidatePluginDefinition(kind string, raw json.RawMessage) error {
 				return fmt.Errorf("mcp http definition requires url")
 			}
 		case "stdio":
-			if strings.TrimSpace(value.Command) == "" {
-				return fmt.Errorf("mcp stdio definition requires command")
+			if err := validateMCPStdioDefinition(value); err != nil {
+				return err
 			}
 		default:
 			return fmt.Errorf("unsupported mcp transport %q", value.Transport)
@@ -102,6 +103,23 @@ func ValidatePluginDefinition(kind string, raw json.RawMessage) error {
 	default:
 		return fmt.Errorf("unsupported plugin kind %q", kind)
 	}
+}
+
+func validateMCPStdioDefinition(value MCPDefinition) error {
+	if strings.TrimSpace(value.Command) == "" || strings.ContainsRune(value.Command, '\x00') {
+		return fmt.Errorf("mcp stdio definition requires a command without NUL")
+	}
+	for _, arg := range value.Args {
+		if strings.ContainsRune(arg, '\x00') {
+			return fmt.Errorf("mcp stdio definition argument cannot contain NUL")
+		}
+	}
+	for name, envValue := range value.Env {
+		if !envNamePattern.MatchString(name) || strings.ContainsRune(envValue, '\x00') {
+			return fmt.Errorf("mcp stdio definition environment is invalid")
+		}
+	}
+	return nil
 }
 
 // MCPFromDefinition decodes one validated MCP revision definition.

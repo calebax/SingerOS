@@ -287,7 +287,8 @@ describe("McpConnectorPanel", () => {
 		expect(screen.queryByLabelText("Code")).not.toBeInTheDocument();
 		expect(screen.queryByLabelText("说明")).not.toBeInTheDocument();
 		expect(screen.queryByLabelText("Headers JSON")).not.toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "STDIO" })).toBeDisabled();
+		expect(screen.getByRole("button", { name: "STDIO" })).toBeEnabled();
+		expect(screen.getByRole("button", { name: "STDIO" })).toHaveAttribute("aria-pressed", "false");
 		expect(screen.getByRole("button", { name: "流式 HTTP" })).toHaveAttribute(
 			"aria-pressed",
 			"true",
@@ -308,6 +309,7 @@ describe("McpConnectorPanel", () => {
 		await waitFor(() =>
 			expect(mockPluginAddMCP).toHaveBeenCalledWith({
 				name: "知识库",
+				transport: "http",
 				url: "https://example.com/knowledge/mcp",
 				bearer_token: "knowledge-secret",
 				headers: {},
@@ -351,6 +353,7 @@ describe("McpConnectorPanel", () => {
 		await waitFor(() =>
 			expect(mockPluginAddMCP).toHaveBeenCalledWith({
 				name: "知识库",
+				transport: "http",
 				url: "https://example.com/knowledge/mcp",
 				bearer_token: "",
 				headers: { Authorization: "Bearer token" },
@@ -371,11 +374,93 @@ describe("McpConnectorPanel", () => {
 		await waitFor(() =>
 			expect(mockPluginUpdateMCP).toHaveBeenCalledWith("plugin_mcp", {
 				name: "浏览器 v2",
+				transport: "http",
 				url: "https://example.com/mcp",
 				bearer_token: "browser-secret",
 				headers: { Authorization: "Bearer token" },
 			}),
 		);
+	});
+
+	it("creates and hydrates a stdio MCP configuration", async () => {
+		render(<McpConnectorPanel />);
+		await screen.findByText("浏览器连接器");
+		fireEvent.click(screen.getByRole("button", { name: "配置自定义 MCP" }));
+		fireEvent.click(screen.getByRole("button", { name: "STDIO" }));
+
+		expect(screen.getByRole("button", { name: "STDIO" })).toHaveAttribute("aria-pressed", "true");
+		expect(screen.queryByLabelText("URL")).not.toBeInTheDocument();
+		expect(screen.getByLabelText("启动命令")).toBeInTheDocument();
+
+		fireEvent.change(screen.getByLabelText("名称"), { target: { value: "SQLite" } });
+		fireEvent.change(screen.getByLabelText("启动命令"), {
+			target: { value: "openai-dev-mcp" },
+		});
+		fireEvent.change(screen.getByLabelText("参数 1"), {
+			target: { value: "serve-sqlite" },
+		});
+		fireEvent.change(screen.getByLabelText("环境变量键 1"), {
+			target: { value: "DATABASE_URL" },
+		});
+		fireEvent.change(screen.getByLabelText("环境变量值 1"), {
+			target: { value: "sqlite:///workspace/data.db" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+		await waitFor(() =>
+			expect(mockPluginAddMCP).toHaveBeenCalledWith({
+				name: "SQLite",
+				transport: "stdio",
+				command: "openai-dev-mcp",
+				args: ["serve-sqlite"],
+				env: { DATABASE_URL: "sqlite:///workspace/data.db" },
+			}),
+		);
+
+		mockPluginGet.mockResolvedValueOnce({
+			data: {
+				data: {
+					definition: {
+						schema: "mcp/v1",
+						transport: "stdio",
+						name: "browser",
+						command: "npx",
+						args: ["-y", "@example/mcp"],
+						env: { LOG_LEVEL: "debug" },
+					},
+				},
+			},
+		});
+		fireEvent.click(screen.getByRole("button", { name: "管理 浏览器连接器" }));
+		fireEvent.click(await screen.findByRole("menuitem", { name: "管理连接" }));
+
+		expect(await screen.findByDisplayValue("@example/mcp")).toBeInTheDocument();
+		expect(screen.getByDisplayValue("LOG_LEVEL")).toBeInTheDocument();
+		expect(screen.queryByText("环境变量传递")).not.toBeInTheDocument();
+		expect(screen.queryByLabelText("工作目录")).not.toBeInTheDocument();
+	});
+
+	it("does not execute a stdio command through the server-side connection test", async () => {
+		mockPluginGet.mockResolvedValueOnce({
+			data: {
+				data: {
+					definition: {
+						schema: "mcp/v1",
+						transport: "stdio",
+						name: "browser",
+						command: "npx",
+						args: ["-y", "@example/mcp"],
+					},
+				},
+			},
+		});
+		render(<McpConnectorPanel />);
+		await screen.findByText("浏览器连接器");
+		fireEvent.click(screen.getByRole("button", { name: "管理 浏览器连接器" }));
+		fireEvent.click(await screen.findByRole("menuitem", { name: "测试连接" }));
+
+		await waitFor(() => expect(mockPluginGet).toHaveBeenCalledWith("plugin_mcp"));
+		expect(mockPluginTestMCP).not.toHaveBeenCalled();
 	});
 
 	it("does not request organization connectors before login", async () => {

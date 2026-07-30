@@ -155,6 +155,53 @@ func TestMCPPluginCreateGeneratesStableCode(t *testing.T) {
 	}
 }
 
+func TestMCPPluginCreateAndUpdateStdioDefinition(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	service := NewPluginService(database)
+	ctx := context.Background()
+
+	created, err := service.AddMCPPlugin(ctx, 10, 20, &contract.AddMCPPluginRequest{
+		MCPPluginConfig: contract.MCPPluginConfig{
+			Code:      "sqlite",
+			Name:      "SQLite",
+			Transport: "stdio",
+			Command:   "openai-dev-mcp",
+			Args:      []string{"serve-sqlite", "--readonly"},
+			Env:       map[string]string{"DATABASE_URL": "sqlite:///workspace/data.db"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMCPPlugin() error = %v", err)
+	}
+	detail, err := service.GetPlugin(ctx, 10, 20, created.PublicID, &contract.GetPluginRequest{})
+	if err != nil {
+		t.Fatalf("GetPlugin() error = %v", err)
+	}
+	var definition MCPDefinition
+	if err := json.Unmarshal(detail.Definition, &definition); err != nil {
+		t.Fatalf("decode definition: %v", err)
+	}
+	if definition.Transport != "stdio" || definition.Command != "openai-dev-mcp" ||
+		len(definition.Args) != 2 || definition.Env["DATABASE_URL"] == "" ||
+		definition.URL != "" || len(definition.Headers) != 0 {
+		t.Fatalf("definition = %#v", definition)
+	}
+
+	updated, err := service.UpdateMCPPlugin(ctx, 10, 20, created.PublicID, &contract.UpdateMCPPluginRequest{
+		MCPPluginConfig: contract.MCPPluginConfig{
+			Name:      "SQLite HTTP",
+			Transport: "http",
+			URL:       "https://example.com/sqlite/mcp",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateMCPPlugin() error = %v", err)
+	}
+	if updated.CurrentRevision != 2 {
+		t.Fatalf("updated plugin = %#v", updated)
+	}
+}
+
 func TestMCPPluginsAreVisibleAndGloballyManagedOnlyByCreator(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
 	service := NewPluginService(database)
@@ -289,6 +336,13 @@ func TestMCPPluginValidationAndDuplicateCode(t *testing.T) {
 		"invalid bearer token": {
 			Code: "docs", Name: "Docs", URL: "https://example.com/mcp",
 			BearerToken: "bad\ntoken",
+		},
+		"missing stdio command": {
+			Code: "docs", Name: "Docs", Transport: "stdio",
+		},
+		"invalid stdio env name": {
+			Code: "docs", Name: "Docs", Transport: "stdio", Command: "mcp-server",
+			Env: map[string]string{"BAD-NAME": "value"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
