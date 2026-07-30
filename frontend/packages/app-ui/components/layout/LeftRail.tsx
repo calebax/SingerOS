@@ -10,6 +10,7 @@ import {
 	projectFileApi,
 	useAuthStore,
 	useChatStore,
+	useGlobalConfigStore,
 	useLayoutStore,
 	useProjectsMenuCapabilities,
 	userApi,
@@ -160,7 +161,10 @@ export function LeftRail({
 	} = useLayoutStore((s) => s);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
+	const edition = useGlobalConfigStore((s) => s.edition);
 	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
+	// 中文注释：OSS 版无多组织切换，隐藏左下角用户菜单中的「切换组织」入口。
+	const canSwitchOrganization = edition !== "oss";
 	const visibleProjects = isAuthenticated ? projects : [];
 	useProjectsMenuCapabilities(visibleProjects.map((project) => project.id));
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
@@ -785,15 +789,17 @@ export function LeftRail({
 									<span>组织管理后台</span>
 								</DropdownMenuItem>
 							) : null}
-							<DropdownMenuItem
-								onClick={() => {
-									if (!requireAuth()) return;
-									setOrgSwitchDialogOpen(true);
-								}}
-							>
-								<ArrowLeftRight className="size-4 shrink-0" />
-								<span>切换组织</span>
-							</DropdownMenuItem>
+							{canSwitchOrganization ? (
+								<DropdownMenuItem
+									onClick={() => {
+										if (!requireAuth()) return;
+										setOrgSwitchDialogOpen(true);
+									}}
+								>
+									<ArrowLeftRight className="size-4 shrink-0" />
+									<span>切换组织</span>
+								</DropdownMenuItem>
+							) : null}
 							{isPrivateDeployment ? null : <DesktopUpdateMenuSection />}
 							<DropdownMenuItem
 								onClick={() => {
