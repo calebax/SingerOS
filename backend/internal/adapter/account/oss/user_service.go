@@ -292,6 +292,7 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 		}
 		for i := range items {
 			uin := uinMap[items[i].ID]
+			items[i].Uin = uin
 			rels := relMap[uin]
 			depts := make([]account.OrgMemberDepartment, 0, len(rels))
 			for _, rel := range rels {

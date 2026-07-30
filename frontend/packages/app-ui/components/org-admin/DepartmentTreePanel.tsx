@@ -172,6 +172,7 @@ function DepartmentTreeItem({
 
 export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) {
 	const user = useAuthStore((s) => s.authUser);
+	const setAuthUser = useAuthStore((s) => s.setAuthUser);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const orgId = user?.currentOrg?.id;
 	const orgName = user?.currentOrg?.name ?? "当前组织";
@@ -304,12 +305,30 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 
 	const handleUpdateMember = async (publicId: string, name: string) => {
 		if (!orgId) return;
+		const trimmedName = name.trim();
+		// 中文注释：编辑弹窗仍打开时可读到目标成员 uin，用于判断是否为当前登录用户本人。
+		const editedMemberUin = editMemberDialog.open ? editMemberDialog.member.uin : undefined;
 		setSubmitting(true);
 		try {
 			await orgAdminApi.updateUser({
 				public_id: publicId,
-				name: name.trim(),
+				name: trimmedName,
 			});
+			// 中文注释：通讯录改的是本人时，立即同步左下角展示名，与账户管理改名行为一致。
+			if (
+				user &&
+				editedMemberUin != null &&
+				editedMemberUin !== 0 &&
+				user.uin != null &&
+				user.uin !== 0 &&
+				editedMemberUin === user.uin
+			) {
+				setAuthUser({
+					...user,
+					name: trimmedName,
+					uinName: trimmedName,
+				});
+			}
 			toast.success("成员已更新");
 			setEditMemberDialog({ open: false });
 			await loadMembers();
