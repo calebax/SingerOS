@@ -121,7 +121,7 @@ func (s *authAdapter) RegisterByEmail(ctx context.Context, req *account.Register
 		return nil, err
 	}
 
-	refreshToken, err := s.generateRefreshToken(ctx, user.ID, localauth.LoginWayEmail)
+	refreshToken, err := s.generateRefreshToken(ctx, user.ID, localauth.LoginWayPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -140,42 +140,79 @@ func (s *authAdapter) RegisterByEmail(ctx context.Context, req *account.Register
 			},
 		}, nil
 	}
-	return s.buildLoginResponse(ctx, user, localauth.LoginWayEmail)
+	return s.buildLoginResponse(ctx, user, localauth.LoginWayPassword)
 }
 
-func (s *authAdapter) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput) (*account.AuthTokens, error) {
+func (s *authAdapter) LoginByPassword(ctx context.Context, req *account.LoginByPasswordInput) (*account.LoginByPasswordOutput, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
 
-	email, err := normalizeEmail(req.Email)
-	if err != nil {
-		return nil, err
+	accountStr := strings.TrimSpace(req.Account)
+	if accountStr == "" {
+		return nil, accounterror.ErrAccountRequired
 	}
 	if strings.TrimSpace(req.Password) == "" {
 		return nil, accounterror.ErrPasswordRequired
 	}
 
-	if err := s.ensureLoginAllowed(ctx, email); err != nil {
+	var user *types.User
+	var identifier string
+
+	if strings.Contains(accountStr, "@") {
+		email, err := normalizeEmail(accountStr)
+		if err != nil {
+			return nil, err
+		}
+		identifier = email
+		user, err = s.userRepo.GetByEmail(ctx, email)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		phone, err := normalizePhone(accountStr)
+		if err != nil {
+			return nil, err
+		}
+		identifier = phone
+		user, err = s.userRepo.GetByPhone(ctx, phone)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.ensureLoginAllowed(ctx, identifier); err != nil {
 		return nil, err
 	}
 
-	user, err := s.userRepo.GetByEmail(ctx, email)
+	if user == nil || user.Password == "" {
+		s.recordLoginFailure(ctx, identifier)
+		return nil, accounterror.ErrInvalidAccountOrPassword
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		s.recordLoginFailure(ctx, identifier)
+		return nil, accounterror.ErrInvalidAccountOrPassword
+	}
+
+	s.clearLoginFailures(ctx, identifier)
+
+	refreshToken, err := s.generateRefreshToken(ctx, user.ID, localauth.LoginWayPassword)
 	if err != nil {
 		return nil, err
 	}
-	if user == nil || user.Password == "" {
-		s.recordLoginFailure(ctx, email)
-		return nil, accounterror.ErrInvalidEmailOrPassword
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		s.recordLoginFailure(ctx, email)
-		logs.WarnContextf(ctx, "LoginByEmail: password not match for email=%s: %v", email, err)
-		return nil, accounterror.ErrInvalidEmailOrPassword
+
+	organizations, err := s.userOrganizationInfos(ctx, user.ID, user.Name)
+	if err != nil {
+		return nil, err
 	}
 
-	s.clearLoginFailures(ctx, email)
-	return s.buildLoginResponse(ctx, user, localauth.LoginWayEmail)
+	return &account.LoginByPasswordOutput{
+		UserID:        user.ID,
+		RefreshToken:  refreshToken,
+		Organizations: organizations,
+		UserInfo:      authUserInfoFromModel(user),
+		LoginWay:      localauth.LoginWayPassword,
+	}, nil
 }
 
 func (s *authAdapter) SendPhoneLoginCode(ctx context.Context, req *account.SendPhoneLoginCodeInput) (*account.SendPhoneLoginCodeOutput, error) {
@@ -792,7 +829,7 @@ func (s *authAdapter) recordLoginFailure(ctx context.Context, email string) {
 	now := time.Now()
 	attempt, err := s.authRepo.GetLoginAttempt(ctx, email)
 	if err != nil {
-		logs.WarnContextf(ctx, "LoginByEmail: get login attempt failed: %v", err)
+		logs.WarnContextf(ctx, "recordLoginFailure: get login attempt failed: %v", err)
 		return
 	}
 
@@ -807,13 +844,13 @@ func (s *authAdapter) recordLoginFailure(ctx context.Context, email string) {
 	}
 
 	if err := s.authRepo.SaveLoginAttempt(ctx, attempt); err != nil {
-		logs.WarnContextf(ctx, "LoginByEmail: save login attempt failed: %v", err)
+		logs.WarnContextf(ctx, "recordLoginFailure: save login attempt failed: %v", err)
 	}
 }
 
 func (s *authAdapter) clearLoginFailures(ctx context.Context, email string) {
 	if err := s.authRepo.DeleteLoginAttempt(ctx, email); err != nil {
-		logs.WarnContextf(ctx, "LoginByEmail: clear login attempt counter failed: %v", err)
+		logs.WarnContextf(ctx, "clearLoginFailures: clear login attempt counter failed: %v", err)
 	}
 }
 

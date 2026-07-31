@@ -4,6 +4,8 @@ import "errors"
 
 var (
 	ErrDatabaseRequired           = errors.New("数据库不可用")
+	ErrAccountRequired            = errors.New("请输入账号")
+	ErrInvalidAccountOrPassword   = errors.New("账号或密码错误")
 	ErrEmailRequired              = errors.New("请输入邮箱")
 	ErrInvalidEmailFormat         = errors.New("请输入正确的邮箱")
 	ErrPasswordRequired           = errors.New("请输入密码")

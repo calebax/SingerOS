@@ -24,7 +24,7 @@ import {
 import { Input } from "@leros/ui/components/ui/input";
 import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
-import { ShieldCheck, Smartphone } from "lucide-react";
+import { Lock, Mail, ShieldCheck, Smartphone } from "lucide-react";
 import {
 	createContext,
 	type FocusEvent,
@@ -45,7 +45,7 @@ import {
 } from "../../assets";
 import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 
-type AuthMode = "login";
+type AuthMode = "phone" | "password";
 type PolicyDocument = "terms" | "privacy";
 type PendingOrganizationLoginState = PendingOrganizationLoginResponse & {
 	organizations: AuthOrgInfo[];
@@ -134,7 +134,7 @@ export function AuthProvider({
 		});
 	}, [authUser, clearAuthScopedStoreData, hydrated, logoutAuth, refreshAuthSession]);
 
-	const openAuthDialog = useCallback((_nextMode: AuthMode = "login") => {
+	const openAuthDialog = useCallback((_nextMode: AuthMode = "phone") => {
 		setDialogOpen(true);
 	}, []);
 
@@ -225,7 +225,7 @@ export function AuthProvider({
 	}, [pendingAction]);
 
 	const requireAuth = useCallback(
-		(afterAuth?: () => void, _nextMode: AuthMode = "login") => {
+		(afterAuth?: () => void, _nextMode: AuthMode = "phone") => {
 			if (isActiveOrganizationSession(authUser)) {
 				afterAuth?.();
 				return true;
@@ -340,8 +340,11 @@ function AuthDialog({
 	onOpenChange: (open: boolean) => void;
 	onAuthenticated: (login: PendingOrganizationLoginResponse) => Promise<void>;
 }) {
+	const [mode, setMode] = useState<AuthMode>("phone");
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
+	const [account, setAccount] = useState("");
+	const [password, setPassword] = useState("");
 	const [agreed, setAgreed] = useState(true);
 	const [submitting, setSubmitting] = useState(false);
 	const [sendingCode, setSendingCode] = useState(false);
@@ -354,12 +357,17 @@ function AuthDialog({
 		if (!open) return;
 		setPhone("");
 		setCode("");
+		setAccount("");
+		setPassword("");
 		setAgreed(true);
 		setSendingCode(false);
 		setCountdown(0);
 		setSubmitted(false);
 		setTouched({});
 		setErrorMessage("");
+		if (mode !== "phone" && mode !== "password") {
+			setMode("phone");
+		}
 	}, [open]);
 
 	useEffect(() => {
@@ -373,13 +381,24 @@ function AuthDialog({
 
 	const normalizedPhone = phone.trim();
 	const normalizedCode = code.trim();
+	const normalizedAccount = account.trim();
 	const phoneValid = /^1[3-9]\d{9}$/.test(normalizedPhone);
 	const codeValid = /^\d{4,8}$/.test(normalizedCode);
-	const canSubmit = phoneValid && codeValid && agreed;
+	// 中文注释：邮箱或手机号校验——含 @ 为邮箱，否则为手机号
+	const accountValid =
+		normalizedAccount.length > 0 &&
+		(normalizedAccount.includes("@")
+			? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedAccount)
+			: /^1[3-9]\d{9}$/.test(normalizedAccount));
+	const passwordValid = password.length >= 8;
+	const canSubmitPhone = phoneValid && codeValid && agreed;
+	const canSubmitPassword = accountValid && passwordValid && agreed;
 	const canSendCode = phoneValid && !sendingCode && countdown === 0;
 	const shouldShowError = (field: string) => submitted || Boolean(touched[field]);
 	const showPhoneError = shouldShowError("phone") && !phoneValid;
 	const showCodeError = shouldShowError("code") && !codeValid;
+	const showAccountError = shouldShowError("account") && !accountValid;
+	const showPasswordError = shouldShowError("password") && !passwordValid;
 
 	const handleFieldBlur = (field: string) => (event: FocusEvent<HTMLInputElement>) => {
 		if (!shouldValidateFieldBlur(event)) return;
@@ -418,10 +437,10 @@ function AuthDialog({
 		}
 	};
 
-	const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+	const handlePhoneSubmit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setSubmitted(true);
-		if (!canSubmit || submitting) return;
+		if (!canSubmitPhone || submitting) return;
 
 		setSubmitting(true);
 		setErrorMessage("");
@@ -446,12 +465,39 @@ function AuthDialog({
 		}
 	};
 
+	const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		setSubmitted(true);
+		if (!canSubmitPassword || submitting) return;
+
+		setSubmitting(true);
+		setErrorMessage("");
+		try {
+			const response = await authApi.loginByPassword({
+				account: normalizedAccount,
+				password,
+			});
+
+			const result = response.data;
+			if (result.code !== 0) {
+				setErrorMessage(result.message || "登录失败");
+				return;
+			}
+
+			await onAuthenticated(result.data);
+		} catch (err) {
+			console.error("login by password error:", err);
+			setErrorMessage(getRequestErrorMessage(err) ?? "登录失败，请稍后再试");
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
 	return (
 		<Dialog
 			open={open}
 			disablePointerDismissal
 			onOpenChange={(nextOpen, details) => {
-				// 中文注释：登录表单可能已填写手机号和验证码，禁止遮罩和 Esc 误关闭，只保留 X 按钮。
 				if (!nextOpen && details.reason === "escape-key") return;
 				onOpenChange(nextOpen);
 			}}
@@ -465,94 +511,204 @@ function AuthDialog({
 					<DialogTitle className="mt-5 text-center text-3xl font-semibold tracking-normal">
 						欢迎来到Lework
 					</DialogTitle>
-					<DialogDescription className="mt-2 text-center text-sm text-[#8b95a5]">
-						手机号验证码登录，首次登录将自动创建账号
-					</DialogDescription>
 
-					<form onSubmit={handleSubmit} className="mt-6 flex w-full flex-col gap-3">
-						<FieldWithError error={showPhoneError ? "请输入正确的手机号" : undefined}>
-							<AuthField icon={<Smartphone className="size-4" />} invalid={showPhoneError}>
-								<Input
-									type="tel"
-									inputMode="numeric"
-									value={phone}
-									onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))}
-									onBlur={handleFieldBlur("phone")}
-									placeholder="请输入手机号"
-									className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
-								/>
-							</AuthField>
-						</FieldWithError>
-						<FieldWithError error={showCodeError ? "请输入验证码" : undefined}>
-							<AuthField icon={<ShieldCheck className="size-4" />} invalid={showCodeError}>
-								<Input
-									type="text"
-									inputMode="numeric"
-									value={code}
-									onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 8))}
-									onBlur={handleFieldBlur("code")}
-									placeholder="请输入验证码"
-									className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
-								/>
-								<button
-									type="button"
-									onClick={handleSendCode}
-									disabled={!canSendCode}
-									className="shrink-0 text-sm font-semibold text-[#070d1c] transition-colors hover:text-[#4d5cff] disabled:text-[#b8bfcc]"
-								>
-									{sendingCode ? "发送中" : countdown > 0 ? `${countdown}s` : "获取验证码"}
-								</button>
-							</AuthField>
-						</FieldWithError>
-
-						{errorMessage && (
-							<div className="rounded-xl bg-red-50 px-4 py-2 text-xs font-medium text-red-600">
-								{errorMessage}
-							</div>
-						)}
-
-						<div className="mt-2 flex items-center gap-2.5 text-xs text-[#9aa3b2]">
-							<Checkbox
-								checked={agreed}
-								onCheckedChange={(checked) => setAgreed(checked === true)}
-								aria-label="同意服务条款和隐私政策"
-								className="size-4 rounded border-[#a6afbd] bg-white data-checked:bg-[#070d1c] data-checked:border-[#070d1c]"
-							/>
-							<span>
-								我已阅读并同意
-								<a
-									href={APP_TERMS_OF_SERVICE_PDF_SRC}
-									onClick={(event) => void handleOpenPolicyPdf(event, "terms")}
-									target="_blank"
-									rel="noreferrer"
-									className="mx-1 text-[#64748b] transition-colors hover:text-[#4d5cff]"
-								>
-									《服务条款》
-								</a>
-								和
-								<a
-									href={APP_PRIVACY_POLICY_PDF_SRC}
-									onClick={(event) => void handleOpenPolicyPdf(event, "privacy")}
-									target="_blank"
-									rel="noreferrer"
-									className="mx-1 text-[#64748b] transition-colors hover:text-[#4d5cff]"
-								>
-									《隐私政策》
-								</a>
-							</span>
-						</div>
-
-						<Button
-							type="submit"
-							disabled={submitting}
+					{/* 中文注释：登录方式 Tab 切换——手机号验证码 / 账号密码 */}
+					<div className="mt-5 flex w-full rounded-[14px] bg-[#e8ebf2] p-1">
+						<button
+							type="button"
+							onClick={() => setMode("phone")}
 							className={cn(
-								"mt-2 h-[52px] rounded-[16px] bg-[#070d1c] text-base font-semibold text-white hover:bg-[#182033] disabled:bg-[#d2d5de] disabled:text-white",
-								!canSubmit && !submitting && "bg-[#d2d5de] hover:bg-[#d2d5de]",
+								"flex-1 rounded-[11px] py-2 text-sm font-medium transition-colors",
+								mode === "phone"
+									? "bg-white text-[#070d1c] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+									: "text-[#8b95a5] hover:text-[#070d1c]",
 							)}
 						>
-							{submitting ? "登录中..." : "登录 / 注册"}
-						</Button>
-					</form>
+							验证码登录
+						</button>
+						<button
+							type="button"
+							onClick={() => setMode("password")}
+							className={cn(
+								"flex-1 rounded-[11px] py-2 text-sm font-medium transition-colors",
+								mode === "password"
+									? "bg-white text-[#070d1c] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+									: "text-[#8b95a5] hover:text-[#070d1c]",
+							)}
+						>
+							密码登录
+						</button>
+					</div>
+
+					{mode === "phone" ? (
+						<form onSubmit={handlePhoneSubmit} className="mt-5 flex w-full flex-col gap-3">
+							<DialogDescription className="text-center text-sm text-[#8b95a5]">
+								手机号验证码登录，首次登录将自动创建账号
+							</DialogDescription>
+							<FieldWithError error={showPhoneError ? "请输入正确的手机号" : undefined}>
+								<AuthField icon={<Smartphone className="size-4" />} invalid={showPhoneError}>
+									<Input
+										type="tel"
+										inputMode="numeric"
+										value={phone}
+										onChange={(event) =>
+											setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))
+										}
+										onBlur={handleFieldBlur("phone")}
+										placeholder="请输入手机号"
+										className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
+									/>
+								</AuthField>
+							</FieldWithError>
+							<FieldWithError error={showCodeError ? "请输入验证码" : undefined}>
+								<AuthField icon={<ShieldCheck className="size-4" />} invalid={showCodeError}>
+									<Input
+										type="text"
+										inputMode="numeric"
+										value={code}
+										onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 8))}
+										onBlur={handleFieldBlur("code")}
+										placeholder="请输入验证码"
+										className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
+									/>
+									<button
+										type="button"
+										onClick={handleSendCode}
+										disabled={!canSendCode}
+										className="shrink-0 text-sm font-semibold text-[#070d1c] transition-colors hover:text-[#4d5cff] disabled:text-[#b8bfcc]"
+									>
+										{sendingCode ? "发送中" : countdown > 0 ? `${countdown}s` : "获取验证码"}
+									</button>
+								</AuthField>
+							</FieldWithError>
+
+							{errorMessage && (
+								<div className="rounded-xl bg-red-50 px-4 py-2 text-xs font-medium text-red-600">
+									{errorMessage}
+								</div>
+							)}
+
+							<div className="mt-2 flex items-center gap-2.5 text-xs text-[#9aa3b2]">
+								<Checkbox
+									checked={agreed}
+									onCheckedChange={(checked) => setAgreed(checked === true)}
+									aria-label="同意服务条款和隐私政策"
+									className="size-4 rounded border-[#a6afbd] bg-white data-checked:bg-[#070d1c] data-checked:border-[#070d1c]"
+								/>
+								<span>
+									我已阅读并同意
+									<a
+										href={APP_TERMS_OF_SERVICE_PDF_SRC}
+										onClick={(event) => void handleOpenPolicyPdf(event, "terms")}
+										target="_blank"
+										rel="noreferrer"
+										className="mx-1 text-[#64748b] transition-colors hover:text-[#4d5cff]"
+									>
+										《服务条款》
+									</a>
+									和
+									<a
+										href={APP_PRIVACY_POLICY_PDF_SRC}
+										onClick={(event) => void handleOpenPolicyPdf(event, "privacy")}
+										target="_blank"
+										rel="noreferrer"
+										className="mx-1 text-[#64748b] transition-colors hover:text-[#4d5cff]"
+									>
+										《隐私政策》
+									</a>
+								</span>
+							</div>
+
+							<Button
+								type="submit"
+								disabled={submitting}
+								className={cn(
+									"mt-2 h-[52px] rounded-[16px] bg-[#070d1c] text-base font-semibold text-white hover:bg-[#182033] disabled:bg-[#d2d5de] disabled:text-white",
+									!canSubmitPhone && !submitting && "bg-[#d2d5de] hover:bg-[#d2d5de]",
+								)}
+							>
+								{submitting ? "登录中..." : "登录 / 注册"}
+							</Button>
+						</form>
+					) : (
+						<form onSubmit={handlePasswordSubmit} className="mt-5 flex w-full flex-col gap-3">
+							<DialogDescription className="text-center text-sm text-[#8b95a5]">
+								使用邮箱或手机号登录
+							</DialogDescription>
+							<FieldWithError error={showAccountError ? "请输入正确的邮箱或手机号" : undefined}>
+								<AuthField icon={<Mail className="size-4" />} invalid={showAccountError}>
+									<Input
+										type="text"
+										value={account}
+										onChange={(event) => setAccount(event.target.value)}
+										onBlur={handleFieldBlur("account")}
+										placeholder="请输入邮箱或手机号"
+										className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
+									/>
+								</AuthField>
+							</FieldWithError>
+							<FieldWithError error={showPasswordError ? "密码至少8位" : undefined}>
+								<AuthField icon={<Lock className="size-4" />} invalid={showPasswordError}>
+									<Input
+										type="password"
+										value={password}
+										onChange={(event) => setPassword(event.target.value)}
+										onBlur={handleFieldBlur("password")}
+										placeholder="请输入密码"
+										className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
+									/>
+								</AuthField>
+							</FieldWithError>
+
+							{errorMessage && (
+								<div className="rounded-xl bg-red-50 px-4 py-2 text-xs font-medium text-red-600">
+									{errorMessage}
+								</div>
+							)}
+
+							<div className="mt-2 flex items-center gap-2.5 text-xs text-[#9aa3b2]">
+								<Checkbox
+									checked={agreed}
+									onCheckedChange={(checked) => setAgreed(checked === true)}
+									aria-label="同意服务条款和隐私政策"
+									className="size-4 rounded border-[#a6afbd] bg-white data-checked:bg-[#070d1c] data-checked:border-[#070d1c]"
+								/>
+								<span>
+									我已阅读并同意
+									<a
+										href={APP_TERMS_OF_SERVICE_PDF_SRC}
+										onClick={(event) => void handleOpenPolicyPdf(event, "terms")}
+										target="_blank"
+										rel="noreferrer"
+										className="mx-1 text-[#64748b] transition-colors hover:text-[#4d5cff]"
+									>
+										《服务条款》
+									</a>
+									和
+									<a
+										href={APP_PRIVACY_POLICY_PDF_SRC}
+										onClick={(event) => void handleOpenPolicyPdf(event, "privacy")}
+										target="_blank"
+										rel="noreferrer"
+										className="mx-1 text-[#64748b] transition-colors hover:text-[#4d5cff]"
+									>
+										《隐私政策》
+									</a>
+								</span>
+							</div>
+
+							<Button
+								type="submit"
+								disabled={submitting}
+								className={cn(
+									"mt-2 h-[52px] rounded-[16px] bg-[#070d1c] text-base font-semibold text-white hover:bg-[#182033] disabled:bg-[#d2d5de] disabled:text-white",
+									!canSubmitPassword && !submitting && "bg-[#d2d5de] hover:bg-[#d2d5de]",
+								)}
+							>
+								{submitting ? "登录中..." : "登录"}
+							</Button>
+						</form>
+					)}
 				</div>
 			</DialogContent>
 		</Dialog>

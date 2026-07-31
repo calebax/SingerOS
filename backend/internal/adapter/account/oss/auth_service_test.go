@@ -196,7 +196,7 @@ func TestAuthServiceRegisterByEmail(t *testing.T) {
 	}
 }
 
-func TestAuthServiceLoginByEmail(t *testing.T) {
+func TestAuthServiceLoginByPassword(t *testing.T) {
 	service, _ := setupAuthServiceTest(t)
 	ctx := context.Background()
 
@@ -223,22 +223,16 @@ func TestAuthServiceLoginByEmail(t *testing.T) {
 		t.Fatalf("ChooseUin failed: %v", err)
 	}
 
-	// Now login by email - should return refreshtoken, no JWT
-	loggedIn, err := service.LoginByEmail(ctx, &account.LoginByEmailInput{
-		Email:    "login.user@example.com",
+	// Now login by password - should return refreshtoken
+	loggedIn, err := service.LoginByPassword(ctx, &account.LoginByPasswordInput{
+		Account:  "login.user@example.com",
 		Password: "Password123",
 	})
 	if err != nil {
-		t.Fatalf("LoginByEmail failed: %v", err)
-	}
-	if loggedIn.JwtToken != "" {
-		t.Fatal("expected no jwt token from LoginByEmail")
+		t.Fatalf("LoginByPassword failed: %v", err)
 	}
 	if loggedIn.RefreshToken == "" {
-		t.Fatal("expected refresh token from LoginByEmail")
-	}
-	if loggedIn.LoginStatus != account.LoginStatusSuccess {
-		t.Fatalf("expected login_status success, got %q", loggedIn.LoginStatus)
+		t.Fatal("expected refresh token from LoginByPassword")
 	}
 	if len(loggedIn.Organizations) != 1 {
 		t.Fatalf("expected 1 organization, got %d", len(loggedIn.Organizations))
@@ -272,7 +266,7 @@ func TestAuthServiceLoginByEmail(t *testing.T) {
 	_ = chosen
 }
 
-func TestAuthServiceLoginByEmailRejectsWrongPassword(t *testing.T) {
+func TestAuthServiceLoginByPasswordRejectsWrongPassword(t *testing.T) {
 	service, _ := setupAuthServiceTest(t)
 	ctx := context.Background()
 
@@ -284,12 +278,12 @@ func TestAuthServiceLoginByEmailRejectsWrongPassword(t *testing.T) {
 		t.Fatalf("RegisterByEmail failed: %v", err)
 	}
 
-	_, err := service.LoginByEmail(ctx, &account.LoginByEmailInput{
-		Email:    "wrong.pass@example.com",
+	_, err := service.LoginByPassword(ctx, &account.LoginByPasswordInput{
+		Account:  "wrong.pass@example.com",
 		Password: "WrongPassword999",
 	})
-	if !errors.Is(err, accounterror.ErrInvalidEmailOrPassword) {
-		t.Fatalf("expected invalid email or password, got %v", err)
+	if !errors.Is(err, accounterror.ErrInvalidAccountOrPassword) {
+		t.Fatalf("expected invalid account or password, got %v", err)
 	}
 }
 
@@ -467,17 +461,17 @@ func TestAuthServiceLoginAttemptLimit(t *testing.T) {
 	}
 
 	for i := 0; i < loginAttemptMaxFailures; i++ {
-		_, err = service.LoginByEmail(ctx, &account.LoginByEmailInput{
-			Email:    "limit@example.com",
+		_, err = service.LoginByPassword(ctx, &account.LoginByPasswordInput{
+			Account:  "limit@example.com",
 			Password: "WrongPassword123",
 		})
-		if !errors.Is(err, accounterror.ErrInvalidEmailOrPassword) {
+		if !errors.Is(err, accounterror.ErrInvalidAccountOrPassword) {
 			t.Fatalf("expected invalid password error on attempt %d, got %v", i+1, err)
 		}
 	}
 
-	_, err = service.LoginByEmail(ctx, &account.LoginByEmailInput{
-		Email:    "limit@example.com",
+	_, err = service.LoginByPassword(ctx, &account.LoginByPasswordInput{
+		Account:  "limit@example.com",
 		Password: "Password123",
 	})
 	if !errors.Is(err, accounterror.ErrLoginAttemptsExceeded) {
@@ -762,5 +756,33 @@ func TestAuthServiceAuthSession(t *testing.T) {
 	}
 	if len(session.Organizations) != 1 {
 		t.Fatalf("expected 1 organization in session, got %d", len(session.Organizations))
+	}
+}
+
+func TestAuthServiceLoginByPasswordWithPhone(t *testing.T) {
+	service, database := setupAuthServiceTest(t)
+	ctx := context.Background()
+
+	if err := database.Create(&types.User{
+		PublicID: "usr_phone_login_test",
+		Password: "$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi",
+		Name:     "Phone Login User",
+		Phone:    "13900139010",
+	}).Error; err != nil {
+		t.Fatalf("failed to insert user with phone: %v", err)
+	}
+
+	loggedIn, err := service.LoginByPassword(ctx, &account.LoginByPasswordInput{
+		Account:  "13900139010",
+		Password: "password",
+	})
+	if err != nil {
+		t.Fatalf("LoginByPassword with phone failed: %v", err)
+	}
+	if loggedIn.RefreshToken == "" {
+		t.Fatal("expected refresh token from LoginByPassword with phone")
+	}
+	if loggedIn.UserInfo.Phone != "13900139010" {
+		t.Fatalf("expected phone 13900139010, got %q", loggedIn.UserInfo.Phone)
 	}
 }
