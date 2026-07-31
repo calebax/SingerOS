@@ -28,6 +28,7 @@ func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
 		types.TableNamePluginRevisionContent,
 		types.TableNameProjectPluginBinding,
 		types.TableNamePluginMarketplaceItem,
+		types.TableNameMCPChannel,
 	} {
 		if !database.Migrator().HasTable(tableName) {
 			t.Fatalf("expected table %s to be migrated", tableName)

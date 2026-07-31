@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ygpkg/yg-go/logs"
+
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 const coreKGPlatformCode = "corekg"
@@ -21,11 +24,23 @@ func (s *pluginService) ListMCPPlatforms(
 	if orgID == 0 || uin == 0 {
 		return nil, invalidMCPConfig("organization and user identity are required")
 	}
-	platform, err := s.coreKGPlatformView(ctx, orgID, uin)
+	channels, err := infradb.ListActiveMCPChannels(ctx, s.db)
 	if err != nil {
 		return nil, err
 	}
-	return &contract.ListMCPPlatformsResponse{Platforms: []contract.MCPPlatformView{platform}}, nil
+	platforms := make([]contract.MCPPlatformView, 0, len(channels))
+	for index := range channels {
+		channel, ok := normalizeSupportedMCPChannel(&channels[index])
+		if !ok {
+			continue
+		}
+		platform, viewErr := s.mcpPlatformView(ctx, orgID, uin, channel)
+		if viewErr != nil {
+			return nil, viewErr
+		}
+		platforms = append(platforms, platform)
+	}
+	return &contract.ListMCPPlatformsResponse{Platforms: platforms}, nil
 }
 
 func (s *pluginService) ConnectMCPPlatform(
@@ -36,8 +51,16 @@ func (s *pluginService) ConnectMCPPlatform(
 	if orgID == 0 || uin == 0 {
 		return nil, invalidMCPConfig("organization and user identity are required")
 	}
-	if strings.ToLower(strings.TrimSpace(platformCode)) != coreKGPlatformCode {
+	channelCode := strings.ToLower(strings.TrimSpace(platformCode))
+	if channelCode != coreKGPlatformCode {
 		return nil, invalidMCPConfig("unsupported MCP platform")
+	}
+	channel, err := s.getSupportedMCPChannel(ctx, channelCode)
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil {
+		return nil, invalidMCPConfig("MCP platform is not configured or active")
 	}
 
 	code := coreKGPluginCode(orgID, uin)
@@ -49,20 +72,16 @@ func (s *pluginService) ConnectMCPPlatform(
 		if existing.CreatedBy != uin {
 			return nil, contract.ErrPluginNotFound
 		}
-		platform := coreKGPlatformViewFromPlugin(s.coreKGAutoConnectSupported(), existing.PublicID)
+		platform := mcpPlatformViewFromPlugin(channel, s.apiKeyIssuer != nil, existing.PublicID)
 		view := pluginView(*existing)
 		return &contract.ConnectMCPPlatformResponse{Platform: platform, Plugin: view}, nil
 	}
 	if s.apiKeyIssuer == nil {
 		return nil, invalidMCPConfig("current edition does not support CoreKG automatic authorization")
 	}
-	coreKGURL := s.coreKGURL()
-	if coreKGURL == "" {
-		return nil, invalidMCPConfig("auth base URL is required for CoreKG automatic authorization")
-	}
 
 	credential, err := s.apiKeyIssuer.CreateAPIKey(ctx, account.CreateAPIKeyInput{
-		Name:         "SingerOS CoreKG MCP",
+		Name:         "SingerOS " + channel.Name + " MCP",
 		Purpose:      "mcp_connector",
 		ResourceType: "mcp",
 		ResourceID:   0,
@@ -71,9 +90,12 @@ func (s *pluginService) ConnectMCPPlatform(
 	if err != nil {
 		return nil, fmt.Errorf("create CoreKG API key: %w", err)
 	}
+	headers := cloneStringMap(map[string]string(channel.Headers))
 	testResult, err := s.TestMCPPlugin(ctx, &contract.TestMCPPluginRequest{
-		URL:         coreKGURL,
+		Transport:   channel.Transport,
+		URL:         channel.URL,
 		BearerToken: credential.APIKey,
+		Headers:     headers,
 	})
 	if err != nil {
 		return nil, err
@@ -81,17 +103,19 @@ func (s *pluginService) ConnectMCPPlatform(
 	created, err := s.AddMCPPlugin(ctx, orgID, uin, &contract.AddMCPPluginRequest{
 		MCPPluginConfig: contract.MCPPluginConfig{
 			Code:        code,
-			Name:        "CoreKG",
-			Description: "连接 CoreKG 知识库，使用知识检索、图谱与问答能力。",
-			URL:         coreKGURL,
+			Name:        channel.Name,
+			Description: channel.Description,
+			Transport:   channel.Transport,
+			URL:         channel.URL,
 			BearerToken: credential.APIKey,
-			Provider:    coreKGPlatformCode,
+			Headers:     headers,
+			Provider:    channel.Channel,
 		},
 	})
 	if err != nil {
 		if existing, lookupErr := infradb.GetOrganizationPluginByIdentity(ctx, s.db, orgID, "mcp", code); lookupErr == nil &&
 			existing != nil && existing.CreatedBy == uin {
-			platform := coreKGPlatformViewFromPlugin(true, existing.PublicID)
+			platform := mcpPlatformViewFromPlugin(channel, true, existing.PublicID)
 			view := pluginView(*existing)
 			return &contract.ConnectMCPPlatformResponse{
 				Platform:  platform,
@@ -101,7 +125,7 @@ func (s *pluginService) ConnectMCPPlatform(
 		}
 		return nil, err
 	}
-	platform := coreKGPlatformViewFromPlugin(true, created.PublicID)
+	platform := mcpPlatformViewFromPlugin(channel, true, created.PublicID)
 	return &contract.ConnectMCPPlatformResponse{
 		Platform:  platform,
 		Plugin:    *created,
@@ -109,21 +133,72 @@ func (s *pluginService) ConnectMCPPlatform(
 	}, nil
 }
 
-func (s *pluginService) coreKGURL() string {
-	return strings.TrimSpace(s.coreKGMCPURL)
-}
-
-func coreKGMCPURLFromAuthBase(authBaseURL string) string {
-	baseURL := strings.TrimRight(strings.TrimSpace(authBaseURL), "/")
-	if baseURL == "" {
-		return ""
+func (s *pluginService) getSupportedMCPChannel(
+	ctx context.Context,
+	channelCode string,
+) (*types.MCPChannel, error) {
+	channel, err := infradb.GetActiveMCPChannelByChannel(ctx, s.db, channelCode)
+	if err != nil || channel == nil {
+		return channel, err
 	}
-	return baseURL + "/v3/keapi/mcp"
+	normalized, ok := normalizeSupportedMCPChannel(channel)
+	if !ok {
+		return nil, nil
+	}
+	return normalized, nil
 }
 
-func (s *pluginService) coreKGPlatformView(
+func normalizeSupportedMCPChannel(channel *types.MCPChannel) (*types.MCPChannel, bool) {
+	if channel == nil {
+		return nil, false
+	}
+	normalized := *channel
+	normalized.Channel = strings.TrimSpace(channel.Channel)
+	normalized.Name = strings.TrimSpace(channel.Name)
+	normalized.Description = strings.TrimSpace(channel.Description)
+	normalized.Transport = strings.ToLower(strings.TrimSpace(channel.Transport))
+	normalized.URL = strings.TrimSpace(channel.URL)
+	normalized.Headers = cloneMCPChannelHeaders(channel.Headers)
+
+	reason := ""
+	switch {
+	case channel.Channel != normalized.Channel || normalized.Channel != strings.ToLower(normalized.Channel):
+		reason = "channel must be lowercase without surrounding whitespace"
+	case normalized.Channel != coreKGPlatformCode:
+		reason = "unsupported channel"
+	case normalized.Name == "":
+		reason = "name is required"
+	case normalized.Transport != "http":
+		reason = "transport must be http"
+	case hasMCPHeader(map[string]string(normalized.Headers), "authorization"):
+		reason = "Authorization header is not allowed"
+	default:
+		if err := validateMCPConnection(normalized.URL, map[string]string(normalized.Headers)); err != nil {
+			reason = err.Error()
+		}
+	}
+	if reason != "" {
+		logs.Warnf("Skipping invalid MCP channel: id=%d channel=%q reason=%s", channel.ID, channel.Channel, reason)
+		return nil, false
+	}
+	return &normalized, true
+}
+
+func cloneMCPChannelHeaders(headers types.MCPChannelHeaders) types.MCPChannelHeaders {
+	if len(headers) == 0 {
+		return types.MCPChannelHeaders{}
+	}
+	result := make(types.MCPChannelHeaders, len(headers))
+	for key, value := range headers {
+		result[key] = value
+	}
+	return result
+}
+
+func (s *pluginService) mcpPlatformView(
 	ctx context.Context,
 	orgID, uin uint,
+	channel *types.MCPChannel,
 ) (contract.MCPPlatformView, error) {
 	plugin, err := infradb.GetOrganizationPluginByIdentity(
 		ctx,
@@ -136,20 +211,20 @@ func (s *pluginService) coreKGPlatformView(
 		return contract.MCPPlatformView{}, err
 	}
 	if plugin == nil || plugin.CreatedBy != uin {
-		return coreKGPlatformViewFromPlugin(s.coreKGAutoConnectSupported(), ""), nil
+		return mcpPlatformViewFromPlugin(channel, s.apiKeyIssuer != nil, ""), nil
 	}
-	return coreKGPlatformViewFromPlugin(s.coreKGAutoConnectSupported(), plugin.PublicID), nil
+	return mcpPlatformViewFromPlugin(channel, s.apiKeyIssuer != nil, plugin.PublicID), nil
 }
 
-func (s *pluginService) coreKGAutoConnectSupported() bool {
-	return s.apiKeyIssuer != nil && s.coreKGURL() != ""
-}
-
-func coreKGPlatformViewFromPlugin(autoConnectSupported bool, pluginID string) contract.MCPPlatformView {
+func mcpPlatformViewFromPlugin(
+	channel *types.MCPChannel,
+	autoConnectSupported bool,
+	pluginID string,
+) contract.MCPPlatformView {
 	return contract.MCPPlatformView{
-		Code:                 coreKGPlatformCode,
-		Name:                 "CoreKG",
-		Description:          "连接知识库、知识图谱与智能问答能力",
+		Code:                 channel.Channel,
+		Name:                 channel.Name,
+		Description:          channel.Description,
 		AutoConnectSupported: autoConnectSupported,
 		Connected:            pluginID != "",
 		PluginID:             pluginID,

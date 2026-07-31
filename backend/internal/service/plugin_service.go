@@ -51,7 +51,6 @@ var skillAutoInstallLocks = struct {
 type pluginService struct {
 	db           *gorm.DB
 	apiKeyIssuer account.APIKeyIssuer
-	coreKGMCPURL string
 }
 
 // NewPluginService creates the independent plugin repository service.
@@ -63,12 +62,10 @@ func NewPluginService(database *gorm.DB) contract.PluginService {
 func NewPluginServiceWithAPIKeyIssuer(
 	database *gorm.DB,
 	issuer account.APIKeyIssuer,
-	authBaseURL string,
 ) contract.PluginService {
 	return &pluginService{
 		db:           database,
 		apiKeyIssuer: issuer,
-		coreKGMCPURL: coreKGMCPURLFromAuthBase(authBaseURL),
 	}
 }
 
@@ -84,11 +81,15 @@ func (s *pluginService) ListPlugins(
 ) (*contract.ListPluginsResponse, error) {
 	kind := strings.TrimSpace(req.Kind)
 	status := strings.TrimSpace(req.Status)
-	if kind == "mcp" &&
-		(status == "" || status == types.PluginStatusActive) &&
-		s.coreKGAutoConnectSupported() {
-		if _, err := s.ConnectMCPPlatform(ctx, orgID, uin, coreKGPlatformCode); err != nil {
-			return nil, fmt.Errorf("ensure CoreKG MCP platform: %w", err)
+	if kind == "mcp" && (status == "" || status == types.PluginStatusActive) {
+		channel, err := s.getSupportedMCPChannel(ctx, coreKGPlatformCode)
+		if err != nil {
+			return nil, err
+		}
+		if channel != nil && s.apiKeyIssuer != nil {
+			if _, err := s.ConnectMCPPlatform(ctx, orgID, uin, coreKGPlatformCode); err != nil {
+				return nil, fmt.Errorf("ensure CoreKG MCP platform: %w", err)
+			}
 		}
 	}
 	limit := normalizePluginListLimit(req.Limit)

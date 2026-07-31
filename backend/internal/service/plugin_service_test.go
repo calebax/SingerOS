@@ -38,6 +38,7 @@ func setupPluginServiceTestDB(t *testing.T) *gorm.DB {
 		&types.PluginRevisionContent{},
 		&types.ProjectPluginBinding{},
 		&types.PluginMarketplaceItem{},
+		&types.MCPChannel{},
 		&types.FileUpload{},
 	); err != nil {
 		t.Fatalf("migrate plugin service models: %v", err)
