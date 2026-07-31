@@ -30,6 +30,7 @@ const (
 var (
 	mcpCodePattern    = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
 	headerNamePattern = regexp.MustCompile(`^[!#$%&'*+\-.^_` + "`" + `|~0-9A-Za-z]+$`)
+	envNamePattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	reservedMCPNames  = map[string]struct{}{
 		"leros": {},
 	}
@@ -224,6 +225,13 @@ func (s *pluginService) TestMCPPlugin(
 	if req == nil {
 		return nil, invalidMCPConfig("request is required")
 	}
+	transport := strings.ToLower(strings.TrimSpace(req.Transport))
+	if transport == "" {
+		transport = "http"
+	}
+	if transport != "http" {
+		return nil, invalidMCPConfig("stdio MCP connections are tested when a Worker starts the project Run")
+	}
 	if err := validateMCPConnection(req.URL, req.Headers); err != nil {
 		return nil, err
 	}
@@ -279,11 +287,13 @@ func validateMCPPluginConfig(input contract.MCPPluginConfig) (contract.MCPPlugin
 	input.Name = strings.TrimSpace(input.Name)
 	input.Description = strings.TrimSpace(input.Description)
 	input.Provider = strings.ToLower(strings.TrimSpace(input.Provider))
+	input.Transport = strings.ToLower(strings.TrimSpace(input.Transport))
+	if input.Transport == "" {
+		input.Transport = "http"
+	}
 	input.URL = strings.TrimSpace(input.URL)
 	input.BearerToken = strings.TrimSpace(input.BearerToken)
-	if strings.ContainsAny(input.BearerToken, "\r\n") {
-		return input, nil, invalidMCPConfig("Bearer token contains invalid characters")
-	}
+	input.Command = strings.TrimSpace(input.Command)
 	if !mcpCodePattern.MatchString(input.Code) {
 		return input, nil, invalidMCPConfig("code must be a lowercase slug of at most 64 characters")
 	}
@@ -296,28 +306,70 @@ func validateMCPPluginConfig(input contract.MCPPluginConfig) (contract.MCPPlugin
 	if len(input.Name) > 255 {
 		return input, nil, invalidMCPConfig("name is too long")
 	}
-	if err := validateMCPConnection(input.URL, input.Headers); err != nil {
-		return input, nil, err
+
+	definition := MCPDefinition{
+		Schema:    "mcp/v1",
+		Transport: input.Transport,
+		Name:      input.Code,
+		Provider:  input.Provider,
 	}
-	definition, err := json.Marshal(MCPDefinition{
-		Schema:      "mcp/v1",
-		Transport:   "http",
-		Name:        input.Code,
-		Provider:    input.Provider,
-		URL:         input.URL,
-		BearerToken: input.BearerToken,
-		Headers:     cloneStringMap(input.Headers),
-	})
+	switch input.Transport {
+	case "http":
+		if strings.ContainsAny(input.BearerToken, "\r\n") {
+			return input, nil, invalidMCPConfig("Bearer token contains invalid characters")
+		}
+		if err := validateMCPConnection(input.URL, input.Headers); err != nil {
+			return input, nil, err
+		}
+		definition.URL = input.URL
+		definition.BearerToken = input.BearerToken
+		definition.Headers = cloneStringMap(input.Headers)
+	case "stdio":
+		normalized, err := validateMCPStdioConfig(input)
+		if err != nil {
+			return input, nil, err
+		}
+		input = normalized
+		definition.Command = input.Command
+		definition.Args = append([]string(nil), input.Args...)
+		definition.Env = cloneStringMap(input.Env)
+	default:
+		return input, nil, invalidMCPConfig("transport must be http or stdio")
+	}
+
+	encoded, err := json.Marshal(definition)
 	if err != nil {
 		return input, nil, invalidMCPConfig("unable to encode MCP definition")
 	}
-	if len(definition) > maxMCPDefinitionBytes {
+	if len(encoded) > maxMCPDefinitionBytes {
 		return input, nil, invalidMCPConfig("MCP definition is too large")
 	}
-	if err := ValidatePluginDefinition("mcp", definition); err != nil {
+	if err := ValidatePluginDefinition("mcp", encoded); err != nil {
 		return input, nil, invalidMCPConfig("invalid MCP definition")
 	}
-	return input, definition, nil
+	return input, encoded, nil
+}
+
+func validateMCPStdioConfig(input contract.MCPPluginConfig) (contract.MCPPluginConfig, error) {
+	if input.Command == "" || strings.ContainsRune(input.Command, '\x00') {
+		return input, invalidMCPConfig("stdio command is required and cannot contain NUL")
+	}
+	input.Args = append([]string(nil), input.Args...)
+	for _, arg := range input.Args {
+		if strings.ContainsRune(arg, '\x00') {
+			return input, invalidMCPConfig("stdio argument cannot contain NUL")
+		}
+	}
+	for name, value := range input.Env {
+		if !envNamePattern.MatchString(name) {
+			return input, invalidMCPConfig("stdio environment variable name is invalid")
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return input, invalidMCPConfig("stdio environment variable value cannot contain NUL")
+		}
+	}
+	input.Env = cloneStringMap(input.Env)
+	return input, nil
 }
 
 func validateMCPConnection(rawURL string, headers map[string]string) error {

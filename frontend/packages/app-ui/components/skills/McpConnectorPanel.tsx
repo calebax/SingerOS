@@ -40,14 +40,23 @@ const PAGE_SIZE = 90;
 
 type MCPForm = {
 	name: string;
+	transport: MCPPluginConfig["transport"];
 	url: string;
 	bearerToken: string;
 	headers: MCPHeaderRow[];
+	command: string;
+	args: MCPStringRow[];
+	env: MCPHeaderRow[];
 };
 
 type MCPHeaderRow = {
 	id: number;
 	key: string;
+	value: string;
+};
+
+type MCPStringRow = {
+	id: number;
 	value: string;
 };
 
@@ -57,12 +66,20 @@ function newHeaderRow(key = "", value = ""): MCPHeaderRow {
 	return { id: nextHeaderRowID++, key, value };
 }
 
+function newStringRow(value = ""): MCPStringRow {
+	return { id: nextHeaderRowID++, value };
+}
+
 function emptyForm(): MCPForm {
 	return {
 		name: "",
+		transport: "http",
 		url: "",
 		bearerToken: "",
 		headers: [newHeaderRow()],
+		command: "",
+		args: [newStringRow()],
+		env: [newHeaderRow()],
 	};
 }
 
@@ -110,9 +127,40 @@ function headerRows(headers?: Record<string, string>): MCPHeaderRow[] {
 	return rows.length > 0 ? rows : [newHeaderRow()];
 }
 
+function stringRows(values?: string[]): MCPStringRow[] {
+	const rows = (values ?? []).map((value) => newStringRow(value));
+	return rows.length > 0 ? rows : [newStringRow()];
+}
+
+function parseEnv(rows: MCPHeaderRow[]): Record<string, string> {
+	const result: Record<string, string> = {};
+	for (const row of rows) {
+		const key = row.key.trim();
+		if (!key && !row.value) continue;
+		if (!key) throw new Error("环境变量的键不能为空");
+		if (key in result) throw new Error(`环境变量 ${key} 重复`);
+		result[key] = row.value;
+	}
+	return result;
+}
+
+function parseStringRows(rows: MCPStringRow[]): string[] {
+	return rows.map((row) => row.value.trim()).filter(Boolean);
+}
+
 function formConfig(form: MCPForm): MCPPluginConfig {
+	if (form.transport === "stdio") {
+		return {
+			name: form.name.trim(),
+			transport: "stdio",
+			command: form.command.trim(),
+			args: parseStringRows(form.args),
+			env: parseEnv(form.env),
+		};
+	}
 	return {
 		name: form.name.trim(),
+		transport: "http",
 		url: form.url.trim(),
 		bearer_token: form.bearerToken.trim(),
 		headers: parseHeaders(form.headers),
@@ -206,15 +254,17 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 		try {
 			const response = await pluginApi.get(connector.public_id);
 			const definition = response.data.data.definition;
-			if (definition?.transport !== "http") {
-				throw new Error("当前 MCP 配置不可编辑");
-			}
+			if (!definition) throw new Error("MCP 配置不存在");
 			setEditingPluginID(connector.public_id);
 			setForm({
 				name: connector.name,
-				url: definition.url,
+				transport: definition.transport,
+				url: definition.url ?? "",
 				bearerToken: definition.bearer_token ?? "",
 				headers: headerRows(definition.headers),
+				command: definition.command ?? "",
+				args: stringRows(definition.args),
+				env: headerRows(definition.env),
 			});
 			setDialogOpen(true);
 		} catch (requestError) {
@@ -227,8 +277,13 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 			const response = await pluginApi.get(connector.public_id);
 			const definition = response.data.data.definition;
 			if (!definition) throw new Error("MCP 配置不存在");
+			if (definition.transport === "stdio") {
+				toast.info("STDIO MCP 会在关联项目的 Worker Run 中启动并验证");
+				return;
+			}
 			const result = await pluginApi.testMCP({
-				url: definition.url,
+				transport: "http",
+				url: definition.url ?? "",
 				bearer_token: definition.bearer_token,
 				headers: definition.headers,
 			});
@@ -332,6 +387,34 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 		setForm((current) => {
 			const headers = current.headers.filter((header) => header.id !== id);
 			return { ...current, headers: headers.length > 0 ? headers : [newHeaderRow()] };
+		});
+	};
+
+	const updateEnv = (id: number, field: "key" | "value", value: string) => {
+		setForm((current) => ({
+			...current,
+			env: current.env.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+		}));
+	};
+
+	const removeEnv = (id: number) => {
+		setForm((current) => {
+			const env = current.env.filter((item) => item.id !== id);
+			return { ...current, env: env.length > 0 ? env : [newHeaderRow()] };
+		});
+	};
+
+	const updateStringRow = (id: number, value: string) => {
+		setForm((current) => ({
+			...current,
+			args: current.args.map((item) => (item.id === id ? { ...item, value } : item)),
+		}));
+	};
+
+	const removeStringRow = (id: number) => {
+		setForm((current) => {
+			const args = current.args.filter((item) => item.id !== id);
+			return { ...current, args: args.length > 0 ? args : [newStringRow()] };
 		});
 	};
 
@@ -567,7 +650,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 								{editingPluginID ? "管理 MCP" : "自定义 MCP"}
 							</DialogTitle>
 							<DialogDescription className="mt-0.5 text-[11px] leading-4">
-								配置组织可用的远程服务，保存后可关联到项目
+								配置组织可用的 MCP 服务，保存后可关联到项目
 							</DialogDescription>
 						</div>
 					</DialogHeader>
@@ -584,16 +667,25 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 							<div className="flex w-[220px] items-center rounded-lg bg-[var(--leros-surface-soft)] p-1">
 								<button
 									type="button"
-									disabled
-									title="暂未开放"
-									className="h-8 flex-1 rounded-md text-xs text-[var(--leros-text-subtle)] disabled:cursor-not-allowed"
+									aria-pressed={form.transport === "stdio"}
+									onClick={() => setForm((current) => ({ ...current, transport: "stdio" }))}
+									className={`h-8 flex-1 rounded-md text-xs ${
+										form.transport === "stdio"
+											? "bg-[var(--leros-primary-soft)] font-medium text-[var(--leros-primary)] shadow-[0_1px_2px_rgba(79,70,229,0.08)]"
+											: "text-[var(--leros-text-subtle)]"
+									}`}
 								>
 									STDIO
 								</button>
 								<button
 									type="button"
-									aria-pressed="true"
-									className="h-8 flex-1 rounded-md bg-[var(--leros-primary-soft)] text-xs font-medium text-[var(--leros-primary)] shadow-[0_1px_2px_rgba(79,70,229,0.08)]"
+									aria-pressed={form.transport === "http"}
+									onClick={() => setForm((current) => ({ ...current, transport: "http" }))}
+									className={`h-8 flex-1 rounded-md text-xs ${
+										form.transport === "http"
+											? "bg-[var(--leros-primary-soft)] font-medium text-[var(--leros-primary)] shadow-[0_1px_2px_rgba(79,70,229,0.08)]"
+											: "text-[var(--leros-text-subtle)]"
+									}`}
 								>
 									流式 HTTP
 								</button>
@@ -602,85 +694,104 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 
 						<div className="my-5 border-t border-[var(--leros-control-border)]" />
 
-						<MCPField
-							label="URL"
-							value={form.url}
-							placeholder="https://mcp.example.com/mcp"
-							onChange={(url) => setForm((current) => ({ ...current, url }))}
-						/>
+						{form.transport === "http" ? (
+							<>
+								<MCPField
+									label="URL"
+									value={form.url}
+									placeholder="https://mcp.example.com/mcp"
+									onChange={(url) => setForm((current) => ({ ...current, url }))}
+								/>
 
-						<div className="mt-5">
-							<label
-								htmlFor="mcp-bearer-token"
-								className="text-[13px] font-semibold text-[var(--leros-text-strong)]"
-							>
-								Bearer 令牌
-							</label>
-							<input
-								id="mcp-bearer-token"
-								aria-label="Bearer 令牌"
-								type="password"
-								value={form.bearerToken}
-								onChange={(event) =>
-									setForm((current) => ({
-										...current,
-										bearerToken: event.target.value,
-									}))
-								}
-								placeholder="请输入 Bearer Token"
-								className="mt-2 h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
-							/>
-							<p className="mt-1.5 text-[11px] text-[var(--leros-text-subtle)]">
-								请求时将自动添加 Authorization: Bearer 标头。
-							</p>
-						</div>
+								<div className="mt-5">
+									<label
+										htmlFor="mcp-bearer-token"
+										className="text-[13px] font-semibold text-[var(--leros-text-strong)]"
+									>
+										Bearer 令牌
+									</label>
+									<input
+										id="mcp-bearer-token"
+										aria-label="Bearer 令牌"
+										type="password"
+										value={form.bearerToken}
+										onChange={(event) =>
+											setForm((current) => ({
+												...current,
+												bearerToken: event.target.value,
+											}))
+										}
+										placeholder="请输入 Bearer Token"
+										className="mt-2 h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
+									/>
+									<p className="mt-1.5 text-[11px] text-[var(--leros-text-subtle)]">
+										请求时将自动添加 Authorization: Bearer 标头。
+									</p>
+								</div>
 
-						<div className="my-5 border-t border-[var(--leros-control-border)]" />
+								<div className="my-5 border-t border-[var(--leros-control-border)]" />
 
-						<div>
-							<h4 className="text-[13px] font-semibold text-[var(--leros-text-strong)]">标头</h4>
-							<div className="mt-2 space-y-2">
-								{form.headers.map((header, index) => (
-									<div key={header.id} className="flex items-center gap-2">
-										<input
-											aria-label={`标头键 ${index + 1}`}
-											value={header.key}
-											placeholder="键"
-											onChange={(event) => updateHeader(header.id, "key", event.target.value)}
-											className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
-										/>
-										<input
-											aria-label={`标头值 ${index + 1}`}
-											value={header.value}
-											placeholder="值"
-											onChange={(event) => updateHeader(header.id, "value", event.target.value)}
-											className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
-										/>
-										<button
-											type="button"
-											aria-label={`删除标头 ${index + 1}`}
-											onClick={() => removeHeader(header.id)}
-											className="flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-colors hover:bg-[var(--leros-surface-soft)] hover:text-red-500"
-										>
-											<Trash2 className="size-4" />
-										</button>
-									</div>
-								))}
-							</div>
-							<button
-								type="button"
-								onClick={() =>
-									setForm((current) => ({
-										...current,
-										headers: [...current.headers, newHeaderRow()],
-									}))
-								}
-								className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--leros-control-border)] bg-white text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)]/30 hover:text-[var(--leros-primary)]"
-							>
-								<Plus className="size-4" />
-								添加标头
-							</button>
-						</div>
+								<MCPKeyValueRows
+									label="标头"
+									keyLabel="标头键"
+									valueLabel="标头值"
+									addLabel="添加标头"
+									rows={form.headers}
+									onUpdate={updateHeader}
+									onRemove={removeHeader}
+									onAdd={() =>
+										setForm((current) => ({
+											...current,
+											headers: [...current.headers, newHeaderRow()],
+										}))
+									}
+								/>
+							</>
+						) : (
+							<>
+								<MCPField
+									label="启动命令"
+									value={form.command}
+									placeholder="openai-dev-mcp"
+									onChange={(command) => setForm((current) => ({ ...current, command }))}
+								/>
+
+								<div className="my-5 border-t border-[var(--leros-control-border)]" />
+
+								<MCPStringRows
+									label="参数"
+									inputLabel="参数"
+									addLabel="添加参数"
+									rows={form.args}
+									onUpdate={updateStringRow}
+									onRemove={removeStringRow}
+									onAdd={() =>
+										setForm((current) => ({
+											...current,
+											args: [...current.args, newStringRow()],
+										}))
+									}
+								/>
+
+								<div className="my-5 border-t border-[var(--leros-control-border)]" />
+
+								<MCPKeyValueRows
+									label="环境变量"
+									keyLabel="环境变量键"
+									valueLabel="环境变量值"
+									addLabel="添加环境变量"
+									rows={form.env}
+									onUpdate={updateEnv}
+									onRemove={removeEnv}
+									onAdd={() =>
+										setForm((current) => ({
+											...current,
+											env: [...current.env, newHeaderRow()],
+										}))
+									}
+								/>
+							</>
+						)}
 					</div>
 					<DialogFooter className="shrink-0 border-t border-[var(--leros-control-border)] bg-white px-5 py-4">
 						<Button
@@ -776,5 +887,119 @@ function MCPField({
 				className="h-10 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs font-normal outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white disabled:opacity-60"
 			/>
 		</label>
+	);
+}
+
+function MCPKeyValueRows({
+	label,
+	keyLabel,
+	valueLabel,
+	addLabel,
+	rows,
+	onUpdate,
+	onRemove,
+	onAdd,
+}: {
+	label: string;
+	keyLabel: string;
+	valueLabel: string;
+	addLabel: string;
+	rows: MCPHeaderRow[];
+	onUpdate: (id: number, field: "key" | "value", value: string) => void;
+	onRemove: (id: number) => void;
+	onAdd: () => void;
+}) {
+	return (
+		<div>
+			<h4 className="text-[13px] font-semibold text-[var(--leros-text-strong)]">{label}</h4>
+			<div className="mt-2 space-y-2">
+				{rows.map((row, index) => (
+					<div key={row.id} className="flex items-center gap-2">
+						<input
+							aria-label={`${keyLabel} ${index + 1}`}
+							value={row.key}
+							placeholder="键"
+							onChange={(event) => onUpdate(row.id, "key", event.target.value)}
+							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
+						/>
+						<input
+							aria-label={`${valueLabel} ${index + 1}`}
+							value={row.value}
+							placeholder="值"
+							onChange={(event) => onUpdate(row.id, "value", event.target.value)}
+							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
+						/>
+						<button
+							type="button"
+							aria-label={`删除${label} ${index + 1}`}
+							onClick={() => onRemove(row.id)}
+							className="flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-colors hover:bg-[var(--leros-surface-soft)] hover:text-red-500"
+						>
+							<Trash2 className="size-4" />
+						</button>
+					</div>
+				))}
+			</div>
+			<button
+				type="button"
+				onClick={onAdd}
+				className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--leros-control-border)] bg-white text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)]/30 hover:text-[var(--leros-primary)]"
+			>
+				<Plus className="size-4" />
+				{addLabel}
+			</button>
+		</div>
+	);
+}
+
+function MCPStringRows({
+	label,
+	inputLabel,
+	addLabel,
+	rows,
+	onUpdate,
+	onRemove,
+	onAdd,
+}: {
+	label: string;
+	inputLabel: string;
+	addLabel: string;
+	rows: MCPStringRow[];
+	onUpdate: (id: number, value: string) => void;
+	onRemove: (id: number) => void;
+	onAdd: () => void;
+}) {
+	return (
+		<div>
+			<h4 className="text-[13px] font-semibold text-[var(--leros-text-strong)]">{label}</h4>
+			<div className="mt-2 space-y-2">
+				{rows.map((row, index) => (
+					<div key={row.id} className="flex items-center gap-2">
+						<input
+							aria-label={`${inputLabel} ${index + 1}`}
+							value={row.value}
+							onChange={(event) => onUpdate(row.id, event.target.value)}
+							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors focus:border-[var(--leros-primary)] focus:bg-white"
+						/>
+						<button
+							type="button"
+							aria-label={`删除${label} ${index + 1}`}
+							onClick={() => onRemove(row.id)}
+							className="flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-colors hover:bg-[var(--leros-surface-soft)] hover:text-red-500"
+						>
+							<Trash2 className="size-4" />
+						</button>
+					</div>
+				))}
+			</div>
+			<button
+				type="button"
+				onClick={onAdd}
+				className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--leros-control-border)] bg-white text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)]/30 hover:text-[var(--leros-primary)]"
+			>
+				<Plus className="size-4" />
+				{addLabel}
+			</button>
+		</div>
 	);
 }

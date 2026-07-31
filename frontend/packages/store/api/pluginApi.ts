@@ -23,26 +23,36 @@ export interface GetPluginResponse {
 	definition?: MCPPluginDefinition;
 }
 
+export type MCPTransport = "http" | "stdio";
+
 export interface MCPPluginDefinition {
 	schema: "mcp/v1";
-	transport: "http";
+	transport: MCPTransport;
 	name: string;
 	provider?: string;
-	url: string;
+	url?: string;
 	bearer_token?: string;
 	headers?: Record<string, string>;
+	command?: string;
+	args?: string[];
+	env?: Record<string, string>;
 }
 
 export interface MCPPluginConfig {
 	code?: string;
 	name: string;
 	description?: string;
-	url: string;
+	transport: MCPTransport;
+	url?: string;
 	bearer_token?: string;
 	headers?: Record<string, string>;
+	command?: string;
+	args?: string[];
+	env?: Record<string, string>;
 }
 
 export interface TestMCPPluginParams {
+	transport?: "http";
 	url: string;
 	bearer_token?: string;
 	headers?: Record<string, string>;

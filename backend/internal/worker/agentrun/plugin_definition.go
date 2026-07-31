@@ -42,6 +42,7 @@ func MCPServerConfigFromPluginSnapshot(snapshot domain.PluginSnapshot) (agent.MC
 		URL:         definition.URL,
 		Command:     definition.Command,
 		Args:        append([]string(nil), definition.Args...),
+		Env:         cloneMCPStringMap(definition.Env),
 		Headers:     cloneMCPStringMap(definition.Headers),
 		BearerToken: definition.BearerToken,
 	}, nil

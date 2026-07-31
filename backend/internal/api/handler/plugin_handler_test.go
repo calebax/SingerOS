@@ -138,15 +138,20 @@ func TestPluginMCPRoutesPassCallerIdentityAndDraftConfig(t *testing.T) {
 	createRequest := httptest.NewRequest(
 		http.MethodPost,
 		"/plugins/mcp",
-		bytes.NewBufferString(`{"name":"Docs","url":"https://example.com/mcp"}`),
+		bytes.NewBufferString(
+			`{"name":"SQLite","transport":"stdio","command":"npx",`+
+				`"args":["-y","@example/mcp"],"env":{"LOG_LEVEL":"debug"}}`,
+		),
 	)
 	createRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(createRecorder, createRequest)
 	if createRecorder.Code != http.StatusOK {
 		t.Fatalf("create status = %d, want %d", createRecorder.Code, http.StatusOK)
 	}
-	if service.mcpOrgID != 42 || service.mcpUin != 7 || service.mcpConfig.Code != "" {
-		t.Fatalf("create caller/config = org=%d uin=%d code=%q", service.mcpOrgID, service.mcpUin, service.mcpConfig.Code)
+	if service.mcpOrgID != 42 || service.mcpUin != 7 || service.mcpConfig.Code != "" ||
+		service.mcpConfig.Transport != "stdio" || service.mcpConfig.Command != "npx" ||
+		service.mcpConfig.Env["LOG_LEVEL"] != "debug" {
+		t.Fatalf("create caller/config = org=%d uin=%d config=%#v", service.mcpOrgID, service.mcpUin, service.mcpConfig)
 	}
 
 	updateRecorder := httptest.NewRecorder()
