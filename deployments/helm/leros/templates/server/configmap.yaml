@@ -92,3 +92,9 @@ data:
         update_url: {{ .Values.clientUpdate.desktop.updateUrl | quote }}
         force_message: {{ .Values.clientUpdate.desktop.forceMessage | quote }}
     {{- end }}
+    {{- if .Values.auth.enabled }}
+    auth:
+      base_url: {{ .Values.auth.baseUrl | quote }}
+      domain_name: {{ .Values.auth.domainName | quote }}
+      phone_code_login_enabled: {{ .Values.auth.phoneCodeLoginEnabled }}
+    {{- end }}
