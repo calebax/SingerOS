@@ -10,6 +10,7 @@ import {
 	useAuthStore,
 	useChatStore,
 	useDAStore,
+	useGlobalConfigStore,
 	useLayoutStore,
 	usePermissionStore,
 } from "@leros/store";
@@ -24,7 +25,7 @@ import {
 import { Input } from "@leros/ui/components/ui/input";
 import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
-import { Lock, Mail, ShieldCheck, Smartphone } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, ShieldCheck, Smartphone } from "lucide-react";
 import {
 	createContext,
 	type FocusEvent,
@@ -341,6 +342,7 @@ function AuthDialog({
 	onAuthenticated: (login: PendingOrganizationLoginResponse) => Promise<void>;
 }) {
 	const [mode, setMode] = useState<AuthMode>("phone");
+	const phoneCodeLoginEnabled = useGlobalConfigStore((s) => s.phoneCodeLoginEnabled);
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
 	const [account, setAccount] = useState("");
@@ -352,6 +354,7 @@ function AuthDialog({
 	const [errorMessage, setErrorMessage] = useState("");
 	const [submitted, setSubmitted] = useState(false);
 	const [touched, setTouched] = useState<Record<string, boolean>>({});
+	const [showPassword, setShowPassword] = useState(false);
 
 	useEffect(() => {
 		if (!open) return;
@@ -365,10 +368,11 @@ function AuthDialog({
 		setSubmitted(false);
 		setTouched({});
 		setErrorMessage("");
-		if (mode !== "phone" && mode !== "password") {
-			setMode("phone");
+		setShowPassword(false);
+		if (!phoneCodeLoginEnabled || (mode !== "phone" && mode !== "password")) {
+			setMode("password");
 		}
-	}, [open]);
+	}, [open, phoneCodeLoginEnabled]);
 
 	useEffect(() => {
 		if (countdown <= 0) return;
@@ -512,33 +516,35 @@ function AuthDialog({
 						欢迎来到Lework
 					</DialogTitle>
 
-					{/* 中文注释：登录方式 Tab 切换——手机号验证码 / 账号密码 */}
-					<div className="mt-5 flex w-full rounded-[14px] bg-[#e8ebf2] p-1">
-						<button
-							type="button"
-							onClick={() => setMode("phone")}
-							className={cn(
-								"flex-1 rounded-[11px] py-2 text-sm font-medium transition-colors",
-								mode === "phone"
-									? "bg-white text-[#070d1c] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
-									: "text-[#8b95a5] hover:text-[#070d1c]",
-							)}
-						>
-							验证码登录
-						</button>
-						<button
-							type="button"
-							onClick={() => setMode("password")}
-							className={cn(
-								"flex-1 rounded-[11px] py-2 text-sm font-medium transition-colors",
-								mode === "password"
-									? "bg-white text-[#070d1c] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
-									: "text-[#8b95a5] hover:text-[#070d1c]",
-							)}
-						>
-							密码登录
-						</button>
-					</div>
+					{phoneCodeLoginEnabled && (
+						/* 中文注释：登录方式 Tab 切换——手机号验证码 / 账号密码 */
+						<div className="mt-5 flex w-full rounded-[14px] bg-[#e8ebf2] p-1">
+							<button
+								type="button"
+								onClick={() => setMode("phone")}
+								className={cn(
+									"flex-1 rounded-[11px] py-2 text-sm font-medium transition-colors",
+									mode === "phone"
+										? "bg-white text-[#070d1c] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+										: "text-[#8b95a5] hover:text-[#070d1c]",
+								)}
+							>
+								验证码登录
+							</button>
+							<button
+								type="button"
+								onClick={() => setMode("password")}
+								className={cn(
+									"flex-1 rounded-[11px] py-2 text-sm font-medium transition-colors",
+									mode === "password"
+										? "bg-white text-[#070d1c] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+										: "text-[#8b95a5] hover:text-[#070d1c]",
+								)}
+							>
+								密码登录
+							</button>
+						</div>
+					)}
 
 					{mode === "phone" ? (
 						<form onSubmit={handlePhoneSubmit} className="mt-5 flex w-full flex-col gap-3">
@@ -650,13 +656,21 @@ function AuthDialog({
 							<FieldWithError error={showPasswordError ? "密码至少8位" : undefined}>
 								<AuthField icon={<Lock className="size-4" />} invalid={showPasswordError}>
 									<Input
-										type="password"
+										type={showPassword ? "text" : "password"}
 										value={password}
 										onChange={(event) => setPassword(event.target.value)}
 										onBlur={handleFieldBlur("password")}
 										placeholder="请输入密码"
 										className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
 									/>
+									<button
+										type="button"
+										onClick={() => setShowPassword((v) => !v)}
+										className="shrink-0 text-[#9aa3b2] transition-colors hover:text-[#070d1c]"
+										aria-label={showPassword ? "隐藏密码" : "显示密码"}
+									>
+										{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+									</button>
 								</AuthField>
 							</FieldWithError>
 

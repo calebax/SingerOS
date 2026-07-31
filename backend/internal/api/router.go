@@ -111,7 +111,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterFrontendEventRoutes(v1)
 		logs.Info("Frontend event routes registered successfully")
 
-		handler.RegisterGlobalRoutes(v1, edition)
+		handler.RegisterGlobalRoutes(v1, edition, &cfg)
 		logs.Info("Global routes registered successfully")
 	}
 
