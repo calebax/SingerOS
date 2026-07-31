@@ -37,7 +37,6 @@ import {
 	Pencil,
 	Plus,
 	Search,
-	Trash2,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -288,21 +287,6 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 		}
 	};
 
-	const handleDeleteMember = async (member: User) => {
-		if (!window.confirm(`确定要删除“${member.name ?? "该成员"}”吗？`)) return;
-		setSubmitting(true);
-		try {
-			await orgAdminApi.deleteUser({ public_id: member.public_id });
-			toast.success("成员已删除");
-			await loadMembers();
-		} catch (err) {
-			const message = err instanceof Error ? err.message : "删除成员失败";
-			toast.error(message);
-		} finally {
-			setSubmitting(false);
-		}
-	};
-
 	const handleUpdateMember = async (publicId: string, name: string) => {
 		if (!orgId) return;
 		const trimmedName = name.trim();
@@ -526,29 +510,16 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 											</TableCell>
 											<TableCell className="whitespace-nowrap">
 												{isDefaultUser && (
-													<>
-														<Button
-															type="button"
-															variant="ghost"
-															size="sm"
-															className="mr-2 px-0 last:mr-0"
-															onClick={() => setEditMemberDialog({ open: true, member })}
-														>
-															<Pencil className="mr-1 size-3.5" />
-															编辑
-														</Button>
-														<Button
-															type="button"
-															variant="ghost"
-															size="sm"
-															className="mr-2 px-0 last:mr-0"
-															disabled={submitting}
-															onClick={() => void handleDeleteMember(member)}
-														>
-															<Trash2 className="mr-1 size-3.5" />
-															删除
-														</Button>
-													</>
+													<Button
+														type="button"
+														variant="ghost"
+														size="sm"
+														className="px-0"
+														onClick={() => setEditMemberDialog({ open: true, member })}
+													>
+														<Pencil className="mr-1 size-3.5" />
+														编辑
+													</Button>
 												)}
 											</TableCell>
 										</TableRow>
