@@ -667,9 +667,10 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 							<div className="flex w-[220px] items-center rounded-lg bg-[var(--leros-surface-soft)] p-1">
 								<button
 									type="button"
+									disabled
+									title="暂未开放"
 									aria-pressed={form.transport === "stdio"}
-									onClick={() => setForm((current) => ({ ...current, transport: "stdio" }))}
-									className={`h-8 flex-1 rounded-md text-xs ${
+									className={`h-8 flex-1 rounded-md text-xs disabled:cursor-not-allowed ${
 										form.transport === "stdio"
 											? "bg-[var(--leros-primary-soft)] font-medium text-[var(--leros-primary)] shadow-[0_1px_2px_rgba(79,70,229,0.08)]"
 											: "text-[var(--leros-text-subtle)]"
