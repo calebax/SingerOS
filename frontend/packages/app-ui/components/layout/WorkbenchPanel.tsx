@@ -640,7 +640,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			if (!files.length) return;
 
 			if (!isAuthenticated) {
-				openAuthDialog("login");
+				openAuthDialog("phone");
 				return;
 			}
 			void uploadAttachments(files);
@@ -886,7 +886,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			projectTriggerClearRef.current = clearTrigger;
 			projectTriggerDismissRef.current = dismissTrigger;
 			if (!isAuthenticated) {
-				openAuthDialog("login");
+				openAuthDialog("phone");
 				return;
 			}
 			setProjectSearch(query);
@@ -924,8 +924,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					</button> */}
 					{/* <button
 						type="button"
-						onClick={() => {
-							if (!isAuthenticated) openAuthDialog("login");
+							if (!isAuthenticated) openAuthDialog("phone");
 						}}
 						className="rounded-full bg-[#070d1c] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#182033]"
 						disabled={!isHydrated}
@@ -1049,7 +1048,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									onUploadFolder={() => folderInputRef.current?.click()}
 									onBeforeAction={() => {
 										if (!isAuthenticated) {
-											openAuthDialog("login");
+											openAuthDialog("phone");
 											return false;
 										}
 										return true;

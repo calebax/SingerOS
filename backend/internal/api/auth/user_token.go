@@ -13,8 +13,8 @@ const (
 	UserTokenIssuer   = "lework"
 	UserTokenAudience = "user"
 
-	LoginWayEmail = 1
-	LoginWayPhone = 2
+	LoginWayPassword = 1
+	LoginWayPhone    = 2
 )
 
 var (

@@ -26,7 +26,7 @@ const (
 
 var skipAuthPaths = map[string]bool{
 	"/v1/RegisterByEmail":    true,
-	"/v1/LoginByEmail":       true,
+	"/v1/LoginByPassword":    true,
 	"/v1/SendPhoneLoginCode": true,
 	"/v1/LoginByPhoneCode":   true,
 	"/v1/RefreshToken":       true,

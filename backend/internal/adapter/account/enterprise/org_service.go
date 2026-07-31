@@ -184,7 +184,7 @@ func (s *org) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInp
 	items := make([]account.OrgMember, 0, len(resp.Employees))
 	for _, emp := range resp.Employees {
 		items = append(items, account.OrgMember{
-				Uin:       emp.Uin,
+			Uin:       emp.Uin,
 			UserName:  emp.Name,
 			UserPhone: emp.Phone,
 		})

@@ -547,7 +547,7 @@ export function LeftRail({
 
 	const handleProfileClick = () => {
 		if (!isAuthenticated) {
-			openAuthDialog("login");
+			openAuthDialog("phone");
 		}
 	};
 

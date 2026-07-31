@@ -564,3 +564,17 @@ func mapListDepartmentToContract(dept iamDepartmentPayloadWithPaths) account.Dep
 		UpdatedAt: dept.UpdatedAt,
 	}
 }
+
+func mapLoginPasswordToOutput(resp *iamLoginThirdResponseBody) *account.LoginByPasswordOutput {
+	organizations := mapUinListToAuthOrgInfos(resp.Uin)
+	output := &account.LoginByPasswordOutput{
+		UserID:        resp.UserID,
+		RefreshToken:  resp.RefreshToken,
+		Organizations: organizations,
+		LoginWay:      resp.LoginWay,
+	}
+	if resp.UserInfo != nil {
+		output.UserInfo = mapIAMUserInfoToAuthUserInfo(resp.UserInfo)
+	}
+	return output
+}

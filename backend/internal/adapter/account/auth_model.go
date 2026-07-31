@@ -15,9 +15,17 @@ type RegisterByEmailInput struct {
 	Name            string `json:"name,omitempty"`
 }
 
-type LoginByEmailInput struct {
-	Email    string `json:"email"`
+type LoginByPasswordInput struct {
+	Account  string `json:"account"`
 	Password string `json:"password"`
+}
+
+type LoginByPasswordOutput struct {
+	UserID        uint          `json:"user_id"`
+	RefreshToken  string        `json:"refresh_token"`
+	Organizations []AuthOrgInfo `json:"organizations"`
+	UserInfo      AuthUserInfo  `json:"user_info"`
+	LoginWay      int           `json:"login_way"`
 }
 
 type SendPhoneLoginCodeInput struct {

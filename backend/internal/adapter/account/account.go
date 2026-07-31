@@ -8,7 +8,7 @@ import (
 
 type AuthProvider interface {
 	RegisterByEmail(ctx context.Context, req *RegisterByEmailInput) (*AuthTokens, error)
-	LoginByEmail(ctx context.Context, req *LoginByEmailInput) (*AuthTokens, error)
+	LoginByPassword(ctx context.Context, req *LoginByPasswordInput) (*LoginByPasswordOutput, error)
 	SendPhoneLoginCode(ctx context.Context, req *SendPhoneLoginCodeInput) (*SendPhoneLoginCodeOutput, error)
 	LoginByPhoneCode(ctx context.Context, req *LoginByPhoneCodeInput) (*AuthTokens, error)
 	RefreshToken(ctx context.Context, req *RefreshTokenInput) (*AuthTokens, error)

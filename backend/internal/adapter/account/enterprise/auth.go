@@ -57,10 +57,10 @@ func (s *auth) RegisterByEmail(ctx context.Context, req *account.RegisterByEmail
 	return mapLoginThirdToAuthTokenResponse(&resp)
 }
 
-func (s *auth) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput) (*account.AuthTokens, error) {
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if email == "" {
-		return nil, accounterror.ErrEmailRequired
+func (s *auth) LoginByPassword(ctx context.Context, req *account.LoginByPasswordInput) (*account.LoginByPasswordOutput, error) {
+	accountStr := strings.TrimSpace(req.Account)
+	if accountStr == "" {
+		return nil, accounterror.ErrAccountRequired
 	}
 	if strings.TrimSpace(req.Password) == "" {
 		return nil, accounterror.ErrPasswordRequired
@@ -68,21 +68,16 @@ func (s *auth) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput)
 
 	var resp iamLoginThirdResponseBody
 	if err := s.client.call(ctx, "account.LoginByPassword", &iamLoginByPasswordReq{
-		Account:    email,
+		Account:    accountStr,
 		Password:   req.Password,
 		DomainName: domainName(s.iamCfg),
 	}, &resp); err != nil {
 		return nil, mapIAMError(err)
 	}
 	if resp.LoginStatus != "success" {
-		return nil, accounterror.ErrInvalidEmailOrPassword
+		return nil, accounterror.ErrInvalidAccountOrPassword
 	}
-	result, err := mapLoginThirdToAuthTokenResponse(&resp)
-	if err != nil {
-		return nil, err
-	}
-	result.Edition = account.EditionEnterprise
-	return result, nil
+	return mapLoginPasswordToOutput(&resp), nil
 }
 
 func (s *auth) SendPhoneLoginCode(ctx context.Context, req *account.SendPhoneLoginCodeInput) (*account.SendPhoneLoginCodeOutput, error) {
