@@ -39,8 +39,8 @@ func RegisterGlobalRoutes(r gin.IRouter, edition adapter.Edition, cfg *config.Co
 // @Router /GlobalConfig [get]
 func (h *GlobalHandler) GetGlobalConfig(ctx *gin.Context) {
 	phoneCodeLoginEnabled := true
-	if h.cfg.Auth != nil {
-		phoneCodeLoginEnabled = h.cfg.Auth.PhoneCodeLoginEnabled
+	if h.cfg.Auth != nil && h.cfg.Auth.PhoneCodeLoginEnabled != nil {
+		phoneCodeLoginEnabled = *h.cfg.Auth.PhoneCodeLoginEnabled
 	}
 	ctx.JSON(http.StatusOK, dto.Success(dto.GlobalConfigData{
 		Edition:               h.edition.Edition(),
