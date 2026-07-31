@@ -135,5 +135,5 @@ type GiteaConfig struct {
 type IAMConfig struct {
 	BaseURL               string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
 	DomainName            string `yaml:"domain_name,omitempty" json:"domain_name,omitempty"`
-	PhoneCodeLoginEnabled bool   `yaml:"phone_code_login_enabled,omitempty" json:"phone_code_login_enabled,omitempty"`
+	PhoneCodeLoginEnabled *bool  `yaml:"phone_code_login_enabled,omitempty" json:"phone_code_login_enabled,omitempty"`
 }
