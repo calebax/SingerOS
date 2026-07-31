@@ -87,6 +87,8 @@ const (
 	TableNameProjectPluginBinding = tablenamePrefix + "project_plugin_binding"
 	// TableNamePluginMarketplaceItem 系统插件市场目录表名
 	TableNamePluginMarketplaceItem = tablenamePrefix + "plugin_marketplace_item"
+	// TableNameMCPChannel 系统 MCP 渠道配置表名
+	TableNameMCPChannel = tablenamePrefix + "mcp_channel"
 
 	// TableNameMessageResource 消息资源关联表名
 	TableNameMessageResource = tablenamePrefix + "message_resource"

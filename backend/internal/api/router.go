@@ -174,14 +174,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterUserRoutes(authed, userService)
 		logs.Info("User routes registered successfully")
 
-		authBaseURL := ""
-		if cfg.Auth != nil {
-			authBaseURL = cfg.Auth.BaseURL
-		}
 		pluginService := service.NewPluginServiceWithAPIKeyIssuer(
 			db,
 			edition.APIKeyIssuer(),
-			authBaseURL,
 		)
 		handler.RegisterPluginRoutes(authed, pluginService)
 		logs.Info("Plugin repository routes registered successfully")

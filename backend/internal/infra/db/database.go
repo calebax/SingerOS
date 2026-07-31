@@ -175,6 +175,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.PluginRevisionContent{},
 		&types.ProjectPluginBinding{},
 		&types.PluginMarketplaceItem{},
+		&types.MCPChannel{},
 		&types.MessageResource{},
 		&types.Department{},
 		&types.MemberDepartment{},

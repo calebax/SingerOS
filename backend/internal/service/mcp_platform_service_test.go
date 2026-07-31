@@ -6,9 +6,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/types"
 	mcpsdk "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -27,6 +30,23 @@ func (i *mcpPlatformAPIKeyIssuer) CreateAPIKey(
 	return &account.CreatedAPIKey{ID: 9, APIKey: "yg-corekg-test"}, nil
 }
 
+func createTestMCPChannel(t *testing.T, database *gorm.DB, url string) *types.MCPChannel {
+	t.Helper()
+	channel := &types.MCPChannel{
+		Channel:     coreKGPlatformCode,
+		Name:        "CoreKG",
+		Description: "CoreKG configured from database",
+		Transport:   "http",
+		URL:         url,
+		Headers:     types.MCPChannelHeaders{"X-CoreKG-Channel": "database"},
+		Status:      types.MCPChannelStatusActive,
+	}
+	if err := database.Create(channel).Error; err != nil {
+		t.Fatalf("create MCP channel: %v", err)
+	}
+	return channel
+}
+
 func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 	server := mcpserver.NewMCPServer("corekg-test", "1.0.0")
 	server.AddTool(
@@ -41,13 +61,18 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if req.Header.Get("X-CoreKG-Channel") != "database" {
+			http.Error(w, "missing configured header", http.StatusBadRequest)
+			return
+		}
 		streamableServer.ServeHTTP(w, req)
 	}))
 	defer httpServer.Close()
 
 	database := setupPluginServiceTestDB(t)
+	channel := createTestMCPChannel(t, database, httpServer.URL)
 	issuer := &mcpPlatformAPIKeyIssuer{}
-	service := &pluginService{db: database, apiKeyIssuer: issuer, coreKGMCPURL: httpServer.URL}
+	service := &pluginService{db: database, apiKeyIssuer: issuer}
 
 	before, err := service.ListMCPPlatforms(context.Background(), 10, 20)
 	if err != nil {
@@ -55,6 +80,10 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 	}
 	if len(before.Platforms) != 1 || before.Platforms[0].Connected || !before.Platforms[0].AutoConnectSupported {
 		t.Fatalf("platform before connect = %#v", before.Platforms)
+	}
+	if before.Platforms[0].Name != "CoreKG" ||
+		before.Platforms[0].Description != "CoreKG configured from database" {
+		t.Fatalf("platform metadata = %#v", before.Platforms[0])
 	}
 
 	connected, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "corekg")
@@ -73,12 +102,21 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 		t.Fatalf("issuer calls/input = %d/%#v", issuer.calls, issuer.input)
 	}
 
+	if err := database.Model(channel).Updates(map[string]interface{}{
+		"name": "CoreKG Updated",
+		"url":  "https://new.example.com/mcp",
+	}).Error; err != nil {
+		t.Fatalf("update MCP channel: %v", err)
+	}
 	repeated, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "COREKG")
 	if err != nil {
 		t.Fatalf("repeated ConnectMCPPlatform() error = %v", err)
 	}
 	if repeated.Plugin.PublicID != connected.Plugin.PublicID || issuer.calls != 1 {
 		t.Fatalf("repeated response/calls = %#v/%d", repeated, issuer.calls)
+	}
+	if repeated.Platform.Name != "CoreKG Updated" {
+		t.Fatalf("repeated platform metadata = %#v", repeated.Platform)
 	}
 
 	plugin, err := infradb.GetPluginByPublicID(context.Background(), database, 10, connected.Plugin.PublicID)
@@ -95,7 +133,8 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 	}
 	if definition.Provider != "corekg" ||
 		definition.URL != httpServer.URL ||
-		definition.BearerToken != "yg-corekg-test" {
+		definition.BearerToken != "yg-corekg-test" ||
+		definition.Headers["X-CoreKG-Channel"] != "database" {
 		t.Fatalf("CoreKG definition = %#v", definition)
 	}
 
@@ -123,10 +162,11 @@ func TestMCPListEnsuresCoreKGConnection(t *testing.T) {
 	defer httpServer.Close()
 
 	issuer := &mcpPlatformAPIKeyIssuer{}
+	database := setupPluginServiceTestDB(t)
+	createTestMCPChannel(t, database, httpServer.URL)
 	service := &pluginService{
-		db:           setupPluginServiceTestDB(t),
+		db:           database,
 		apiKeyIssuer: issuer,
-		coreKGMCPURL: httpServer.URL,
 	}
 	request := &contract.ListPluginsRequest{Kind: "mcp", Status: "active"}
 	first, err := service.ListPlugins(context.Background(), 10, 20, request)
@@ -146,7 +186,9 @@ func TestMCPListEnsuresCoreKGConnection(t *testing.T) {
 }
 
 func TestCoreKGMCPPlatformIsUnavailableWithoutIAMIssuer(t *testing.T) {
-	service := NewPluginService(setupPluginServiceTestDB(t))
+	database := setupPluginServiceTestDB(t)
+	createTestMCPChannel(t, database, "https://example.com/mcp")
+	service := NewPluginService(database)
 	platforms, err := service.ListMCPPlatforms(context.Background(), 10, 20)
 	if err != nil {
 		t.Fatalf("ListMCPPlatforms() error = %v", err)
@@ -159,20 +201,45 @@ func TestCoreKGMCPPlatformIsUnavailableWithoutIAMIssuer(t *testing.T) {
 	}
 }
 
-func TestCoreKGMCPURLUsesConfiguredAuthBase(t *testing.T) {
-	for name, testCase := range map[string]struct {
-		baseURL string
-		want    string
-	}{
-		"plain":    {baseURL: "https://tapi.yygu.cn", want: "https://tapi.yygu.cn/v3/keapi/mcp"},
-		"trailing": {baseURL: "https://tapi.yygu.cn/", want: "https://tapi.yygu.cn/v3/keapi/mcp"},
-		"empty":    {baseURL: " ", want: ""},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := coreKGMCPURLFromAuthBase(testCase.baseURL); got != testCase.want {
-				t.Fatalf("coreKGMCPURLFromAuthBase(%q) = %q, want %q", testCase.baseURL, got, testCase.want)
-			}
-		})
+func TestMCPPlatformsSkipMissingInactiveAndInvalidChannels(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	service := &pluginService{db: database, apiKeyIssuer: &mcpPlatformAPIKeyIssuer{}}
+
+	empty, err := service.ListMCPPlatforms(context.Background(), 10, 20)
+	if err != nil || len(empty.Platforms) != 0 {
+		t.Fatalf("empty platforms/error = %#v/%v", empty, err)
+	}
+	if err := database.Create(&types.MCPChannel{
+		Channel: "other", Name: "Other", Transport: "http", URL: "https://example.com/mcp",
+		Status: types.MCPChannelStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("create unknown channel: %v", err)
+	}
+	coreKG := &types.MCPChannel{
+		Channel: coreKGPlatformCode, Name: "CoreKG", Transport: "http", URL: "https://example.com/mcp",
+		Headers: types.MCPChannelHeaders{"Authorization": "must-not-be-stored"},
+		Status:  types.MCPChannelStatusActive,
+	}
+	if err := database.Create(coreKG).Error; err != nil {
+		t.Fatalf("create invalid CoreKG channel: %v", err)
+	}
+	skipped, err := service.ListMCPPlatforms(context.Background(), 10, 20)
+	if err != nil || len(skipped.Platforms) != 0 {
+		t.Fatalf("skipped platforms/error = %#v/%v", skipped, err)
+	}
+	if _, err := service.ListPlugins(
+		context.Background(),
+		10,
+		20,
+		&contract.ListPluginsRequest{Kind: "mcp", Status: "active"},
+	); err != nil {
+		t.Fatalf("invalid channel must not break plugin list: %v", err)
+	}
+	if err := database.Model(coreKG).Update("status", types.MCPChannelStatusInactive).Error; err != nil {
+		t.Fatalf("deactivate CoreKG channel: %v", err)
+	}
+	if _, err := service.ConnectMCPPlatform(context.Background(), 10, 20, coreKGPlatformCode); err == nil {
+		t.Fatal("ConnectMCPPlatform() expected inactive configuration error")
 	}
 }
 
