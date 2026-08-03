@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,7 @@ func RegisterPluginRoutes(r gin.IRouter, service contract.PluginService) {
 // RegisterPluginOAuthCallbackRoutes registers callbacks that must remain reachable before login completes.
 func RegisterPluginOAuthCallbackRoutes(r gin.IRouter, service contract.PluginService) {
 	r.GET("/plugins/mcp/oauth/:platform_code/callback", completeMCPPlatformOAuth(service))
+	r.GET("/plugins/callback", pluginCallback())
 }
 
 func startMCPPlatformOAuth(service contract.PluginService) gin.HandlerFunc {
@@ -72,27 +74,71 @@ func getMCPPlatformOAuthStatus(service contract.PluginService) gin.HandlerFunc {
 
 func completeMCPPlatformOAuth(service contract.PluginService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		platformCode := strings.TrimSpace(ctx.Param("platform_code"))
 		result, err := service.CompleteMCPPlatformOAuth(
 			ctx,
-			strings.TrimSpace(ctx.Param("platform_code")),
+			platformCode,
 			strings.TrimSpace(ctx.Query("state")),
 			strings.TrimSpace(ctx.Query("code")),
 			strings.TrimSpace(ctx.Query("error")),
 		)
-		ctx.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
-		ctx.Header("Referrer-Policy", "no-referrer")
-		ctx.Header("Cache-Control", "no-store")
-		if err != nil || result == nil || !result.Connected {
-			ctx.Data(http.StatusBadRequest, "text/html; charset=utf-8", []byte(oauthCallbackFailureHTML))
-			return
+		setPluginCallbackSecurityHeaders(ctx)
+		resultCode := pluginCallbackResultFailed
+		if err == nil && result != nil && result.Connected {
+			resultCode = pluginCallbackResultSuccess
 		}
-		ctx.Data(http.StatusOK, "text/html; charset=utf-8", []byte(oauthCallbackSuccessHTML))
+		ctx.Redirect(http.StatusSeeOther, pluginCallbackURL(platformCode, resultCode))
 	}
 }
 
-const oauthCallbackSuccessHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>授权成功</title><style>body{font-family:system-ui;margin:4rem;text-align:center;color:#202124}</style><h1>授权成功</h1><p>可以关闭此窗口，返回 Lework。</p></html>`
+const (
+	pluginCallbackFlowMCPOAuth = "mcp_oauth"
 
-const oauthCallbackFailureHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>授权未完成</title><style>body{font-family:system-ui;margin:4rem;text-align:center;color:#202124}</style><h1>授权未完成</h1><p>请关闭此窗口后，在 Lework 中重新连接。</p></html>`
+	pluginCallbackResultSuccess = "success"
+	pluginCallbackResultFailed  = "failed"
+)
+
+func pluginCallback() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		setPluginCallbackSecurityHeaders(ctx)
+		flow := strings.TrimSpace(ctx.Query("flow"))
+		pluginCode := strings.TrimSpace(ctx.Query("plugin"))
+		result := strings.TrimSpace(ctx.Query("result"))
+		if flow != pluginCallbackFlowMCPOAuth || pluginCode == "" {
+			ctx.Data(http.StatusBadRequest, "text/html; charset=utf-8", []byte(pluginCallbackInvalidHTML))
+			return
+		}
+		switch result {
+		case pluginCallbackResultSuccess:
+			ctx.Data(http.StatusOK, "text/html; charset=utf-8", []byte(pluginCallbackSuccessHTML))
+		case pluginCallbackResultFailed:
+			ctx.Data(http.StatusOK, "text/html; charset=utf-8", []byte(pluginCallbackFailureHTML))
+		default:
+			ctx.Data(http.StatusBadRequest, "text/html; charset=utf-8", []byte(pluginCallbackInvalidHTML))
+		}
+	}
+}
+
+func pluginCallbackURL(platformCode, result string) string {
+	query := url.Values{
+		"flow":   {pluginCallbackFlowMCPOAuth},
+		"plugin": {platformCode},
+		"result": {result},
+	}
+	return "/v1/plugins/callback?" + query.Encode()
+}
+
+func setPluginCallbackSecurityHeaders(ctx *gin.Context) {
+	ctx.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	ctx.Header("Referrer-Policy", "no-referrer")
+	ctx.Header("Cache-Control", "no-store")
+}
+
+const pluginCallbackSuccessHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>连接成功</title><style>body{font-family:system-ui;margin:4rem;text-align:center;color:#202124}</style><h1>连接成功</h1><p>可以关闭此窗口，返回 Lework。</p></html>`
+
+const pluginCallbackFailureHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>连接未完成</title><style>body{font-family:system-ui;margin:4rem;text-align:center;color:#202124}</style><h1>连接未完成</h1><p>请关闭此窗口后，在 Lework 中重新连接。</p></html>`
+
+const pluginCallbackInvalidHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>请求无效</title><style>body{font-family:system-ui;margin:4rem;text-align:center;color:#202124}</style><h1>请求无效</h1><p>请关闭此窗口后重新发起连接。</p></html>`
 
 func listMCPPlatforms(service contract.PluginService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {

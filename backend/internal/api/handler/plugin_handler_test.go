@@ -17,27 +17,29 @@ import (
 )
 
 type pluginHandlerTestService struct {
-	listOrgID          uint
-	listUin            uint
-	statusOrgID        uint
-	statusUin          uint
-	statusKind         string
-	statusCode         string
-	downloadOrgID      uint
-	downloadCallerKind types.CallerKind
-	downloadCallerID   uint
-	mcpOrgID           uint
-	mcpUin             uint
-	mcpPluginID        string
-	mcpConfig          contract.MCPPluginConfig
-	mcpTestURL         string
-	platformOrgID      uint
-	platformUin        uint
-	platformCode       string
-	platformAuthValues map[string]string
-	oauthAttemptID     string
-	oauthState         string
-	oauthCode          string
+	listOrgID           uint
+	listUin             uint
+	statusOrgID         uint
+	statusUin           uint
+	statusKind          string
+	statusCode          string
+	downloadOrgID       uint
+	downloadCallerKind  types.CallerKind
+	downloadCallerID    uint
+	mcpOrgID            uint
+	mcpUin              uint
+	mcpPluginID         string
+	mcpConfig           contract.MCPPluginConfig
+	mcpTestURL          string
+	platformOrgID       uint
+	platformUin         uint
+	platformCode        string
+	platformAuthValues  map[string]string
+	oauthAttemptID      string
+	oauthState          string
+	oauthCode           string
+	oauthCompleteResult *contract.MCPPlatformOAuthStatusResponse
+	oauthCompleteErr    error
 }
 
 func (s *pluginHandlerTestService) ListPlugins(_ context.Context, orgID, uin uint, req *contract.ListPluginsRequest) (*contract.ListPluginsResponse, error) {
@@ -155,6 +157,9 @@ func (s *pluginHandlerTestService) CompleteMCPPlatformOAuth(
 	_ string,
 ) (*contract.MCPPlatformOAuthStatusResponse, error) {
 	s.platformCode, s.oauthState, s.oauthCode = platformCode, state, code
+	if s.oauthCompleteResult != nil || s.oauthCompleteErr != nil {
+		return s.oauthCompleteResult, s.oauthCompleteErr
+	}
 	return &contract.MCPPlatformOAuthStatusResponse{Status: "active", Connected: true}, nil
 }
 
@@ -293,7 +298,7 @@ func TestPluginMCPPlatformOAuthRoutesPassCallerIdentity(t *testing.T) {
 	}
 }
 
-func TestPluginMCPPlatformOAuthCallbackReturnsSafeStaticPage(t *testing.T) {
+func TestPluginMCPPlatformOAuthCallbackRedirectsToUnifiedSafePage(t *testing.T) {
 	service := &pluginHandlerTestService{}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -307,7 +312,7 @@ func TestPluginMCPPlatformOAuthCallbackReturnsSafeStaticPage(t *testing.T) {
 			nil,
 		),
 	)
-	if recorder.Code != http.StatusOK || service.platformCode != "baidu-netdisk" ||
+	if recorder.Code != http.StatusSeeOther || service.platformCode != "baidu-netdisk" ||
 		service.oauthState != "plugin.secret-state" || service.oauthCode != "provider-code" {
 		t.Fatalf(
 			"callback status/platform/state/code = %d/%q/%q/%q",
@@ -317,17 +322,93 @@ func TestPluginMCPPlatformOAuthCallbackReturnsSafeStaticPage(t *testing.T) {
 			service.oauthCode,
 		)
 	}
-	if strings.Contains(recorder.Body.String(), "secret-state") ||
-		strings.Contains(recorder.Body.String(), "provider-code") {
-		t.Fatalf("callback page leaked query values: %s", recorder.Body.String())
+	location := recorder.Header().Get("Location")
+	if location != "/v1/plugins/callback?flow=mcp_oauth&plugin=baidu-netdisk&result=success" {
+		t.Fatalf("callback redirect = %q", location)
 	}
-	if !strings.Contains(recorder.Body.String(), "返回 Lework") ||
-		strings.Contains(recorder.Body.String(), "SingerOS") {
-		t.Fatalf("callback page uses unexpected product name: %s", recorder.Body.String())
+	if strings.Contains(location, "secret-state") || strings.Contains(location, "provider-code") {
+		t.Fatalf("callback redirect leaked OAuth query values: %s", location)
 	}
 	if recorder.Header().Get("Referrer-Policy") != "no-referrer" ||
-		recorder.Header().Get("Cache-Control") != "no-store" {
+		recorder.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(recorder.Header().Get("Content-Security-Policy"), "default-src 'none'") {
 		t.Fatalf("callback security headers = %#v", recorder.Header())
+	}
+}
+
+func TestPluginMCPPlatformOAuthCallbackRedirectsFailuresWithoutLeakingOAuthValues(t *testing.T) {
+	service := &pluginHandlerTestService{oauthCompleteErr: contract.ErrPluginNotFound}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterPluginOAuthCallbackRoutes(router, service)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		recorder,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/plugins/mcp/oauth/baidu-netdisk/callback?state=plugin.secret-state&code=provider-code&error=provider-error",
+			nil,
+		),
+	)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("callback status = %d, want %d", recorder.Code, http.StatusSeeOther)
+	}
+	location := recorder.Header().Get("Location")
+	if location != "/v1/plugins/callback?flow=mcp_oauth&plugin=baidu-netdisk&result=failed" {
+		t.Fatalf("callback redirect = %q", location)
+	}
+	for _, secret := range []string{"secret-state", "provider-code", "provider-error"} {
+		if strings.Contains(location, secret) {
+			t.Fatalf("callback redirect leaked %q: %s", secret, location)
+		}
+	}
+	if recorder.Header().Get("Referrer-Policy") != "no-referrer" ||
+		recorder.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(recorder.Header().Get("Content-Security-Policy"), "default-src 'none'") {
+		t.Fatalf("callback security headers = %#v", recorder.Header())
+	}
+}
+
+func TestPluginCallbackRendersValidatedSafeResultPages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterPluginOAuthCallbackRoutes(router, &pluginHandlerTestService{})
+
+	for _, test := range []struct {
+		name   string
+		path   string
+		status int
+		body   string
+	}{
+		{
+			name: "success", path: "/plugins/callback?flow=mcp_oauth&plugin=baidu-netdisk&result=success",
+			status: http.StatusOK, body: "连接成功",
+		},
+		{
+			name: "failed", path: "/plugins/callback?flow=mcp_oauth&plugin=baidu-netdisk&result=failed",
+			status: http.StatusOK, body: "连接未完成",
+		},
+		{
+			name: "missing plugin", path: "/plugins/callback?flow=mcp_oauth&result=success",
+			status: http.StatusBadRequest, body: "请求无效",
+		},
+		{
+			name: "invalid result", path: "/plugins/callback?flow=mcp_oauth&plugin=baidu-netdisk&result=active",
+			status: http.StatusBadRequest, body: "请求无效",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if recorder.Code != test.status || !strings.Contains(recorder.Body.String(), test.body) {
+				t.Fatalf("callback response = %d %q", recorder.Code, recorder.Body.String())
+			}
+			if recorder.Header().Get("Referrer-Policy") != "no-referrer" ||
+				recorder.Header().Get("Cache-Control") != "no-store" ||
+				!strings.Contains(recorder.Header().Get("Content-Security-Policy"), "default-src 'none'") {
+				t.Fatalf("callback security headers = %#v", recorder.Header())
+			}
+		})
 	}
 }
 
