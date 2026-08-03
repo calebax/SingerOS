@@ -56,12 +56,19 @@ func TestEmailConnectorTemplateConnectAndResolveSkill(t *testing.T) {
 		"Mail connector",
 		"Use the injected mail credentials.",
 	)
+	writeBuiltinSkillTestFiles(
+		t,
+		sourceDir,
+		"connector-baidu-netdisk",
+		"Baidu Netdisk connector",
+		"Use the Baidu Netdisk connector.",
+	)
 
 	report, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir)
 	if err != nil {
 		t.Fatalf("sync connector templates: %v", err)
 	}
-	if report.Scanned != 1 || report.Created != 1 || len(report.Failures) != 0 {
+	if report.Scanned != 2 || report.Created != 2 || len(report.Failures) != 0 {
 		t.Fatalf("sync report = %#v", report)
 	}
 
@@ -149,6 +156,13 @@ func TestEmailConnectorRequiresEveryAuthorizationField(t *testing.T) {
 	setupPluginServiceTestStorage(t)
 	sourceDir := t.TempDir()
 	writeBuiltinSkillTestFiles(t, sourceDir, "connector-netease-mail", "Mail connector", "Mail.")
+	writeBuiltinSkillTestFiles(
+		t,
+		sourceDir,
+		"connector-baidu-netdisk",
+		"Baidu Netdisk connector",
+		"Use the Baidu Netdisk connector.",
+	)
 	if _, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir); err != nil {
 		t.Fatalf("sync connector templates: %v", err)
 	}
@@ -164,5 +178,77 @@ func TestEmailConnectorRequiresEveryAuthorizationField(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("connect email platform expected missing authorization code error")
+	}
+}
+
+func TestInactiveBaiduNetdiskTemplateIsPublishedBeforeActivation(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	sourceDir := t.TempDir()
+	writeBuiltinSkillTestFiles(t, sourceDir, "connector-netease-mail", "Mail connector", "Mail.")
+	writeBuiltinSkillTestFiles(
+		t,
+		sourceDir,
+		"connector-baidu-netdisk",
+		"Baidu Netdisk connector",
+		"Use the Baidu Netdisk connector.",
+	)
+
+	report, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir)
+	if err != nil || report.Scanned != 2 || report.Created != 2 || len(report.Failures) != 0 {
+		t.Fatalf("sync report = %#v, %v", report, err)
+	}
+	var channel types.MCPChannel
+	if err := database.Where("channel = ?", baiduNetdiskPlatformCode).First(&channel).Error; err != nil {
+		t.Fatalf("load Baidu Netdisk channel: %v", err)
+	}
+	if channel.Status != types.MCPChannelStatusInactive {
+		t.Fatalf("Baidu Netdisk channel status = %q", channel.Status)
+	}
+	template, err := infradb.GetSystemPluginByCode(
+		context.Background(), database, "mcp", baiduNetdiskPlatformCode,
+	)
+	if err != nil || template == nil || template.CurrentRevision != 1 {
+		t.Fatalf("Baidu Netdisk template = %#v, %v", template, err)
+	}
+	secondReport, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir)
+	if err != nil || secondReport.Scanned != 2 || secondReport.Unchanged != 2 ||
+		secondReport.Created != 0 || len(secondReport.Failures) != 0 {
+		t.Fatalf("second sync report = %#v, %v", secondReport, err)
+	}
+	if err := database.First(template, template.ID).Error; err != nil || template.CurrentRevision != 1 {
+		t.Fatalf("Baidu Netdisk template revision after second sync = %d, %v", template.CurrentRevision, err)
+	}
+
+	pluginService := &pluginService{db: database}
+	platforms, err := pluginService.ListMCPPlatforms(context.Background(), 7, 9)
+	if err != nil {
+		t.Fatalf("list MCP platforms: %v", err)
+	}
+	for _, platform := range platforms.Platforms {
+		if platform.Code == baiduNetdiskPlatformCode {
+			t.Fatal("inactive Baidu Netdisk channel was exposed")
+		}
+	}
+
+	config := types.MCPChannelAuthConfig(channel.AuthConfig)
+	config.OAuth = &types.MCPChannelOAuthConfig{
+		AppKey: "app-key", SecretKey: "secret-key",
+		RedirectURI: "https://leros.example.com/v1/plugins/mcp/oauth/baidu-netdisk/callback",
+		Scopes:      []string{"basic", "netdisk"},
+	}
+	if err := database.Model(&types.MCPChannel{}).
+		Where("channel = ?", baiduNetdiskPlatformCode).
+		Updates(map[string]any{
+			"auth_config": types.MCPChannelAuthConfigJSON(config),
+			"status":      types.MCPChannelStatusActive,
+		}).Error; err != nil {
+		t.Fatalf("activate Baidu Netdisk channel: %v", err)
+	}
+	started, err := pluginService.StartMCPPlatformOAuth(
+		context.Background(), 7, 9, baiduNetdiskPlatformCode,
+	)
+	if err != nil || started == nil || started.AuthorizationURL == "" {
+		t.Fatalf("start Baidu Netdisk OAuth = %#v, %v", started, err)
 	}
 }
