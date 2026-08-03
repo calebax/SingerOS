@@ -20,7 +20,7 @@ export interface ListPluginsResponse {
 export interface GetPluginResponse {
 	plugin: PluginListItem;
 	content: PluginRevisionContent | null;
-	definition?: MCPPluginDefinition;
+	definition?: MCPPluginDefinition | ConnectorPluginDefinition;
 }
 
 export type MCPTransport = "http" | "stdio";
@@ -36,6 +36,12 @@ export interface MCPPluginDefinition {
 	command?: string;
 	args?: string[];
 	env?: Record<string, string>;
+}
+
+export interface ConnectorPluginDefinition {
+	schema: "connector/v1";
+	channel: string;
+	mode: "skill_only" | "mcp_only" | "hybrid";
 }
 
 export interface MCPPluginConfig {
@@ -67,9 +73,32 @@ export interface MCPPlatform {
 	code: string;
 	name: string;
 	description: string;
+	mode: "skill_only" | "mcp_only" | "hybrid";
+	auth_type: "none" | "form" | "oauth" | "managed";
+	auth_fields?: MCPPlatformAuthField[];
 	auto_connect_supported: boolean;
 	connected: boolean;
+	authorization_status?:
+		| "disconnected"
+		| "pending"
+		| "exchanging"
+		| "active"
+		| "failed"
+		| "reauthorization_required";
 	plugin_id?: string;
+}
+
+export interface MCPPlatformAuthField {
+	key: string;
+	label: string;
+	type: "text" | "password";
+	required: boolean;
+	placeholder?: string;
+	description?: string;
+}
+
+export interface ConnectMCPPlatformParams {
+	auth_values?: Record<string, string>;
 }
 
 export interface ListMCPPlatformsResponse {
@@ -80,6 +109,21 @@ export interface ConnectMCPPlatformResponse {
 	platform: MCPPlatform;
 	plugin: PluginListItem;
 	tool_count: number;
+}
+
+export interface StartMCPPlatformOAuthResponse {
+	attempt_id: string;
+	authorization_url: string;
+	expires_at: string;
+}
+
+export interface MCPPlatformOAuthStatusResponse {
+	attempt_id: string;
+	status: NonNullable<MCPPlatform["authorization_status"]>;
+	plugin_id?: string;
+	display_name?: string;
+	error_code?: string;
+	connected: boolean;
 }
 
 export interface GetPluginInstallationStatusParams {
@@ -261,9 +305,19 @@ export const pluginApi = {
 		apiClient.post<BackendDataResponse<TestMCPPluginResponse>>("/plugins/mcp/test", params),
 	listMCPPlatforms: () =>
 		apiClient.get<BackendDataResponse<ListMCPPlatformsResponse>>("/plugins/mcp/platforms"),
-	connectMCPPlatform: (platformCode: string) =>
+	connectMCPPlatform: (platformCode: string, params: ConnectMCPPlatformParams = {}) =>
 		apiClient.post<BackendDataResponse<ConnectMCPPlatformResponse>>(
 			`/plugins/mcp/platforms/${platformCode}/connect`,
+			params,
+		),
+	startMCPPlatformOAuth: (platformCode: string) =>
+		apiClient.post<BackendDataResponse<StartMCPPlatformOAuthResponse>>(
+			`/plugins/mcp/platforms/${platformCode}/oauth/start`,
+		),
+	getMCPPlatformOAuthStatus: (platformCode: string, attemptID: string) =>
+		apiClient.get<BackendDataResponse<MCPPlatformOAuthStatusResponse>>(
+			`/plugins/mcp/platforms/${platformCode}/oauth/status`,
+			{ params: { attempt_id: attemptID } },
 		),
 	listProject: (params: ListProjectPluginsParams) =>
 		apiClient.post<BackendDataResponse<ProjectPluginItem[]>>("/ListProjectPlugins", params),

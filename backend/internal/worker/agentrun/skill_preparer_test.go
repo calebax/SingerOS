@@ -32,15 +32,13 @@ func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(systemSkill, "SKILL.md"), []byte("---\nname: review\ndescription: review\n---\nReview.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	downloadURLRequests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		downloadURLRequests++
-	}))
-	defer server.Close()
-	projectRoot := t.TempDir()
-	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "").PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-1", Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/review the document"}}}}, WorkspacePreparation{ProjectRoot: projectRoot})
+	taskDir := t.TempDir()
+	prepared, cleanup, err := NewPluginSkillPreparer("", "").PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-1", Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/review the document"}}}}, WorkspacePreparation{TaskDir: taskDir})
 	if err != nil {
 		t.Fatalf("PrepareSkills() error = %v", err)
+	}
+	if prepared != filepath.Join(taskDir, "skills") {
+		t.Fatalf("prepared Skill directory = %q", prepared)
 	}
 	link := filepath.Join(prepared, "review")
 	info, err := os.Lstat(link)
@@ -54,12 +52,74 @@ func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
 	if _, err := catalog.Get("review"); err != nil {
 		t.Fatalf("project catalog must resolve symlinked skill: %v", err)
 	}
-	if downloadURLRequests != 0 {
-		t.Fatalf("built-in Skill must not request project download URLs, got %d", downloadURLRequests)
-	}
 	cleanup()
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
 		t.Fatalf("expected cleanup to remove run symlink, err=%v", err)
+	}
+	if _, err := os.Stat(prepared); !os.IsNotExist(err) {
+		t.Fatalf("expected cleanup to remove empty task Skill directory, err=%v", err)
+	}
+}
+
+func TestPluginSkillPreparerUsesWorkDirWithoutProjectTask(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	workDir := t.TempDir()
+	prepared, cleanup, err := NewPluginSkillPreparer("", "").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{RunID: "temporary-run"},
+		WorkspacePreparation{WorkDir: workDir},
+	)
+	if err != nil {
+		t.Fatalf("PrepareSkills() error = %v", err)
+	}
+	defer cleanup()
+	if prepared != filepath.Join(workDir, "skills") {
+		t.Fatalf("prepared Skill directory = %q", prepared)
+	}
+}
+
+func TestPluginSkillPreparerResetsOnlyTaskSkillSymlinks(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	taskDir := t.TempDir()
+	viewRoot := filepath.Join(taskDir, "skills")
+	oldSource := t.TempDir()
+	if err := os.MkdirAll(viewRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(oldSource, filepath.Join(viewRoot, "old")); err != nil {
+		t.Fatal(err)
+	}
+	prepared, cleanup, err := NewPluginSkillPreparer("", "").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{RunID: "replacement-run"},
+		WorkspacePreparation{TaskDir: taskDir},
+	)
+	if err != nil {
+		t.Fatalf("PrepareSkills() error = %v", err)
+	}
+	defer cleanup()
+	if prepared != viewRoot {
+		t.Fatalf("prepared Skill directory = %q", prepared)
+	}
+	if _, err := os.Lstat(filepath.Join(viewRoot, "old")); !os.IsNotExist(err) {
+		t.Fatalf("stale task Skill link was not removed: %v", err)
+	}
+
+	manual := filepath.Join(viewRoot, "manual")
+	if err := os.WriteFile(manual, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := NewPluginSkillPreparer("", "").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{RunID: "blocked-run"},
+		WorkspacePreparation{TaskDir: taskDir},
+	); err == nil || !strings.Contains(err.Error(), "refuse to replace non-symlink") {
+		t.Fatalf("PrepareSkills() error = %v", err)
+	}
+	if got, err := os.ReadFile(manual); err != nil || string(got) != "keep" {
+		t.Fatalf("manual task Skill file changed: %q, %v", got, err)
 	}
 }
 
@@ -98,7 +158,7 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 	baseline := &skillBaselineCommitterStub{}
 	preparer := NewPluginSkillPreparerWithBaseline(server.URL, "worker-token", baseline)
 	firstRequest := &agentrundomain.RunRequest{RunID: "run-one", Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 1, firstPackage)}}
-	firstView, firstCleanup, err := preparer.PrepareSkills(context.Background(), firstRequest, WorkspacePreparation{ProjectRoot: t.TempDir()})
+	firstView, firstCleanup, err := preparer.PrepareSkills(context.Background(), firstRequest, WorkspacePreparation{TaskDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("install first skill: %v", err)
 	}
@@ -116,7 +176,7 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 		t.Fatalf("legacy plugin cache must not be created, err=%v", err)
 	}
 
-	_, secondCleanup, err := preparer.PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-two", Plugins: firstRequest.Plugins, Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/xlsx reuse project Skill"}}}}, WorkspacePreparation{ProjectRoot: t.TempDir()})
+	_, secondCleanup, err := preparer.PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-two", Plugins: firstRequest.Plugins, Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/xlsx reuse project Skill"}}}}, WorkspacePreparation{TaskDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("reuse installed skill: %v", err)
 	}
@@ -125,7 +185,7 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 		t.Fatalf("expected matching install to skip requests, urls=%d downloads=%d", downloadURLRequests, packageDownloads)
 	}
 
-	_, thirdCleanup, err := preparer.PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-three", Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 2, secondPackage)}}, WorkspacePreparation{ProjectRoot: t.TempDir()})
+	_, thirdCleanup, err := preparer.PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-three", Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 2, secondPackage)}}, WorkspacePreparation{TaskDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("update installed skill: %v", err)
 	}
@@ -147,6 +207,13 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 		len(baseline.commits[0]) != 1 || baseline.commits[0][0] != "xlsx" ||
 		len(baseline.commits[1]) != 1 || baseline.commits[1][0] != "xlsx" {
 		t.Fatalf("installed Skill baseline commits = %#v", baseline.commits)
+	}
+	firstCleanup()
+	if _, err := os.Stat(skillRoot); err != nil {
+		t.Fatalf("task cleanup removed persistent Skill cache: %v", err)
+	}
+	if _, err := os.Stat(firstView); !os.IsNotExist(err) {
+		t.Fatalf("task cleanup kept first task Skill view: %v", err)
 	}
 }
 
@@ -211,7 +278,7 @@ func TestPluginSkillPreparerRepairsLegacyAndInvalidManifestEntries(t *testing.T)
 			RunID:   "run-invalid",
 			Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 1, packageBytes)},
 		},
-		WorkspacePreparation{ProjectRoot: t.TempDir()},
+		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
 	if err != nil {
@@ -253,7 +320,7 @@ func TestPluginSkillPreparerSkipsUnresolvedSkillWithoutFailingRun(t *testing.T) 
 	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
 		context.Background(),
 		&agentrundomain.RunRequest{RunID: "run-unresolved", Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 1, testSkillPackage(t, "xlsx", "unused"))}},
-		WorkspacePreparation{ProjectRoot: t.TempDir()},
+		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
 	if err != nil {
@@ -294,7 +361,7 @@ func TestPluginSkillPreparerFetchesMissingInvokedSkill(t *testing.T) {
 	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
 		context.Background(),
 		&agentrundomain.RunRequest{RunID: "run-invoked", Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/docx create a report"}}}},
-		WorkspacePreparation{ProjectRoot: t.TempDir()},
+		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
 	if err != nil {
@@ -355,7 +422,7 @@ func TestPluginSkillPreparerRetriesInvokedProjectSkillAfterProjectPreparationFai
 				}},
 			},
 		},
-		WorkspacePreparation{ProjectRoot: t.TempDir()},
+		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
 	if err != nil {
@@ -395,7 +462,7 @@ func TestPluginSkillPreparerReturnsInvokedSkillPreparationError(t *testing.T) {
 				Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/missing do work"}},
 			},
 		},
-		WorkspacePreparation{ProjectRoot: t.TempDir()},
+		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
 	if err == nil || !strings.Contains(err.Error(), `Skill "missing": server returned no download URL`) {

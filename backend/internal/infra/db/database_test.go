@@ -36,6 +36,36 @@ func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
 	}
 }
 
+func TestBackfillMCPChannelAuthorizationMarksCoreKGManaged(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.MCPChannel{}); err != nil {
+		t.Fatalf("migrate MCP channel: %v", err)
+	}
+	channel := &types.MCPChannel{
+		Channel: "corekg", Name: "CoreKG", Transport: "http",
+		URL: "https://example.com/mcp", AuthType: types.MCPChannelAuthTypeNone,
+		Status: types.MCPChannelStatusActive,
+	}
+	if err := database.Create(channel).Error; err != nil {
+		t.Fatalf("create CoreKG channel: %v", err)
+	}
+
+	if err := backfillMCPChannelAuthorization(database); err != nil {
+		t.Fatalf("backfill MCP channel authorization: %v", err)
+	}
+	var updated types.MCPChannel
+	if err := database.First(&updated, channel.ID).Error; err != nil {
+		t.Fatalf("reload CoreKG channel: %v", err)
+	}
+	if updated.AuthType != types.MCPChannelAuthTypeManaged ||
+		types.MCPChannelAuthConfig(updated.AuthConfig).Handler != "corekg" {
+		t.Fatalf("CoreKG authorization = %q %#v", updated.AuthType, updated.AuthConfig)
+	}
+}
+
 func setupVerifyProjectResourceBindingsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

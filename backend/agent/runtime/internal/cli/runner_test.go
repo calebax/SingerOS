@@ -52,6 +52,27 @@ func TestDriverPassesPreparedProviderSession(t *testing.T) {
 	}
 }
 
+func TestDriverPassesRunScopedEnvironment(t *testing.T) {
+	invoker := &fakeInvoker{result: InvocationResult{Message: "done"}}
+	driver := newTestDriver(t, invoker)
+	request := testExecutionRequest()
+	request.ExtraEnv = []string{
+		"NETEASE_EMAIL_USER=user@example.com",
+		"NETEASE_EMAIL_PASS=client-authorization-code",
+	}
+
+	if _, err := driver.RunInvocation(context.Background(), request, nil); err != nil {
+		t.Fatalf("RunInvocation() error = %v", err)
+	}
+	if !reflect.DeepEqual(invoker.request.ExtraEnv, request.ExtraEnv) {
+		t.Fatalf("InvocationRequest ExtraEnv = %#v", invoker.request.ExtraEnv)
+	}
+	request.ExtraEnv[0] = "NETEASE_EMAIL_USER=changed@example.com"
+	if invoker.request.ExtraEnv[0] != "NETEASE_EMAIL_USER=user@example.com" {
+		t.Fatalf("InvocationRequest ExtraEnv shares caller slice: %#v", invoker.request.ExtraEnv)
+	}
+}
+
 func TestDriverMergesRunMCPServersWithoutOverridingBaseline(t *testing.T) {
 	invoker := &fakeInvoker{result: InvocationResult{Message: "done"}}
 	driver, err := NewDriver("fake", invoker, agent.RuntimeAdapterOptions{

@@ -103,6 +103,11 @@ func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 			name = "leros"
 		}
 		if m.URL != "" {
+			if strings.EqualFold(m.Transport, "sse") {
+				command := []string{"npx", "-y", "mcp-remote", m.URL, "--transport", "sse-only"}
+				mcpServers[name] = map[string]any{"type": "local", "command": command}
+				continue
+			}
 			// HTTP 传输 — remote type
 			entry := map[string]any{
 				"type": "remote",

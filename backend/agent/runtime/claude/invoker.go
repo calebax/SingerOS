@@ -32,14 +32,7 @@ func NewInvoker(binary string, extraEnv map[string]string) *Invoker {
 // Invoke starts the CLI process and converts stdout/stderr into node events.
 func (inv *Invoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	args := buildArgs(req)
-	configBase := req.TaskDir
-	if strings.TrimSpace(configBase) == "" {
-		configBase = req.WorkDir
-	}
-	claudeConfigDir := filepath.Join(configBase, ".claude-runtime")
-	if err := cli.ProjectSkillLinks(req.SkillDir, filepath.Join(claudeConfigDir, "skills")); err != nil {
-		return nil, fmt.Errorf("project claude skills: %w", err)
-	}
+	claudeConfigDir := claudeConfigDirFor(req)
 
 	var settingsPath string
 	if sp, err := lerosSettingsPath(req.SessionID); err == nil {
@@ -185,6 +178,10 @@ func (inv *Invoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli
 		Result:    resultChan,
 		Responder: responder,
 	}, nil
+}
+
+func claudeConfigDirFor(req cli.InvocationRequest) string {
+	return cli.TaskRuntimeRoot(req.TaskDir, req.WorkDir)
 }
 
 // scanPlainOutput reads plain text output and converts to events.

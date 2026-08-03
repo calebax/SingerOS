@@ -10,8 +10,11 @@ const {
 	mockPluginGet,
 	mockPluginList,
 	mockPluginListMCPPlatforms,
+	mockPluginGetMCPPlatformOAuthStatus,
+	mockPluginStartMCPPlatformOAuth,
 	mockPluginTestMCP,
 	mockPluginUpdateMCP,
+	mockOpenExternalLink,
 } = vi.hoisted(() => ({
 	mockPluginAddMCP: vi.fn(),
 	mockPluginConnectMCPPlatform: vi.fn(),
@@ -19,8 +22,11 @@ const {
 	mockPluginGet: vi.fn(),
 	mockPluginList: vi.fn(),
 	mockPluginListMCPPlatforms: vi.fn(),
+	mockPluginGetMCPPlatformOAuthStatus: vi.fn(),
+	mockPluginStartMCPPlatformOAuth: vi.fn(),
 	mockPluginTestMCP: vi.fn(),
 	mockPluginUpdateMCP: vi.fn(),
+	mockOpenExternalLink: vi.fn(),
 }));
 
 vi.mock("@leros/store", () => ({
@@ -31,13 +37,22 @@ vi.mock("@leros/store", () => ({
 		get: mockPluginGet,
 		list: mockPluginList,
 		listMCPPlatforms: mockPluginListMCPPlatforms,
+		getMCPPlatformOAuthStatus: mockPluginGetMCPPlatformOAuthStatus,
+		startMCPPlatformOAuth: mockPluginStartMCPPlatformOAuth,
 		testMCP: mockPluginTestMCP,
 		updateMCP: mockPluginUpdateMCP,
 	},
 }));
 
+vi.mock("../../utils/open-external-link", () => ({
+	openExternalLink: mockOpenExternalLink,
+}));
+
 describe("McpConnectorPanel", () => {
-	afterEach(cleanup);
+	afterEach(() => {
+		vi.useRealTimers();
+		cleanup();
+	});
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -109,6 +124,20 @@ describe("McpConnectorPanel", () => {
 					plugin: { public_id: "plugin_corekg" },
 					tool_count: 21,
 				},
+			},
+		});
+		mockPluginStartMCPPlatformOAuth.mockResolvedValue({
+			data: {
+				data: {
+					attempt_id: "oauth_attempt",
+					authorization_url: "https://openapi.baidu.com/oauth/2.0/authorize?state=opaque",
+					expires_at: "2026-08-03T02:10:00Z",
+				},
+			},
+		});
+		mockPluginGetMCPPlatformOAuthStatus.mockResolvedValue({
+			data: {
+				data: { attempt_id: "oauth_attempt", status: "active", connected: true },
 			},
 		});
 		mockPluginDelete.mockResolvedValue({ data: { data: { operation: "deleted" } } });
@@ -267,6 +296,110 @@ describe("McpConnectorPanel", () => {
 		fireEvent.click(await screen.findByRole("button", { name: "管理 未来平台" }));
 		expect(await screen.findByRole("menuitem", { name: "测试连接" })).toBeInTheDocument();
 		expect(screen.getByRole("menuitem", { name: "断开连接" })).toBeInTheDocument();
+	});
+
+	it("connects a Skill-only email platform with schema-driven authorization", async () => {
+		mockPluginListMCPPlatforms.mockResolvedValueOnce({
+			data: {
+				data: {
+					platforms: [
+						{
+							code: "netease-mail",
+							name: "邮箱",
+							description: "通过 IMAP/SMTP 收发邮件",
+							mode: "skill_only",
+							auth_type: "form",
+							auth_fields: [
+								{
+									key: "email",
+									label: "邮箱地址",
+									type: "text",
+									required: true,
+									placeholder: "yourname@163.com",
+								},
+								{
+									key: "authorization_code",
+									label: "IMAP/SMTP 授权码",
+									type: "password",
+									required: true,
+								},
+							],
+							auto_connect_supported: true,
+							connected: false,
+						},
+					],
+				},
+			},
+		});
+		mockPluginConnectMCPPlatform.mockResolvedValueOnce({
+			data: {
+				data: {
+					platform: { code: "netease-mail", connected: true },
+					plugin: { public_id: "plugin_mail" },
+					tool_count: 0,
+				},
+			},
+		});
+		render(<McpConnectorPanel />);
+
+		fireEvent.click(await screen.findByRole("button", { name: "连接 邮箱" }));
+		expect(screen.getByRole("heading", { name: "连接 邮箱" })).toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("邮箱地址"), {
+			target: { value: "user@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("IMAP/SMTP 授权码"), {
+			target: { value: "client-authorization-code" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "连接" }));
+
+		await waitFor(() =>
+			expect(mockPluginConnectMCPPlatform).toHaveBeenCalledWith("netease-mail", {
+				auth_values: {
+					email: "user@example.com",
+					authorization_code: "client-authorization-code",
+				},
+			}),
+		);
+	});
+
+	it("opens Baidu OAuth externally and polls until the connector is active", async () => {
+		mockPluginListMCPPlatforms.mockResolvedValueOnce({
+			data: {
+				data: {
+					platforms: [
+						{
+							code: "baidu-netdisk",
+							name: "百度网盘",
+							description: "通过百度网盘 MCP 管理文件",
+							mode: "hybrid",
+							auth_type: "oauth",
+							auto_connect_supported: true,
+							connected: false,
+							authorization_status: "disconnected",
+						},
+					],
+				},
+			},
+		});
+		render(<McpConnectorPanel />);
+		const connectButton = await screen.findByRole("button", { name: "连接 百度网盘" });
+
+		vi.useFakeTimers();
+		fireEvent.click(connectButton);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(mockPluginStartMCPPlatformOAuth).toHaveBeenCalledWith("baidu-netdisk");
+		expect(mockOpenExternalLink).toHaveBeenCalledWith(
+			"https://openapi.baidu.com/oauth/2.0/authorize?state=opaque",
+		);
+		await vi.advanceTimersByTimeAsync(2_000);
+		vi.useRealTimers();
+
+		await waitFor(() =>
+			expect(mockPluginGetMCPPlatformOAuthStatus).toHaveBeenCalledWith(
+				"baidu-netdisk",
+				"oauth_attempt",
+			),
+		);
 	});
 
 	it("filters connectors by search keyword without connection-state controls", async () => {

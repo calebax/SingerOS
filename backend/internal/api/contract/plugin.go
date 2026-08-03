@@ -175,12 +175,16 @@ type TestMCPPluginResponse struct {
 
 // MCPPlatformView describes one built-in platform and the caller's connection state.
 type MCPPlatformView struct {
-	Code                 string `json:"code"`
-	Name                 string `json:"name"`
-	Description          string `json:"description"`
-	AutoConnectSupported bool   `json:"auto_connect_supported"`
-	Connected            bool   `json:"connected"`
-	PluginID             string `json:"plugin_id,omitempty"`
+	Code                 string                      `json:"code"`
+	Name                 string                      `json:"name"`
+	Description          string                      `json:"description"`
+	Mode                 string                      `json:"mode"`
+	AuthType             string                      `json:"auth_type"`
+	AuthFields           []types.MCPChannelAuthField `json:"auth_fields,omitempty"`
+	AutoConnectSupported bool                        `json:"auto_connect_supported"`
+	Connected            bool                        `json:"connected"`
+	AuthorizationStatus  string                      `json:"authorization_status,omitempty"`
+	PluginID             string                      `json:"plugin_id,omitempty"`
 }
 
 // ListMCPPlatformsResponse contains the built-in MCP platform catalogue.
@@ -195,10 +199,39 @@ type ConnectMCPPlatformResponse struct {
 	ToolCount int             `json:"tool_count"`
 }
 
+// ConnectMCPPlatformRequest contains schema-defined authorization values.
+type ConnectMCPPlatformRequest struct {
+	AuthValues map[string]string `json:"auth_values,omitempty"`
+}
+
+// StartMCPPlatformOAuthResponse starts one persisted OAuth authorization attempt.
+type StartMCPPlatformOAuthResponse struct {
+	AttemptID        string    `json:"attempt_id"`
+	AuthorizationURL string    `json:"authorization_url"`
+	ExpiresAt        time.Time `json:"expires_at"`
+}
+
+// MCPPlatformOAuthStatusResponse is the safe polling view of one OAuth attempt.
+type MCPPlatformOAuthStatusResponse struct {
+	AttemptID   string `json:"attempt_id"`
+	Status      string `json:"status"`
+	PluginID    string `json:"plugin_id,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	ErrorCode   string `json:"error_code,omitempty"`
+	Connected   bool   `json:"connected"`
+}
+
+// ConnectorSkillRef identifies the immutable project connector revision requesting a Skill artifact.
+type ConnectorSkillRef struct {
+	PluginID string `json:"plugin_id"`
+	Revision int    `json:"revision"`
+}
+
 // ResolveSkillDownloadURLsRequest selects the current downloadable artifacts by Skill code.
 // Codes that are unavailable to the caller are omitted from the response.
 type ResolveSkillDownloadURLsRequest struct {
-	SkillCodes []string `json:"skill_codes"`
+	SkillCodes      []string            `json:"skill_codes"`
+	ConnectorSkills []ConnectorSkillRef `json:"connector_skills,omitempty"`
 }
 
 // SkillDownloadURL is the worker-safe projection of one current Skill artifact.
@@ -288,7 +321,10 @@ type PluginService interface {
 	UpdateMCPPlugin(ctx context.Context, orgID, uin uint, pluginID string, req *UpdateMCPPluginRequest) (*PluginView, error)
 	TestMCPPlugin(ctx context.Context, req *TestMCPPluginRequest) (*TestMCPPluginResponse, error)
 	ListMCPPlatforms(ctx context.Context, orgID, uin uint) (*ListMCPPlatformsResponse, error)
-	ConnectMCPPlatform(ctx context.Context, orgID, uin uint, platformCode string) (*ConnectMCPPlatformResponse, error)
+	ConnectMCPPlatform(ctx context.Context, orgID, uin uint, platformCode string, req *ConnectMCPPlatformRequest) (*ConnectMCPPlatformResponse, error)
+	StartMCPPlatformOAuth(ctx context.Context, orgID, uin uint, platformCode string) (*StartMCPPlatformOAuthResponse, error)
+	GetMCPPlatformOAuthStatus(ctx context.Context, orgID, uin uint, platformCode, attemptID string) (*MCPPlatformOAuthStatusResponse, error)
+	CompleteMCPPlatformOAuth(ctx context.Context, platformCode, state, code, providerError string) (*MCPPlatformOAuthStatusResponse, error)
 	ResolveSkillDownloadURLs(ctx context.Context, orgID uint, callerKind types.CallerKind, callerID uint, req *ResolveSkillDownloadURLsRequest) (*ResolveSkillDownloadURLsResponse, error)
 	ListBuiltinSkills(ctx context.Context) (*ListPluginsResponse, error)
 }

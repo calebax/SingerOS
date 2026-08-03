@@ -3,6 +3,7 @@ package agent
 // MCPServerConfig describes one MCP endpoint exposed to an external Runtime.
 type MCPServerConfig struct {
 	Name        string
+	Transport   string
 	URL         string
 	Command     string
 	Args        []string

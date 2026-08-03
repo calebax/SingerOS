@@ -199,6 +199,9 @@ func runMigrations(db *gorm.DB) error {
 	if err := dbtools.InitModel(db, models...); err != nil {
 		return err
 	}
+	if err := backfillMCPChannelAuthorization(db); err != nil {
+		return err
+	}
 	if err := migratePluginDefinitions(db); err != nil {
 		return err
 	}
@@ -271,6 +274,17 @@ func runMigrations(db *gorm.DB) error {
 
 	logs.Info("Database migrations completed")
 	return nil
+}
+
+func backfillMCPChannelAuthorization(db *gorm.DB) error {
+	return db.Model(&types.MCPChannel{}).
+		Where("channel = ? AND auth_type = ?", "corekg", types.MCPChannelAuthTypeNone).
+		Updates(map[string]interface{}{
+			"auth_type": types.MCPChannelAuthTypeManaged,
+			"auth_config": types.MCPChannelAuthConfigJSON{
+				Handler: "corekg",
+			},
+		}).Error
 }
 
 func createPluginIndexes(db *gorm.DB) error {

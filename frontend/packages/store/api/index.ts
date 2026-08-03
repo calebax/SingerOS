@@ -65,6 +65,7 @@ export type {
 	ListPluginsParams,
 	ListPluginsResponse,
 	MCPPlatform,
+	MCPPlatformOAuthStatusResponse,
 	MCPPluginConfig,
 	MCPPluginDefinition,
 	PluginInstallationStatus,
@@ -72,6 +73,7 @@ export type {
 	PluginRevisionContent,
 	PluginRevisionFile,
 	ProjectPluginItem,
+	StartMCPPlatformOAuthResponse,
 	TestMCPPluginParams,
 	TestMCPPluginResponse,
 } from "./pluginApi";

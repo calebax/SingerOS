@@ -84,10 +84,14 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	r.Use(middleware.CallerMiddleware(tokenParser, db))
 	r.Use(middleware.ResponseRequestID())
 	r.Use(middleware.ClientUpdateMiddleware(cfg.ClientUpdate))
-	r.Use(middleware.Logger(".Ping", "metrics"))
+	r.Use(middleware.Logger(".Ping", "metrics", "/plugins/mcp/oauth/:platform_code/callback"))
 	r.Use(ygmiddleware.Recovery())
 
 	v1 := r.Group("/v1")
+	pluginService := service.NewPluginServiceWithAPIKeyIssuer(
+		db,
+		edition.APIKeyIssuer(),
+	)
 
 	// Worker server routes 注册公开管理端点；放在全局中间件之后以继承 CORS/Logger/Recovery。
 	workerManager := workerserver.NewServer(workerScheduler)
@@ -96,6 +100,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 	// ── 公开路由（无需 org 认证）──────────────────────────────────────────────────
 	{
+		handler.RegisterPluginOAuthCallbackRoutes(v1, pluginService)
+		logs.Info("Plugin OAuth callback routes registered successfully")
+
 		websocket.RegisterWebSocketRoutes(v1, eventbus)
 		logs.Info("WebSocket connector registered successfully")
 
@@ -174,10 +181,6 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterUserRoutes(authed, userService)
 		logs.Info("User routes registered successfully")
 
-		pluginService := service.NewPluginServiceWithAPIKeyIssuer(
-			db,
-			edition.APIKeyIssuer(),
-		)
 		handler.RegisterPluginRoutes(authed, pluginService)
 		logs.Info("Plugin repository routes registered successfully")
 		officialPluginMarketplaceService := service.NewOfficialPluginMarketplaceService(db)

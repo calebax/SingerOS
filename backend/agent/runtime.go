@@ -15,6 +15,8 @@ const (
 	RuntimeKindCodex = "codex"
 	// RuntimeKindOpenCode is the OpenCode runtime.
 	RuntimeKindOpenCode = "opencode"
+	// RunSkillsDirEnvVar exposes the task-private Skill root to runtime processes.
+	RunSkillsDirEnvVar = "LEROS_RUN_SKILLS_DIR"
 )
 
 // ExecutionMode is an alias of types.ExecutionMode for backward compatibility.
@@ -76,6 +78,7 @@ type ExecutionRequest struct {
 	Model           ModelConfig
 	Tools           []Tool
 	MCPServers      []MCPServerConfig
+	ExtraEnv        []string
 	Policy          ExecutionPolicy
 	Filesystem      FilesystemContext
 	ProviderSession ProviderSession
