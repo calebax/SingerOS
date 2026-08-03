@@ -37,7 +37,7 @@ const (
 	phoneCodeResendInterval = 2 * time.Minute
 	defaultPhoneCode        = "123456"
 	maxUserOrganizations    = 1
-	defaultWorkerTokenTTL   = 24 * time.Hour
+	defaultWorkerTokenTTL   = 3650 * 24 * time.Hour
 )
 
 type authAdapter struct {
