@@ -25,7 +25,6 @@ func (h *UserHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/GetUser", h.GetUser)
 	r.POST("/UpdateUser", h.UpdateUser)
 	r.POST("/UpdateCurrentUser", h.UpdateCurrentUser)
-	r.POST("/DeleteUser", h.DeleteUser)
 	r.POST("/ListUser", h.ListUser)
 	r.POST("/ListUin", h.ListUin)
 }
