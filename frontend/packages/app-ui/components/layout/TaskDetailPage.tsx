@@ -84,13 +84,13 @@ export function TaskDetailPage({
 }: {
 	projectId?: string;
 	taskId?: string;
-	sessionId?: string | null;
+	/** 路径强制携带的任务会话 ID；缺失时由路由层拦截，不在此页兜底。 */
+	sessionId: string;
 	navigation?: AppNavigation;
 }) {
 	const {
 		activeTaskDetailProjectId,
 		activeTaskDetailTaskId,
-		activeTaskDetailSessionId,
 		projects,
 		fetchProjects,
 		setTaskDetailRoute,
@@ -110,7 +110,7 @@ export function TaskDetailPage({
 		hasSessionMessages,
 		allMessagesBelongToSession,
 		loadConversationMessages,
-		sendMessage,
+		sendTaskRoomMessage,
 	} = useChatStore((s) => s);
 	const { assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 
@@ -127,8 +127,8 @@ export function TaskDetailPage({
 
 	const resolvedProjectId = projectId ?? activeTaskDetailProjectId;
 	const resolvedTaskId = taskId ?? activeTaskDetailTaskId;
+	const resolvedSessionId = sessionId;
 	useTaskCapabilities(resolvedTaskId);
-	const resolvedSessionId = sessionId ?? activeTaskDetailSessionId;
 	const project = projects.find((p) => p.id === resolvedProjectId);
 	const storeTask = useMemo(
 		() => project?.tasks.find((item) => item.id === resolvedTaskId) ?? null,
@@ -228,8 +228,8 @@ export function TaskDetailPage({
 	}, [fetchProjects]);
 
 	useEffect(() => {
-		if (!projectId || !taskId) return;
-		setTaskDetailRoute(projectId, taskId, sessionId ?? null);
+		if (!projectId || !taskId || !sessionId) return;
+		setTaskDetailRoute(projectId, taskId, sessionId);
 	}, [projectId, taskId, sessionId, setTaskDetailRoute]);
 
 	useEffect(() => {
@@ -296,9 +296,11 @@ export function TaskDetailPage({
 						title: bt.title,
 						meta: bt.description ?? bt.task_type ?? "",
 						status: (bt.status as ProjectTask["status"]) ?? "todo",
+						sessionId: bt.session?.session_id,
 						taskType: bt.task_type,
 						deadline: bt.deadline,
 						description: bt.description,
+						assistantId: bt.session?.assistant_id,
 					});
 				}
 			})
@@ -529,7 +531,14 @@ export function TaskDetailPage({
 								layout={taskChatLayout}
 								teammate={teammate}
 								onPickPrompt={(prompt) => {
-									sendMessage(prompt, [], undefined);
+									if (!resolvedProjectId || !resolvedTaskId || !resolvedSessionId) {
+										return;
+									}
+									void sendTaskRoomMessage(prompt, {
+										projectId: resolvedProjectId,
+										taskId: resolvedTaskId,
+										sessionId: resolvedSessionId,
+									});
 								}}
 							/>
 						}
@@ -537,7 +546,11 @@ export function TaskDetailPage({
 						contentClassName={taskChatLayout.timelineInner}
 						projectId={resolvedProjectId}
 					/>
-					<ChatInput variant="project" projectLayoutMode={taskChatLayoutMode} />
+					<ChatInput
+						variant="project"
+						projectLayoutMode={taskChatLayoutMode}
+						navigation={navigation}
+					/>
 				</main>
 
 				<div className="flex w-14 shrink-0 items-start justify-center pt-6">

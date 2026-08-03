@@ -8,7 +8,6 @@ import { useEffect, useRef } from "react";
 import { AIMessageBubble } from "./AIMessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { UserMessageBubble } from "./UserMessageBubble";
-import { WelcomeScreen } from "./WelcomeScreen";
 
 function formatTime(timestamp: number): string {
 	const date = new Date(timestamp);
@@ -123,7 +122,7 @@ export function MessageTimeline({
 			className={cn("no-scrollbar min-h-0 flex-1 overflow-y-auto", className)}
 		>
 			{isEmpty ? (
-				(emptyState ?? <WelcomeScreen />)
+				(emptyState ?? null)
 			) : contentShellClassName ? (
 				<div className={contentShellClassName}>
 					<div className={cn("flex w-full flex-col gap-3", contentClassName)}>{messageList}</div>
