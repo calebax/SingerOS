@@ -402,6 +402,32 @@ describe("McpConnectorPanel", () => {
 		);
 	});
 
+	it("keeps an unfinished OAuth connector reconnectable without showing pending authorization", async () => {
+		mockPluginListMCPPlatforms.mockResolvedValueOnce({
+			data: {
+				data: {
+					platforms: [
+						{
+							code: "baidu-netdisk",
+							name: "百度网盘",
+							description: "通过百度网盘 MCP 管理文件",
+							mode: "hybrid",
+							auth_type: "oauth",
+							auto_connect_supported: true,
+							connected: false,
+							authorization_status: "pending",
+						},
+					],
+				},
+			},
+		});
+
+		render(<McpConnectorPanel />);
+
+		expect(await screen.findByRole("button", { name: "连接 百度网盘" })).toBeEnabled();
+		expect(screen.queryByText("待完成授权")).not.toBeInTheDocument();
+	});
+
 	it("filters connectors by search keyword without connection-state controls", async () => {
 		render(<McpConnectorPanel />);
 

@@ -581,15 +581,6 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 															<Loader2 className="size-3 animate-spin" />
 															连接中
 														</span>
-													) : platform.authorization_status === "pending" ||
-														platform.authorization_status === "exchanging" ? (
-														<span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600">
-															待完成授权
-														</span>
-													) : platform.authorization_status === "reauthorization_required" ? (
-														<span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600">
-															需重新授权
-														</span>
 													) : null}
 												</div>
 												<p className="mt-0.5 truncate text-xs text-[var(--leros-text-muted)]">
