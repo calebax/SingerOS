@@ -72,7 +72,8 @@ function authUserToOwnerMember(user: AuthUser | null): ProjectMember[] {
 			publicId: user.publicId,
 			type: "user",
 			role: "owner",
-			name: user.name || user.phone || user.email || "我",
+			// 中文注释：与左下角个人中心一致，优先组织内 uin_name，避免跨组织显示成全局 name。
+			name: user.uinName || user.name || user.phone || user.email || "我",
 			description: [user.email, user.phone].filter(Boolean).join(" / "),
 			avatarUrl: user.avatarUrl,
 		},
