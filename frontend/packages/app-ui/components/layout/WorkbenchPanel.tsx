@@ -257,7 +257,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		sendWorkbenchMessage,
 		fetchProjects,
 		fetchTasks,
-		saveWorkbenchRecentContext,
 		clearTaskDetailRoute,
 		workbenchComposerPrefill,
 		consumeWorkbenchComposerPrefill,
@@ -789,18 +788,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			requireAuth(() => {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
-				void saveWorkbenchRecentContext(project.id, null);
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
 				closeProjectMenu();
 			});
 		},
-		[
-			clearProjectTriggerText,
-			closeProjectMenu,
-			requireAuth,
-			saveWorkbenchRecentContext,
-			selectWorkbenchProject,
-		],
+		[clearProjectTriggerText, closeProjectMenu, requireAuth, selectWorkbenchProject],
 	);
 
 	const handleSelectTask = useCallback(
@@ -809,7 +801,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
 				selectWorkbenchTask(task.id);
-				void saveWorkbenchRecentContext(project.id, task.id);
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
 				closeProjectMenu();
 			});
@@ -818,7 +809,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			clearProjectTriggerText,
 			closeProjectMenu,
 			requireAuth,
-			saveWorkbenchRecentContext,
 			selectWorkbenchProject,
 			selectWorkbenchTask,
 		],

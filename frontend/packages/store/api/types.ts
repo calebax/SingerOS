@@ -401,14 +401,6 @@ export type BackendProjectDetail = BackendProject & {
 	members: BackendProjectMemberItem[];
 };
 
-export type BackendWorkbenchRecentContext = {
-	project_id: string;
-	project_name: string;
-	task_id?: string;
-	task_title?: string;
-	used_at: string;
-};
-
 export type BackendProjectFileNode = {
 	name: string;
 	path?: string;
