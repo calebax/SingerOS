@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -165,6 +166,13 @@ func (s *pluginService) UpdateMCPPlugin(
 			return currentErr
 		}
 		if currentRevision != nil {
+			connectorDefinition, definitionErr := ConnectorFromDefinition(currentRevision.Definition)
+			if definitionErr != nil {
+				return definitionErr
+			}
+			if connectorDefinition != nil {
+				return invalidMCPConfig("platform connector must be reconnected instead of edited as a custom MCP")
+			}
 			currentDefinition, definitionErr := MCPFromDefinition(currentRevision.Definition)
 			if definitionErr != nil {
 				return definitionErr
@@ -229,7 +237,7 @@ func (s *pluginService) TestMCPPlugin(
 	if transport == "" {
 		transport = "http"
 	}
-	if transport != "http" {
+	if transport != "http" && transport != "sse" {
 		return nil, invalidMCPConfig("stdio MCP connections are tested when a Worker starts the project Run")
 	}
 	if err := validateMCPConnection(req.URL, req.Headers); err != nil {
@@ -247,7 +255,7 @@ func (s *pluginService) TestMCPPlugin(
 		headers["Authorization"] = "Bearer " + token
 	}
 	draft, err := json.Marshal(MCPDefinition{
-		Schema: "mcp/v1", Transport: "http", Name: "connection-test",
+		Schema: "mcp/v1", Transport: transport, Name: "connection-test",
 		URL: strings.TrimSpace(req.URL), Headers: headers,
 	})
 	if err != nil || len(draft) > maxMCPDefinitionBytes {
@@ -256,11 +264,20 @@ func (s *pluginService) TestMCPPlugin(
 
 	testCtx, cancel := context.WithTimeout(ctx, mcpTestTimeout)
 	defer cancel()
-	client, err := mcpclient.NewStreamableHttpClient(
-		strings.TrimSpace(req.URL),
-		mcptransport.WithHTTPHeaders(headers),
-		mcptransport.WithHTTPTimeout(mcpTestTimeout),
-	)
+	var client *mcpclient.Client
+	if transport == "sse" {
+		client, err = mcpclient.NewSSEMCPClient(
+			strings.TrimSpace(req.URL),
+			mcpclient.WithHeaders(headers),
+			mcpclient.WithHTTPClient(&http.Client{Timeout: mcpTestTimeout}),
+		)
+	} else {
+		client, err = mcpclient.NewStreamableHttpClient(
+			strings.TrimSpace(req.URL),
+			mcptransport.WithHTTPHeaders(headers),
+			mcptransport.WithHTTPTimeout(mcpTestTimeout),
+		)
+	}
 	if err != nil {
 		return nil, invalidMCPConfig("unable to create MCP client")
 	}
@@ -314,7 +331,7 @@ func validateMCPPluginConfig(input contract.MCPPluginConfig) (contract.MCPPlugin
 		Provider:  input.Provider,
 	}
 	switch input.Transport {
-	case "http":
+	case "http", "sse":
 		if strings.ContainsAny(input.BearerToken, "\r\n") {
 			return input, nil, invalidMCPConfig("Bearer token contains invalid characters")
 		}
@@ -334,7 +351,7 @@ func validateMCPPluginConfig(input contract.MCPPluginConfig) (contract.MCPPlugin
 		definition.Args = append([]string(nil), input.Args...)
 		definition.Env = cloneStringMap(input.Env)
 	default:
-		return input, nil, invalidMCPConfig("transport must be http or stdio")
+		return input, nil, invalidMCPConfig("transport must be http, sse, or stdio")
 	}
 
 	encoded, err := json.Marshal(definition)

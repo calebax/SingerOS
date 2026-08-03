@@ -115,3 +115,17 @@ func TestBuildMCPConfigIncludesStdioEnvironment(t *testing.T) {
 		t.Fatalf("MCP environment = %#v", entry["environment"])
 	}
 }
+
+func TestBuildMCPConfigBridgesSSEThroughMCPRemote(t *testing.T) {
+	config := buildMCPConfig([]agent.MCPServerConfig{
+		{Name: "baidu-netdisk", Transport: "sse", URL: "https://example.com/sse?access_token=secret"},
+	})
+	entry, ok := config["baidu-netdisk"].(map[string]any)
+	if !ok || entry["type"] != "local" {
+		t.Fatalf("MCP entry = %#v", config["baidu-netdisk"])
+	}
+	command, ok := entry["command"].([]string)
+	if !ok || len(command) != 6 || command[0] != "npx" || command[5] != "sse-only" {
+		t.Fatalf("MCP command = %#v", entry["command"])
+	}
+}

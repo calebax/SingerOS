@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -33,6 +34,10 @@ type pluginHandlerTestService struct {
 	platformOrgID      uint
 	platformUin        uint
 	platformCode       string
+	platformAuthValues map[string]string
+	oauthAttemptID     string
+	oauthState         string
+	oauthCode          string
 }
 
 func (s *pluginHandlerTestService) ListPlugins(_ context.Context, orgID, uin uint, req *contract.ListPluginsRequest) (*contract.ListPluginsResponse, error) {
@@ -108,13 +113,49 @@ func (s *pluginHandlerTestService) ConnectMCPPlatform(
 	_ context.Context,
 	orgID, uin uint,
 	platformCode string,
+	req *contract.ConnectMCPPlatformRequest,
 ) (*contract.ConnectMCPPlatformResponse, error) {
 	s.platformOrgID, s.platformUin, s.platformCode = orgID, uin, platformCode
+	s.platformAuthValues = req.AuthValues
 	return &contract.ConnectMCPPlatformResponse{
 		Platform:  contract.MCPPlatformView{Code: platformCode, Connected: true},
 		Plugin:    contract.PluginView{PublicID: "plugin_corekg", Kind: "mcp"},
 		ToolCount: 21,
 	}, nil
+}
+
+func (s *pluginHandlerTestService) StartMCPPlatformOAuth(
+	_ context.Context,
+	orgID uint,
+	uin uint,
+	platformCode string,
+) (*contract.StartMCPPlatformOAuthResponse, error) {
+	s.platformOrgID, s.platformUin, s.platformCode = orgID, uin, platformCode
+	return &contract.StartMCPPlatformOAuthResponse{
+		AttemptID: "oauth_attempt", AuthorizationURL: "https://openapi.baidu.com/authorize",
+	}, nil
+}
+
+func (s *pluginHandlerTestService) GetMCPPlatformOAuthStatus(
+	_ context.Context,
+	orgID uint,
+	uin uint,
+	platformCode string,
+	attemptID string,
+) (*contract.MCPPlatformOAuthStatusResponse, error) {
+	s.platformOrgID, s.platformUin, s.platformCode, s.oauthAttemptID = orgID, uin, platformCode, attemptID
+	return &contract.MCPPlatformOAuthStatusResponse{AttemptID: attemptID, Status: "pending"}, nil
+}
+
+func (s *pluginHandlerTestService) CompleteMCPPlatformOAuth(
+	_ context.Context,
+	platformCode string,
+	state string,
+	code string,
+	_ string,
+) (*contract.MCPPlatformOAuthStatusResponse, error) {
+	s.platformCode, s.oauthState, s.oauthCode = platformCode, state, code
+	return &contract.MCPPlatformOAuthStatusResponse{Status: "active", Connected: true}, nil
 }
 
 func (s *pluginHandlerTestService) ResolveSkillDownloadURLs(
@@ -198,14 +239,16 @@ func TestPluginMCPPlatformRoutesPassCallerIdentity(t *testing.T) {
 	connectRecorder := httptest.NewRecorder()
 	connectRequest := httptest.NewRequest(
 		http.MethodPost,
-		"/plugins/mcp/platforms/corekg/connect",
-		nil,
+		"/plugins/mcp/platforms/netease-mail/connect",
+		bytes.NewBufferString(`{"auth_values":{"email":"user@example.com"}}`),
 	)
+	connectRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(connectRecorder, connectRequest)
 	if connectRecorder.Code != http.StatusOK ||
 		service.platformOrgID != 42 ||
 		service.platformUin != 7 ||
-		service.platformCode != "corekg" {
+		service.platformCode != "netease-mail" ||
+		service.platformAuthValues["email"] != "user@example.com" {
 		t.Fatalf(
 			"connect status/caller/platform = %d/%d/%d/%q",
 			connectRecorder.Code,
@@ -213,6 +256,78 @@ func TestPluginMCPPlatformRoutesPassCallerIdentity(t *testing.T) {
 			service.platformUin,
 			service.platformCode,
 		)
+	}
+}
+
+func TestPluginMCPPlatformOAuthRoutesPassCallerIdentity(t *testing.T) {
+	service := &pluginHandlerTestService{}
+	router := newPluginHandlerTestRouter(service)
+
+	startRecorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		startRecorder,
+		httptest.NewRequest(http.MethodPost, "/plugins/mcp/platforms/baidu-netdisk/oauth/start", nil),
+	)
+	if startRecorder.Code != http.StatusOK || service.platformOrgID != 42 || service.platformUin != 7 ||
+		service.platformCode != "baidu-netdisk" {
+		t.Fatalf(
+			"start status/caller/platform = %d/%d/%d/%q",
+			startRecorder.Code,
+			service.platformOrgID,
+			service.platformUin,
+			service.platformCode,
+		)
+	}
+
+	statusRecorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		statusRecorder,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/plugins/mcp/platforms/baidu-netdisk/oauth/status?attempt_id=oauth_attempt",
+			nil,
+		),
+	)
+	if statusRecorder.Code != http.StatusOK || service.oauthAttemptID != "oauth_attempt" {
+		t.Fatalf("status response/attempt = %d/%q", statusRecorder.Code, service.oauthAttemptID)
+	}
+}
+
+func TestPluginMCPPlatformOAuthCallbackReturnsSafeStaticPage(t *testing.T) {
+	service := &pluginHandlerTestService{}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterPluginOAuthCallbackRoutes(router, service)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		recorder,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/plugins/mcp/oauth/baidu-netdisk/callback?state=plugin.secret-state&code=provider-code",
+			nil,
+		),
+	)
+	if recorder.Code != http.StatusOK || service.platformCode != "baidu-netdisk" ||
+		service.oauthState != "plugin.secret-state" || service.oauthCode != "provider-code" {
+		t.Fatalf(
+			"callback status/platform/state/code = %d/%q/%q/%q",
+			recorder.Code,
+			service.platformCode,
+			service.oauthState,
+			service.oauthCode,
+		)
+	}
+	if strings.Contains(recorder.Body.String(), "secret-state") ||
+		strings.Contains(recorder.Body.String(), "provider-code") {
+		t.Fatalf("callback page leaked query values: %s", recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "返回 Lework") ||
+		strings.Contains(recorder.Body.String(), "SingerOS") {
+		t.Fatalf("callback page uses unexpected product name: %s", recorder.Body.String())
+	}
+	if recorder.Header().Get("Referrer-Policy") != "no-referrer" ||
+		recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("callback security headers = %#v", recorder.Header())
 	}
 }
 

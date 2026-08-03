@@ -51,11 +51,12 @@ var skillAutoInstallLocks = struct {
 type pluginService struct {
 	db           *gorm.DB
 	apiKeyIssuer account.APIKeyIssuer
+	oauth        *connectorOAuthManager
 }
 
 // NewPluginService creates the independent plugin repository service.
 func NewPluginService(database *gorm.DB) contract.PluginService {
-	return &pluginService{db: database}
+	return &pluginService{db: database, oauth: newConnectorOAuthManager()}
 }
 
 // NewPluginServiceWithAPIKeyIssuer enables platform connectors backed by the configured IAM service.
@@ -66,12 +67,13 @@ func NewPluginServiceWithAPIKeyIssuer(
 	return &pluginService{
 		db:           database,
 		apiKeyIssuer: issuer,
+		oauth:        newConnectorOAuthManager(),
 	}
 }
 
 // NewOfficialPluginMarketplaceService creates the dedicated official catalogue service.
 func NewOfficialPluginMarketplaceService(database *gorm.DB) contract.OfficialPluginMarketplaceService {
-	return &pluginService{db: database}
+	return &pluginService{db: database, oauth: newConnectorOAuthManager()}
 }
 
 func (s *pluginService) ListPlugins(
@@ -87,7 +89,7 @@ func (s *pluginService) ListPlugins(
 			return nil, err
 		}
 		if channel != nil && s.apiKeyIssuer != nil {
-			if _, err := s.ConnectMCPPlatform(ctx, orgID, uin, coreKGPlatformCode); err != nil {
+			if _, err := s.ConnectMCPPlatform(ctx, orgID, uin, coreKGPlatformCode, nil); err != nil {
 				return nil, fmt.Errorf("ensure CoreKG MCP platform: %w", err)
 			}
 		}
@@ -147,9 +149,13 @@ func (s *pluginService) GetPlugin(
 		return &contract.GetPluginResponse{Plugin: &view}, nil
 	}
 	if !isBundleDefinition(plugin.Kind) {
+		definition, redactErr := redactConnectorSecrets(revision.Definition)
+		if redactErr != nil {
+			return nil, redactErr
+		}
 		return &contract.GetPluginResponse{
 			Plugin:     &view,
-			Definition: append(json.RawMessage(nil), revision.Definition...),
+			Definition: definition,
 		}, nil
 	}
 	content, err := infradb.GetPluginRevisionContent(ctx, s.db, revision.ID)
@@ -801,6 +807,9 @@ func (s *pluginService) ResolveSkillDownloadURLs(ctx context.Context, orgID uint
 	if len(codes) > maxSkillDownloadURLCodes {
 		return nil, fmt.Errorf("at most %d skill_codes are allowed", maxSkillDownloadURLCodes)
 	}
+	if len(req.ConnectorSkills) > maxSkillDownloadURLCodes {
+		return nil, fmt.Errorf("at most %d connector_skills are allowed", maxSkillDownloadURLCodes)
+	}
 	rows, err := infradb.ListCurrentSkillArtifacts(ctx, s.db, orgID, codes)
 	if err != nil {
 		return nil, err
@@ -856,9 +865,84 @@ func (s *pluginService) ResolveSkillDownloadURLs(ctx context.Context, orgID uint
 			}
 			result = append(result, contract.SkillDownloadURL{Code: row.Code, Revision: row.Revision, SHA256: sha, DownloadURL: downloadURL})
 		}
+		connectorDownloads := s.resolveConnectorSkillDownloads(ctx, orgID, req.ConnectorSkills)
+		result = append(result, connectorDownloads...)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Code < result[j].Code })
 	return &contract.ResolveSkillDownloadURLsResponse{Skills: result}, nil
+}
+
+func (s *pluginService) resolveConnectorSkillDownloads(
+	ctx context.Context,
+	orgID uint,
+	refs []contract.ConnectorSkillRef,
+) []contract.SkillDownloadURL {
+	result := make([]contract.SkillDownloadURL, 0, len(refs))
+	seen := make(map[string]bool)
+	for _, ref := range refs {
+		pluginID := strings.TrimSpace(ref.PluginID)
+		if pluginID == "" || ref.Revision <= 0 {
+			continue
+		}
+		plugin, err := infradb.GetPluginByPublicID(ctx, s.db, orgID, pluginID)
+		if err != nil || plugin == nil || plugin.Kind != "mcp" ||
+			plugin.Status != types.PluginStatusActive || plugin.CurrentRevision != ref.Revision {
+			continue
+		}
+		revision, err := infradb.GetPluginRevisionByNumber(ctx, s.db, plugin.ID, ref.Revision)
+		if err != nil || revision == nil || revision.SourcePluginRevisionID == nil {
+			continue
+		}
+		definition, err := ConnectorFromDefinition(revision.Definition)
+		if err != nil || definition == nil || definition.Skill == nil ||
+			definition.Skill.Artifact == nil || seen[definition.Skill.Code] {
+			continue
+		}
+		sourceRevision, err := infradb.GetPluginRevisionByID(ctx, s.db, *revision.SourcePluginRevisionID)
+		if err != nil || sourceRevision == nil {
+			continue
+		}
+		sourcePlugin, err := infradb.GetPluginByID(ctx, s.db, sourceRevision.PluginID)
+		if err != nil || sourcePlugin == nil || sourcePlugin.OwnerScope != types.OwnerScopeSystem ||
+			sourcePlugin.OrgID != 0 || sourcePlugin.Kind != "mcp" ||
+			sourcePlugin.Origin != builtinConnectorOrigin || sourcePlugin.Code != definition.Channel {
+			continue
+		}
+		sourceDefinition, err := ConnectorFromDefinition(sourceRevision.Definition)
+		if err != nil || sourceDefinition == nil || sourceDefinition.Skill == nil ||
+			sourceDefinition.Skill.Artifact == nil ||
+			sourceDefinition.Skill.Code != definition.Skill.Code ||
+			sourceDefinition.Skill.Artifact.FileUploadID != definition.Skill.Artifact.FileUploadID {
+			continue
+		}
+		expectedSHA, err := normalizedPluginSHA256(definition.Skill.Artifact.SHA256)
+		if err != nil {
+			continue
+		}
+		sourceSHA, err := normalizedPluginSHA256(sourceDefinition.Skill.Artifact.SHA256)
+		if err != nil || sourceSHA != expectedSHA {
+			continue
+		}
+		file, err := infradb.GetSystemFileUploadByPublicID(ctx, s.db, definition.Skill.Artifact.FileUploadID)
+		if err != nil || file == nil || file.Status != "active" || file.Purpose != filestore.PurposeArtifact {
+			continue
+		}
+		fileSHA, err := normalizedPluginSHA256(file.Sha256)
+		if err != nil || fileSHA != expectedSHA ||
+			(definition.Skill.Artifact.SizeBytes > 0 && file.FileSize != definition.Skill.Artifact.SizeBytes) {
+			continue
+		}
+		downloadURL, err := filestore.PresignDownloadForFileUpload(ctx, file, time.Hour)
+		if err != nil {
+			continue
+		}
+		result = append(result, contract.SkillDownloadURL{
+			Code: definition.Skill.Code, Revision: definition.Skill.Revision,
+			SHA256: expectedSHA, DownloadURL: downloadURL,
+		})
+		seen[definition.Skill.Code] = true
+	}
+	return result
 }
 
 func sameMarketplaceRevision(

@@ -82,7 +82,7 @@ func (r *Driver) RunInvocation(
 		TraceID:         request.TraceID,
 		SessionKey:      request.SessionKey,
 		Model:           request.Model,
-		ExtraEnv:        nil,
+		ExtraEnv:        append([]string(nil), request.ExtraEnv...),
 		PermissionMode:  request.Policy.PermissionMode,
 		ApprovalHandler: r.interactionHandler,
 		MCPServers:      mergeMCPServers(r.mcpServers, request.MCPServers),

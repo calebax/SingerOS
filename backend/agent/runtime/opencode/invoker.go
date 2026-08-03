@@ -3,7 +3,6 @@ package opencode
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -38,15 +37,8 @@ func NewServerInvoker(binary string, extraEnv map[string]string, dataDir string)
 // Run 启动 opcode serve，创建会话并执行提示。
 func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
-	runEnv := append([]string(nil), inv.baseEnv...)
-	configBase := req.TaskDir
-	if strings.TrimSpace(configBase) == "" {
-		configBase = workDir
-	}
-	configDir := filepath.Join(configBase, ".opencode-runtime")
-	if err := cli.ProjectSkillLinks(req.SkillDir, filepath.Join(configDir, "skills")); err != nil {
-		return nil, fmt.Errorf("project opencode skills: %w", err)
-	}
+	runEnv := runtimeprocess.BuildRunEnv(inv.baseEnv, req.ExtraEnv, nil)
+	configDir := openCodeConfigDir(req)
 	runEnv = append(runEnv, "OPENCODE_CONFIG_DIR="+configDir, "OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_CLAUDE_CODE=1")
 	startedAt := time.Now()
 	logs.InfoContextf(ctx,
@@ -115,6 +107,10 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest)
 	// 5. 后台等待完成并清理
 	go st.waitCompletion(ctx, cancelMessage, cancelSSE)
 	return st.buildHandle(req)
+}
+
+func openCodeConfigDir(req cli.InvocationRequest) string {
+	return cli.TaskRuntimeRoot(req.TaskDir, req.WorkDir)
 }
 
 // ============================================================================

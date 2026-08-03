@@ -23,12 +23,76 @@ func RegisterPluginRoutes(r gin.IRouter, service contract.PluginService) {
 	r.POST("/plugins/mcp/test", testMCPPlugin(service))
 	r.GET("/plugins/mcp/platforms", listMCPPlatforms(service))
 	r.POST("/plugins/mcp/platforms/:platform_code/connect", connectMCPPlatform(service))
+	r.POST("/plugins/mcp/platforms/:platform_code/oauth/start", startMCPPlatformOAuth(service))
+	r.GET("/plugins/mcp/platforms/:platform_code/oauth/status", getMCPPlatformOAuthStatus(service))
 	r.PUT("/plugins/mcp/:plugin_id", updateMCPPlugin(service))
 	r.GET("/plugins/builtin-skills", listBuiltinSkills(service))
 	r.DELETE("/plugins/:plugin_id", deletePlugin(service))
 	r.GET("/plugins/:plugin_id", getPlugin(service))
 	r.GET("/plugins/:plugin_id/versions", listPluginVersions(service))
 }
+
+// RegisterPluginOAuthCallbackRoutes registers callbacks that must remain reachable before login completes.
+func RegisterPluginOAuthCallbackRoutes(r gin.IRouter, service contract.PluginService) {
+	r.GET("/plugins/mcp/oauth/:platform_code/callback", completeMCPPlatformOAuth(service))
+}
+
+func startMCPPlatformOAuth(service contract.PluginService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		caller, ok := pluginCaller(ctx)
+		if !ok {
+			return
+		}
+		platformCode := strings.TrimSpace(ctx.Param("platform_code"))
+		if platformCode == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "platform_code is required"))
+			return
+		}
+		result, err := service.StartMCPPlatformOAuth(ctx, caller.OrgID, caller.Uin, platformCode)
+		writePluginServiceResult(ctx, result, err)
+	}
+}
+
+func getMCPPlatformOAuthStatus(service contract.PluginService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		caller, ok := pluginCaller(ctx)
+		if !ok {
+			return
+		}
+		platformCode := strings.TrimSpace(ctx.Param("platform_code"))
+		attemptID := strings.TrimSpace(ctx.Query("attempt_id"))
+		if platformCode == "" || attemptID == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "platform_code and attempt_id are required"))
+			return
+		}
+		result, err := service.GetMCPPlatformOAuthStatus(ctx, caller.OrgID, caller.Uin, platformCode, attemptID)
+		writePluginServiceResult(ctx, result, err)
+	}
+}
+
+func completeMCPPlatformOAuth(service contract.PluginService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		result, err := service.CompleteMCPPlatformOAuth(
+			ctx,
+			strings.TrimSpace(ctx.Param("platform_code")),
+			strings.TrimSpace(ctx.Query("state")),
+			strings.TrimSpace(ctx.Query("code")),
+			strings.TrimSpace(ctx.Query("error")),
+		)
+		ctx.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+		ctx.Header("Referrer-Policy", "no-referrer")
+		ctx.Header("Cache-Control", "no-store")
+		if err != nil || result == nil || !result.Connected {
+			ctx.Data(http.StatusBadRequest, "text/html; charset=utf-8", []byte(oauthCallbackFailureHTML))
+			return
+		}
+		ctx.Data(http.StatusOK, "text/html; charset=utf-8", []byte(oauthCallbackSuccessHTML))
+	}
+}
+
+const oauthCallbackSuccessHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>授权成功</title><style>body{font-family:system-ui;margin:4rem;text-align:center;color:#202124}</style><h1>授权成功</h1><p>可以关闭此窗口，返回 Lework。</p></html>`
+
+const oauthCallbackFailureHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>授权未完成</title><style>body{font-family:system-ui;margin:4rem;text-align:center;color:#202124}</style><h1>授权未完成</h1><p>请关闭此窗口后，在 Lework 中重新连接。</p></html>`
 
 func listMCPPlatforms(service contract.PluginService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
@@ -52,7 +116,14 @@ func connectMCPPlatform(service contract.PluginService) gin.HandlerFunc {
 			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "platform_code is required"))
 			return
 		}
-		result, err := service.ConnectMCPPlatform(ctx, caller.OrgID, caller.Uin, platformCode)
+		var req contract.ConnectMCPPlatformRequest
+		if ctx.Request.ContentLength != 0 {
+			if err := ctx.ShouldBindJSON(&req); err != nil {
+				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+				return
+			}
+		}
+		result, err := service.ConnectMCPPlatform(ctx, caller.OrgID, caller.Uin, platformCode, &req)
 		writePluginServiceResult(ctx, result, err)
 	}
 }

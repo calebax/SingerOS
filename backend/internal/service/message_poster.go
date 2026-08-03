@@ -959,8 +959,53 @@ func (p *MessagePoster) resolveProjectPluginSnapshots(ctx context.Context, orgID
 	if err != nil {
 		return nil, err
 	}
+	oauthService := &pluginService{db: p.db, oauth: newConnectorOAuthManager()}
+	refreshUsable := make(map[string]bool)
+	refreshChanged := false
+	for _, row := range rows {
+		if !strings.EqualFold(row.Kind, "mcp") {
+			continue
+		}
+		connector, connectorErr := ConnectorFromDefinition(row.Definition)
+		if connectorErr != nil || connector == nil || connector.Auth.OAuth == nil {
+			continue
+		}
+		usable, changed, refreshErr := oauthService.refreshMCPPlatformOAuth(ctx, orgID, row.PluginPublicID)
+		refreshUsable[row.PluginPublicID] = usable
+		refreshChanged = refreshChanged || changed
+		if refreshErr != nil {
+			logs.WarnContextf(
+				ctx,
+				"OAuth connector refresh failed; usable=%t plugin_id=%s code=%s error=%v",
+				usable,
+				row.PluginPublicID,
+				row.Code,
+				refreshErr,
+			)
+		}
+	}
+	if refreshChanged {
+		rows, err = infradb.ListProjectPluginSnapshots(ctx, p.db, orgID, projectID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	result := make([]messaging.PluginSnapshot, 0, len(rows))
 	for _, row := range rows {
+		connector, connectorErr := ConnectorFromDefinition(row.Definition)
+		if connectorErr == nil && connector != nil && connector.Auth.OAuth != nil {
+			usable, checked := refreshUsable[row.PluginPublicID]
+			if connector.Auth.OAuth.Status != ConnectorOAuthActive || (checked && !usable) {
+				logs.WarnContextf(
+					ctx,
+					"skip unavailable OAuth connector snapshot: plugin_id=%s code=%s status=%s",
+					row.PluginPublicID,
+					row.Code,
+					connector.Auth.OAuth.Status,
+				)
+				continue
+			}
+		}
 		if err := ValidatePluginDefinition(row.Kind, row.Definition); err != nil {
 			return nil, fmt.Errorf("plugin %s revision %d: %w", row.PluginPublicID, row.Revision, err)
 		}

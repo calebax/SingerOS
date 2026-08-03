@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/insmtx/Leros/backend/internal/service"
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillarchive "github.com/insmtx/Leros/backend/internal/skill/archive"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
@@ -35,7 +36,7 @@ type SkillBaselineCommitter interface {
 }
 
 // PluginSkillPreparer installs project Skill bundles into the worker workspace
-// and creates only symlinks in the project run view.
+// and creates only symlinks in the task-private Skill view.
 type PluginSkillPreparer struct {
 	serverAddr        string
 	authToken         string
@@ -59,6 +60,11 @@ type skillDownloadURLResponse struct {
 	Revision    int    `json:"revision"`
 	SHA256      string `json:"sha256"`
 	DownloadURL string `json:"download_url"`
+}
+
+type connectorSkillDownloadRef struct {
+	PluginID string `json:"plugin_id"`
+	Revision int    `json:"revision"`
 }
 
 var skillInstallLocks sync.Map // map[string]*sync.Mutex, keyed by the worker skills root.
@@ -85,12 +91,12 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 	if req == nil {
 		return "", func() {}, fmt.Errorf("run request is required")
 	}
-	viewRoot, err := skillRunViewRoot(req, workspace)
+	viewRoot, err := taskSkillViewRoot(workspace)
 	if err != nil {
 		return "", func() {}, err
 	}
-	if err := os.MkdirAll(viewRoot, 0o755); err != nil {
-		return "", func() {}, fmt.Errorf("create run skill directory: %w", err)
+	if err := resetTaskSkillView(viewRoot); err != nil {
+		return "", func() {}, fmt.Errorf("prepare task skill directory: %w", err)
 	}
 	cleanup := func() { removeSkillLinks(viewRoot) }
 	if err := linkSkillChildren(systemSkillsDir(), viewRoot); err != nil {
@@ -125,22 +131,30 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 		return
 	}
 	pending := make(map[string]struct{})
+	standardPending := make(map[string]struct{})
 	available := make(map[string]string)
+	connectorRefs := make([]connectorSkillDownloadRef, 0)
 	for _, snapshot := range sortedPluginSnapshots(snapshots) {
-		if !strings.EqualFold(snapshot.Kind, "skill") {
+		code, revision, connectorRef, ok := pluginSnapshotSkill(snapshot)
+		if !ok {
 			continue
 		}
-		code, err := organizationSkillName(snapshot.Code)
-		if err != nil || snapshot.Revision <= 0 {
+		code, err := organizationSkillName(code)
+		if err != nil || revision <= 0 {
 			logs.WarnContextf(ctx, "skip invalid project Skill %q: code=%v revision=%d", snapshot.Code, err, snapshot.Revision)
 			continue
 		}
 		content := filepath.Join(skillsRoot, code)
-		if record, ok := installed[code]; ok && record.Revision == snapshot.Revision && hasSkillDocument(content) {
+		if record, ok := installed[code]; ok && record.Revision == revision && hasSkillDocument(content) {
 			available[code] = content
 			continue
 		}
 		pending[code] = struct{}{}
+		if connectorRef != nil {
+			connectorRefs = append(connectorRefs, *connectorRef)
+		} else {
+			standardPending[code] = struct{}{}
+		}
 	}
 	if len(pending) > 0 {
 		codes := make([]string, 0, len(pending))
@@ -148,7 +162,12 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 			codes = append(codes, code)
 		}
 		sort.Strings(codes)
-		downloads, err := p.resolveDownloadURLs(ctx, codes)
+		standardCodes := make([]string, 0, len(standardPending))
+		for code := range standardPending {
+			standardCodes = append(standardCodes, code)
+		}
+		sort.Strings(standardCodes)
+		downloads, err := p.resolveDownloadURLs(ctx, standardCodes, connectorRefs)
 		if err != nil {
 			logs.WarnContextf(ctx, "resolve project Skill download URLs failed: %v", err)
 		} else {
@@ -239,7 +258,7 @@ func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []s
 	if err != nil {
 		return fmt.Errorf("read worker Skill install manifest: %w", err)
 	}
-	downloads, err := p.resolveDownloadURLs(ctx, codes)
+	downloads, err := p.resolveDownloadURLs(ctx, codes, nil)
 	if err != nil {
 		return fmt.Errorf("resolve download URLs: %w", err)
 	}
@@ -288,13 +307,18 @@ func (p *PluginSkillPreparer) commitInstalledBaseline(ctx context.Context, codes
 	}
 }
 
-func (p *PluginSkillPreparer) resolveDownloadURLs(ctx context.Context, codes []string) (map[string]skillDownloadURLResponse, error) {
+func (p *PluginSkillPreparer) resolveDownloadURLs(
+	ctx context.Context,
+	codes []string,
+	connectorRefs []connectorSkillDownloadRef,
+) (map[string]skillDownloadURLResponse, error) {
 	if p == nil || strings.TrimSpace(p.serverAddr) == "" {
 		return nil, fmt.Errorf("server address is required")
 	}
 	body, err := json.Marshal(struct {
-		SkillCodes []string `json:"skill_codes"`
-	}{SkillCodes: codes})
+		SkillCodes      []string                    `json:"skill_codes"`
+		ConnectorSkills []connectorSkillDownloadRef `json:"connector_skills,omitempty"`
+	}{SkillCodes: codes, ConnectorSkills: connectorRefs})
 	if err != nil {
 		return nil, fmt.Errorf("encode skill download URL request: %w", err)
 	}
@@ -341,6 +365,24 @@ func (p *PluginSkillPreparer) resolveDownloadURLs(ctx context.Context, codes []s
 		result[code] = item
 	}
 	return result, nil
+}
+
+func pluginSnapshotSkill(
+	snapshot agentrundomain.PluginSnapshot,
+) (string, int, *connectorSkillDownloadRef, bool) {
+	if strings.EqualFold(snapshot.Kind, "skill") {
+		return snapshot.Code, snapshot.Revision, nil, true
+	}
+	if !strings.EqualFold(snapshot.Kind, "mcp") {
+		return "", 0, nil, false
+	}
+	definition, err := service.ConnectorFromDefinition(snapshot.Definition)
+	if err != nil || definition == nil || definition.Skill == nil {
+		return "", 0, nil, false
+	}
+	return definition.Skill.Code, definition.Skill.Revision, &connectorSkillDownloadRef{
+		PluginID: snapshot.PluginID, Revision: snapshot.Revision,
+	}, true
 }
 
 func installSkillFromURL(ctx context.Context, skillsRoot, code string, download skillDownloadURLResponse) (string, error) {
@@ -415,15 +457,43 @@ func downloadArtifact(ctx context.Context, downloadURL, destination string) erro
 	return nil
 }
 
-func skillRunViewRoot(req *agentrundomain.RunRequest, workspace WorkspacePreparation) (string, error) {
-	runID, err := safePathID(req.RunID)
+func taskSkillViewRoot(workspace WorkspacePreparation) (string, error) {
+	base := strings.TrimSpace(workspace.TaskDir)
+	if base == "" {
+		base = strings.TrimSpace(workspace.WorkDir)
+	}
+	if base == "" {
+		return "", fmt.Errorf("task or work directory is required")
+	}
+	return filepath.Join(base, "skills"), nil
+}
+
+func resetTaskSkillView(root string) error {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(root)
 	if err != nil {
-		return "", fmt.Errorf("invalid run id: %w", err)
+		return err
 	}
-	if workspace.ProjectRoot != "" {
-		return filepath.Join(workspace.ProjectRoot, ".leros", "skills", "runs", runID), nil
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("refuse to replace non-symlink %s", path)
+		}
+		paths = append(paths, path)
 	}
-	return leros.JoinWorkspace(".leros", "skills", "runs", runID)
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func systemSkillsDir() string {

@@ -86,7 +86,7 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 		t.Fatalf("platform metadata = %#v", before.Platforms[0])
 	}
 
-	connected, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "corekg")
+	connected, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "corekg", nil)
 	if err != nil {
 		t.Fatalf("ConnectMCPPlatform() error = %v", err)
 	}
@@ -108,7 +108,7 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("update MCP channel: %v", err)
 	}
-	repeated, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "COREKG")
+	repeated, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "COREKG", nil)
 	if err != nil {
 		t.Fatalf("repeated ConnectMCPPlatform() error = %v", err)
 	}
@@ -196,7 +196,7 @@ func TestCoreKGMCPPlatformIsUnavailableWithoutIAMIssuer(t *testing.T) {
 	if platforms.Platforms[0].AutoConnectSupported {
 		t.Fatalf("platform = %#v", platforms.Platforms[0])
 	}
-	if _, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "corekg"); err == nil {
+	if _, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "corekg", nil); err == nil {
 		t.Fatal("ConnectMCPPlatform() expected unsupported error")
 	}
 }
@@ -224,7 +224,7 @@ func TestMCPPlatformsSkipMissingInactiveAndInvalidChannels(t *testing.T) {
 		t.Fatalf("create invalid CoreKG channel: %v", err)
 	}
 	skipped, err := service.ListMCPPlatforms(context.Background(), 10, 20)
-	if err != nil || len(skipped.Platforms) != 0 {
+	if err != nil || len(skipped.Platforms) != 1 || skipped.Platforms[0].Code != "other" {
 		t.Fatalf("skipped platforms/error = %#v/%v", skipped, err)
 	}
 	if _, err := service.ListPlugins(
@@ -238,7 +238,7 @@ func TestMCPPlatformsSkipMissingInactiveAndInvalidChannels(t *testing.T) {
 	if err := database.Model(coreKG).Update("status", types.MCPChannelStatusInactive).Error; err != nil {
 		t.Fatalf("deactivate CoreKG channel: %v", err)
 	}
-	if _, err := service.ConnectMCPPlatform(context.Background(), 10, 20, coreKGPlatformCode); err == nil {
+	if _, err := service.ConnectMCPPlatform(context.Background(), 10, 20, coreKGPlatformCode, nil); err == nil {
 		t.Fatal("ConnectMCPPlatform() expected inactive configuration error")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/internal/consts"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
+	"github.com/insmtx/Leros/backend/internal/service"
 	agentruncontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
@@ -389,6 +390,12 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 	if strings.EqualFold(strings.TrimSpace(cloned.Runtime.Kind), agent.RuntimeKindOpenCode) {
 		mcpServers = prepareMCPServers(ctx, cloned.Plugins)
 	}
+	connectorEnv := prepareConnectorRuntimeEnv(ctx, cloned.Plugins)
+	runtimeEnv := append([]string(nil), connectorEnv...)
+	if workspace.SkillDir != "" {
+		runtimeEnv = append(runtimeEnv, agent.RunSkillsDirEnvVar+"="+workspace.SkillDir)
+	}
+	sort.Strings(runtimeEnv)
 
 	return &PreparedRun{
 		Request: req,
@@ -404,6 +411,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			Messages:     messages,
 			Tools:        runtimeTools,
 			MCPServers:   mcpServers,
+			ExtraEnv:     runtimeEnv,
 			Model:        model,
 			Policy: agent.ExecutionPolicy{
 				AllowedTools:   append([]string(nil), cloned.Capability.AllowedTools...),
@@ -428,6 +436,10 @@ func prepareMCPServers(
 	configs := make([]agent.MCPServerConfig, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		if !strings.EqualFold(strings.TrimSpace(snapshot.Kind), "mcp") {
+			continue
+		}
+		if connector, err := service.ConnectorFromDefinition(snapshot.Definition); err == nil &&
+			connector != nil && connector.MCP == nil {
 			continue
 		}
 		config, err := MCPServerConfigFromPluginSnapshot(snapshot)

@@ -118,6 +118,24 @@ func newServerCommand() *cobra.Command {
 				}
 			}
 
+			connectorReport, connectorErr := service.SyncBuiltinConnectorTemplates(cmd.Context(), db, "")
+			if connectorErr != nil {
+				logs.Warnf("Built-in connector sync skipped: %v", connectorErr)
+			} else {
+				for _, failure := range connectorReport.Failures {
+					logs.Warnf("Failed to sync built-in connector %s: %v", failure.Code, failure.Err)
+				}
+				logs.Infof(
+					"Built-in connector sync complete: scanned=%d created=%d updated=%d unchanged=%d restored=%d failed=%d",
+					connectorReport.Scanned,
+					connectorReport.Created,
+					connectorReport.Updated,
+					connectorReport.Unchanged,
+					connectorReport.Restored,
+					len(connectorReport.Failures),
+				)
+			}
+
 			workerReport, workerErr := service.SyncBuiltinWorkerSkills(cmd.Context(), db, "")
 			if workerErr != nil {
 				logs.Warnf("Built-in worker Skill sync skipped: %v", workerErr)

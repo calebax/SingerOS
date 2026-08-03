@@ -3,6 +3,7 @@
 import {
 	type MCPPlatform,
 	type MCPPluginConfig,
+	type MCPPluginDefinition,
 	type PluginListItem,
 	pluginApi,
 } from "@leros/store";
@@ -34,9 +35,12 @@ import {
 import { Ellipsis, Loader2, Plus, Search, Server, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { openExternalLink } from "../../utils/open-external-link";
 import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 
 const PAGE_SIZE = 90;
+const OAUTH_POLL_INTERVAL_MS = 2_000;
+const OAUTH_POLL_ATTEMPTS = 150;
 
 type MCPForm = {
 	name: string;
@@ -167,6 +171,15 @@ function formConfig(form: MCPForm): MCPPluginConfig {
 	};
 }
 
+function mcpDefinition(
+	definition: MCPPluginDefinition | { schema: "connector/v1" } | undefined,
+): MCPPluginDefinition {
+	if (definition?.schema !== "mcp/v1") {
+		throw new Error("该平台连接器不支持自定义 MCP 管理");
+	}
+	return definition;
+}
+
 export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?: boolean }) {
 	const [connectors, setConnectors] = useState<PluginListItem[]>([]);
 	const [platforms, setPlatforms] = useState<MCPPlatform[]>([]);
@@ -178,6 +191,8 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 	const [form, setForm] = useState<MCPForm>(emptyForm);
 	const [saving, setSaving] = useState(false);
 	const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null);
+	const [authorizingPlatform, setAuthorizingPlatform] = useState<MCPPlatform | null>(null);
+	const [platformAuthValues, setPlatformAuthValues] = useState<Record<string, string>>({});
 	const [disconnectingPlatform, setDisconnectingPlatform] = useState<MCPPlatform | null>(null);
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [deletingConnector, setDeletingConnector] = useState<PluginListItem | null>(null);
@@ -253,8 +268,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 	const openManageDialog = async (connector: PluginListItem) => {
 		try {
 			const response = await pluginApi.get(connector.public_id);
-			const definition = response.data.data.definition;
-			if (!definition) throw new Error("MCP 配置不存在");
+			const definition = mcpDefinition(response.data.data.definition);
 			setEditingPluginID(connector.public_id);
 			setForm({
 				name: connector.name,
@@ -275,8 +289,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 	const testSavedConnector = async (connector: PluginListItem) => {
 		try {
 			const response = await pluginApi.get(connector.public_id);
-			const definition = response.data.data.definition;
-			if (!definition) throw new Error("MCP 配置不存在");
+			const definition = mcpDefinition(response.data.data.definition);
 			if (definition.transport === "stdio") {
 				toast.info("STDIO MCP 会在关联项目的 Worker Run 中启动并验证");
 				return;
@@ -294,6 +307,10 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 	};
 
 	const testPlatform = async (platform: MCPPlatform) => {
+		if (platform.mode === "skill_only") {
+			toast.info("Skill 连接器会在关联项目的 Worker Run 中验证");
+			return;
+		}
 		if (!platform.plugin_id) return;
 		const connector = connectors.find((item) => item.public_id === platform.plugin_id);
 		await testSavedConnector(
@@ -309,18 +326,86 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 		);
 	};
 
-	const connectPlatform = async (platform: MCPPlatform) => {
+	const connectPlatform = async (
+		platform: MCPPlatform,
+		authValues: Record<string, string> = {},
+	) => {
 		if (!isAuthenticated || platform.connected || !platform.auto_connect_supported) return;
 		setConnectingPlatform(platform.code);
 		try {
-			const response = await pluginApi.connectMCPPlatform(platform.code);
-			toast.success(`${platform.name} 连接成功，发现 ${response.data.data.tool_count} 个工具`);
+			const response = await pluginApi.connectMCPPlatform(platform.code, {
+				auth_values: authValues,
+			});
+			const toolCount = response.data.data.tool_count;
+			toast.success(
+				toolCount > 0
+					? `${platform.name} 连接成功，发现 ${toolCount} 个工具`
+					: `${platform.name} 连接成功`,
+			);
+			setAuthorizingPlatform(null);
+			setPlatformAuthValues({});
 			await fetchConnectors();
 		} catch (requestError) {
 			toast.error(requestErrorMessage(requestError, `${platform.name} 连接失败`));
 		} finally {
 			setConnectingPlatform(null);
 		}
+	};
+
+	const connectOAuthPlatform = async (platform: MCPPlatform) => {
+		if (!isAuthenticated || platform.connected || !platform.auto_connect_supported) return;
+		setConnectingPlatform(platform.code);
+		try {
+			const startResponse = await pluginApi.startMCPPlatformOAuth(platform.code);
+			const attempt = startResponse.data.data;
+			openExternalLink(attempt.authorization_url);
+			for (let poll = 0; poll < OAUTH_POLL_ATTEMPTS; poll += 1) {
+				await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
+				const statusResponse = await pluginApi.getMCPPlatformOAuthStatus(
+					platform.code,
+					attempt.attempt_id,
+				);
+				const status = statusResponse.data.data;
+				if (status.connected || status.status === "active") {
+					toast.success(`${platform.name} 授权并连接成功`);
+					await fetchConnectors();
+					return;
+				}
+				if (status.status === "failed" || status.status === "reauthorization_required") {
+					throw new Error("OAuth authorization failed");
+				}
+			}
+			throw new Error("OAuth authorization timed out");
+		} catch (requestError) {
+			toast.error(requestErrorMessage(requestError, `${platform.name} 授权失败，请重试`));
+			await fetchConnectors();
+		} finally {
+			setConnectingPlatform(null);
+		}
+	};
+
+	const beginConnectPlatform = (platform: MCPPlatform) => {
+		if (platform.auth_type === "oauth") {
+			void connectOAuthPlatform(platform);
+			return;
+		}
+		if (platform.auth_type !== "form") {
+			void connectPlatform(platform);
+			return;
+		}
+		setPlatformAuthValues({});
+		setAuthorizingPlatform(platform);
+	};
+
+	const submitPlatformAuthorization = () => {
+		if (!authorizingPlatform) return;
+		for (const field of authorizingPlatform.auth_fields ?? []) {
+			if (field.required && !platformAuthValues[field.key]?.trim()) {
+				toast.error(`请填写${field.label}`);
+				return;
+			}
+		}
+		void connectPlatform(authorizingPlatform, platformAuthValues);
 	};
 
 	const disconnectPlatform = async () => {
@@ -428,7 +513,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 								MCP 连接器
 							</h2>
 							<p className="mt-1 text-xs text-[var(--leros-text-muted)]">
-								管理你添加的外部系统连接，通过项目关联决定 Worker 运行时可用的 MCP。
+								管理你添加的外部系统连接，通过项目关联决定 Worker 运行时可用的 Skill 或 MCP。
 							</p>
 						</div>
 						<Button
@@ -496,6 +581,15 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 															<Loader2 className="size-3 animate-spin" />
 															连接中
 														</span>
+													) : platform.authorization_status === "pending" ||
+														platform.authorization_status === "exchanging" ? (
+														<span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600">
+															待完成授权
+														</span>
+													) : platform.authorization_status === "reauthorization_required" ? (
+														<span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600">
+															需重新授权
+														</span>
 													) : null}
 												</div>
 												<p className="mt-0.5 truncate text-xs text-[var(--leros-text-muted)]">
@@ -523,9 +617,11 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 														)}
 													/>
 													<DropdownMenuContent align="end" className="w-32">
-														<DropdownMenuItem onClick={() => void testPlatform(platform)}>
-															测试连接
-														</DropdownMenuItem>
+														{platform.mode !== "skill_only" && platform.auth_type !== "oauth" ? (
+															<DropdownMenuItem onClick={() => void testPlatform(platform)}>
+																测试连接
+															</DropdownMenuItem>
+														) : null}
 														<DropdownMenuItem
 															className="text-red-600 focus:text-red-600"
 															onClick={() => setDisconnectingPlatform(platform)}
@@ -545,7 +641,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 															: "当前版本暂不支持自动授权"
 													}
 													disabled={connectionDisabled}
-													onClick={() => void connectPlatform(platform)}
+													onClick={() => beginConnectPlatform(platform)}
 													className="size-8 shrink-0 rounded-md p-0"
 												>
 													{connecting ? (
@@ -802,6 +898,70 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 							className="h-9 rounded-lg px-6 text-xs shadow-[0_6px_18px_rgba(15,23,42,0.16)]"
 						>
 							{saving ? "保存中..." : "保存"}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog
+				open={authorizingPlatform !== null}
+				onOpenChange={(open) => {
+					if (!open && connectingPlatform === null) {
+						setAuthorizingPlatform(null);
+						setPlatformAuthValues({});
+					}
+				}}
+			>
+				<DialogContent className="max-w-md">
+					<DialogHeader>
+						<DialogTitle>连接 {authorizingPlatform?.name}</DialogTitle>
+						<DialogDescription>
+							认证信息会保存到该连接器的插件 Revision，并在关联项目运行时注入。
+						</DialogDescription>
+					</DialogHeader>
+					<div className="grid gap-4 py-2">
+						{(authorizingPlatform?.auth_fields ?? []).map((field) => (
+							<label
+								key={field.key}
+								className="grid gap-1.5 text-[13px] font-semibold text-[var(--leros-text-strong)]"
+							>
+								{field.label}
+								<input
+									type={field.type === "password" ? "password" : "text"}
+									value={platformAuthValues[field.key] ?? ""}
+									placeholder={field.placeholder}
+									disabled={connectingPlatform !== null}
+									onChange={(event) =>
+										setPlatformAuthValues((current) => ({
+											...current,
+											[field.key]: event.target.value,
+										}))
+									}
+									className="h-10 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs font-normal outline-none focus:border-[var(--leros-primary)] focus:bg-white"
+								/>
+								{field.description ? (
+									<span className="text-[11px] font-normal text-[var(--leros-text-muted)]">
+										{field.description}
+									</span>
+								) : null}
+							</label>
+						))}
+					</div>
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={connectingPlatform !== null}
+							onClick={() => setAuthorizingPlatform(null)}
+						>
+							取消
+						</Button>
+						<Button
+							type="button"
+							disabled={connectingPlatform !== null}
+							onClick={submitPlatformAuthorization}
+						>
+							{connectingPlatform !== null ? "连接中..." : "连接"}
 						</Button>
 					</DialogFooter>
 				</DialogContent>
