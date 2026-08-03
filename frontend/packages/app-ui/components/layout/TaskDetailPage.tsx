@@ -238,8 +238,10 @@ export function TaskDetailPage({
 		setActiveSession(resolvedSessionId);
 		const bootstrapPending = pendingBootstrapSessionId === resolvedSessionId;
 		const sessionHasMessages = hasSessionMessages(resolvedSessionId);
-		// 中文注释：bootstrap 已完成且本地仍有等待态消息时，交给 GlobalEvents 接管，不抢先拉历史。
+		// 中文注释：新建跳转同一次 bootstrap、本地已有乐观等待态时，交给 GlobalEvents，不抢先拉历史。
 		if (bootstrapPending && sessionHasMessages) return;
+		// 中文注释：发送中（含第二轮 AddMessage 后等待 GlobalEvents）禁止再 load，避免冲掉乐观 waiting / 误开 resume。
+		// 离开后再进由 clearLocalMessages 清掉 isGenerating，不会误伤场景 2 hydration。
 		if (isGenerating && sessionHasMessages && allMessagesBelongToSession(resolvedSessionId)) return;
 		// 中文注释：bootstrap 标记存在但消息被误清时，等待 GlobalEvents 回填，避免 loadConversationMessages 与 SSE resume 重复开流。
 		if (bootstrapPending && !sessionHasMessages) return;
@@ -261,13 +263,25 @@ export function TaskDetailPage({
 		loadConversationMessages,
 	]);
 
-	// 离开任务详情页时清理消息并关闭 SSE；bootstrap 跳转期间保留等待态，避免 remount 后空屏。
+	// 真正离开任务详情时清理本地消息与 bootstrap，便于再进走场景 2 hydration。
+	// 同 session remount（Strict Mode / 路由重挂）时不清：否则会冲掉场景 1 的 waiting，
+	// 被误判成冷进页并对 responding 直接 resume 开 SessionEvents（问答路径应等 GlobalEvents assistant）。
 	useEffect(() => {
+		const sessionIdOnEffect = resolvedSessionId;
 		return () => {
-			if (useAppStore.getState().pendingBootstrapSessionId) return;
-			clearLocalMessages();
+			queueMicrotask(() => {
+				const layout = useAppStore.getState();
+				if (
+					layout.currentView === "taskDetail" &&
+					sessionIdOnEffect &&
+					layout.activeTaskDetailSessionId === sessionIdOnEffect
+				) {
+					return;
+				}
+				clearLocalMessages();
+			});
 		};
-	}, [clearLocalMessages]);
+	}, [resolvedSessionId, clearLocalMessages]);
 
 	useEffect(() => {
 		if (!resolvedTaskId) return;

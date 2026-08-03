@@ -268,6 +268,7 @@ export function ProjectPage({
 		if (bootstrapPending && sessionHasMessages) return;
 		// 中文注释：bootstrap 期间消息被误清时等待 GlobalEvents 回填，避免与 SSE resume 重复开流。
 		if (bootstrapPending && !sessionHasMessages) return;
+		// 中文注释：发送中禁止再 load，避免冲掉乐观 waiting；再进页依赖离开时 clear 掉 isGenerating。
 		if (
 			isGenerating &&
 			activeSessionId === nextSessionId &&
