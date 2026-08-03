@@ -291,6 +291,14 @@ func (s *pluginService) getSupportedMCPChannel(
 }
 
 func normalizeSupportedMCPChannel(channel *types.MCPChannel) (*types.MCPChannel, bool) {
+	return normalizeMCPChannel(channel, true)
+}
+
+func normalizeBuiltinConnectorTemplateChannel(channel *types.MCPChannel) (*types.MCPChannel, bool) {
+	return normalizeMCPChannel(channel, false)
+}
+
+func normalizeMCPChannel(channel *types.MCPChannel, requireOAuthAppConfig bool) (*types.MCPChannel, bool) {
 	if channel == nil {
 		return nil, false
 	}
@@ -332,7 +340,7 @@ func normalizeSupportedMCPChannel(channel *types.MCPChannel) (*types.MCPChannel,
 			}
 		}
 		if reason == "" {
-			if err := validateChannelAuthConfig(&normalized); err != nil {
+			if err := validateChannelAuthConfig(&normalized, requireOAuthAppConfig); err != nil {
 				reason = err.Error()
 			}
 		}
@@ -344,7 +352,7 @@ func normalizeSupportedMCPChannel(channel *types.MCPChannel) (*types.MCPChannel,
 	return &normalized, true
 }
 
-func validateChannelAuthConfig(channel *types.MCPChannel) error {
+func validateChannelAuthConfig(channel *types.MCPChannel, requireOAuthAppConfig bool) error {
 	config := types.MCPChannelAuthConfig(channel.AuthConfig)
 	fields := make(map[string]struct{}, len(config.Fields))
 	for _, field := range config.Fields {
@@ -374,8 +382,10 @@ func validateChannelAuthConfig(channel *types.MCPChannel) error {
 		if strings.TrimSpace(config.Handler) != baiduNetdiskPlatformCode || config.OAuth == nil {
 			return fmt.Errorf("oauth authorization requires a supported handler")
 		}
-		if _, err := baiduOAuthAppConfig(channel); err != nil {
-			return err
+		if requireOAuthAppConfig {
+			if _, err := baiduOAuthAppConfig(channel); err != nil {
+				return err
+			}
 		}
 		knownValues = map[string]struct{}{
 			baiduNetdiskOAuthValueKey: {}, baiduNetdiskRefreshValueKey: {},

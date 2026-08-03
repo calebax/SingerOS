@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ const builtinConnectorOrigin = "builtin_connector"
 var builtinConnectorSyncMu sync.Mutex
 
 // SyncBuiltinConnectorTemplates seeds built-in channels and publishes their immutable templates.
+// Bundled templates are published before activation so operations can enable a channel without restarting the server.
 // One invalid connector is isolated from the remaining synchronization pass.
 func SyncBuiltinConnectorTemplates(
 	ctx context.Context,
@@ -37,16 +39,29 @@ func SyncBuiltinConnectorTemplates(
 	if database == nil {
 		return nil, fmt.Errorf("database is required")
 	}
-	if err := seedBuiltinEmailChannel(ctx, database); err != nil {
+	emailChannel, err := seedBuiltinEmailChannel(ctx, database)
+	if err != nil {
 		return nil, err
 	}
-	if err := seedBuiltinBaiduNetdiskChannel(ctx, database); err != nil {
+	baiduNetdiskChannel, err := seedBuiltinBaiduNetdiskChannel(ctx, database)
+	if err != nil {
 		return nil, err
 	}
 	channels, err := infradb.ListActiveMCPChannels(ctx, database)
 	if err != nil {
 		return nil, err
 	}
+	channelsByCode := make(map[string]types.MCPChannel, len(channels)+2)
+	for index := range channels {
+		channelsByCode[channels[index].Channel] = channels[index]
+	}
+	channelsByCode[emailChannel.Channel] = *emailChannel
+	channelsByCode[baiduNetdiskChannel.Channel] = *baiduNetdiskChannel
+	codes := make([]string, 0, len(channelsByCode))
+	for code := range channelsByCode {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
 	var connectorDir string
 	if strings.TrimSpace(sourceDir) != "" {
 		connectorDir = sourceDir
@@ -58,8 +73,9 @@ func SyncBuiltinConnectorTemplates(
 	}
 	report := &BuiltinSkillSyncReport{}
 	service := &pluginService{db: database}
-	for index := range channels {
-		channel, ok := normalizeSupportedMCPChannel(&channels[index])
+	for _, code := range codes {
+		configured := channelsByCode[code]
+		channel, ok := normalizeBuiltinConnectorTemplateChannel(&configured)
 		if !ok {
 			continue
 		}
@@ -83,15 +99,15 @@ func SyncBuiltinConnectorTemplates(
 	return report, nil
 }
 
-func seedBuiltinBaiduNetdiskChannel(ctx context.Context, database *gorm.DB) error {
+func seedBuiltinBaiduNetdiskChannel(ctx context.Context, database *gorm.DB) (*types.MCPChannel, error) {
 	const channelCode = baiduNetdiskPlatformCode
 	var existing types.MCPChannel
 	err := database.WithContext(ctx).Where("channel = ?", channelCode).First(&existing).Error
 	if err == nil {
-		return nil
+		return &existing, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
+		return nil, err
 	}
 	channel := &types.MCPChannel{
 		Channel: channelCode, Name: "百度网盘",
@@ -110,22 +126,22 @@ func seedBuiltinBaiduNetdiskChannel(ctx context.Context, database *gorm.DB) erro
 	if err := database.WithContext(ctx).Create(channel).Error; err != nil {
 		var concurrent types.MCPChannel
 		if reloadErr := database.WithContext(ctx).Where("channel = ?", channelCode).First(&concurrent).Error; reloadErr == nil {
-			return nil
+			return &concurrent, nil
 		}
-		return fmt.Errorf("seed baidu netdisk connector channel: %w", err)
+		return nil, fmt.Errorf("seed baidu netdisk connector channel: %w", err)
 	}
-	return nil
+	return channel, nil
 }
 
-func seedBuiltinEmailChannel(ctx context.Context, database *gorm.DB) error {
+func seedBuiltinEmailChannel(ctx context.Context, database *gorm.DB) (*types.MCPChannel, error) {
 	const channelCode = "netease-mail"
 	var existing types.MCPChannel
 	err := database.WithContext(ctx).Where("channel = ?", channelCode).First(&existing).Error
 	if err == nil {
-		return nil
+		return &existing, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
+		return nil, err
 	}
 	channel := &types.MCPChannel{
 		Channel:     channelCode,
@@ -158,11 +174,11 @@ func seedBuiltinEmailChannel(ctx context.Context, database *gorm.DB) error {
 	if err := database.WithContext(ctx).Create(channel).Error; err != nil {
 		var concurrent types.MCPChannel
 		if reloadErr := database.WithContext(ctx).Where("channel = ?", channelCode).First(&concurrent).Error; reloadErr == nil {
-			return nil
+			return &concurrent, nil
 		}
-		return fmt.Errorf("seed email connector channel: %w", err)
+		return nil, fmt.Errorf("seed email connector channel: %w", err)
 	}
-	return nil
+	return channel, nil
 }
 
 func (s *pluginService) syncBuiltinConnectorTemplate(
