@@ -706,18 +706,20 @@ function MessageArtifactList({
 						<MessageArtifactIcon fileName={artifact.name} />
 					</div>
 					<div className="min-w-0">
-						<div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5 text-slate-700">
+						<div className="min-w-0 truncate text-sm font-semibold leading-5 text-slate-700">
 							<span className="truncate">{artifact.name}</span>
+						</div>
+						<div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[13px] leading-4 text-slate-400">
 							{artifact.versionNo ? (
 								<span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-blue-600">
 									V{artifact.versionNo}
 								</span>
 							) : null}
-						</div>
-						<div className="mt-0.5 truncate text-[13px] leading-4 text-slate-400">
-							{[artifact.size, artifact.updatedAt ? formatArtifactTime(artifact.updatedAt) : ""]
-								.filter(Boolean)
-								.join(" · ")}
+							<span className="min-w-0 truncate">
+								{[artifact.size, artifact.updatedAt ? formatArtifactTime(artifact.updatedAt) : ""]
+									.filter(Boolean)
+									.join(" · ")}
+							</span>
 						</div>
 					</div>
 				</button>
