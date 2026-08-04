@@ -97,4 +97,7 @@ const (
 	TableNameDepartment = tablenamePrefix + "department"
 	// TableNameMemberDepartment 组织成员部门关联表名
 	TableNameMemberDepartment = tablenamePrefix + "rel_user_org_department"
+
+	// TableNameSeedRecord SQL 种子执行记录表名
+	TableNameSeedRecord = tablenamePrefix + "seed_record"
 )
