@@ -107,6 +107,8 @@ export function TaskDetailPage({
 		streamingMessageId,
 		setActiveSession,
 		clearLocalMessages,
+		closeSseConnection,
+		clearPendingBootstrapSession,
 		hasSessionMessages,
 		allMessagesBelongToSession,
 		loadConversationMessages,
@@ -241,13 +243,14 @@ export function TaskDetailPage({
 		// 中文注释：新建跳转同一次 bootstrap、本地已有乐观等待态时，交给 GlobalEvents，不抢先拉历史。
 		if (bootstrapPending && sessionHasMessages) return;
 		// 中文注释：发送中（含第二轮 AddMessage 后等待 GlobalEvents）禁止再 load，避免冲掉乐观 waiting / 误开 resume。
-		// 离开后再进由 clearLocalMessages 清掉 isGenerating，不会误伤场景 2 hydration。
+		// 离开后再进由 closeSseConnection 清掉 isGenerating，不会误伤场景 2 hydration。
 		if (isGenerating && sessionHasMessages && allMessagesBelongToSession(resolvedSessionId)) return;
 		// 中文注释：bootstrap 标记存在但消息被误清时，等待 GlobalEvents 回填，避免 loadConversationMessages 与 SSE resume 重复开流。
 		if (bootstrapPending && !sessionHasMessages) return;
 		if (!sessionHasMessages) {
 			clearLocalMessages();
 		}
+		// 中文注释：本地已有该会话消息时仍后台刷新/按需 resume，但首屏可直接复用，避免每次冷进空等网络。
 		loadConversationMessages(resolvedSessionId, {
 			resumeStream: !(bootstrapPending && sessionHasMessages),
 		});
@@ -263,8 +266,8 @@ export function TaskDetailPage({
 		loadConversationMessages,
 	]);
 
-	// 真正离开任务详情时清理本地消息与 bootstrap，便于再进走场景 2 hydration。
-	// 同 session remount（Strict Mode / 路由重挂）时不清：否则会冲掉场景 1 的 waiting，
+	// 真正离开任务详情时关掉 SSE、清 bootstrap，但保留本地消息作同会话再进的首屏缓存。
+	// 同 session remount（Strict Mode / 路由重挂）时不动：否则会冲掉场景 1 的 waiting，
 	// 被误判成冷进页并对 responding 直接 resume 开 SessionEvents（问答路径应等 GlobalEvents assistant）。
 	useEffect(() => {
 		const sessionIdOnEffect = resolvedSessionId;
@@ -278,10 +281,11 @@ export function TaskDetailPage({
 				) {
 					return;
 				}
-				clearLocalMessages();
+				closeSseConnection();
+				clearPendingBootstrapSession();
 			});
 		};
-	}, [resolvedSessionId, clearLocalMessages]);
+	}, [resolvedSessionId, closeSseConnection, clearPendingBootstrapSession]);
 
 	useEffect(() => {
 		if (!resolvedTaskId) return;
