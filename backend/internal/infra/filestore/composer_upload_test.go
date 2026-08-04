@@ -9,6 +9,8 @@ func TestValidateComposerUploadFilename(t *testing.T) {
 		"sheet.XLSX",
 		"slide.ppt",
 		"readme.md",
+		"page.html",
+		"legacy.htm",
 		"photo.JPG",
 		"photo.jpeg",
 		"photo.png",

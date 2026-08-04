@@ -10,6 +10,8 @@ export const COMPOSER_UPLOAD_ALLOWED_EXTENSIONS = [
 	".pptx",
 	".md",
 	".markdown",
+	".html",
+	".htm",
 	".png",
 	".jpg",
 	".jpeg",
@@ -45,7 +47,7 @@ export function getComposerUploadAccept(platform?: string): string | undefined {
 }
 
 export const COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE =
-	"仅支持上传 PDF、Word、Excel、PPT、Markdown、图片（JPG/JPEG/PNG/GIF/BMP/WEBP/SVG）、视频（MP4/MOV/AVI）、TXT 文件";
+	"仅支持上传 PDF、Word、Excel、PPT、Markdown、HTML、图片（JPG/JPEG/PNG/GIF/BMP/WEBP/SVG）、视频（MP4/MOV/AVI）、TXT 文件";
 
 export const COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE = "不能上传空文件";
 
