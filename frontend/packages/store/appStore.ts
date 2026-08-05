@@ -32,15 +32,25 @@ export type AppAction = AuthAction &
 	PermissionAction &
 	GlobalConfigAction;
 
-const createStore: SliceCreator<AppStore> = (...params) => ({
-	...authSlice(...params),
-	...layoutSlice(...params),
-	...topicSlice(...params),
-	...chatSlice(...params),
-	...daSlice(...params),
-	...permissionSlice(...params),
-	...globalConfigSlice(...params),
-});
+const createStore: SliceCreator<AppStore> = (...params) => {
+	const layout = layoutSlice(...params);
+	const da = daSlice(...params);
+	return {
+		...authSlice(...params),
+		...layout,
+		...topicSlice(...params),
+		...chatSlice(...params),
+		...da,
+		...permissionSlice(...params),
+		...globalConfigSlice(...params),
+		// 中文注释：layout 与 DA 都导出了 resetAuthScopedData，对象展开时后者会盖掉前者，
+		// 导致登出只清助手、不清 projects。这里合并成一次调用，两个入口都生效。
+		resetAuthScopedData: () => {
+			layout.resetAuthScopedData();
+			da.resetAuthScopedData();
+		},
+	};
+};
 
 export const useAppStore = createWithEqualityFn<AppStore>()(
 	subscribeWithSelector(devtools(createStore)),
