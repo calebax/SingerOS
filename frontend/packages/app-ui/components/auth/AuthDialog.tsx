@@ -341,8 +341,8 @@ function AuthDialog({
 	onOpenChange: (open: boolean) => void;
 	onAuthenticated: (login: PendingOrganizationLoginResponse) => Promise<void>;
 }) {
-	const [mode, setMode] = useState<AuthMode>("phone");
 	const phoneCodeLoginEnabled = useGlobalConfigStore((s) => s.phoneCodeLoginEnabled);
+	const [mode, setMode] = useState<AuthMode>(phoneCodeLoginEnabled ? "phone" : "password");
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
 	const [account, setAccount] = useState("");
