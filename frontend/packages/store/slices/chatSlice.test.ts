@@ -7,6 +7,7 @@ import {
 	attachAssistantReplyTargets,
 	createAssistantSessionEventsWaitingMessage,
 	insertGlobalUserMessageId,
+	isGlobalUserEchoMessage,
 	isTaskRoomAssistantPlaceholder,
 	mapBackendMessage,
 	retainLocalMessagesForSession,
@@ -295,6 +296,48 @@ describe("attachAssistantReplyTargets", () => {
 		const result = attachAssistantReplyTargets(messages);
 
 		expect(result[1]?.replyTo).toBeUndefined();
+	});
+});
+
+describe("isGlobalUserEchoMessage", () => {
+	it("merges optimistic local user messages as echo", () => {
+		const local: Message = {
+			id: "msg-user-1",
+			conversationId: "session-1",
+			role: "user",
+			content: "hello",
+			timestamp: 1,
+			author: { id: "current-user", name: "我", type: "user" },
+		};
+		const incoming: Message = {
+			id: "42",
+			conversationId: "session-1",
+			role: "user",
+			content: "hello",
+			timestamp: 2,
+			author: { id: "7", name: "张三", type: "user" },
+		};
+		expect(isGlobalUserEchoMessage(local, incoming)).toBe(true);
+	});
+
+	it("does not treat another teammate's same-text question as echo of a persisted user message", () => {
+		const local: Message = {
+			id: "10",
+			conversationId: "session-1",
+			role: "user",
+			content: "hello",
+			timestamp: Date.now() - 1_000,
+			author: { id: "1", name: "用户", type: "user" },
+		};
+		const incoming: Message = {
+			id: "11",
+			conversationId: "session-1",
+			role: "user",
+			content: "hello",
+			timestamp: Date.now(),
+			author: { id: "2", name: "用户", type: "user" },
+		};
+		expect(isGlobalUserEchoMessage(local, incoming)).toBe(false);
 	});
 });
 

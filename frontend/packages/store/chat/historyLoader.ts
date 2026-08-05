@@ -141,15 +141,19 @@ export class HistoryLoader {
 				(state.isGenerating ||
 					state.cancellingSessionId === sessionId ||
 					optimisticCountAfterLoad > 0);
-			const reconcilingLocalMessages = shouldPreserveLocalMessages
-				? localSessionMessages.filter(
-						(message) =>
-							!isOptimisticMessage(message) ||
-							message.role !== "assistant" ||
-							state.isGenerating ||
-							Boolean(normalizedMessageContent(message)),
-					)
-				: [];
+			// 中文注释：generating 时保留乐观/流式本地态；空闲时也要保留 GE 已插入但历史接口尚未返回的真人消息，
+			// 避免并发 load 把队友提问冲掉，只剩后到的 assistant 气泡。
+			const reconcilingLocalMessages = localSessionMessages.filter((message) => {
+				if (shouldPreserveLocalMessages) {
+					return (
+						!isOptimisticMessage(message) ||
+						message.role !== "assistant" ||
+						state.isGenerating ||
+						Boolean(normalizedMessageContent(message))
+					);
+				}
+				return !isOptimisticMessage(message) && message.role === "user";
+			});
 			// 请求返回时若用户已经切到别的 session，则忽略这次结果，避免旧请求反写当前会话。
 			if (state.activeSessionId !== sessionId) return;
 			const messages = reconcilingLocalMessages.length

@@ -59,6 +59,8 @@ export type GlobalEventsDeps = {
 		sessionId: string,
 		options?: { resumeStream?: boolean },
 	) => Promise<void>;
+	/** 按 session 刷新项目详情（新成员发言时补齐成员列表） */
+	refreshProjectForSession?: (sessionId: string) => void;
 };
 
 /**
@@ -237,7 +239,9 @@ export class GlobalEventsManager {
 					const message = state.messagesMap[id];
 					return (
 						message?.conversationId === sessionId &&
+						message.role === "user" &&
 						message.sequence !== undefined &&
+						payload.sequence !== undefined &&
 						message.sequence === payload.sequence
 					);
 				}) ??
@@ -276,6 +280,9 @@ export class GlobalEventsManager {
 				messageIds: state.messageIds.map((id) => (id === existingId ? incoming.id : id)),
 			};
 		});
+
+		// 中文注释：GE 真人消息到达即刷 DetailProject，补齐新成员头像；SE 终态仍会再刷一次。
+		this.#deps.refreshProjectForSession?.(sessionId);
 	};
 
 	/**

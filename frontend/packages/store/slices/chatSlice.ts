@@ -46,6 +46,7 @@ export {
 	attachAssistantReplyTargets,
 	createAssistantSessionEventsWaitingMessage,
 	insertGlobalUserMessageId,
+	isGlobalUserEchoMessage,
 	isTaskRoomAssistantPlaceholder,
 	mapBackendMessage,
 	retainLocalMessagesForSession,
@@ -125,6 +126,18 @@ export class ChatActionImpl {
 			set: setChat,
 		});
 
+		const refreshProjectForSession = (sessionId: string) => {
+			const fullState = this.#fullGet() as {
+				activeTaskDetailProjectId?: string | null;
+				fetchProjectDetail?: (projectId: string) => Promise<void>;
+				projects?: Array<{ id: string; tasks: Array<{ sessionId?: string }> }>;
+			};
+			const projectId = resolveProjectIdForSession(fullState, sessionId);
+			if (projectId) {
+				void fullState.fetchProjectDetail?.(projectId);
+			}
+		};
+
 		this.#sessionStream = new SessionStream({
 			get: () => this.#get(),
 			set: setChat,
@@ -132,17 +145,7 @@ export class ChatActionImpl {
 			loadConversationMessages: (sessionId, options) =>
 				this.#historyLoader.load(sessionId, options),
 			fullGet: () => this.#fullGet(),
-			refreshProjectForSession: (sessionId) => {
-				const fullState = this.#fullGet() as {
-					activeTaskDetailProjectId?: string | null;
-					fetchProjectDetail?: (projectId: string) => Promise<void>;
-					projects?: Array<{ id: string; tasks: Array<{ sessionId?: string }> }>;
-				};
-				const projectId = resolveProjectIdForSession(fullState, sessionId);
-				if (projectId) {
-					void fullState.fetchProjectDetail?.(projectId);
-				}
-			},
+			refreshProjectForSession,
 		});
 
 		this.#historyLoader = new HistoryLoader({
@@ -162,6 +165,7 @@ export class ChatActionImpl {
 			finishStream: () => this.#sessionStream.finish(),
 			loadConversationMessages: (sessionId, options) =>
 				this.#historyLoader.load(sessionId, options),
+			refreshProjectForSession,
 		});
 
 		this.#sendDeps = {
