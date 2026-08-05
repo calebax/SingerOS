@@ -312,9 +312,36 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		return nil, errors.New("content is required")
 	}
 
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
+	session, caller, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+
+	// 中文注释：续聊已有 Session 时，将请求携带的连接器关联到其项目；关联失败返回错误，
+	// 不会发布本次 Worker 任务。项目已绑定的连接器幂等成功。
+	if caller != nil && session.ProjectID != nil && *session.ProjectID != 0 && len(req.ConnectorIDs) > 0 {
+		project, err := db.GetProjectByID(ctx, s.db, *session.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("get project for connector binding: %w", err)
+		}
+		if project == nil {
+			return nil, fmt.Errorf("project %d not found for connector binding", *session.ProjectID)
+		}
+		// 中文注释：以当前 caller（而非 Session 创建者）身份绑定，保证项目更新权限与连接器可见性
+		// 均作用于发起本次请求的用户。
+		if _, err := bindConnectorsToProject(
+			ctx,
+			s.db,
+			s.perm,
+			caller,
+			project,
+			req.ConnectorIDs,
+			func(c context.Context, tx *gorm.DB, act *types.Caller, projectPublicID string, action types.ProjectActivityAction, payload types.ProjectActivityPayload) error {
+				return recordUserRepoActivity(c, tx, s.userRepo, act.Uin, projectPublicID, action, payload)
+			},
+		); err != nil {
+			return nil, fmt.Errorf("bind connectors to project: %w", err)
+		}
 	}
 
 	resolveAttachmentURLs(ctx, s.db, session.OrgID, req.Attachments)

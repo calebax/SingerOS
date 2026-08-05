@@ -177,6 +177,23 @@ func (p *MessagePoster) RunNewMessage(
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
 		return nil, err
 	}
+	// 中文注释：先将请求携带的连接器关联到项目，再创建 Session/Task，保证 Worker 发布前绑定已落地。
+	if len(o.req.ConnectorIDs) > 0 {
+		if _, err := bindConnectorsToProject(
+			ctx,
+			p.db,
+			p.perm,
+			o.caller,
+			o.project,
+			o.req.ConnectorIDs,
+			func(c context.Context, tx *gorm.DB, caller *types.Caller, projectPublicID string, action types.ProjectActivityAction, payload types.ProjectActivityPayload) error {
+				return recordUserRepoActivity(ctx, tx, p.userRepo, caller.Uin, projectPublicID, action, payload)
+			},
+		); err != nil {
+			logs.ErrorContextf(ctx, "NewMessage bind connectors failed: %v", err)
+			return nil, fmt.Errorf("bind connectors to project: %w", err)
+		}
+	}
 	if err := o.ensureProjectSession(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage ensureProjectSession failed: %v", err)
 		return nil, err
