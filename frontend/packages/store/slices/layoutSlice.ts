@@ -225,6 +225,8 @@ export type LayoutState = {
 	activeTaskDetailTaskId: string | null;
 	activeTaskDetailSessionId: string | null;
 	projectDetailLoading: boolean;
+	/** 正在拉取 DetailProject 的项目 public_id（含非首刷），用于头像等 UI 区分「加载中」与「确认无成员」。 */
+	projectDetailFetchingIds: string[];
 	projectDetailError: string | null;
 	activeProjectSessionId: string | null;
 	projectSessionId: string | null;
@@ -480,6 +482,7 @@ const _initialState: LayoutState = {
 	activeTaskDetailTaskId: null,
 	activeTaskDetailSessionId: null,
 	projectDetailLoading: false,
+	projectDetailFetchingIds: [],
 	projectDetailError: null,
 	activeProjectSessionId: null,
 	projectSessionId: null,
@@ -1160,10 +1163,18 @@ export class LayoutActionImpl {
 
 		const promise = this.#loadProjectDetail(projectId);
 		this.#fetchProjectDetailPromises.set(projectId, promise);
+		this.#set((state) =>
+			state.projectDetailFetchingIds.includes(projectId)
+				? state
+				: { projectDetailFetchingIds: [...state.projectDetailFetchingIds, projectId] },
+		);
 		try {
 			await promise;
 		} finally {
 			this.#fetchProjectDetailPromises.delete(projectId);
+			this.#set((state) => ({
+				projectDetailFetchingIds: state.projectDetailFetchingIds.filter((id) => id !== projectId),
+			}));
 		}
 	};
 
@@ -1262,6 +1273,7 @@ export class LayoutActionImpl {
 			activeTaskDetailTaskId: null,
 			activeTaskDetailSessionId: null,
 			projectDetailLoading: false,
+			projectDetailFetchingIds: [],
 			projectDetailError: null,
 			activeProjectSessionId: null,
 			projectSessionId: null,

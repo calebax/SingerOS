@@ -101,7 +101,10 @@ export function normalizedMessageContent(message: Message): string {
 
 /**
  * 判断本地 user 消息是否与 GlobalEvents 回推的 human 消息是同一条（回声）。
- * 用于合并乐观发送，避免时间线上出现重复用户气泡。
+ * 仅用于合并「自己发出的」乐观消息，避免时间线上出现重复用户气泡。
+ *
+ * 注意：不能按同文案/同昵称/无 author 去匹配已落库消息，否则群聊里队友提问会被
+ * 合并进旧气泡，表现为底部只见模型回复、结束后历史回拉才出现提问。
  */
 export function isGlobalUserEchoMessage(message: Message | undefined, incoming: Message): boolean {
 	if (!message || message.conversationId !== incoming.conversationId || message.role !== "user") {
@@ -109,22 +112,8 @@ export function isGlobalUserEchoMessage(message: Message | undefined, incoming: 
 	}
 	if (normalizedMessageContent(message) !== normalizedMessageContent(incoming)) return false;
 
-	const authorMatches =
-		!message.author ||
-		!incoming.author ||
-		message.author.id === "current-user" ||
-		incoming.author.id === "current-user" ||
-		message.author.id === "user" ||
-		incoming.author.id === "user" ||
-		message.author.id === incoming.author.id ||
-		message.author.name === incoming.author.name;
-	if (!authorMatches) return false;
-
-	const isLocalEchoCandidate =
-		isOptimisticMessage(message) || !message.author || message.author.id === "current-user";
-	const isRecentEcho = Math.abs(message.timestamp - incoming.timestamp) <= 30_000;
-	// GlobalEvents 可能回推本地 optimistic 或刷新后刚拉到的历史消息；倒序匹配最新同内容用户消息，避免页面重复显示。
-	return isLocalEchoCandidate || isRecentEcho;
+	// 中文注释：只认本地乐观发送或 current-user 标记；他人/历史消息即便文案相同也必须新插一条。
+	return isOptimisticMessage(message) || message.author?.id === "current-user";
 }
 
 /**
