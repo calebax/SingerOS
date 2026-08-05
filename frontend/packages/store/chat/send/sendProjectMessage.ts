@@ -30,6 +30,8 @@ export type SendProjectMessageOptions = {
 	allowEmptyContent?: boolean;
 	/** 工作台导航：清 workbench 选中；并 await 项目详情 */
 	fromWorkbench?: boolean;
+	/** 关联到项目的连接器插件 Public ID（仅服务端关联用，不写入消息正文） */
+	connectorIds?: string[];
 };
 
 /**
@@ -68,6 +70,7 @@ export async function sendProjectMessage(
 			...(projectId ? { project_id: projectId } : {}),
 			...(options?.taskId ? { task_id: options.taskId } : {}),
 			...(assistantIds?.length ? { assistant_ids: assistantIds } : {}),
+			...(options?.connectorIds?.length ? { connector_ids: options.connectorIds } : {}),
 			metadata: buildBackendMessageMetadata(resolvedMetadata),
 			attachments: mapOutgoingAttachments(resolvedAttachments),
 		});

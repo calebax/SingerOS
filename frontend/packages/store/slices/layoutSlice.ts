@@ -40,6 +40,7 @@ type ChatSendBridge = {
 			taskId: string;
 			sessionId: string;
 			metadata?: MessageMetadata;
+			connectorIds?: string[];
 		},
 		attachments?: Attachment[],
 	) => Promise<{
@@ -672,6 +673,7 @@ export class LayoutActionImpl {
 		attachments?: Attachment[],
 		_metadata?: MessageMetadata,
 		assistantIds?: string[],
+		connectorIds?: string[],
 	) => {
 		const trimmed = content.trim();
 		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，或仅附件提问。
@@ -750,6 +752,7 @@ export class LayoutActionImpl {
 							taskId: data.task_id,
 							sessionId: data.session_id,
 							metadata: _metadata,
+							connectorIds,
 						},
 						attachments,
 					);
@@ -769,6 +772,7 @@ export class LayoutActionImpl {
 				executionMode: mode,
 				allowEmptyContent: true,
 				fromWorkbench: true,
+				connectorIds,
 			});
 		} catch (err) {
 			console.error("sendWorkbenchMessage error:", err);

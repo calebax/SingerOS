@@ -55,6 +55,7 @@ import {
 	getFolderNameFromFiles,
 	isFolderUploadSizeExceeded,
 } from "../input/upload-folder";
+import { useComposerConnectorOptions } from "../input/useComposerConnectorOptions";
 import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
@@ -273,6 +274,17 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		activeWorkbenchProjectId ?? null,
 		isAuthenticated,
 	);
+	const { connectorOptions, connectorsLoading } = useComposerConnectorOptions({
+		projectId: activeWorkbenchProjectId ?? null,
+		enabled: isAuthenticated,
+	});
+	const [selectedConnectorIds, setSelectedConnectorIds] = useState<string[]>([]);
+	const handleSelectConnector = useCallback((publicId: string) => {
+		setSelectedConnectorIds((prev) => (prev.includes(publicId) ? prev : [...prev, publicId]));
+	}, []);
+	const handleRemoveConnector = useCallback((publicId: string) => {
+		setSelectedConnectorIds((prev) => prev.filter((id) => id !== publicId));
+	}, []);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
 	const projectTriggerDismissRef = useRef<(() => void) | null>(null);
 	const pickerRootRef = useRef<HTMLDivElement>(null);
@@ -375,6 +387,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	}, [activeWorkbenchProjectId]);
 
+	// 中文注释：连接器关联是项目级配置，切换项目后清空已选连接器，避免跨项目残留。
+	useEffect(() => {
+		setSelectedConnectorIds([]);
+	}, [activeWorkbenchProjectId]);
+
 	const performSend = async (content: string) => {
 		// 中文注释：首页新建任务不应被其他任务的全局生成态锁住，只拦截本输入框的重复提交。
 		if (sendingRef.current) return;
@@ -399,12 +416,17 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				attachments,
 				messageMetadata,
 				mentionedAssistantIds,
+				selectedConnectorIds,
 			);
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
 			}
-			setInput("");
-			clearAttachments();
+			if (data) {
+				setInput("");
+				clearAttachments();
+				// 中文注释：发送成功后清空已选连接器；失败时不进入这里，保留以便重试。
+				setSelectedConnectorIds([]);
+			}
 		} finally {
 			sendingRef.current = false;
 			setIsSending(false);
@@ -1050,6 +1072,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
 									isGenerating={isSending}
+									connectorOptions={connectorOptions}
+									connectorsLoading={connectorsLoading}
+									selectedConnectorIds={selectedConnectorIds}
+									onSelectConnector={handleSelectConnector}
+									onRemoveConnector={handleRemoveConnector}
 								/>
 							</div>
 							<div className="flex items-center gap-2">

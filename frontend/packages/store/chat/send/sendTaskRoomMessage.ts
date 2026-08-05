@@ -19,6 +19,8 @@ export type SendTaskRoomParams = {
 	taskId: string;
 	sessionId: string;
 	metadata?: MessageMetadata;
+	/** 关联到项目的连接器插件 Public ID（仅服务端关联用，不写入消息正文） */
+	connectorIds?: string[];
 };
 
 /** 发送成功后回给调用方的任务身份（供导航复用）。 */
@@ -143,6 +145,7 @@ export async function sendTaskRoomMessage(
 			content: trimmed,
 			execution_mode: deps.get().executionMode,
 			assistant_ids: extractAssistantIdsFromMetadata(params.metadata),
+			...(params.connectorIds?.length ? { connector_ids: params.connectorIds } : {}),
 			message_type: "text",
 			attachments: mapOutgoingAttachments(attachments),
 			metadata: buildBackendMessageMetadata(params.metadata),

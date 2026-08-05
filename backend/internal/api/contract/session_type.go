@@ -38,6 +38,7 @@ type AddMessageRequest struct {
 	Content       string                    `json:"content" binding:"required"`
 	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
 	AssistantIDs  []string                  `json:"assistant_ids,omitempty"`
+	ConnectorIDs  []string                  `json:"connector_ids,omitempty"`
 	MessageType   string                    `json:"message_type,omitempty"`
 	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
