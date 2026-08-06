@@ -225,7 +225,7 @@ redis:
 mysql:
   enabled: false
   external:
-    url: "mysql://user:pass@tcp(host:3306)/db?charset=utf8mb4&parseTime=true&loc=Local"
+    url: "mysql://user:pass@host:3306/db?charset=utf8mb4&parseTime=true&loc=Local"
 redis:
   enabled: false
   external:

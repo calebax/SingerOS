@@ -167,9 +167,9 @@ Build MySQL URL. 优先级：
 {{- $db := default .Values.mysql.database (default "" $cg.mysqlDatabase) -}}
 {{- $user := default .Values.mysql.username (default "" $cg.mysqlUsername) -}}
 {{- $pass := default .Values.mysql.password (default "" $cg.mysqlPassword) -}}
-{{- printf "mysql://%s:%s@tcp(%s.%s:3306)/%s?charset=utf8mb4&parseTime=true&loc=Local&timeout=5s" $user $pass $cg.mysqlService (default "corekg" $cg.namespace) $db -}}
+{{- printf "mysql://%s:%s@%s.%s:3306/%s?charset=utf8mb4&parseTime=true&loc=Local&timeout=5s" $user $pass $cg.mysqlService (default "corekg" $cg.namespace) $db -}}
 {{- else if .Values.mysql.enabled -}}
-{{- printf "mysql://%s:%s@tcp(%s-mysql:3306)/%s?charset=utf8mb4&parseTime=true&loc=Local&timeout=5s" .Values.mysql.username .Values.mysql.password (include "leros.fullname" .) .Values.mysql.database -}}
+{{- printf "mysql://%s:%s@%s-mysql:3306/%s?charset=utf8mb4&parseTime=true&loc=Local&timeout=5s" .Values.mysql.username .Values.mysql.password (include "leros.fullname" .) .Values.mysql.database -}}
 {{- else -}}
 {{- required "mysql.enabled=false 时必须设置 mysql.external.url" .Values.mysql.external.url -}}
 {{- end -}}
