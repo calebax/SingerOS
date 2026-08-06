@@ -1065,6 +1065,7 @@ func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) 
 		BaseURL:      model.BaseURL,
 		BaseURLHasV1: model.BaseURLHasV1,
 		APIKey:       model.APIKeyEncrypted,
+		Vision:       llm.VisionFromConfig(model.Config),
 	}, nil
 }
 

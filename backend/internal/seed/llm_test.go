@@ -154,6 +154,53 @@ func TestSeedLLMIdempotent(t *testing.T) {
 	}
 }
 
+func TestSeedLLMDefaultModelVisionTrue(t *testing.T) {
+	withProbeSuccessNoV1(t)
+	db := newLLMTestDB(t)
+	cfg := &config.LLMConfig{
+		Provider: "openai",
+		Model:    "gpt-4o",
+		BaseURL:  "https://api.example.com",
+		APIKey:   "sk-test-0123456789",
+		Vision:   true,
+	}
+
+	if err := seedLLM(context.Background(), db, cfg); err != nil {
+		t.Fatalf("seedLLM: %v", err)
+	}
+
+	var defaultModel types.LLMModel
+	if err := db.Where("code = ?", defaultLLMModelCode).First(&defaultModel).Error; err != nil {
+		t.Fatalf("find default model: %v", err)
+	}
+	if v, ok := defaultModel.Config["vision"].(bool); !ok || !v {
+		t.Fatalf("expected default model Config[vision]=true, got config=%+v", defaultModel.Config)
+	}
+}
+
+func TestSeedLLMDefaultModelVisionFalse(t *testing.T) {
+	withProbeSuccessNoV1(t)
+	db := newLLMTestDB(t)
+	cfg := &config.LLMConfig{
+		Provider: "deepseek",
+		Model:    "deepseek-v4-flash",
+		BaseURL:  "https://api.deepseek.com",
+		APIKey:   "sk-test-0123456789",
+	}
+
+	if err := seedLLM(context.Background(), db, cfg); err != nil {
+		t.Fatalf("seedLLM: %v", err)
+	}
+
+	var defaultModel types.LLMModel
+	if err := db.Where("code = ?", defaultLLMModelCode).First(&defaultModel).Error; err != nil {
+		t.Fatalf("find default model: %v", err)
+	}
+	if _, ok := defaultModel.Config["vision"]; ok {
+		t.Fatalf("expected no vision flag when config Vision unset, got config=%+v", defaultModel.Config)
+	}
+}
+
 func TestMaskAPIKey(t *testing.T) {
 	masked := maskAPIKey("sk-abcd1234")
 	if !strings.HasPrefix(masked, "sk-") || !strings.Contains(masked, "***") {

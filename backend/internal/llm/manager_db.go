@@ -42,9 +42,20 @@ func modelConfigFromEntity(m *types.LLMModel) *ModelConfig {
 		IsDefault:    m.IsDefault,
 		IsSystem:     m.IsSystem,
 		Config:       map[string]any(m.Config),
+		Vision:       VisionFromConfig(m.Config),
 		CreatedAt:    m.CreatedAt,
 		UpdatedAt:    m.UpdatedAt,
 	}
+}
+
+// VisionFromConfig 从扩展配置中解包视觉能力标志。
+// 缺省（无 config 或未声明 vision）即 false。仅在此处触碰 map。
+func VisionFromConfig(config types.LLMModelConfig) bool {
+	if len(config) == 0 {
+		return false
+	}
+	v, ok := config["vision"].(bool)
+	return ok && v
 }
 
 // --- helper 函数（从 service/llm_model_service.go 迁移，保持行为不变） ---

@@ -69,6 +69,9 @@ func seedLLM(ctx context.Context, db *gorm.DB, llmCfg *config.LLMConfig) error {
 			IsDefault:       true,
 			IsSystem:        true,
 		}
+		if llmCfg.Vision {
+			defaultLLMModel.Config = types.LLMModelConfig{"vision": true}
+		}
 		if err := infradb.CreateLLMModel(ctx, db, defaultLLMModel); err != nil {
 			return err
 		}

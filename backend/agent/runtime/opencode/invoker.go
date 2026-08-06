@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
@@ -203,9 +204,7 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req cli.Invocatio
 		},
 		System: req.SystemPrompt,
 		Agent:  openCodeAgent(req.ExecutionMode),
-		Parts: []messagePart{
-			{Type: "text", Text: req.Prompt},
-		},
+		Parts:  buildMessageParts(req.Prompt, req.UploadRelDir, req.Attachments),
 	}
 	msgResp, err := st.srv.SendMessage(ctx, st.sessionID, msgReq)
 	if err != nil {
@@ -238,6 +237,35 @@ func openCodeAgent(mode agent.ExecutionMode) string {
 		return "plan"
 	}
 	return "build"
+}
+
+// buildMessageParts 组装用户消息的 parts。纯文本始终作为第一个 text part，
+// 随后按顺序追加多模态（当前仅图片）附件为 file part（data: base64 内联）。
+// PDF/音视频已在 preparer 层退出多模态管线，不会带 Data 进入本函数。
+// file part 的 Filename 优先使用 uploadRelDir 与附件 Name 拼接的工作区相对路径
+// （与落盘一致，例如 uploads/头像.jpeg），以保证 opencode read 等工具能按该路径
+// 定位到真实文件；uploadRelDir 为空时回退为仅用 Name。仅有 Name 而无 Data 的
+// 大文件不在此内联，由上层以文本提示其路径。
+func buildMessageParts(prompt string, uploadRelDir string, attachments []agent.Attachment) []messagePart {
+	parts := []messagePart{{Type: "text", Text: prompt}}
+	for _, att := range attachments {
+		if len(att.Data) == 0 {
+			continue
+		}
+		name := strings.TrimSpace(att.Name)
+		relDir := strings.TrimSpace(uploadRelDir)
+		filename := name
+		if relDir != "" && name != "" {
+			filename = relDir + "/" + name
+		}
+		parts = append(parts, messagePart{
+			Type:     "file",
+			MIME:     strings.TrimSpace(att.MIME),
+			Filename: filename,
+			URL:      "data:" + strings.TrimSpace(att.MIME) + ";base64," + base64.StdEncoding.EncodeToString(att.Data),
+		})
+	}
+	return parts
 }
 
 // ============================================================================

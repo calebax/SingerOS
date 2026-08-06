@@ -686,3 +686,23 @@ func TestProbeResultExportAssertsProbeResult(t *testing.T) {
 		t.Fatalf("unexpected ProbeResult fields: %+v", r)
 	}
 }
+
+func TestVisionFromConfig(t *testing.T) {
+	cases := []struct {
+		name   string
+		config types.LLMModelConfig
+		want   bool
+	}{
+		{name: "nil config", config: nil, want: false},
+		{name: "empty config", config: types.LLMModelConfig{}, want: false},
+		{name: "no vision key", config: types.LLMModelConfig{"purpose": "translation"}, want: false},
+		{name: "vision false", config: types.LLMModelConfig{"vision": false}, want: false},
+		{name: "vision true", config: types.LLMModelConfig{"vision": true}, want: true},
+		{name: "vision non-bool", config: types.LLMModelConfig{"vision": "yes"}, want: false},
+	}
+	for _, tc := range cases {
+		if got := VisionFromConfig(tc.config); got != tc.want {
+			t.Fatalf("%s: VisionFromConfig() = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
