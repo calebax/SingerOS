@@ -968,8 +968,17 @@ func (s *sessionService) StreamGlobalEvents(ctx context.Context, orgID, userID u
 		if meta, err := msg.Metadata(); err == nil {
 			payload.Seq = meta.Sequence.Stream
 		}
-		// 权限过滤：仅转发用户所属 project 的事件，支持动态新增 project
+		// 权限过滤：仅转发用户所属 project 的事件，支持动态新增 project。
+		// 命中拒绝或查询失败都显式打日志，避免 assistant message.created 被
+		// 静默丢弃后前端永远等不到开流、却难以定位。
 		if member, err := db.IsProjectUserMember(ctx, s.db, orgID, userID, payload.ProjectID); err != nil || !member {
+			if err != nil {
+				logs.WarnContextf(ctx, "global events: member check error, skip type=%s project_id=%d user_id=%d err=%v",
+					payload.Type, payload.ProjectID, userID, err)
+			} else {
+				logs.WarnContextf(ctx, "global events: skip non-member event type=%s session_id=%s project_id=%d user_id=%d",
+					payload.Type, payload.SessionID, payload.ProjectID, userID)
+			}
 			return
 		}
 		// 带超时的背压写：channel 满时短暂等待排空再投递，避免瞬时拥塞下
@@ -978,8 +987,8 @@ func (s *sessionService) StreamGlobalEvents(ctx context.Context, orgID, userID u
 		select {
 		case ch <- &payload:
 		case <-time.After(globalEventsBackpressureWindow):
-			logs.WarnContextf(ctx, "global events: channel full, dropping event type=%s seq=%d after %v",
-				payload.Type, payload.Seq, globalEventsBackpressureWindow)
+			logs.WarnContextf(ctx, "global events: channel full, dropping event type=%s session_id=%s seq=%d after %v",
+				payload.Type, payload.SessionID, payload.Seq, globalEventsBackpressureWindow)
 		}
 	}
 
