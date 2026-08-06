@@ -192,6 +192,66 @@ func downloadAttachment(ctx context.Context, url string, destPath string) error 
 	return nil
 }
 
+// maxMultimodalInlineBytes 限制以 data: URL 内联进 runtime 的多模态附件大小。
+// 超过该阈值的大文件不再读取字节内联（Data 为空），其上落盘位置由调用方通过
+// Filesystem.UploadRelDir 提供给 runtime，由 runtime 侧按路径读取，避免单条消息
+// 字节/上下文膨胀超限。
+var maxMultimodalInlineBytes = 100 * 1024 * 1024 // 100MiB
+
+// multimodalAttachmentsForRuntime 从输入附件中筛出多模态文件（仅图片）并下载其字节，
+// 用于 runtime 的多模态输入。失败的下载跳过并仅告警（非致命）。
+// 返回的每个 agent.Attachment 携带 MIME 与原始文件名 Name；是否内联由 Data 决定。
+// PDF/音视频已退出多模态管线：不在此下载内联，统一走 BuildAttachmentText 的按路径读取。
+func multimodalAttachmentsForRuntime(ctx context.Context, attachments []agentrundomain.Attachment) []agent.Attachment {
+	var result []agent.Attachment
+	for _, att := range attachments {
+		if !agentrundomain.IsVisualMime(att.MimeType) {
+			continue
+		}
+		base := strings.TrimSpace(att.Name)
+		if base == "" {
+			continue
+		}
+		u := strings.TrimSpace(att.URL)
+		if u == "" {
+			continue
+		}
+		a := agent.Attachment{
+			MIME: att.MimeType,
+			Name: base,
+		}
+		data, err := downloadAttachmentBytes(ctx, u)
+		if err != nil {
+			logs.WarnContextf(ctx, "fetch multimodal attachment %q: %v", att.Name, err)
+			continue
+		}
+		if len(data) > maxMultimodalInlineBytes {
+			logs.WarnContextf(ctx, "multimodal attachment %q exceeds %d bytes, skip inline and read via uploads path",
+				att.Name, maxMultimodalInlineBytes)
+		} else {
+			a.Data = data
+		}
+		result = append(result, a)
+	}
+	return result
+}
+
+func downloadAttachmentBytes(ctx context.Context, url string) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}
+
 // preparer is the concrete RunPreparer implementation.
 type preparer struct {
 	builder       *agentruncontext.ContextBuilder
@@ -373,6 +433,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 		Model:    cloned.Model.Model,
 		APIKey:   cloned.Model.APIKey,
 		BaseURL:  cloned.Model.BaseURL,
+		Vision:   cloned.Model.Vision,
 	}
 
 	messages := make([]agent.Message, 0, len(cloned.Conversation.Messages))
@@ -397,6 +458,8 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 	}
 	sort.Strings(runtimeEnv)
 
+	attachments := multimodalAttachmentsForRuntime(ctx, cloned.Input.Attachments)
+
 	return &PreparedRun{
 		Request: req,
 		Execution: agent.ExecutionRequest{
@@ -409,6 +472,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			SystemPrompt: systemPrompt,
 			Prompt:       prompt,
 			Messages:     messages,
+			Attachments:  attachments,
 			Tools:        runtimeTools,
 			MCPServers:   mcpServers,
 			ExtraEnv:     runtimeEnv,
@@ -419,10 +483,11 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			},
 			ProviderSession: providerSession,
 			Filesystem: agent.FilesystemContext{
-				WorkDir:  workspace.WorkDir,
-				RepoDir:  workspace.RepoDir,
-				TaskDir:  workspace.TaskDir,
-				SkillDir: workspace.SkillDir,
+				WorkDir:      workspace.WorkDir,
+				RepoDir:      workspace.RepoDir,
+				TaskDir:      workspace.TaskDir,
+				SkillDir:     workspace.SkillDir,
+				UploadRelDir: consts.RepoDirUploads,
 			},
 		},
 		Workspace: workspace,

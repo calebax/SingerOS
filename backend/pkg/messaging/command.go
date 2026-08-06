@@ -392,6 +392,8 @@ type ModelOptions struct {
 	BaseURL      string `json:"base_url,omitempty"`
 	BaseURLHasV1 bool   `json:"base_url_has_v1,omitempty"`
 	APIKey       string `json:"api_key,omitempty"`
+	// Vision 表示该模型是否支持图片（多模态）输入。
+	Vision bool `json:"vision,omitempty"`
 }
 
 type RuntimeOptions struct {

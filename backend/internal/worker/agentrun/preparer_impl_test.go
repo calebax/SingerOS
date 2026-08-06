@@ -3,12 +3,15 @@ package agentrun
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/internal/consts"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	agentruncontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
@@ -259,5 +262,62 @@ func TestPreparerResolvesProviderSessionForRuntimeResume(t *testing.T) {
 	}
 	if sessionStore.binding != nil {
 		t.Fatalf("preparer should not persist provider session, got %#v", sessionStore.binding)
+	}
+}
+
+func TestMultimodalAttachmentsForRuntimeDownloadsAndSkipsOthers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte{0x89, 0x50, 0x4E, 0x47})
+	}))
+	defer srv.Close()
+
+	attachments := multimodalAttachmentsForRuntime(context.Background(), []agentrundomain.Attachment{
+		{Name: "cat.png", MimeType: "image/png", URL: srv.URL},
+		{Name: "report.pdf", MimeType: "application/pdf", URL: srv.URL},
+		{Name: "audio.mp3", MimeType: "audio/mpeg", URL: srv.URL},
+		{Name: "video.mp4", MimeType: "video/mp4", URL: srv.URL},
+		{Name: "note.txt", MimeType: "text/plain", URL: srv.URL},
+		{Name: "bad.png", MimeType: "image/png", URL: "http://127.0.0.1:1/unreachable"},
+		{Name: "none.png", MimeType: "image/png", URL: ""},
+	})
+
+	if len(attachments) != 1 {
+		t.Fatalf("attachments = %#v, want 1 downloadable multimodal (image only)", attachments)
+	}
+	for _, got := range attachments {
+		if got.Name == "" || strings.HasPrefix(got.Name, consts.RepoDirUploads) {
+			t.Fatalf("Name = %q, want plain filename without uploads prefix", got.Name)
+		}
+		if string(got.Data) != string([]byte{0x89, 0x50, 0x4E, 0x47}) {
+			t.Fatalf("attachment data = %v, want image bytes", got.Data)
+		}
+	}
+}
+
+func TestMultimodalAttachmentsForRuntimeSkipsOversizedInline(t *testing.T) {
+	orig := maxMultimodalInlineBytes
+	maxMultimodalInlineBytes = 4
+	t.Cleanup(func() { maxMultimodalInlineBytes = orig })
+
+	payload := []byte{0x89, 0x50, 0x4E, 0x47, 0x89, 0x50, 0x4E, 0x47}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	attachments := multimodalAttachmentsForRuntime(context.Background(), []agentrundomain.Attachment{
+		{Name: "huge.png", MimeType: "image/png", URL: srv.URL},
+	})
+	if len(attachments) != 1 {
+		t.Fatalf("attachments = %#v, want the oversized image still surfaced (Data empty)", attachments)
+	}
+	got := attachments[0]
+	if got.Name != "huge.png" {
+		t.Fatalf("Name = %q, want huge.png", got.Name)
+	}
+	if len(got.Data) != 0 {
+		t.Fatalf("oversized inline should have empty Data, got %d bytes", len(got.Data))
 	}
 }

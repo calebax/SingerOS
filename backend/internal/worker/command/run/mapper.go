@@ -61,6 +61,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			APIKey:       task.Model.APIKey,
 			BaseURL:      task.Model.BaseURL,
 			BaseURLHasV1: task.Model.BaseURLHasV1,
+			Vision:       task.Model.Vision,
 		},
 		Capability: agentrundomain.CapabilityContext{
 			AllowedTools: append([]string(nil), task.Execution.Tools...),

@@ -15,6 +15,7 @@ type LLMConfig struct {
 	APIKey      string                `yaml:"api_key"`               // API Key
 	Model       string                `yaml:"model,omitempty"`       // Default model
 	BaseURL     string                `yaml:"base_url,omitempty"`    // Custom base URL
+	Vision      bool                  `yaml:"vision,omitempty"`      // Default model supports image (multimodal) input
 	Translation *LLMTranslationConfig `yaml:"translation,omitempty"` // Built-in translation model
 }
 
