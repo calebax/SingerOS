@@ -11,6 +11,7 @@ import {
 	type ChatState,
 	getApprovalStatus,
 	initialChatState,
+	isClientReplyTimeoutMessage,
 	resolveActiveRunIdForCancel,
 	retainLocalMessagesForSession,
 } from "../chat";
@@ -153,6 +154,7 @@ export class ChatActionImpl {
 			set: setChat,
 			startSessionStream: (sessionId, assistantMsgId, replay, assistantId) =>
 				this.#sessionStream.start(sessionId, assistantMsgId, replay, assistantId),
+			finishStream: () => this.#sessionStream.finish(),
 		});
 
 		this.#globalEvents = new GlobalEventsManager({
@@ -339,6 +341,7 @@ export class ChatActionImpl {
 			streamingMessageId: null,
 			isGenerating: false,
 			pendingBootstrapSessionId: null,
+			suppressedReplySessionId: null,
 			streamCancelRef: null,
 		});
 	};
@@ -346,10 +349,25 @@ export class ChatActionImpl {
 	/** 只关闭 SSE 连接并重置流标记位，保留 messagesMap/messageIds/activeSessionId 等会话数据。 */
 	closeSseConnection = () => {
 		this.#sessionStream.close();
-		this.#set({
-			streamingMessageId: null,
-			isGenerating: false,
-			streamCancelRef: null,
+		this.#set((state) => {
+			const retainedIds: string[] = [];
+			const retainedMap: Record<string, Message> = {};
+			for (const id of state.messageIds) {
+				const message = state.messagesMap[id];
+				// 中文注释：离开时清掉本地超时报错气泡，避免再进首屏仍看到上一轮客户端超时残留。
+				if (!message || isClientReplyTimeoutMessage(message)) continue;
+				retainedIds.push(id);
+				retainedMap[id] = message;
+			}
+			return {
+				messagesMap: retainedMap,
+				messageIds: retainedIds,
+				streamingMessageId: null,
+				isGenerating: false,
+				streamCancelRef: null,
+				// 中文注释：离开页面后允许再进时对 responding 做 resume；停留页内的超时抑制仍由发送路径清除。
+				suppressedReplySessionId: null,
+			};
 		});
 	};
 
@@ -366,6 +384,7 @@ export class ChatActionImpl {
 			streamingMessageId: null,
 			isGenerating: false,
 			pendingBootstrapSessionId: null,
+			suppressedReplySessionId: null,
 			streamCancelRef: null,
 		});
 	};

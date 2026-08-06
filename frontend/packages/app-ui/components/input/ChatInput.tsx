@@ -27,6 +27,7 @@ import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import { Checkbox } from "@leros/ui/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
+import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	AlertCircle,
@@ -352,17 +353,27 @@ export function ChatInput({
 					outgoingAttachments,
 				);
 			} else if (isProjectVariant && currentView === "project") {
-				const taskEntry = await sendProjectMessage(
-					outgoingContent,
-					activeProjectId,
-					outgoingAttachments,
-					composerMetadata,
-					{ connectorIds: selectedConnectorIds },
-				);
-				submitted = taskEntry;
-				if (taskEntry?.project_id && taskEntry?.task_id && taskEntry.session_id) {
-					// 中文注释：项目首页创建出真实任务后，立即跳到任务详情页，避免仍停留在项目首页的新建任务视图。
-					navigation?.goToTaskDetail(taskEntry.project_id, taskEntry.task_id, taskEntry.session_id);
+				try {
+					const taskEntry = await sendProjectMessage(
+						outgoingContent,
+						activeProjectId,
+						outgoingAttachments,
+						composerMetadata,
+						{ connectorIds: selectedConnectorIds },
+					);
+					submitted = taskEntry;
+					if (taskEntry?.project_id && taskEntry?.task_id && taskEntry.session_id) {
+						// 中文注释：项目首页创建出真实任务后，立即跳到任务详情页，避免仍停留在项目首页的新建任务视图。
+						navigation?.goToTaskDetail(
+							taskEntry.project_id,
+							taskEntry.task_id,
+							taskEntry.session_id,
+						);
+					}
+				} catch (err) {
+					console.error("ChatInput createInitialMessage error:", err);
+					toast.error(`创建任务失败：${getRequestErrorMessage(err) ?? "请稍后重试"}`);
+					return;
 				}
 			} else {
 				// 中文注释：任务详情依赖路径中的 sessionId；未知场景拒绝发送。

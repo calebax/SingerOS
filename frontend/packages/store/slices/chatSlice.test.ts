@@ -92,6 +92,27 @@ describe("createAssistantSessionEventsWaitingMessage", () => {
 		expect(message.statusText).toBe("AI 员工已接单，正在生成回复...");
 		expect(message.conversationId).toBe("session-1");
 	});
+
+	it("preserves replyTo when restoring a waiting SessionEvents placeholder", () => {
+		const message = createAssistantSessionEventsWaitingMessage(
+			"session-1",
+			"msg-assistant-resume-1",
+			1,
+			{
+				replyTo: {
+					messageId: "user-1",
+					authorName: "张三",
+					content: "帮我写周报",
+				},
+			},
+		);
+
+		expect(message.replyTo).toEqual({
+			messageId: "user-1",
+			authorName: "张三",
+			content: "帮我写周报",
+		});
+	});
 });
 
 describe("isTaskRoomAssistantPlaceholder", () => {
@@ -441,6 +462,7 @@ describe("retainLocalMessagesForSession", () => {
 		isGenerating: false,
 		pendingBootstrapSessionId: null,
 		cancellingSessionId: null,
+		suppressedReplySessionId: null,
 		streamCancelRef: null,
 		inputText: "",
 		inputAttachments: [],
