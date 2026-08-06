@@ -1,6 +1,6 @@
 # OpenCode Runtime 多模态（图片/PDF/音视频）支持设计
 
-> 日期：2026-08-05（随实现同步修订）
+> 日期：2026-08-06（随实现同步修订）
 > 分支：`feat/opencode-multimodal`
 > 目标 opencode 版本：**v1.18.13**
 
@@ -11,7 +11,7 @@ Leros 通过 `backend/agent/runtime/opencode/` 包以 `serve` 子进程模式驱
 - 附件在 `preparer` 层被下载并注入工作区，但注入给 runtime 的 prompt 只有 `agent.Message{Role,Content}` 字符串与单个 text part（`preparer_impl.go:356-362`、`invoker.go:196-234`）。
 - 用户上传的图片/PDF/音视频只能被模型作为文件用工具读取，**无法作为多模态输入**直接传给模型。
 
-本设计的目标是打通"DB 附件 → run 请求 → agent runtime → opencode message part 转 `data:` base64 的 file part"这条链路，让支持多模态能力的模型能直接"看"图片、读取 PDF/音视频。**当模型声明视觉能力（`vision=true`）时，适配器把全部模态（text/audio/image/video/pdf）声明为模型的输入与输出能力**，opencode 据此对每种模态附件按模型能力处理；未声明视觉能力的模型不写 `modalities`，对多模态附件走 opencode 的优雅降级。图片是主路径：`llmprotocol` 代理层以 `image_url` 内容块编码图片。
+本设计的目标是打通"DB 附件 → run 请求 → agent runtime → opencode message part 转 `data:` base64 的 file part"这条链路，让支持视觉能力的模型能直接"看"图片。**当模型声明视觉能力（`vision=true`）时，适配器仅声明图片输入能力（`modalities.input:[text,image]`、`output:[text]`）**，opencode 据此将图片附件原样传给模型；PDF/音视频已退出多模态管线，统一按工作区路径读取。未声明视觉能力的模型不写 `modalities`，对图片附件走 opencode 的优雅降级。图片是主路径：`llmprotocol` 代理层以 `image_url` 内容块编码图片。
 
 ## 关键前提（已从 v1.18.13 源码核实）
 
@@ -31,7 +31,7 @@ Leros 通过 `backend/agent/runtime/opencode/` 包以 `serve` 子进程模式驱
 
 ## 目标
 
-1. 用户上传的 `image/*` 附件（及 PDF/音视频多模态文件）在 opencode runtime 中作为多模态输入传给模型。
+1. 用户上传的 `image/*` 附件在 opencode runtime 中作为多模态输入传给模型；PDF/音视频附件统一按工作区路径读取，不注入多模态输入。
 2. 保持纯文本附件、以及 claude/codex/native 等其它 runtime 的行为完全不变（最小侵入）。
 3. 视觉能力按模型声明（`llm_model.config.vision`）决定，**对配置为无视觉的模型优雅降级**，不做前端盲目门控。
 
@@ -44,7 +44,7 @@ Leros 通过 `backend/agent/runtime/opencode/` 包以 `serve` 子进程模式驱
 - **默认值**：`vision` 缺省即 **`false`**（未声明 → 视为无视觉）。理由（健壮性）：
   - `leros-provider` 是 config-only provider，opencode 侧 `parsed.models = existing?.models ?? {}`（`provider.ts:1436`），`existingModel` 为空，**完全采信我们声明的 `modalities`**，无内置目录覆盖。
   - `false` → 不写 `modalities` → opencode 判定各 `capabilities.input.*=false` → 走 `unsupportedParts` **优雅降级**（图被替换为提示文本，模型正常回答其余内容），**绝不会让整轮 400 失败**。
-  - `true` → 写全部模态 `modalities:{input:[text,audio,image,video,pdf], output:[...]}` → 各模态原样传模型。
+  - `true` → 仅声明图片能力 `modalities:{input:[text,image], output:[text]}` → 图片附件原样传模型，PDF/音视频不声明、按路径读取。
 - **取值路径（方案 A）**：从 `llm_model.config` 解包的类型化 `Vision bool` 沿既有模型下发链路透传，**只在解析处解包一次、下游传类型化值，不跨层传 `map[string]interface{}`**（符合 AGENTS.md 硬规则）。
 
 ## 数据流总览
@@ -74,9 +74,8 @@ config.yaml LLMConfig.Vision / llm_model.config["vision"] (JSONB, default false)
   → domain.ModelOptions.Vision (mapper.go 透传)
   → agent.ModelConfig.Vision (preparer 组装)
   → opencode buildConfigContent 决定是否写
-      modalities:{input:["text","audio","image","video","pdf"],
-                  output:["text","audio","image","video","pdf"]}
-  → 模型 content block 上的多模态部分（图片等）在 llmprotocol 代理侧
+      modalities:{input:["text","image"], output:["text"]}
+  → 模型 content block 上的图片部分在 llmprotocol 代理侧
      encodeOpenAIChatMessages 中编码为 image_url 内容块
 ```
 
