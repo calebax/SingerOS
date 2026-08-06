@@ -805,15 +805,18 @@ export function LeftRail({
 								</DropdownMenuItem>
 							) : null}
 							{isPrivateDeployment ? null : <DesktopUpdateMenuSection />}
-							<DropdownMenuItem
-								onClick={() => {
-									if (!requireAuth()) return;
-									setFeedbackDialogOpen(true);
-								}}
-							>
-								<MessageSquare className="size-4 shrink-0" />
-								<span>意见反馈</span>
-							</DropdownMenuItem>
+							{/* 中文注释：私有化环境不展示意见反馈入口。 */}
+							{isPrivateDeployment ? null : (
+								<DropdownMenuItem
+									onClick={() => {
+										if (!requireAuth()) return;
+										setFeedbackDialogOpen(true);
+									}}
+								>
+									<MessageSquare className="size-4 shrink-0" />
+									<span>意见反馈</span>
+								</DropdownMenuItem>
+							)}
 							<DropdownMenuItem variant="destructive" onClick={handleLogout}>
 								<LogOut className="size-4 shrink-0" />
 								<span>退出登录</span>
@@ -862,7 +865,9 @@ export function LeftRail({
 				onUserChange={setAuthUser}
 			/>
 			<OrgAdminDialog open={orgAdminDialogOpen} onOpenChange={setOrgAdminDialogOpen} />
-			<FeedbackDialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen} />
+			{isPrivateDeployment ? null : (
+				<FeedbackDialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen} />
+			)}
 			<Dialog
 				open={orgSwitchDialogOpen}
 				disablePointerDismissal
