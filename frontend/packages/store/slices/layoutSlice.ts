@@ -769,19 +769,15 @@ export class LayoutActionImpl {
 			}
 		}
 
-		try {
-			return await chat.sendProjectMessage(trimmed, workbenchProjectId, attachments, _metadata, {
-				assistantIds,
-				taskId: selectedTaskId,
-				executionMode: mode,
-				allowEmptyContent: true,
-				fromWorkbench: true,
-				connectorIds,
-			});
-		} catch (err) {
-			console.error("sendWorkbenchMessage error:", err);
-			return null;
-		}
+		// 中文注释：CreateInitialMessage 失败需向上抛出，由 WorkbenchPanel toast 提示。
+		return await chat.sendProjectMessage(trimmed, workbenchProjectId, attachments, _metadata, {
+			assistantIds,
+			taskId: selectedTaskId,
+			executionMode: mode,
+			allowEmptyContent: true,
+			fromWorkbench: true,
+			connectorIds,
+		});
 	};
 
 	openTaskDetail = (projectId: string, taskId: string, sessionId: string) => {

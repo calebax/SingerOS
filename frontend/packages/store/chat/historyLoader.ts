@@ -11,11 +11,13 @@ import { sessionApi } from "../api/sessionApi";
 import type { BackendMessage } from "../api/types";
 import type { Message } from "../types/chat";
 import {
+	ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT,
 	createAssistantSessionEventsWaitingMessage,
 	getSessionLocalMessages,
 	isOptimisticMessage,
 	mergeSessionMessages,
 	normalizedMessageContent,
+	resolveSessionEventsWaitingContext,
 } from "./messageMerge";
 import { attachAssistantReplyTargets, mapBackendMessage } from "./messageReducer";
 import type { ChatState } from "./state";
@@ -39,6 +41,8 @@ export type HistoryLoaderDeps = {
 		replay?: boolean,
 		assistantId?: string,
 	) => void | Promise<void>;
+	/** 清除生成态（poll 超时失败时用） */
+	finishStream?: () => void;
 };
 
 /**
@@ -171,6 +175,7 @@ export class HistoryLoader {
 			const shouldResumeStream =
 				runtimeStatus === "responding" &&
 				state.cancellingSessionId !== sessionId &&
+				state.suppressedReplySessionId !== sessionId &&
 				state.pendingBootstrapSessionId !== sessionId &&
 				!awaitingGlobalAssistant &&
 				!(
@@ -186,11 +191,19 @@ export class HistoryLoader {
 				pendingAssistantReply &&
 				!shouldResumeStream &&
 				!awaitingGlobalAssistant &&
+				state.suppressedReplySessionId !== sessionId &&
 				state.pendingBootstrapSessionId !== sessionId;
+			const resumeContext = resolveSessionEventsWaitingContext(
+				sessionId,
+				localSessionMessages,
+				messages,
+			);
 			const resumeMessage: Message | undefined = shouldResumeStream
 				? createAssistantSessionEventsWaitingMessage(
 						sessionId,
 						`msg-assistant-resume-${Date.now()}`,
+						Date.now(),
+						resumeContext,
 					)
 				: undefined;
 			if (resumeMessage) {
@@ -256,15 +269,48 @@ export class HistoryLoader {
 		});
 		const baselineMessageCount = baselineFromSession ?? mergedMessageCount;
 		void pollRuntimeStatus(sessionId, 60_000, baselineMessageCount).then((pollResult) => {
-			if (!pollResult) return;
 			const st = this.#deps.get();
 			if (st.activeSessionId !== sessionId) return;
+			if (!pollResult) {
+				// 中文注释：1 分钟仍未 responding 且无新消息，直接在占位气泡报错，避免永久 generating。
+				const current = st.messagesMap[pollPlaceholderMsg.id];
+				if (current) {
+					this.#deps.set({
+						messagesMap: {
+							...st.messagesMap,
+							[pollPlaceholderMsg.id]: {
+								...current,
+								status: "failed",
+								statusText: undefined,
+								content: ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT,
+							},
+						},
+						suppressedReplySessionId: sessionId,
+					});
+				} else {
+					this.#deps.set({ suppressedReplySessionId: sessionId });
+				}
+				this.#deps.finishStream?.();
+				return;
+			}
 			if (pollResult.status === "responding") {
 				// 用回放占位替换轮询占位，SSE 回放接管输出
 				const resumeMsgId = `msg-assistant-resume-${Date.now()}`;
 				const newMap = { ...st.messagesMap };
 				delete newMap[pollPlaceholderMsg.id];
-				const resumeMsg = createAssistantSessionEventsWaitingMessage(sessionId, resumeMsgId);
+				const resumeContext = resolveSessionEventsWaitingContext(
+					sessionId,
+					getSessionLocalMessages(st, sessionId),
+					getSessionLocalMessages(st, sessionId).filter(
+						(message) => message.id !== pollPlaceholderMsg.id,
+					),
+				);
+				const resumeMsg = createAssistantSessionEventsWaitingMessage(
+					sessionId,
+					resumeMsgId,
+					Date.now(),
+					resumeContext,
+				);
 				newMap[resumeMsgId] = resumeMsg;
 				const newIds = st.messageIds.map((id) => (id === pollPlaceholderMsg.id ? resumeMsgId : id));
 				this.#deps.set({
@@ -284,7 +330,7 @@ export class HistoryLoader {
 
 /**
  * 轮询等待 session 的 runtime_status 变为 "responding"，最长等待 timeoutMs 毫秒。
- * historyLoader 的 poll 占位与任务群聊 assistant 兜底共用，避免两套轮询语义分叉。
+ * 供冷进页 poll 占位使用；问答路径的 GE assistant 超时见 waitForGlobalAssistantOrFail。
  */
 export async function pollRuntimeStatus(
 	sessionId: string,

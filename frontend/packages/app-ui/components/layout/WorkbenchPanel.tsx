@@ -20,6 +20,7 @@ import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/ty
 import { Button } from "@leros/ui/components/ui/button";
 import { Command, CommandInput } from "@leros/ui/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
+import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	BookOpenText,
@@ -427,6 +428,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				// 中文注释：发送成功后清空已选连接器；失败时不进入这里，保留以便重试。
 				setSelectedConnectorIds([]);
 			}
+		} catch (err) {
+			console.error("WorkbenchPanel createInitialMessage error:", err);
+			toast.error(`创建任务失败：${getRequestErrorMessage(err) ?? "请稍后重试"}`);
 		} finally {
 			sendingRef.current = false;
 			setIsSending(false);

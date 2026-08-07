@@ -60,6 +60,8 @@ export function bootstrapNewTaskSession(
 		streamingMessageId: assistantMsg.id,
 		isGenerating: true,
 		pendingBootstrapSessionId: sessionId,
+		// 中文注释：新一轮发送解除上一轮超时抑制，允许再次等待 GE assistant。
+		suppressedReplySessionId: null,
 	});
 	deps.drainGlobalEvents(sessionId);
 }

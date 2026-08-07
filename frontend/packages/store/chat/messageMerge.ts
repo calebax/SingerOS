@@ -13,7 +13,12 @@ import type {
 import type { Message, MessageAttachment, MessageRole } from "../types/chat";
 import { parseOptionalTimestamp } from "../utils/format";
 import { buildMessageMetadata } from "../utils/messageMetrics";
-import { isRecord, mapBackendAttachment } from "./messageReducer";
+import {
+	buildReplyToFromMessage,
+	isRecord,
+	mapBackendAttachment,
+	resolveReplyToFromRunId,
+} from "./messageReducer";
 import type { ChatState } from "./state";
 
 /** GlobalEvents `message.created` 的 payload 形状（人/助手共用字段）。 */
@@ -169,20 +174,52 @@ export function inheritStreamingAssistantState(target: Message, source?: Message
 /** SessionEvents 长时间无事件时，用拉历史兜底的等待毫秒数。 */
 export const SESSION_EVENTS_IDLE_FALLBACK_MS = 10_000;
 
-/** 任务群聊发出后，等不到 GlobalEvents assistant 时启动 runtime 轮询的超时。 */
+/** SessionEvents 发起后一直无法成功建连（onOpen）时的超时毫秒数。 */
+export const SESSION_EVENTS_CONNECT_FALLBACK_MS = 60_000;
+
+/** 发出后等不到 GlobalEvents assistant 时的完整等待窗口（不因 responding 提前失败）。 */
 export const TASK_ROOM_ASSISTANT_START_FALLBACK_MS = 60_000;
 
 /** assistant 已接单、等待 SessionEvents 正文时的占位文案。 */
 export const ASSISTANT_SESSION_EVENTS_WAITING_TEXT = "AI 员工已接单，正在生成回复...";
 
+/** GlobalEvents 只回 human、始终无 assistant 时的超时报错正文。 */
+export const ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT =
+	"回复超时：系统已收到你的提问，但 AI 员工未能成功接单。请稍后重试。";
+
+/** SessionEvents 一直无法成功建连时的超时报错正文。 */
+export const ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT = "回复超时：无法建立实时回复连接，请稍后重试。";
+
+/**
+ * 判断是否为前端本地写入的回复超时报错气泡（waiting/resume/poll 或超时正文）。
+ * 离开再进时应丢弃，避免历史里堆叠多条客户端超时残留。
+ */
+export function isClientReplyTimeoutMessage(message: Message | undefined): boolean {
+	if (!message || message.role !== "assistant" || message.status !== "failed") return false;
+	if (isAssistantStreamPlaceholderId(message.id)) return true;
+	const content = message.content.trim();
+	return (
+		content === ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT ||
+		content === ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT ||
+		// 中文注释：兼容旧版带「刷新页面」的超时报错正文，离开再进时同样清掉。
+		(isOptimisticMessage(message) && content.startsWith("回复超时："))
+	);
+}
+
 /**
  * 构造「等待 SessionEvents」的 assistant 占位消息。
  * 用于进页回放、GlobalEvents 已到但 SSE 尚未出内容等场景。
+ * 可透传 replyTo/author/runId，避免离开再进后「回复某某」引用条短暂消失。
  */
 export function createAssistantSessionEventsWaitingMessage(
 	sessionId: string,
 	id: string,
 	timestamp = Date.now(),
+	options?: {
+		replyTo?: Message["replyTo"];
+		author?: Message["author"];
+		runId?: string;
+	},
 ): Message {
 	return {
 		id,
@@ -193,11 +230,61 @@ export function createAssistantSessionEventsWaitingMessage(
 		status: "waiting",
 		// 刷新恢复 SSE 回放时保留明确等待态，避免只显示空白生成中占位。
 		statusText: ASSISTANT_SESSION_EVENTS_WAITING_TEXT,
-		author: {
+		...(options?.runId ? { runId: options.runId } : {}),
+		...(options?.replyTo ? { replyTo: options.replyTo } : {}),
+		author: options?.author ?? {
 			id: "pending-assistant",
 			name: "Lework",
 			type: "assistant",
 		},
+	};
+}
+
+/**
+ * 为 resume/poll 占位解析 replyTo / author / runId。
+ * 群聊下优先沿用本地 streaming 的 replyTo，其次用 runId（req_<userMsgId>）精确绑到提问者，
+ * 最后才回落到时间线末条 user，避免把「回复某某」指到后来插队发言的队友。
+ */
+export function resolveSessionEventsWaitingContext(
+	sessionId: string,
+	localMessages: Message[],
+	timelineMessages: Message[],
+): {
+	replyTo?: Message["replyTo"];
+	author?: Message["author"];
+	runId?: string;
+} {
+	const localAssistant = [...localMessages]
+		.reverse()
+		.find(
+			(message) =>
+				message.conversationId === sessionId &&
+				message.role === "assistant" &&
+				(message.status === "waiting" ||
+					message.status === "streaming" ||
+					message.status === undefined) &&
+				Boolean(message.replyTo || message.runId || message.author),
+		);
+
+	const messagesForLookup = Object.fromEntries(
+		[...timelineMessages, ...localMessages].map((message) => [message.id, message]),
+	);
+	const replyToFromRunId = resolveReplyToFromRunId(
+		localAssistant?.runId,
+		messagesForLookup,
+		sessionId,
+	);
+
+	const lastUser =
+		[...timelineMessages].reverse().find((message) => message.role === "user") ??
+		[...localMessages]
+			.reverse()
+			.find((message) => message.conversationId === sessionId && message.role === "user");
+
+	return {
+		replyTo: localAssistant?.replyTo ?? replyToFromRunId ?? buildReplyToFromMessage(lastUser),
+		author: localAssistant?.author,
+		runId: localAssistant?.runId,
 	};
 }
 

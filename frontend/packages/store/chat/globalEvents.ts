@@ -298,6 +298,8 @@ export class GlobalEventsManager {
 		// 取消命令发送后，GlobalEvents 中可能仍有本轮迟到的 assistant started。
 		// 不能为已取消的 run 再创建「AI 员工已接单」占位或重新建立 SSE。
 		if (state.cancellingSessionId === sessionId) return;
+		// 中文注释：本轮已超时报错后，忽略迟到的 GE assistant，避免再插入「已接单」并开 SE。
+		if (state.suppressedReplySessionId === sessionId) return;
 		if (state.messagesMap[responseMessageId]) return;
 		const currentStreamingMessage = state.streamingMessageId
 			? state.messagesMap[state.streamingMessageId]

@@ -9,6 +9,7 @@ import { sessionApi } from "../../api/sessionApi";
 import type { BackendNewMessageData } from "../../api/types";
 import type { Attachment, MessageMetadata } from "../../types/chat";
 import { mapOutgoingAttachments } from "../../utils/messageAttachments";
+import { waitForGlobalAssistantOrFail } from "./assistantFallback";
 import { bootstrapNewTaskSession } from "./bootstrap";
 import type { SendPipelineDeps } from "./deps";
 import { buildBackendMessageMetadata, extractAssistantIdsFromMetadata } from "./metadata";
@@ -75,7 +76,10 @@ export async function sendProjectMessage(
 			attachments: mapOutgoingAttachments(resolvedAttachments),
 		});
 		const data = res.data.data;
-		if (!data?.project_id || !data?.task_id || !data?.session_id) return null;
+		// 中文注释：接口成功但缺关键字段视为失败，交给调用方提示用户，避免静默无响应。
+		if (!data?.project_id || !data?.task_id || !data?.session_id) {
+			throw new Error("服务端返回数据不完整");
+		}
 
 		const navigateOpts = {
 			projectId: data.project_id,
@@ -102,10 +106,17 @@ export async function sendProjectMessage(
 			await deps.effects.navigateToTaskDetail(navigateOpts);
 		}
 
+		// 中文注释：新建任务同样等待 GlobalEvents assistant；满 1 分钟仍无接单则正文报错。
+		const assistantMsgId = deps.get().streamingMessageId;
+		if (assistantMsgId) {
+			void waitForGlobalAssistantOrFail(deps, data.session_id, assistantMsgId);
+		}
+
 		deps.effects.clearComposer();
 		return data;
 	} catch (err) {
 		console.error("sendProjectMessage error:", err);
-		return null;
+		// 中文注释：不再吞掉 CreateInitialMessage 失败，由 UI 层 toast 提示。
+		throw err;
 	}
 }
