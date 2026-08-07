@@ -160,10 +160,15 @@ func (i *SQLiteRunInbox) PutIfAbsent(ctx context.Context, topic string, streamSe
 
 	if rowsAffected == 0 {
 		rec, err := i.get(ctx, topic, streamSeq)
-		if err != nil {
-			// 同一 command_id 但不同 stream_seq 的重复投递：按 command_id 归并返回已存在记录
+		if rec == nil {
+			// get 返回 (nil, nil)（ErrNoRows）或 error：说明本 (topic, stream_seq)
+			// 无存量记录，但插入却被唯一索引（如 command_id）拒绝。此时按
+			// command_id 归并返回已存在记录，避免返回 nil 记录导致调用方解引用 panic。
 			rec = i.getByCommandID(ctx, cmd.ID)
 			if rec == nil {
+				if err == nil {
+					err = fmt.Errorf("insert ignored but no existing record found (topic=%s stream_seq=%d command_id=%q)", topic, streamSeq, cmd.ID)
+				}
 				return false, nil, err
 			}
 		}

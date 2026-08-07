@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -319,7 +320,7 @@ func (p *natsBus) subscribeWithDurable(ctx context.Context, topic string, consum
 	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
-				logs.ErrorContextf(ctx, "Panic in handler for topic '%s', consumer '%s': %v", topic, consumer, r)
+				logs.ErrorContextf(ctx, "Panic in handler for topic '%s', consumer '%s': %v\n%s", topic, consumer, r, debug.Stack())
 				_ = msg.Nak()
 			} else {
 				_ = msg.Ack()
@@ -349,7 +350,7 @@ func (p *natsBus) SubscribeManualDurable(ctx context.Context, topic string, cons
 	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
-				logs.ErrorContextf(ctx, "Panic in manual handler for topic '%s', consumer '%s': %v", topic, consumer, r)
+				logs.ErrorContextf(ctx, "Panic in manual handler for topic '%s', consumer '%s': %v\n%s", topic, consumer, r, debug.Stack())
 				_ = msg.Nak()
 			}
 		}()

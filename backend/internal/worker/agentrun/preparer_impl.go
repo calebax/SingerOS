@@ -1,8 +1,12 @@
 package agentrun
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"golang.org/x/image/draw"
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/internal/consts"
@@ -216,6 +222,7 @@ func multimodalAttachmentsForRuntime(ctx context.Context, attachments []agentrun
 		if u == "" {
 			continue
 		}
+		logs.Infof("[forensic][multimodal] target: name=%q mime=%q url=%q", base, att.MimeType, u)
 		a := agent.Attachment{
 			MIME: att.MimeType,
 			Name: base,
@@ -224,6 +231,16 @@ func multimodalAttachmentsForRuntime(ctx context.Context, attachments []agentrun
 		if err != nil {
 			logs.WarnContextf(ctx, "fetch multimodal attachment %q: %v", att.Name, err)
 			continue
+		}
+		// FORENSIC-DOWNSCALE: 记录内联前的原始字节与声明的 MIME
+		logs.Infof("[forensic][downscale] before: name=%q mime=%q size=%d", base, att.MimeType, len(data))
+		if resized, newMIME, err := downscaleMultimodalImage(data, att.MimeType); err == nil && resized != nil {
+			data = resized
+			// 缩放到 jpeg 后固定声明 image/jpeg，避免 opencode 对大图执行 PNG 重编码路径导致 SSE 不推送
+			a.MIME = newMIME
+			logs.Infof("[forensic][downscale] resized: name=%q size=%d input_mime=%q output_mime=%q", base, len(data), att.MimeType, newMIME)
+		} else if err != nil {
+			logs.Debugf("downscale multimodal attachment %q skipped: %v", base, err)
 		}
 		if len(data) > maxMultimodalInlineBytes {
 			logs.WarnContextf(ctx, "multimodal attachment %q exceeds %d bytes, skip inline and read via uploads path",
@@ -234,6 +251,51 @@ func multimodalAttachmentsForRuntime(ctx context.Context, attachments []agentrun
 		result = append(result, a)
 	}
 	return result
+}
+
+// maxMultimodalSide 内联多模态图片的最长边像素阈值。
+// opencode 对超出此尺寸的图片（如 2048x2048）会触发内部 PNG 重编码路径，
+// 该路径下生成的文本不会通过 SSE 流式上报，导致 worker 只拿到用户输入回声。
+// 此处预先缩放到阈值内，规避该缺陷并减小传输体积。
+const maxMultimodalSide = 1600
+
+// downscaleMultimodalImage 将图片按最长边缩放到 maxMultimodalSide 以内（等比），
+// 并统一重新编码为 JPEG。解码失败或无需缩放时返回 nil（不修改原数据）。
+func downscaleMultimodalImage(data []byte, mime string) ([]byte, string, error) {
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return nil, "", fmt.Errorf("invalid image bounds %dx%d", w, h)
+	}
+	if w <= maxMultimodalSide && h <= maxMultimodalSide {
+		// 已满足尺寸要求，无需缩放（保持原 MIME 不变）
+		return nil, strings.TrimSpace(mime), nil
+	}
+	sw, sh := w, h
+	if w > h {
+		sh = h * maxMultimodalSide / w
+		sw = maxMultimodalSide
+	} else {
+		sw = w * maxMultimodalSide / h
+		sh = maxMultimodalSide
+	}
+	if sw < 1 {
+		sw = 1
+	}
+	if sh < 1 {
+		sh = 1
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, sw, sh))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Over, nil)
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, "", err
+	}
+	return buf.Bytes(), "image/jpeg", nil
 }
 
 func downloadAttachmentBytes(ctx context.Context, url string) ([]byte, error) {
