@@ -95,7 +95,7 @@ export function UserMessageBubble({
 	return (
 		<div
 			data-slot="user-message"
-			className={`group flex min-w-0 w-full items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
+			className={`flex min-w-0 w-full items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
 		>
 			{!isOwnMessage && (
 				<UserAvatar name={authorName ?? "用户"} src={authorAvatarUrl} pending={avatarPending} />
@@ -106,7 +106,7 @@ export function UserMessageBubble({
 			>
 				<div
 					className={`mb-1.5 flex items-center gap-2 text-xs text-slate-400 ${
-						isOwnMessage ? "justify-end opacity-0 transition-opacity group-hover:opacity-100" : ""
+						isOwnMessage ? "justify-end" : ""
 					}`}
 				>
 					{!isOwnMessage && authorName && (
@@ -157,9 +157,9 @@ export function UserMessageBubble({
 						>
 							<MessageContentWithComposerTokens message={message} />
 						</div>
-						{/* 中文注释：真人队友复制按钮与模型回复一致，放在内容下方，悬停显示。 */}
+						{/* 中文注释：复制按钮与名称/时间一致，常显不依赖悬停。 */}
 						<div className={`mt-2 flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-							<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+							<div className="flex items-center gap-0.5">
 								<CopyButton text={displayContent} />
 							</div>
 						</div>

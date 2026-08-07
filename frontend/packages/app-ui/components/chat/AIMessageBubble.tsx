@@ -143,7 +143,7 @@ export function AIMessageBubble({
 	};
 
 	return (
-		<div data-slot="ai-message" className="group flex items-start gap-3">
+		<div data-slot="ai-message" className="flex items-start gap-3">
 			{assistantDisplay.useDefaultBrand ? (
 				<AssistantChatAvatar />
 			) : (
@@ -237,7 +237,7 @@ export function AIMessageBubble({
 						{metricSegments.length > 0 && (
 							<div className="text-[13px] text-slate-400">{metricSegments.join(" · ")}</div>
 						)}
-						<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+						<div className="flex items-center gap-0.5">
 							<CopyButton text={content} />
 							{SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON && (
 								<Button
