@@ -111,6 +111,10 @@ type RunCommandPayload struct {
 	AssistantID       uint   `json:"assistant_id"`
 	AssistantPublicID string `json:"assistant_public_id,omitempty"`
 	Uin               uint   `json:"uin"`
+
+	// NotAfter Worker 最晚允许开始时间（RFC3339，UTC）。超过该时间 Worker 应拒绝执行。
+	// 需要持久化进 worker inbox，崩溃恢复时仍能生效。
+	NotAfter string `json:"not_after,omitempty"`
 }
 
 // PluginSnapshot is the immutable plugin revision selected when a run is published.

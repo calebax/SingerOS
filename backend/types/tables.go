@@ -100,4 +100,10 @@ const (
 
 	// TableNameSeedRecord SQL 种子执行记录表名
 	TableNameSeedRecord = tablenamePrefix + "seed_record"
+
+	// TableNameAutomation 自动化定时任务配置表名
+	TableNameAutomation = tablenamePrefix + "automation"
+
+	// TableNameAutomationExecution 自动化执行记录表名
+	TableNameAutomationExecution = tablenamePrefix + "automation_execution"
 )

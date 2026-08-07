@@ -164,6 +164,10 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterTaskRoutes(authed, taskService, permSvc)
 		logs.Info("Task routes registered successfully")
 
+		automationService := service.NewAutomationService(db)
+		handler.RegisterAutomationRoutes(authed, automationService)
+		logs.Info("Automation routes registered successfully")
+
 		fileService := service.NewFileService(db)
 		fileHandler := handler.NewFileHandler(fileService)
 		fileHandler.RegisterRoutes(authed)
@@ -212,6 +216,12 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		if workerScheduler != nil {
 			go service.StartWorkerDeploymentReconciler(context.Background(), db, workerScheduler, cfg.Scheduler, eventbus)
 			logs.Info("Worker deployment reconciler started")
+		}
+
+		// 自动化定时任务调度器（阶段二）；受 server.automation_scheduler.enabled 门控
+		automationPoster := service.NewMessagePoster(db, permSvc, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, userRepo, orgRepo)
+		if service.StartAutomationScheduler(context.Background(), db, cfg.AutomationScheduler, automationPoster) {
+			logs.Info("Automation scheduler started")
 		}
 	}
 

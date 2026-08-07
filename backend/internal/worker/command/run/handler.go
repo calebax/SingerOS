@@ -74,6 +74,9 @@ type runTask struct {
 	AssistantID uint
 	Uin         uint
 
+	// NotAfter Worker 最晚允许开始时间（零值表示不限制）。
+	NotAfter time.Time
+
 	// 客户端 IP，从 RouteContext 透传，用于 llm_history 关联。
 	ClientIP string
 }
@@ -246,6 +249,7 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 		MessageID:     payload.MessageID,
 		AssistantID:   payload.AssistantID,
 		Uin:           payload.Uin,
+		NotAfter:      parseRunNotAfter(payload.NotAfter),
 		ClientIP:      cmd.Route.ClientIP,
 	}
 
@@ -260,6 +264,12 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 	if err := validateModelConfig(task.Model); err != nil {
 		_ = delivery.Term()
 		return err
+	}
+
+	// 自动化命令过期检查（覆盖实时投递与崩溃恢复两条路径）
+	if !task.NotAfter.IsZero() && time.Now().After(task.NotAfter) {
+		_ = delivery.Term()
+		return fmt.Errorf("run command expired (not_after=%s)", task.NotAfter.Format(time.RFC3339))
 	}
 
 	// Get metadata for stream seq.
@@ -593,7 +603,16 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 		MessageID:     payload.MessageID,
 		AssistantID:   payload.AssistantID,
 		Uin:           payload.Uin,
+		NotAfter:      parseRunNotAfter(payload.NotAfter),
 		DeliverySeqs:  []uint64{rec.StreamSeq},
+	}
+
+	// 崩溃恢复路径同样执行过期检查：超过 not_after 的已恢复命令不再执行。
+	if !task.NotAfter.IsZero() && time.Now().After(task.NotAfter) {
+		logs.WarnContextf(h.execCtx, "Recovered run command expired, marking failed: id=%s not_after=%s",
+			task.ID, task.NotAfter.Format(time.RFC3339))
+		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, "run command expired (not_after)")
+		return
 	}
 
 	execCtx := withRunLogFields(h.execCtx, task)
@@ -778,4 +797,17 @@ func validateModelConfig(model messaging.ModelOptions) error {
 
 func inboxKey(topic string, seq uint64) string {
 	return fmt.Sprintf("%s:%d", topic, seq)
+}
+
+// parseRunNotAfter 解析命令 payload 中的 not_after（RFC3339）；解析失败返回零值（不限制）。
+func parseRunNotAfter(s string) time.Time {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

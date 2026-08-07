@@ -93,6 +93,31 @@ type MessageRoutingOverride struct {
 	WorkerID    uint
 }
 
+// runPublishOptions 可选的运行命令发布参数，供自动化 Dispatcher 注入幂等与过期语义。
+type runPublishOptions struct {
+	// CommandID 稳定的命令 ID（用于幂等去重），缺省为 fmt.Sprintf("msg_%d_%d", sessionID, seq)
+	CommandID string
+	// NotAfter Worker 最晚允许开始时间；超过则拒绝执行
+	NotAfter *time.Time
+}
+
+// runCommandID 决定运行命令的稳定 ID：优先使用调用方提供的 CommandID（自动化 execution public ID），
+// 否则使用默认的 session+sequence 组合。
+func runCommandID(session *types.Session, message *types.SessionMessage, opts *runPublishOptions) string {
+	if opts != nil && opts.CommandID != "" {
+		return opts.CommandID
+	}
+	return fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence)
+}
+
+// runNotAfter 将调用方提供的 not_after 转为 RFC3339 字符串写入命令 payload。
+func runNotAfter(opts *runPublishOptions) string {
+	if opts != nil && opts.NotAfter != nil {
+		return opts.NotAfter.UTC().Format(time.RFC3339)
+	}
+	return ""
+}
+
 // PostMessage 在已有 session 上创建一条消息并完成后续投递（统计、EventBus、WorkerTask）。
 // routing 为 nil 时使用 session 级别的 assistant/worker（默认行为）。
 func (p *MessagePoster) PostMessage(
@@ -101,6 +126,7 @@ func (p *MessagePoster) PostMessage(
 	executionMode types.ExecutionMode,
 	buildMessage func(sequence int64) *types.SessionMessage,
 	routing *MessageRoutingOverride,
+	postOpts ...*runPublishOptions,
 ) (*types.SessionMessage, error) {
 	sequence, err := infradb.GetNextSequence(ctx, p.db, session.ID)
 	if err != nil {
@@ -145,7 +171,11 @@ func (p *MessagePoster) PostMessage(
 	logs.InfoContextf(ctx, "published message.created (human): session_id=%s message_id=%d project_id=%v",
 		session.PublicID, message.ID, session.ProjectID)
 
-	if err := p.publishWorkerTask(ctx, session, message, executionMode, routing); err != nil {
+	var opts *runPublishOptions
+	if len(postOpts) > 0 && postOpts[0] != nil {
+		opts = postOpts[0]
+	}
+	if err := p.publishWorkerTask(ctx, session, message, executionMode, routing, opts); err != nil {
 		return nil, err
 	}
 
@@ -825,7 +855,12 @@ func (p *MessagePoster) publishWorkerTask(
 	message *types.SessionMessage,
 	executionMode types.ExecutionMode,
 	routing *MessageRoutingOverride,
+	postOpts ...*runPublishOptions,
 ) error {
+	var opts *runPublishOptions
+	if len(postOpts) > 0 && postOpts[0] != nil {
+		opts = postOpts[0]
+	}
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
 	if orgID == 0 && caller != nil {
@@ -908,7 +943,7 @@ func (p *MessagePoster) publishWorkerTask(
 	}
 
 	cmd := withRequestTrace(ctx, messaging.NewRunCommand(
-		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
+		runCommandID(session, message, opts),
 		messaging.RouteContext{
 			OrgID:             orgID,
 			SessionID:         session.PublicID,
@@ -951,6 +986,7 @@ func (p *MessagePoster) publishWorkerTask(
 			AssistantID:       routing.AssistantID,
 			AssistantPublicID: assistantIDToPublicID(ctx, p.db, routing.AssistantID),
 			Uin:               session.Uin,
+			NotAfter:          runNotAfter(opts),
 		},
 		&messaging.RunCommandMetadata{
 			SessionID:   session.PublicID,
