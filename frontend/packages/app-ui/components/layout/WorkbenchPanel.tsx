@@ -12,6 +12,7 @@ import {
 	type ProjectTask,
 	partitionComposerFolderFiles,
 	projectFileApi,
+	revokeAttachmentObjectUrls,
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
@@ -307,16 +308,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
 	const wasAuthenticatedRef = useRef(isAuthenticated);
 
-	const revokeAttachmentURLs = (items: Attachment[]) => {
-		for (const attachment of items) {
-			if (attachment.url?.startsWith("blob:")) {
-				URL.revokeObjectURL(attachment.url);
-			}
-		}
-	};
-
 	const clearAttachments = () => {
-		revokeAttachmentURLs(attachmentsRef.current);
+		revokeAttachmentObjectUrls(attachmentsRef.current);
 		setAttachments([]);
 	};
 
@@ -682,9 +675,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 
 		setAttachments((prev) => {
 			const target = prev.find((attachment) => attachment.id === attachmentId);
-			if (target?.url?.startsWith("blob:")) {
-				URL.revokeObjectURL(target.url);
-			}
+			revokeAttachmentObjectUrls(target ? [target] : undefined);
 			return prev.filter((attachment) => attachment.id !== attachmentId);
 		});
 	};
@@ -787,7 +778,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		selectWorkbenchProject(null);
 		setInput("");
 		composerRef.current?.setContent("");
-		revokeAttachmentURLs(attachmentsRef.current);
+		revokeAttachmentObjectUrls(attachmentsRef.current);
 		setAttachments([]);
 		setExecutionMode("default");
 		closeProjectMenu();
@@ -921,7 +912,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	};
 
-	useEffect(() => () => revokeAttachmentURLs(attachmentsRef.current), []);
+	useEffect(() => () => revokeAttachmentObjectUrls(attachmentsRef.current), []);
 
 	return (
 		<div

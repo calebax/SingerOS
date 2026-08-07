@@ -309,6 +309,7 @@ export {
 	trackPageStay,
 	trackPageView,
 } from "./utils/frontendEventTracker";
+export { revokeAttachmentObjectUrls } from "./utils/messageAttachments";
 export {
 	buildMessageMetadata,
 	getAssistantMessageFooterSegments,
