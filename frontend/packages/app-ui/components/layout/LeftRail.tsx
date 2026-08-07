@@ -1177,6 +1177,7 @@ function AccountManagementDialog({
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
 	const [previewAvatarUrl, setPreviewAvatarUrl] = useState<string | undefined>();
 	const displayPhone = getDisplayPhone(user);
+	const displayEmail = user?.email?.trim() || undefined;
 
 	useEffect(() => {
 		if (!open) {
@@ -1375,9 +1376,13 @@ function AccountManagementDialog({
 						</div>
 
 						<div>
-							<div className="mb-1.5 text-xs font-medium text-slate-500">手机号</div>
+							<div className="mb-1.5 text-xs font-medium text-slate-500">
+								{isPrivateDeployment ? "邮箱" : "手机号"}
+							</div>
 							<div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-								{displayPhone ?? "未绑定手机号"}
+								{isPrivateDeployment
+									? (displayEmail ?? "未绑定邮箱")
+									: (displayPhone ?? "未绑定手机号")}
 							</div>
 						</div>
 					</div>
