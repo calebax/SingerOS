@@ -15,6 +15,58 @@ type WorkerConfig struct {
 	NATS   *NATSConfig       `yaml:"nats,omitempty"`
 	CLI    *CLIEnginesConfig `yaml:"cli,omitempty"`
 	Gitea  *GiteaConfig      `yaml:"gitea,omitempty"`
+	Run    *RunConfig        `yaml:"run,omitempty" json:"run,omitempty"`
+}
+
+// Effective returns the effective RunConfig with defaults applied AND normalized:
+//   - MaxConcurrency < 1   -> 10
+//   - MaxInflight    < 1   -> 20
+//   - MaxInflight    < MaxConcurrency -> 提升到 MaxConcurrency（准入并发必须不小于运行并发）
+//   - MaxInteractionWaits < 1 -> 10
+//   - DebounceMS     < 1   -> 1500
+//   - InteractionTimeoutSeconds < 1 -> 600
+//
+// 归一化只在此处进行；Handler / Coordinator 复用该结果，不再重复定义另一套默认值，
+// 保证启动日志打印的就是最终生效值。
+func (c *RunConfig) Effective() RunConfig {
+	if c == nil {
+		c = &RunConfig{}
+	}
+	eff := *c
+	if eff.MaxConcurrency <= 0 {
+		eff.MaxConcurrency = 10
+	}
+	if eff.MaxInflight <= 0 {
+		eff.MaxInflight = 20
+	}
+	// 准入并发必须至少等于运行并发。
+	if eff.MaxInflight < eff.MaxConcurrency {
+		eff.MaxInflight = eff.MaxConcurrency
+	}
+	if eff.MaxInteractionWaits <= 0 {
+		eff.MaxInteractionWaits = 10
+	}
+	if eff.DebounceMS <= 0 {
+		eff.DebounceMS = 1500
+	}
+	if eff.InteractionTimeoutSeconds <= 0 {
+		eff.InteractionTimeoutSeconds = 600
+	}
+	return eff
+}
+
+// RunConfig 配置 Worker 的分层调度容量与交互等待生命周期。
+type RunConfig struct {
+	// MaxConcurrency 实际可占用计算/运行资源的任务数量。
+	MaxConcurrency int `yaml:"max_concurrency,omitempty" json:"max_concurrency,omitempty" default:"10"`
+	// MaxInflight Worker 准入并发上限（满载时由 NATS 回调持续发送 InProgress）。
+	MaxInflight int `yaml:"max_inflight,omitempty" json:"max_inflight,omitempty" default:"20"`
+	// MaxInteractionWaits 最大并发交互等待数量。
+	MaxInteractionWaits int `yaml:"max_interaction_waits,omitempty" json:"max_interaction_waits,omitempty" default:"10"`
+	// DebounceMS trailing debounce 窗口（毫秒）。
+	DebounceMS int `yaml:"debounce_ms,omitempty" json:"debounce_ms,omitempty" default:"1500"`
+	// InteractionTimeoutSeconds 审批/问题等待的默认硬超时（秒），缺省 600（10 分钟）。
+	InteractionTimeoutSeconds int `yaml:"interaction_timeout_seconds,omitempty" json:"interaction_timeout_seconds,omitempty" default:"600"`
 }
 
 // CLIEnginesConfig is the configuration for external AI coding CLIs.
