@@ -19,6 +19,7 @@ export type BootstrapNewTaskOptions = {
 /**
  * 新建任务跳转任务详情前写入等待占位。
  * 若带附件则同步展示乐观用户消息；pendingBootstrapSessionId 阻止 historyLoader 冲掉乐观态。
+ * 调用方必须在 navigateToTaskDetail 之前执行本函数。
  */
 export function bootstrapNewTaskSession(
 	deps: SendPipelineDeps,

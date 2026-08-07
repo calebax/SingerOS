@@ -39,6 +39,7 @@ export class ChatEffects {
 
 	/**
 	 * 新建/续聊任务后写入 taskDetail 路由状态，并按需刷新项目详情。
+	 * 调用方须先 bootstrap（若有），再调用本方法，避免详情页在 waiting 写好前误 load。
 	 * 项目首页不 await 详情；工作台新建 await，保证跳转后 store 有任务列表。
 	 */
 	navigateToTaskDetail = async (options: NavigateToTaskDetailOptions) => {
