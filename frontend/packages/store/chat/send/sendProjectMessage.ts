@@ -2,7 +2,8 @@
  * 路径 B：项目首页 / 工作台「新建任务」发送。
  *
  * 可以做：CreateInitialMessage、bootstrap 乐观 waiting、经 effects 跳转 taskDetail。
- * 不可以做：立刻开 SessionEvents（开流策略=afterGlobalAssistant，由 GlobalEvents 触发）。
+ * 不可以做：立刻开 SessionEvents（开流策略=afterGlobalAssistant，由 GlobalEvents 触发）；
+ * 不可以先 navigate 再 bootstrap（详情页会误 load 成冷进页 resume/poll）。
  */
 
 import { sessionApi } from "../../api/sessionApi";
@@ -90,21 +91,13 @@ export async function sendProjectMessage(
 			awaitProjectDetail: Boolean(options?.fromWorkbench),
 		} as const;
 
-		if (options?.fromWorkbench) {
-			// 中文注释：工作台原先 await 详情后再 bootstrap，保证跳转后 store 有任务列表可供标题 patch。
-			await deps.effects.navigateToTaskDetail(navigateOpts);
-			bootstrapNewTaskSession(deps, data.session_id, trimmed, {
-				attachments: resolvedAttachments,
-				metadata: resolvedMetadata,
-			});
-		} else {
-			// 中文注释：项目首页必须先打 pendingBootstrap，再切视图，避免详情页 remount 清掉乐观等待态。
-			bootstrapNewTaskSession(deps, data.session_id, trimmed, {
-				attachments: resolvedAttachments,
-				metadata: resolvedMetadata,
-			});
-			await deps.effects.navigateToTaskDetail(navigateOpts);
-		}
+		// 中文注释：工作台与项目首页都必须先 bootstrap（pendingBootstrap + waiting），再切视图。
+		// 若先 navigate，详情页 effect 会在占位写好前 loadConversationMessages，把问答路径误判成冷进页 resume/poll。
+		bootstrapNewTaskSession(deps, data.session_id, trimmed, {
+			attachments: resolvedAttachments,
+			metadata: resolvedMetadata,
+		});
+		await deps.effects.navigateToTaskDetail(navigateOpts);
 
 		// 中文注释：新建任务同样等待 GlobalEvents assistant；满 1 分钟仍无接单则正文报错。
 		const assistantMsgId = deps.get().streamingMessageId;
