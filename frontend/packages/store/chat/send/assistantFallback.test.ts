@@ -31,8 +31,11 @@ function createDeps(overrides?: Partial<ReturnType<SendPipelineDeps["get"]>>): S
 	};
 	return {
 		get: () => state as never,
-		set: (partial) => {
-			state = { ...state, ...(typeof partial === "function" ? partial(state as never) : partial) };
+		set: (partial: Parameters<SendPipelineDeps["set"]>[0]) => {
+			state = {
+				...state,
+				...(typeof partial === "function" ? partial(state as never) : partial),
+			};
 		},
 		updateMessage: vi.fn(),
 		finishStream: vi.fn(() => {
