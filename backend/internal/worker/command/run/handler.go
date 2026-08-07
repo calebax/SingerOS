@@ -30,11 +30,14 @@ import (
 )
 
 const (
-	defaultMaxConcurrency = 10
-	defaultDebounceWindow = 1500 * time.Millisecond
-	inboxRetention        = 72 * time.Hour
-	semInProgressInterval = 15 * time.Second
-	inboxTerminalTimeout  = 5 * time.Second
+	defaultMaxConcurrency     = 10
+	defaultDebounceWindow     = 1500 * time.Millisecond
+	inboxRetention            = 72 * time.Hour
+	semInProgressInterval     = 15 * time.Second
+	inboxTerminalTimeout      = 5 * time.Second
+	defaultMaxInflight        = 20
+	defaultInteractionWaits   = 10
+	defaultInteractionTimeout = 10 * time.Minute
 )
 
 // Config controls a worker run handler.
@@ -43,8 +46,13 @@ type Config struct {
 	WorkerID       uint
 	Env            string
 	MaxConcurrency int
+	MaxInflight    int
 	DebounceWindow time.Duration
-	InboxDBPath    string // required
+	// MaxInteractionWaits 最大并发交互等待数量。
+	MaxInteractionWaits int
+	// InteractionWaitTimeout 审批/问题等待默认硬超时。
+	InteractionWaitTimeout time.Duration
+	InboxDBPath            string // required
 }
 
 // runTask is the internal expanded task representation.
@@ -142,6 +150,21 @@ func New(cfg Config, pub eventbus.Publisher, agentRunSvc *agentrun.Service) (*Ha
 	if window <= 0 {
 		window = defaultDebounceWindow
 	}
+	maxInflight := cfg.MaxInflight
+	if maxInflight <= 0 {
+		maxInflight = defaultMaxInflight
+	}
+	if maxInflight < maxConc {
+		maxInflight = maxConc
+	}
+	maxInteractionWaits := cfg.MaxInteractionWaits
+	if maxInteractionWaits <= 0 {
+		maxInteractionWaits = defaultInteractionWaits
+	}
+	interactionTimeout := cfg.InteractionWaitTimeout
+	if interactionTimeout <= 0 {
+		interactionTimeout = defaultInteractionTimeout
+	}
 
 	ri, err := inbox.NewSQLiteRunInbox(cfg.InboxDBPath)
 	if err != nil {
@@ -154,7 +177,7 @@ func New(cfg Config, pub eventbus.Publisher, agentRunSvc *agentrun.Service) (*Ha
 		cfg:              cfg,
 		publisher:        pub,
 		runInbox:         ri,
-		sem:              make(chan struct{}, maxConc*2),
+		sem:              make(chan struct{}, maxInflight),
 		inflight:         make(map[string]struct{}),
 		execCtx:          execCtx,
 		execCancel:       execCancel,
@@ -163,8 +186,11 @@ func New(cfg Config, pub eventbus.Publisher, agentRunSvc *agentrun.Service) (*Ha
 	}
 
 	coord, err := runcoord.NewCoordinator(runcoord.Config{
-		MaxConcurrency: maxConc,
-		DebounceWindow: window,
+		MaxConcurrency:         maxConc,
+		MaxInflight:            maxInflight,
+		MaxInteractionWaits:    maxInteractionWaits,
+		InteractionWaitTimeout: interactionTimeout,
+		DebounceWindow:         window,
 	}, h.executeSubmission(agentRunSvc))
 	if err != nil {
 		execCancel()
@@ -253,8 +279,17 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 		ClientIP:      cmd.Route.ClientIP,
 	}
 
+	nrm, routeErr := h.normalizeRunRoute(task)
+	if routeErr != nil {
+		_ = delivery.Term()
+		h.logRouteReject(task, routeErr)
+		return routeErr
+	}
+	task = nrm
+
 	if err := h.validateRouteTask(task); err != nil {
 		_ = delivery.Term()
+		h.logRouteReject(task, err)
 		return err
 	}
 	if task.TaskType != messaging.TaskTypeAgentRun {
@@ -456,6 +491,7 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 			ClientIP:          task.Route.ClientIP,
 		},
 		DeliverySeqs: task.DeliverySeqs,
+		NotAfter:     task.NotAfter,
 	}
 
 	logs.InfoContextf(execCtx, "dispatching run: run_id=%s session_id=%s worker_id=%d org_id=%d",
@@ -609,6 +645,20 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 		NotAfter:      parseRunNotAfter(payload.NotAfter),
 		DeliverySeqs:  []uint64{rec.StreamSeq},
 	}
+	// 崩溃恢复路径同样执行路由归一化：缺失 session 的记录标记 Failed，
+	// 不进入 Coordinator、不启动 Runtime。
+	nrm, routeErr := h.normalizeRunRoute(task)
+	if routeErr != nil {
+		h.logRouteReject(task, routeErr)
+		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery route invalid: %v", routeErr))
+		return
+	}
+	task = nrm
+	if err := h.validateRouteTask(task); err != nil {
+		h.logRouteReject(task, err)
+		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery route invalid: %v", err))
+		return
+	}
 
 	// 崩溃恢复路径同样执行过期检查：超过 not_after 的已恢复命令不再执行。
 	if !task.NotAfter.IsZero() && time.Now().After(task.NotAfter) {
@@ -649,6 +699,8 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 			ClientIP:          cmd.Route.ClientIP,
 		},
 		DeliverySeqs: task.DeliverySeqs,
+		NotAfter:     task.NotAfter,
+		Recovered:    true,
 	}
 
 	_, execErr := h.coordinator.Submit(execCtx, submission)
@@ -783,6 +835,34 @@ func (h *Handler) validateRouteTask(task runTask) error {
 		return fmt.Errorf("task worker_id %d does not match worker_id %d", task.Route.WorkerID, h.cfg.WorkerID)
 	}
 	return nil
+}
+
+// normalizeRunRoute 统一路由归一化：
+//   - Route.SessionID 去除首尾空格后必须非空（缺失即拒绝，强制 session-bound）；
+//   - Route.OrgID == 0 时补为当前 Handler 配置的 OrgID；
+//   - Route.WorkerID == 0 时补为当前 Handler 配置的 WorkerID；
+//   - 非零但与当前 Worker 不匹配仍由 validateRouteTask 拒绝。
+func (h *Handler) normalizeRunRoute(task runTask) (runTask, error) {
+	task.Route.SessionID = strings.TrimSpace(task.Route.SessionID)
+	if task.Route.SessionID == "" {
+		return task, runcoord.ErrRunRouteRequired
+	}
+	if task.Route.OrgID == 0 {
+		task.Route.OrgID = h.cfg.OrgID
+	}
+	if task.Route.WorkerID == 0 {
+		task.Route.WorkerID = h.cfg.WorkerID
+	}
+	return task, nil
+}
+
+// logRouteReject 结构化记录路由拒绝，包含关联字段但不记录 prompt/token/用户输入。
+func (h *Handler) logRouteReject(task runTask, err error) {
+	logs.WarnContextf(context.Background(),
+		"run route rejected: run_id=%s task_id=%s org_id=%d worker_id=%d session_present=%v reason=%v",
+		task.Trace.RunID, task.Trace.TaskID, task.Route.OrgID, task.Route.WorkerID,
+		strings.TrimSpace(task.Route.SessionID) != "", err,
+	)
 }
 
 func validateModelConfig(model messaging.ModelOptions) error {

@@ -287,6 +287,10 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to resolve state db path: %v", err)
 		return
 	}
+	runCfg := cfg.Run.Effective()
+	logs.Infof("worker.run.scheduler.config max_concurrency=%d max_inflight=%d max_interaction_waits=%d interaction_timeout_seconds=%d debounce_ms=%d",
+		runCfg.MaxConcurrency, runCfg.MaxInflight, runCfg.MaxInteractionWaits,
+		runCfg.InteractionTimeoutSeconds, runCfg.DebounceMS)
 	runtimeService, err := app.NewService(ctx, app.Options{
 		CLIConfig:         cfg.CLI,
 		DefaultRuntime:    defaultRuntime,
@@ -309,10 +313,15 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 	runHandler, err := run.New(run.Config{
-		OrgID:       cfg.OrgID,
-		WorkerID:    cfg.WorkerID,
-		Env:         cfg.Env,
-		InboxDBPath: inboxDBPath,
+		OrgID:                  cfg.OrgID,
+		WorkerID:               cfg.WorkerID,
+		Env:                    cfg.Env,
+		MaxConcurrency:         runCfg.MaxConcurrency,
+		MaxInflight:            runCfg.MaxInflight,
+		MaxInteractionWaits:    runCfg.MaxInteractionWaits,
+		InteractionWaitTimeout: time.Duration(runCfg.InteractionTimeoutSeconds) * time.Second,
+		DebounceWindow:         time.Duration(runCfg.DebounceMS) * time.Millisecond,
+		InboxDBPath:            inboxDBPath,
 	}, bus, runtimeService.AgentRunService())
 	if err != nil {
 		cancel()

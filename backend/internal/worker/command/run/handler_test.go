@@ -614,6 +614,9 @@ func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
 		OrgID:          1,
 		WorkerID:       2,
 		MaxConcurrency: 1,
+		// 准入 sem 大小 = MaxInflight。显式设为 2，使得下方两次 h.sem <- 后准入已满，
+		// 触发 InProgress 心跳。
+		MaxInflight:    2,
 		DebounceWindow: time.Millisecond,
 		InboxDBPath:    ":memory:",
 	}, &handlerPublisher{}, svc)
@@ -655,4 +658,113 @@ func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
 		t.Fatal("Drain should succeed after the admitted task completes")
 	}
 	<-h.sem
+}
+
+// TestHandlerMissingSessionTerm verifies live run missing RouteSessionID is Term'd,
+// not written to inbox, not executing.
+func TestHandlerMissingSessionTerm(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	close(runtime.release)
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	defer h.Close()
+	ib := newMockInbox()
+	h.runInbox = ib
+
+	cmd := messaging.NewRunCommand("no-session", messaging.RouteContext{OrgID: 1, WorkerID: 2}, // 无 SessionID
+		messaging.TraceContext{}, messaging.RunCommandPayload{TaskType: messaging.TaskTypeAgentRun, Model: messaging.ModelOptions{Provider: "o", Model: "m", APIKey: "k"}}, nil)
+	d := newFakeDelivery(61)
+	if err := h.HandleRunCommand(context.Background(), cmd, d); err == nil {
+		t.Fatal("HandleRunCommand() should return error for missing session")
+	}
+	if _, _, term, _ := d.snapshot(); !term {
+		t.Fatal("Term should be called for missing session")
+	}
+	ib.mu.Lock()
+	recordCount := len(ib.records)
+	ib.mu.Unlock()
+	if recordCount != 0 {
+		t.Fatalf("inbox should have no records for missing-session run, got %d", recordCount)
+	}
+}
+
+// TestHandlerRouteOrgWorkerZeroFilled verifies OrgID/WorkerID==0 are filled from config.
+func TestHandlerRouteOrgWorkerZeroFilled(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	close(runtime.release)
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, _ := New(Config{OrgID: 7, WorkerID: 9, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	defer h.Close()
+	ib := newMockInbox()
+	h.runInbox = ib
+
+	cmd := messaging.NewRunCommand("zero-route", messaging.RouteContext{OrgID: 0, WorkerID: 0, SessionID: "s"},
+		messaging.TraceContext{}, messaging.RunCommandPayload{TaskType: messaging.TaskTypeAgentRun, Model: messaging.ModelOptions{Provider: "o", Model: "m", APIKey: "k"}}, nil)
+	d := newFakeDelivery(62)
+	if err := h.HandleRunCommand(context.Background(), cmd, d); err != nil {
+		t.Fatalf("HandleRunCommand() error = %v", err)
+	}
+	if ack, _, _, _ := d.snapshot(); !ack {
+		t.Fatal("valid run with default-filled route should Ack")
+	}
+	ib.mu.Lock()
+	recordCount := len(ib.records)
+	ib.mu.Unlock()
+	if recordCount == 0 {
+		t.Fatal("valid run should be written to inbox")
+	}
+}
+
+// TestHandlerRecoveryMissingSessionMarkFailed verifies recovery record missing session is MarkFailed,
+// not resubmitted to Coordinator / not executed.
+func TestHandlerRecoveryMissingSessionMarkFailed(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	close(runtime.release)
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 2, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	defer h.Close()
+	ib := newMockInbox()
+	h.runInbox = ib
+
+	topic := h.RunSubject()
+	// 插入一条缺失 session 的记录（崩溃恢复）。
+	cmd := messaging.NewRunCommand("recover-no-session", messaging.RouteContext{OrgID: 1, WorkerID: 2}, // 无 SessionID
+		messaging.TraceContext{}, messaging.RunCommandPayload{TaskType: messaging.TaskTypeAgentRun, Model: messaging.ModelOptions{Provider: "o", Model: "m", APIKey: "k"}}, nil)
+	ib.PutIfAbsent(context.Background(), topic, 200, cmd)
+
+	if err := h.RecoverNonTerminal(context.Background()); err != nil {
+		t.Fatalf("RecoverNonTerminal error = %v", err)
+	}
+
+	// 等待 record 被标记为 Failed（缺失 session 的恢复不进入 Runtime）。
+	deadline := time.After(3 * time.Second)
+	for {
+		if s := ib.status(inboxKey(topic, 200)); s == inbox.StatusFailed {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("recovery missing-session record was not marked Failed")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	// Runtime 不应被启动。
+	select {
+	case <-runtime.started:
+		t.Fatal("Runtime should not start for missing-session recovered record")
+	default:
+	}
+	if !h.Drain(2 * time.Second) {
+		t.Fatal("Drain should succeed")
+	}
 }

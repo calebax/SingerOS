@@ -11,18 +11,31 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"github.com/ygpkg/yg-go/logs"
 )
 
+// publishDefaultTimeout 是所有发布操作的统一超时（普通与终态事件一致）。
+const publishDefaultTimeout = 5 * time.Second
+
 // natsBus 表示一个 NATS 客户端，实现 Publisher 和 Subscriber 接口
+//
+// 并发模型（关闭/发布生命周期协议）：
+//   - 发布持有 mu 的读锁（RLock）：不同 Run 可并行发布，互不串行；同时保证
+//     关闭期间不会有发布跨过边界进入已关闭连接。
+//   - Close 持有写锁（Lock）：等待所有在途发布完成后再关闭底层连接，消除
+//     "发布检查 closed=false 后并发 Close" 的生命周期竞态。
+//   - closed 用 atomic 加速只读判断，避免在已关闭后仍加锁做发布尝试。
+//   - JetStream Publish 本身是 goroutine 安全的。
 type natsBus struct {
 	conn   *nats.Conn
 	js     nats.JetStreamContext
-	closed bool
-	mu     sync.Mutex
+	closed atomic.Bool
+	mu     sync.RWMutex
 }
 
 // NewNATS 创建一个新的 NATS JetStream 客户端实例
@@ -42,9 +55,8 @@ func NewNATS(url string) (*natsBus, error) {
 	}
 
 	bus := &natsBus{
-		conn:   conn,
-		js:     js,
-		closed: false,
+		conn: conn,
+		js:   js,
 	}
 
 	if err := bus.initStreams(); err != nil {
@@ -178,12 +190,13 @@ func partialMatch(p1, p2 []string) bool {
 	return false
 }
 
-// publishWithContext 在给定上下文环境中发布消息到指定主题
+// publishWithContext 在给定上下文环境中发布消息到指定主题。
+//
+// 生命周期协议：发布持有读锁（并行），Close 持有写锁（独占）。
+// 因此发布要么完整执行、要么在 Close 已持有写锁后返回"已关闭"，不会跨入已关闭连接。
 func (p *natsBus) publishWithContext(ctx context.Context, topic string, message any) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.closed {
+	start := time.Now()
+	if p.closed.Load() {
 		return fmt.Errorf("NATS client is closed")
 	}
 
@@ -193,23 +206,56 @@ func (p *natsBus) publishWithContext(ctx context.Context, topic string, message 
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	// 发布消息
-	_, err = p.js.Publish(topic, body, nats.Context(ctx))
+	publishCtx := ctx
+	if publishCtx == nil {
+		publishCtx = context.Background()
+	}
+	publishCtx, cancel := context.WithTimeout(publishCtx, publishDefaultTimeout)
+	defer cancel()
+
+	// 读锁保证与 Close（写锁）互斥：在途发布不被并发关闭打断。
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return fmt.Errorf("NATS client is closed")
+	}
+	_, err = p.js.Publish(topic, body, nats.Context(publishCtx))
+	p.mu.RUnlock()
+
+	elapsed := time.Since(start).Milliseconds()
+	switch {
+	case err == nil:
+		logs.DebugContextf(publishCtx, "nats publish: topic=%s payload_bytes=%d elapsed_ms=%d",
+			topic, len(body), elapsed)
+	case elapsed > 500:
+		logs.WarnContextf(publishCtx,
+			"nats publish failed: topic=%s payload_bytes=%d elapsed_ms=%d err=%v",
+			topic, len(body), elapsed, err,
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to publish message to topic '%s': %w", topic, err)
 	}
-
 	return nil
 }
 
 // subscribeWithContext 在给定上下文环境中订阅特定主题的消息。
 // 该函数会阻塞直到 context 被取消或订阅返回错误。
 func (p *natsBus) subscribeWithContext(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
+	if p.closed.Load() {
+		return fmt.Errorf("NATS client is closed")
+	}
 	// 使用 OrderedConsumer 不依赖 durable consumer，避免重启时 "consumer already bound" 错误。
 	// OrderedConsumer 使用 AckNone 策略，无需手动 ack。
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return fmt.Errorf("NATS client is closed")
+	}
 	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
 		handler(msg)
 	}, nats.OrderedConsumer(), nats.Context(ctx))
+	p.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to topic '%s': %w", topic, err)
 	}
@@ -238,12 +284,9 @@ func (p *natsBus) Publish(ctx context.Context, topic string, event any) error {
 // inbox is also injected into the JSON body at body.reply_to. Worker handlers must
 // read this field to know where to send their response.
 func (p *natsBus) Request(ctx context.Context, topic string, event any) (*nats.Msg, error) {
-	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
+	if p.closed.Load() {
 		return nil, fmt.Errorf("NATS client is closed")
 	}
-	p.mu.Unlock()
 
 	body, err := json.Marshal(event)
 	if err != nil {
@@ -251,8 +294,15 @@ func (p *natsBus) Request(ctx context.Context, topic string, event any) (*nats.M
 	}
 
 	inbox := nats.NewInbox()
+	// 生命周期协议：订阅+发布在读锁内完成（与 Close 写锁互斥），随后解锁等待回复。
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("NATS client is closed")
+	}
 	sub, err := p.conn.SubscribeSync(inbox)
 	if err != nil {
+		p.mu.RUnlock()
 		return nil, fmt.Errorf("failed to subscribe to inbox %s: %w", inbox, err)
 	}
 	defer sub.Unsubscribe()
@@ -267,8 +317,11 @@ func (p *natsBus) Request(ctx context.Context, topic string, event any) (*nats.M
 		Data:    body,
 	})
 	if err != nil {
+		p.mu.RUnlock()
 		return nil, fmt.Errorf("failed to publish request to topic %s: %w", topic, err)
 	}
+	// 设置完成，释放读锁；下方等待回复不阻塞 Close。
+	p.mu.RUnlock()
 
 	// Wait for a single reply
 	reply, err := sub.NextMsgWithContext(ctx)
@@ -317,6 +370,11 @@ func (p *natsBus) Subscribe(ctx context.Context, topic string, consumer string, 
 // 注意：Ack 时机是 handler 函数返回的时刻，如果 handler 内部有异步操作，
 // 需要改用 SubscribeManualDurable 自行控制确认时机。
 func (p *natsBus) subscribeWithDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return fmt.Errorf("NATS client is closed")
+	}
 	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -328,6 +386,7 @@ func (p *natsBus) subscribeWithDurable(ctx context.Context, topic string, consum
 		}()
 		handler(msg)
 	}, nats.Durable(consumer), nats.ManualAck(), nats.Context(ctx))
+	p.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to topic '%s' with consumer '%s': %w", topic, consumer, err)
 	}
@@ -347,6 +406,11 @@ func (p *natsBus) subscribeWithDurable(ctx context.Context, topic string, consum
 // 适用于需要在确认前完成额外操作的场景（如持久化到本地 inbox 后再 Ack）。
 // handler 中发生 panic 时自动 Nak（不传播 panic）。
 func (p *natsBus) SubscribeManualDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return fmt.Errorf("NATS client is closed")
+	}
 	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -356,6 +420,7 @@ func (p *natsBus) SubscribeManualDurable(ctx context.Context, topic string, cons
 		}()
 		handler(msg)
 	}, nats.Durable(consumer), nats.ManualAck(), nats.Context(ctx))
+	p.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("failed to manually subscribe to topic '%s' with consumer '%s': %w", topic, consumer, err)
 	}
@@ -379,6 +444,11 @@ func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int6
 		return p.subscribeNewOnly(ctx, topic, handler)
 	}
 	streamName := messaging.StreamNameFromSubject(topic)
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return fmt.Errorf("NATS client is closed")
+	}
 	if streamName != "" {
 		info, err := p.js.StreamInfo(streamName)
 		if err != nil {
@@ -391,6 +461,7 @@ func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int6
 				streamName,
 				info.State.LastSeq,
 			)
+			p.mu.RUnlock()
 			return p.subscribeNewOnly(ctx, topic, handler)
 		}
 	}
@@ -398,6 +469,7 @@ func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int6
 		nats.StartSequence(uint64(startSeq)),
 		nats.Context(ctx),
 	)
+	p.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("failed to subscribe from seq %d on topic '%s': %w", startSeq, topic, err)
 	}
@@ -414,14 +486,17 @@ func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int6
 
 // subscribeNewOnly 使用 JetStream DeliverNew 策略订阅，仅接收订阅之后的新消息。
 func (p *natsBus) subscribeNewOnly(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
-	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
+	if p.closed.Load() {
 		return fmt.Errorf("NATS client is closed")
 	}
-	p.mu.Unlock()
 
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return fmt.Errorf("NATS client is closed")
+	}
 	sub, err := p.js.Subscribe(topic, handler, nats.DeliverNew(), nats.Context(ctx))
+	p.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to topic '%s' (new only): %w", topic, err)
 	}
@@ -441,11 +516,11 @@ func (p *natsBus) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.closed {
+	if p.closed.Load() {
 		return nil
 	}
 
-	p.closed = true
+	p.closed.Store(true)
 	p.conn.Close()
 
 	return nil
