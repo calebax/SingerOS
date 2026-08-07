@@ -95,7 +95,7 @@ func handleRunStateMessage(ctx context.Context, service contract.SessionService,
 
 	switch runEvent.Body.Event {
 	case messaging.RunEventRunStarted:
-		handleRunStartedEvent(ctx, service, msg, runEvent)
+		handleRunStartedEvent(ctx, service, db, msg, runEvent)
 
 	case messaging.RunEventArtifactDeclared:
 		handleArtifactDeclaredEvent(ctx, persister, runEvent)
@@ -107,17 +107,17 @@ func handleRunStateMessage(ctx context.Context, service contract.SessionService,
 		handleRunCompletedEvent(ctx, service, db, runEvent)
 
 	case messaging.RunEventRunFailed:
-		handleRunFailedEvent(ctx, service, runEvent)
+		handleRunFailedEvent(ctx, service, db, runEvent)
 
 	case messaging.RunEventRunCancelled:
-		handleRunCancelledEvent(ctx, service, runEvent)
+		handleRunCancelledEvent(ctx, service, db, runEvent)
 
 	default:
 		logs.DebugContextf(ctx, "ignoring run state event: %s", runEvent.Body.Event)
 	}
 }
 
-func handleRunStartedEvent(ctx context.Context, service contract.SessionService, msg *nats.Msg, runEvent messaging.RunEvent) {
+func handleRunStartedEvent(ctx context.Context, service contract.SessionService, db *gorm.DB, msg *nats.Msg, runEvent messaging.RunEvent) {
 	meta, err := msg.Metadata()
 	if err != nil {
 		logs.WarnContextf(ctx, "run started missing nats metadata: session_id=%s error=%v", runEvent.Route.SessionID, err)
@@ -134,6 +134,7 @@ func handleRunStartedEvent(ctx context.Context, service contract.SessionService,
 	}); err != nil {
 		logs.WarnContextf(ctx, "handle session run started failed: session_id=%s error=%v", runEvent.Route.SessionID, err)
 	}
+	handleAutomationRunEvent(ctx, db, runEvent)
 	logs.InfoContextf(ctx, "handled run started: session_id=%s run_id=%s state_start_seq=%d reply_ids=%v",
 		runEvent.Route.SessionID, runEvent.Trace.RunID, meta.Sequence.Stream, runEvent.Body.ReplyToMessageIDs)
 }
@@ -198,9 +199,11 @@ func handleRunCompletedEvent(ctx context.Context, service contract.SessionServic
 		logs.WarnContextf(ctx, "complete session message: %v", err)
 	}
 	recordSkillInvocationsFromMessaging(ctx, db, runEvent.Route.OrgID, runEvent.Route.SessionID, completed.Events)
+	// 回写自动化执行状态：queued/running → succeeded
+	handleAutomationRunEvent(ctx, db, runEvent)
 }
 
-func handleRunFailedEvent(ctx context.Context, service contract.SessionService, runEvent messaging.RunEvent) {
+func handleRunFailedEvent(ctx context.Context, service contract.SessionService, db *gorm.DB, runEvent messaging.RunEvent) {
 	content := runEvent.Body.Payload.Content
 	errMsg := runEvent.Body.Payload.Content
 	status := string(types.MessageStatusFailed)
@@ -237,9 +240,10 @@ func handleRunFailedEvent(ctx context.Context, service contract.SessionService, 
 	if err := service.FailedSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "failed session message: %v", err)
 	}
+	handleAutomationRunEvent(ctx, db, runEvent)
 }
 
-func handleRunCancelledEvent(ctx context.Context, service contract.SessionService, runEvent messaging.RunEvent) {
+func handleRunCancelledEvent(ctx context.Context, service contract.SessionService, db *gorm.DB, runEvent messaging.RunEvent) {
 	completed := runEvent.Body.RunCompleted
 	content := "已取消"
 	if completed != nil && completed.Result.Message != "" {
@@ -263,6 +267,7 @@ func handleRunCancelledEvent(ctx context.Context, service contract.SessionServic
 	if err := service.FailedSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "cancelled session message: %v", err)
 	}
+	handleAutomationRunEvent(ctx, db, runEvent)
 }
 
 func cancellationError(runEvent messaging.RunEvent) string {

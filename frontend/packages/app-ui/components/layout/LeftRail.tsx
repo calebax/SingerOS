@@ -44,6 +44,7 @@ import {
 	ChevronsLeft,
 	ChevronsRight,
 	ClipboardList,
+	Clock,
 	ExternalLink,
 	Inbox,
 	Loader2,
@@ -107,6 +108,7 @@ export type AppNavigation = {
 	goToProject: (projectId: string) => void;
 	goToProjectTasks: (projectId: string) => void;
 	goToTaskDetail: (projectId: string, taskId: string, sessionId: string) => void;
+	goToAutomationDetail: (publicId: string) => void;
 };
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -115,6 +117,7 @@ const iconMap: Record<string, React.ReactNode> = {
 	IconProjectsHub: <ProjectIcon className="size-5" />,
 	IconSkill: <Blocks className="size-5" />,
 	IconKnowledge: <Inbox className="size-5" />,
+	IconAutomation: <Clock className="size-5" />,
 	IconProject: <ProjectIcon className="size-4" />,
 };
 
@@ -124,6 +127,7 @@ const navIdToView: Record<string, ViewMode> = {
 	"projects-hub": "projectsHub",
 	knowledge: "knowledge",
 	skills: "skills",
+	automation: "automation",
 };
 
 const appVersion = getAppVersion();
@@ -1682,7 +1686,7 @@ function ProjectList({
 							title={collapsed ? project.name : undefined}
 						>
 							<span className="flex size-4 shrink-0 items-center justify-center text-[var(--leros-text-subtle)]">
-								<ProjectIcon />
+								{project.automationId ? <Clock className="size-4" /> : <ProjectIcon />}
 							</span>
 							{!collapsed && (
 								<>
@@ -1807,6 +1811,11 @@ function TaskListItem({
 			className="group flex min-h-8 w-full cursor-pointer items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
 			title={task.title}
 		>
+			{task.taskType === "cron" ? (
+				<span className="shrink-0 text-[var(--leros-text-subtle)]">
+					<Clock className="size-3.5" />
+				</span>
+			) : null}
 			<span className="min-w-0 flex-1 truncate text-left">{task.title}</span>
 			{task.updatedAt ? (
 				<span className="shrink-0 text-xs font-normal text-[var(--leros-text-subtle)]">

@@ -148,6 +148,7 @@ export type Project = {
 	description: string;
 	objective?: string;
 	metadata?: Record<string, unknown>;
+	automationId?: number;
 	skills: ProjectSkill[];
 	members: ProjectMember[];
 	taskCount: number;
@@ -204,6 +205,7 @@ export type ViewMode =
 	| "aiTeammates"
 	| "knowledge"
 	| "skills"
+	| "automation"
 	| "settings";
 
 export type LayoutState = {
@@ -246,6 +248,7 @@ function mapBackendProject(bp: BackendProject): Project {
 		id: bp.public_id,
 		name: bp.name,
 		description: bp.description ?? "",
+		automationId: bp.automation_id,
 		taskCount: bp.task_count ?? 0,
 		createdAt: new Date(bp.created_at).getTime(),
 		updatedAt: new Date(bp.updated_at).getTime(),
@@ -470,6 +473,7 @@ const _initialState: LayoutState = {
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "插件", icon: "IconSkill" },
 				{ id: "knowledge", label: "资源库", icon: "IconKnowledge" },
+				{ id: "automation", label: "自动化", icon: "IconAutomation" },
 			],
 		},
 		{

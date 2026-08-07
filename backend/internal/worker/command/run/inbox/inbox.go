@@ -95,6 +95,7 @@ func migrate(db *sql.DB) error {
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
 			topic      TEXT NOT NULL,
 			stream_seq INTEGER NOT NULL,
+			command_id TEXT NOT NULL DEFAULT '',
 			command    TEXT NOT NULL,
 			status     TEXT NOT NULL DEFAULT 'pending',
 			error_msg  TEXT NOT NULL DEFAULT '',
@@ -104,7 +105,35 @@ func migrate(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_inbox_topic_status ON worker_run_inbox(topic, status);
 	`)
+	if err != nil {
+		return err
+	}
+	// 老库升级：补齐 command_id 列与按 command_id 去重的唯一索引
+	ensureColumn(db, "worker_run_inbox", "command_id", `ALTER TABLE worker_run_inbox ADD COLUMN command_id TEXT NOT NULL DEFAULT ''`)
+	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_inbox_command_id ON worker_run_inbox(command_id) WHERE command_id != ''`)
 	return err
+}
+
+// ensureColumn 若表中不存在指定列则执行迁移 SQL（忽略已存在的错误）。
+func ensureColumn(db *sql.DB, table, column, alterSQL string) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			continue
+		}
+		if name == column {
+			return
+		}
+	}
+	_, _ = db.Exec(alterSQL)
 }
 
 // PutIfAbsent inserts a new record with the command serialized to JSON.
@@ -116,9 +145,9 @@ func (i *SQLiteRunInbox) PutIfAbsent(ctx context.Context, topic string, streamSe
 
 	now := time.Now().Unix()
 	result, err := i.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO worker_run_inbox (topic, stream_seq, command, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		topic, streamSeq, string(commandJSON), string(StatusPending), now, now,
+		`INSERT OR IGNORE INTO worker_run_inbox (topic, stream_seq, command_id, command, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		topic, streamSeq, cmd.ID, string(commandJSON), string(StatusPending), now, now,
 	)
 	if err != nil {
 		return false, nil, fmt.Errorf("insert inbox: %w", err)
@@ -132,7 +161,11 @@ func (i *SQLiteRunInbox) PutIfAbsent(ctx context.Context, topic string, streamSe
 	if rowsAffected == 0 {
 		rec, err := i.get(ctx, topic, streamSeq)
 		if err != nil {
-			return false, nil, err
+			// 同一 command_id 但不同 stream_seq 的重复投递：按 command_id 归并返回已存在记录
+			rec = i.getByCommandID(ctx, cmd.ID)
+			if rec == nil {
+				return false, nil, err
+			}
 		}
 		return false, rec, nil
 	}
@@ -161,6 +194,23 @@ func (i *SQLiteRunInbox) get(ctx context.Context, topic string, streamSeq uint64
 		return nil, fmt.Errorf("get inbox: %w", err)
 	}
 	return rec, nil
+}
+
+// getByCommandID 按稳定命令 ID 查询已存在的记录（用于重复投递去重）。
+func (i *SQLiteRunInbox) getByCommandID(ctx context.Context, commandID string) *Record {
+	if commandID == "" {
+		return nil
+	}
+	rec := &Record{}
+	err := i.db.QueryRowContext(ctx,
+		`SELECT id, topic, stream_seq, command, status, error_msg, created_at, updated_at
+		 FROM worker_run_inbox WHERE command_id = ? LIMIT 1`,
+		commandID,
+	).Scan(&rec.ID, &rec.Topic, &rec.StreamSeq, &rec.Command, &rec.Status, &rec.ErrorMsg, &rec.CreatedAt, &rec.UpdatedAt)
+	if err != nil {
+		return nil
+	}
+	return rec
 }
 
 // MarkProcessing transitions a record to processing.
