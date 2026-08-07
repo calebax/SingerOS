@@ -5,6 +5,9 @@
  * 不可以做：发 HTTP 消息、开 SSE、改 Message 气泡内容。
  */
 
+import type { Attachment } from "../types/chat";
+import { revokeAttachmentObjectUrls } from "../utils/messageAttachments";
+
 /**
  * effects 写入联合 store 所需的最小能力。
  */
@@ -74,8 +77,10 @@ export class ChatEffects {
 		void fullState.fetchProjectDetail(projectId);
 	};
 
-	/** 清空 composer 草稿（ChatState 字段）。 */
+	/** 清空 composer 草稿，并按统一策略释放本地 blob 预览。 */
 	clearComposer = () => {
+		const state = this.#deps.fullGet() as { inputAttachments?: Attachment[] };
+		revokeAttachmentObjectUrls(state.inputAttachments);
 		this.#deps.setStore({
 			inputText: "",
 			inputAttachments: [],

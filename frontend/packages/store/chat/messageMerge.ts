@@ -407,7 +407,8 @@ function compareMessages(a: Message, b: Message): number {
 }
 
 /**
- * 合并落库附件与本地附件：保留本地 blob 预览 URL，避免历史回拉后预览图立刻失效。
+ * 合并落库附件与本地附件：只补 size/storageUri，不回填 blob/data。
+ * 消息缩略图统一走 fileUploadId / 持久 URL（与 mapComposerAttachments 同策略）。
  */
 export function mergeMessageAttachments(
 	persistedAttachments: MessageAttachment[] | undefined,
@@ -422,10 +423,9 @@ export function mergeMessageAttachments(
 
 	return persistedAttachments.map((attachment) => {
 		const localAttachment = localByUploadId.get(attachment.fileUploadId);
-		if (!localAttachment?.url?.startsWith("blob:")) return attachment;
+		if (!localAttachment) return attachment;
 		return {
 			...attachment,
-			url: localAttachment.url,
 			size: attachment.size || localAttachment.size,
 			storageUri: attachment.storageUri || localAttachment.storageUri,
 		};
@@ -433,7 +433,7 @@ export function mergeMessageAttachments(
 }
 
 /**
- * 把落库消息与本地同轮消息对齐后，把本地 blob 附件 URL 写回落库消息。
+ * 把落库消息与本地同轮消息对齐后，合并附件元数据（不回填临时预览 URL）。
  */
 function reconcilePersistedMessagesWithLocal(
 	persistedMessages: Message[],
