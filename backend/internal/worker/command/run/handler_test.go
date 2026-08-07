@@ -147,6 +147,9 @@ func (r *handlerRuntime) Execute(_ context.Context, _ agent.ExecutionRequest, _ 
 type mockInbox struct {
 	mu      sync.Mutex
 	records map[string]*inboxRecord
+	// nilInsertSeq 若非零，则 PutIfAbsent 对该 seq 返回 (false, nil, nil)，
+	// 用于复现 command_id 冲突但 (topic, stream_seq) 无记录的边界 panic。
+	nilInsertSeq uint64
 }
 type inboxRecord struct {
 	status  inbox.Status
@@ -162,6 +165,11 @@ func (m *mockInbox) PutIfAbsent(_ context.Context, topic string, streamSeq uint6
 	key := keyOf(topic, streamSeq)
 	if r, ok := m.records[key]; ok {
 		return false, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: r.status}, nil
+	}
+	// nilInsertSeq 模拟「插入被唯一索引拒绝但 (topic, stream_seq) 无记录」的边界场景，
+	// 即真实 SQLite 中按 command_id 冲突时 PutIfAbsent 会返回 (false, nil, nil)。
+	if streamSeq == m.nilInsertSeq {
+		return false, nil, nil
 	}
 	m.records[key] = &inboxRecord{status: inbox.StatusPending, command: cmd}
 	return true, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: inbox.StatusPending}, nil
@@ -367,6 +375,38 @@ func TestHandlerAsyncDedupInflight(t *testing.T) {
 	h.stateMu.Unlock()
 	if owned {
 		t.Fatal("delivery ownership was not released after completion")
+	}
+}
+
+// TestHandlerPutIfAbsentNilRecord verifies that a PutIfAbsent returning
+// (false, nil, nil) — a command_id-unique collides but the (topic, stream_seq)
+// has no row, as raised by automation cron re-dispatch — does not panic on a
+// nil existing record and still executes + Acks the command.
+func TestHandlerPutIfAbsentNilRecord(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: 5 * time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	defer h.Close()
+	ib := newMockInbox()
+	ib.nilInsertSeq = 200
+	h.runInbox = ib
+
+	delivery := newFakeDelivery(200)
+	if err := h.HandleRunCommand(context.Background(), standardCommand(), delivery); err != nil {
+		t.Fatalf("HandleRunCommand error = %v", err)
+	}
+	if ack, nak, term, _ := delivery.snapshot(); !ack || nak || term {
+		t.Fatalf("disposition = ack:%v nak:%v term:%v, want Ack only", ack, nak, term)
+	}
+
+	<-runtime.started
+	close(runtime.release)
+
+	if ok := h.Drain(2 * time.Second); !ok {
+		t.Fatal("Drain should succeed")
 	}
 }
 

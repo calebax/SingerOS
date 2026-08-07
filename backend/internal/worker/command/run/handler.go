@@ -319,7 +319,10 @@ func (h *Handler) admit(ctx context.Context, topic string, seq uint64, cmd messa
 		return fmt.Errorf("inbox PutIfAbsent: %w", err)
 	}
 
-	if !inserted {
+	// !inserted 但 existing == nil 表示插入被唯一索引（如 command_id 冲突）拒绝，
+	// 而 (topic, stream_seq) 在库中并无存量记录。此时应按新记录路径执行，
+	// 否则对 nil existing 调用 IsTerminal 会触发 nil 指针 panic。
+	if !inserted && existing != nil {
 		// Record already exists.
 		if existing.IsTerminal() {
 			h.releaseAdmission()
