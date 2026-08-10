@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-
-	"github.com/insmtx/Leros/backend/types"
 )
 
 const (
@@ -19,14 +17,14 @@ const (
 	RunSkillsDirEnvVar = "LEROS_RUN_SKILLS_DIR"
 )
 
-// ExecutionMode is an alias of types.ExecutionMode for backward compatibility.
-type ExecutionMode = types.ExecutionMode
+// ExecutionMode controls runtime behavior independently from any host business model.
+type ExecutionMode string
 
 const (
 	// ExecutionModeDefault keeps the runtime's normal execution behavior.
-	ExecutionModeDefault = types.ExecutionModeDefault
+	ExecutionModeDefault ExecutionMode = "default"
 	// ExecutionModePlan requests planning behavior when the runtime supports it.
-	ExecutionModePlan = types.ExecutionModePlan
+	ExecutionModePlan ExecutionMode = "plan"
 )
 
 // Message is a business-neutral conversation message supplied to a Runtime.

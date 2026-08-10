@@ -42,6 +42,9 @@ type RunSubmission struct {
 	// memberRunIDs 记录本批次合并进来的所有成员 runID（合并前为自身 runID）。
 	// 用于：取消任一成员时能定位并取消整个（可能已 active 的）合并批次。
 	memberRunIDs []string
+	// members 保留合并前每个 Run 的可观测摘要，避免运维快照把多个 Run
+	// 错误地压缩为一个 batch。
+	members []runMember
 
 	waiterIDs []uint64
 }
@@ -70,6 +73,8 @@ type Config struct {
 	InteractionWaitTimeout time.Duration
 	// DebounceWindow trailing debounce 窗口，缺省 1.5s。
 	DebounceWindow time.Duration
+	// MaxRunDuration is a hard deadline starting only after a compute slot is acquired.
+	MaxRunDuration time.Duration
 }
 
 // Coordinator manages Worker-local scheduling for agent runs.
@@ -84,6 +89,7 @@ type Coordinator struct {
 
 	interactionSlots chan struct{}
 	interactionWait  time.Duration
+	maxRunDuration   time.Duration
 
 	debouncer *utils.TrailingDebouncer[RunSubmission]
 
@@ -174,8 +180,17 @@ var ErrRunRouteRequired = errors.New("run requires a valid route (org_id, worker
 type activeRun struct {
 	runID     string
 	taskID    string
+	sessionID string
+	members   []runMember
 	cancel    context.CancelFunc
 	startedAt time.Time
+}
+
+type runMember struct {
+	runID      string
+	taskID     string
+	sessionID  string
+	streamSeqs []uint64
 }
 
 // NewCoordinator creates a new RunCoordinator.
@@ -195,6 +210,9 @@ func NewCoordinator(cfg Config, executeFunc ExecuteFunc) (*Coordinator, error) {
 	if cfg.DebounceWindow <= 0 {
 		cfg.DebounceWindow = 1500 * time.Millisecond
 	}
+	if cfg.MaxRunDuration <= 0 {
+		cfg.MaxRunDuration = 4 * time.Hour
+	}
 	if executeFunc == nil {
 		return nil, fmt.Errorf("execute function is required")
 	}
@@ -213,6 +231,7 @@ func NewCoordinator(cfg Config, executeFunc ExecuteFunc) (*Coordinator, error) {
 		recoveryCap:      recoveryCap,
 		interactionSlots: make(chan struct{}, cfg.MaxInteractionWaits),
 		interactionWait:  cfg.InteractionWaitTimeout,
+		maxRunDuration:   cfg.MaxRunDuration,
 		executeFunc:      executeFunc,
 		activeRuns:       make(map[string]*activeRun),
 		memberToBatch:    make(map[string]*batchEntry),
@@ -269,6 +288,12 @@ func (c *Coordinator) Submit(ctx context.Context, submission RunSubmission) (Run
 	if submission.EventContext.RunID != "" {
 		submission.memberRunIDs = []string{submission.EventContext.RunID}
 	}
+	submission.members = []runMember{{
+		runID:      submission.EventContext.RunID,
+		taskID:     requestTaskID(submission),
+		sessionID:  submission.EventContext.SessionID,
+		streamSeqs: append([]uint64(nil), submission.DeliverySeqs...),
+	}}
 	logs.InfoContextf(ctx, "coordinator submit: session_key=%s run_id=%s worker_id=%d messages=%d",
 		key, submission.EventContext.RunID, submission.EventContext.WorkerID, msgCount)
 	if key == "" {
@@ -610,13 +635,13 @@ func (c *Coordinator) runBatch(batch *batchEntry) {
 		return
 	}
 
-	runCtx, runCancel := context.WithCancel(batchCtx)
+	runCtx, runCancel := context.WithTimeout(batchCtx, c.maxRunDuration)
 	defer runCancel()
 	if activeKey == "" && sKey != "" && sub.EventContext.RunID != "" {
 		activeKey = activeRunKey(sub.EventContext.OrgID, sub.EventContext.WorkerID, sub.EventContext.SessionID, sub.EventContext.RunID)
 	}
 	if activeKey != "" {
-		c.RegisterRun(activeKey, sub.EventContext.RunID, requestTaskID(sub), runCancel)
+		c.RegisterRun(activeKey, sub.EventContext.RunID, requestTaskID(sub), sub.EventContext.SessionID, sub.members, runCancel)
 		defer c.UnregisterRun(activeKey)
 	}
 	logs.InfoContextf(runCtx, "coordinator executing: run_id=%s session_key=%s",
@@ -872,7 +897,7 @@ func hasAnyWaiter(waiterIDs []uint64, targetSet map[uint64]struct{}) bool {
 }
 
 // RegisterRun records an active run for cancellation tracking.
-func (c *Coordinator) RegisterRun(sessionKey, runID, taskID string, cancel context.CancelFunc) {
+func (c *Coordinator) RegisterRun(sessionKey, runID, taskID, sessionID string, members []runMember, cancel context.CancelFunc) {
 	if sessionKey == "" {
 		return
 	}
@@ -883,6 +908,8 @@ func (c *Coordinator) RegisterRun(sessionKey, runID, taskID string, cancel conte
 	c.activeRuns[sessionKey] = &activeRun{
 		runID:     runID,
 		taskID:    taskID,
+		sessionID: sessionID,
+		members:   cloneRunMembers(members),
 		cancel:    cancel,
 		startedAt: time.Now(),
 	}
@@ -897,6 +924,136 @@ func (c *Coordinator) UnregisterRun(sessionKey string) {
 	c.activeRunsMu.Lock()
 	delete(c.activeRuns, sessionKey)
 	c.activeRunsMu.Unlock()
+}
+
+// RunningRun 是正在执行的任务的轻量摘要，由 Coordinator.Status 返回。
+type RunningRun struct {
+	RunID     string
+	TaskID    string
+	SessionID string
+	StartedAt time.Time
+}
+
+// WaitingRun 是已接收但尚未开始执行的任务的轻量摘要，由 Coordinator.Status 返回。
+type WaitingRun struct {
+	RunID      string
+	TaskID     string
+	SessionID  string
+	StreamSeqs []uint64
+	Status     string
+}
+
+// RunStatus 是 Coordinator 调度状态的只读快照，用于运维状态查询。
+type RunStatus struct {
+	MaxConcurrency          int
+	ComputeBusyCount        int
+	InteractionWaitingCount int
+	// Running 正在执行（已持有计算槽）的任务。
+	Running []RunningRun
+	// Waiting 已接收但尚未开始执行的任务。
+	// 包括 per-session 队列中等待调度的批次与已出队但仍在等待计算槽的批次。
+	Waiting []WaitingRun
+	// Debouncing 是仍处于 debounce 窗口、尚未进入调度队列的 Run。
+	Debouncing []WaitingRun
+}
+
+// Status 返回 Coordinator 当前调度状态的只读快照。
+// 该方法是只读的，不加锁批量读取时可能拿到近似一致的视图，
+// 但对诊断 Worker 运行水位足够精确。
+func (c *Coordinator) Status() RunStatus {
+	status := RunStatus{MaxConcurrency: c.maxConcurrency, ComputeBusyCount: len(c.slots)}
+	c.waitsMu.Lock()
+	status.InteractionWaitingCount = len(c.waits)
+	c.waitsMu.Unlock()
+
+	runningKeys := make(map[string]struct{})
+	c.activeRunsMu.RLock()
+	for _, ar := range c.activeRuns {
+		members := ar.members
+		if len(members) == 0 {
+			members = []runMember{{runID: ar.runID, taskID: ar.taskID, sessionID: ar.sessionID}}
+		}
+		for _, member := range members {
+			if member.runID == "" {
+				continue
+			}
+			status.Running = append(status.Running, RunningRun{
+				RunID:     member.runID,
+				TaskID:    member.taskID,
+				SessionID: member.sessionID,
+				StartedAt: ar.startedAt,
+			})
+			runningKeys[member.runID] = struct{}{}
+		}
+	}
+	c.activeRunsMu.RUnlock()
+
+	// 等待任务 = per-session 队列中的批次 + 已出队等待计算槽的批次。
+	// 已持有计算槽并开始执行的批次会在 runBatch 结束前同时存在于 slotWaiting，
+	// 因此用 runningKeys 排除那些已转入 running 的批次，避免 running/waiting 重复计数。
+	seen := make(map[string]struct{})
+	var waiting []WaitingRun
+
+	for _, submission := range c.debouncer.PendingValues() {
+		addWaitingSubmission(submission, "debouncing", &status.Debouncing, seen, runningKeys)
+	}
+
+	c.slotWaitingMu.Lock()
+	for _, batch := range c.slotWaiting {
+		addWaiting(batch, "slot_waiting", &waiting, seen, runningKeys)
+	}
+	c.slotWaitingMu.Unlock()
+
+	c.queueMu.Lock()
+	for _, q := range c.queued {
+		for _, batch := range q {
+			addWaiting(batch, "queued", &waiting, seen, runningKeys)
+		}
+	}
+	c.queueMu.Unlock()
+
+	status.Waiting = waiting
+	return status
+}
+
+// addWaiting 将一批等待调度的批次去重后追加到 waiting 列表。
+// runningKeys 中已开始的 runID 会被跳过（已计入 Running，不计入 Waiting）。
+func addWaiting(batch *batchEntry, phase string, dst *[]WaitingRun, seen map[string]struct{}, runningKeys map[string]struct{}) {
+	if batch == nil {
+		return
+	}
+	addWaitingSubmission(batch.submission, phase, dst, seen, runningKeys)
+}
+
+func addWaitingSubmission(submission RunSubmission, phase string, dst *[]WaitingRun, seen map[string]struct{}, runningKeys map[string]struct{}) {
+	members := submission.members
+	if len(members) == 0 {
+		members = []runMember{{
+			runID:      submission.EventContext.RunID,
+			taskID:     requestTaskID(submission),
+			sessionID:  submission.EventContext.SessionID,
+			streamSeqs: submission.DeliverySeqs,
+		}}
+	}
+	for _, member := range members {
+		if member.runID == "" {
+			continue
+		}
+		if _, ok := seen[member.runID]; ok {
+			continue
+		}
+		if _, ok := runningKeys[member.runID]; ok {
+			continue
+		}
+		seen[member.runID] = struct{}{}
+		*dst = append(*dst, WaitingRun{
+			RunID:      member.runID,
+			TaskID:     member.taskID,
+			SessionID:  member.sessionID,
+			StreamSeqs: append([]uint64(nil), member.streamSeqs...),
+			Status:     phase,
+		})
+	}
 }
 
 // Close shuts down the coordinator gracefully, waiting for all in-flight runs.
@@ -969,9 +1126,14 @@ func mergeSubmissions(existing RunSubmission, incoming RunSubmission) RunSubmiss
 	merged.waiterIDs = append(append([]uint64(nil), existing.waiterIDs...), incoming.waiterIDs...)
 	// 收集所有成员 runID，保证取消任一成员都能定位整个（可能已 active 的）合并批次。
 	merged.memberRunIDs = append(append([]string(nil), existing.memberRunIDs...), incoming.memberRunIDs...)
+	merged.members = append(cloneRunMembers(existing.members), cloneRunMembers(incoming.members)...)
 	merged.EventContext.ReplyToMessageIDs = appendUniqueString(
 		append([]string(nil), existing.EventContext.ReplyToMessageIDs...),
 		incoming.EventContext.ReplyToMessageIDs...,
+	)
+	merged.EventContext.MemberCommandIDs = appendUniqueString(
+		append([]string(nil), existing.EventContext.MemberCommandIDs...),
+		incoming.EventContext.MemberCommandIDs...,
 	)
 
 	// Merge input messages.
@@ -987,6 +1149,18 @@ func mergeSubmissions(existing RunSubmission, incoming RunSubmission) RunSubmiss
 	}
 
 	return merged
+}
+
+func cloneRunMembers(in []runMember) []runMember {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]runMember, 0, len(in))
+	for _, member := range in {
+		member.streamSeqs = append([]uint64(nil), member.streamSeqs...)
+		out = append(out, member)
+	}
+	return out
 }
 
 func appendUniqueUint64(dst []uint64, values ...uint64) []uint64 {

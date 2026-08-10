@@ -53,30 +53,36 @@ const (
 var ErrNoReplyMessageIDs = errors.New("no reply message ids in stream event")
 
 type sessionService struct {
-	db           *gorm.DB
-	perm         *PermissionService
-	eventbus     eventbus.EventBus
-	inferrer     AssistantInferrer
-	giteaClient  *gitea.Client
-	giteaCfg     *config.GiteaConfig
-	env          string
-	modelInvoker modelrouter.Invoker
-	userRepo     account.UserRepository
-	orgRepo      account.OrgRepository
+	db              *gorm.DB
+	perm            *PermissionService
+	eventbus        eventbus.EventBus
+	inferrer        AssistantInferrer
+	giteaClient     *gitea.Client
+	giteaCfg        *config.GiteaConfig
+	env             string
+	modelInvoker    modelrouter.Invoker
+	userRepo        account.UserRepository
+	orgRepo         account.OrgRepository
+	dispatchEnabled bool
 }
 
-func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker, userRepo account.UserRepository, orgRepo account.OrgRepository) contract.SessionService {
+func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker, userRepo account.UserRepository, orgRepo account.OrgRepository, dispatchEnabled ...bool) contract.SessionService {
+	enabled := true
+	if len(dispatchEnabled) > 0 {
+		enabled = dispatchEnabled[0]
+	}
 	return &sessionService{
-		db:           db,
-		perm:         perm,
-		eventbus:     eventbus,
-		inferrer:     inferrer,
-		giteaClient:  giteaClient,
-		giteaCfg:     giteaCfg,
-		env:          env,
-		modelInvoker: modelInvoker,
-		userRepo:     userRepo,
-		orgRepo:      orgRepo,
+		db:              db,
+		perm:            perm,
+		eventbus:        eventbus,
+		inferrer:        inferrer,
+		giteaClient:     giteaClient,
+		giteaCfg:        giteaCfg,
+		env:             env,
+		modelInvoker:    modelInvoker,
+		userRepo:        userRepo,
+		orgRepo:         orgRepo,
+		dispatchEnabled: enabled,
 	}
 }
 
@@ -305,6 +311,9 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 }
 
 func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *contract.AddMessageRequest) (*contract.SessionMessage, error) {
+	if !s.dispatchEnabled {
+		return nil, ErrRunDispatchUnavailable
+	}
 	if req.Role == "" {
 		return nil, errors.New("role is required")
 	}
@@ -411,10 +420,13 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 }
 
 func (s *sessionService) newMessagePoster() *MessagePoster {
-	return NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s.userRepo, s.orgRepo)
+	return NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s.userRepo, s.orgRepo, s.dispatchEnabled)
 }
 
 func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {
+	if !s.dispatchEnabled {
+		return nil, ErrRunDispatchUnavailable
+	}
 	if strings.TrimSpace(req.Content) == "" && len(req.AssistantIDs) == 0 && len(req.Attachments) == 0 {
 		return nil, errors.New("content is required")
 	}
@@ -1225,6 +1237,13 @@ func (s *sessionService) convertToContractSessionMessage(
 	result := convertToContractSessionMessage(message, publicID, assistantID)
 	if message == nil {
 		return result
+	}
+	if task, err := db.GetReliableTaskBySource(ctx, s.db, "session_message", strconv.FormatUint(uint64(message.ID), 10)); err != nil {
+		logs.WarnContextf(ctx, "load reliable task for message %d: %v", message.ID, err)
+	} else if task != nil {
+		result.DispatchState = string(task.Status)
+		result.QueueDeadlineAt = &task.DeadlineAt
+		result.LastDispatchError = task.LastError
 	}
 	if len(message.Chunks) > 0 {
 		result.Chunks = result.Chunks[:0]

@@ -152,6 +152,8 @@ func runMigrations(db *gorm.DB) error {
 		&types.WorkerDeployment{},
 		&types.Session{},
 		&types.SessionMessage{},
+		&types.ReliableTask{},
+		&types.ProjectionReceipt{},
 		&types.LLMModel{},
 		&types.LLMHistory{},
 		&types.Project{},
