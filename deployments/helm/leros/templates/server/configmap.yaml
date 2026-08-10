@@ -63,6 +63,9 @@ data:
       api_key: "${LLM_API_KEY}"
       model: {{ .Values.llm.model | quote }}
       base_url: {{ .Values.llm.baseUrl | quote }}
+      {{- if ne .Values.llm.vision false }}
+      vision: {{ .Values.llm.vision }}
+      {{- end }}
       # 采样参数（可选，仅 opencode runtime 生效）。留空不写入，走模型/服务默认。
       {{- if ne .Values.llm.top_p "" }}
       top_p: {{ .Values.llm.top_p | quote }}
