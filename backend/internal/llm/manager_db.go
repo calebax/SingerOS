@@ -638,9 +638,13 @@ func ResolveDefaultLLMModel(ctx context.Context, database *gorm.DB, orgID uint) 
 	return db.GetDefaultLLMModel(ctx, database, orgID)
 }
 
-// ResolveSystemTranslationLLMModel 解析组织的系统翻译 LLM 模型。
-// 若组织缺少系统模型，先从 org_id=1 克隆再查询。
+// ResolveSystemTranslationLLMModel resolves an active translation model owned by orgID.
+// A missing model is cloned from the system seed organization into orgID; cross-org
+// fallback is not allowed because model execution is authorized per organization.
 func ResolveSystemTranslationLLMModel(ctx context.Context, database *gorm.DB, orgID uint) (*types.LLMModel, error) {
+	if orgID == 0 {
+		return nil, errors.New("organization is required")
+	}
 	model, err := db.GetSystemTranslationLLMModel(ctx, database, orgID)
 	if err != nil {
 		return nil, err
@@ -653,13 +657,9 @@ func ResolveSystemTranslationLLMModel(ctx context.Context, database *gorm.DB, or
 		return nil, nil
 	}
 
-	cloned, err := db.EnsureOrgSystemLLMModels(ctx, database, orgID)
+	_, err = db.EnsureOrgSystemTranslationLLMModel(ctx, database, orgID)
 	if err != nil {
-		logs.WarnContextf(ctx, "[llm] ensure system models for org %d: %v", orgID, err)
-		return db.GetSystemTranslationLLMModel(ctx, database, 1)
-	}
-	if !cloned {
-		return db.GetSystemTranslationLLMModel(ctx, database, 1)
+		return nil, fmt.Errorf("ensure system translation model for org %d: %w", orgID, err)
 	}
 	return db.GetSystemTranslationLLMModel(ctx, database, orgID)
 }
