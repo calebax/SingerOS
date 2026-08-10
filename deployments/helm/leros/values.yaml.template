@@ -162,6 +162,14 @@ llm:
   provider: openai                             # openai | anthropic | deepseek 等
   model: deepseek-chat                         # 模型名，如 gpt-4o / deepseek-chat / qwen-plus
   baseUrl: "https://api.deepseek.com/v1"       # 模型服务地址，如 https://api.openai.com/v1
+  # 采样参数（可选，仅 opencode runtime 生效）。留空则走模型/服务默认；
+  # limit 留空时回退默认 {context:200000, output:16384}。
+  top_p: ""                                      # 核采样（0-1），如 0.95
+  frequency_penalty: ""                          # 频率惩罚（-2 ~ 2），如 0.1
+  presence_penalty: ""                           # 存在惩罚（-2 ~ 2），如 0
+  limit:
+    context: ""                                  # 上下文窗口大小（token），如 82144
+    output: ""                                   # 单次输出上限（token），如 42768
   translation:
     enabled: false
     provider: ""

@@ -53,6 +53,15 @@ llm:
   api_key: "${LLM_API_KEY}"
   model: "qwen3.6-plus"
   base_url: "https://api.yygu.cn/v3/llm.chat/"
+  # 以下为模型采样参数，全部可选，仅 opencode runtime 生效（注入请求体，键为 snake_case）。
+  # 不设置即走模型/服务默认值；limit 不设置时回退默认 {context:200000, output:16384}。
+  # base_url 填根地址即可（带不带 /v1 均可），启动时 seed 会自动规范化 /v1 前缀。
+  top_p: 0.95                # 核采样（0-1）
+  frequency_penalty: 0.1     # 频率惩罚（-2 ~ 2）
+  presence_penalty: 0        # 存在惩罚（-2 ~ 2）
+  limit:
+    context: 82144           # 上下文窗口大小（token）
+    output: 42768            # 单次输出上限（token）
   translation:
     provider: "deepseek"
     api_key: "${LLM_API_KEY}"
