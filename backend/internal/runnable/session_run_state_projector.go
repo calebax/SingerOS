@@ -46,12 +46,40 @@ func StartSessionRunStateProjector(
 	persister := &declaredArtifactPersister{db: db}
 
 	Run(ctx, "session_run_state_projector", func(ctx context.Context) {
-		if err := eb.Subscribe(ctx, topic, messaging.SessionRunStateConsumer(), func(msg *nats.Msg) {
-			handleRunStateMessage(ctx, service, persister, db, msg)
+		if err := eb.SubscribeManualDurable(ctx, topic, messaging.SessionRunStateConsumer(), func(msg *nats.Msg) {
+			handleRunStateDelivery(ctx, service, persister, db, msg)
 		}); err != nil {
 			logs.ErrorContextf(ctx, "subscribe to %s failed: %v", topic, err)
 		}
 	})
+}
+
+// handleRunStateDelivery confirms only after a durable receipt is written. A database outage is retried by
+// JetStream; malformed events are terminal because retrying cannot make them valid.
+func handleRunStateDelivery(ctx context.Context, service contract.SessionService, persister *declaredArtifactPersister, db *gorm.DB, msg *nats.Msg) {
+	delivery := eventbus.NewManualDelivery(msg)
+	var event messaging.RunEvent
+	if err := json.Unmarshal(msg.Data, &event); err != nil || event.Type != messaging.MessageTypeRunEvent || event.Route.SessionID == "" || event.ID == "" {
+		logs.WarnContextf(ctx, "discard malformed run state event: %v", err)
+		_ = delivery.Term()
+		return
+	}
+	inserted, err := infradb.CreateProjectionReceipt(ctx, db, &types.ProjectionReceipt{
+		Consumer: messaging.SessionRunStateConsumer(), EventID: event.ID, RunID: event.Trace.RunID, SessionID: event.Route.SessionID, EventType: string(event.Body.Event),
+	})
+	if err != nil {
+		logs.WarnContextf(ctx, "persist run event receipt id=%s: %v", event.ID, err)
+		_ = delivery.NakWithDelay(5 * time.Second)
+		return
+	}
+	if !inserted {
+		_ = delivery.Ack()
+		return
+	}
+	handleRunStateMessage(ctx, service, persister, db, msg)
+	if err := delivery.Ack(); err != nil {
+		logs.WarnContextf(ctx, "ack run state event id=%s: %v", event.ID, err)
+	}
 }
 
 func handleRunStateMessage(ctx context.Context, service contract.SessionService, persister *declaredArtifactPersister, db *gorm.DB, msg *nats.Msg) {

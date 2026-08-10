@@ -273,7 +273,7 @@ func (d *AutomationDispatcher) dispatchExecution(ctx context.Context,
 					Role:                  string(types.MessageRoleUser),
 					Content:               ex.InstructionSnapshot,
 					MessageType:           string(types.MessageTypeText),
-					Status:                string(types.MessageStatusCompleted),
+					Status:                string(types.MessageStatusPending),
 					Sequence:              sequence,
 					Timestamp:             nowMs,
 					SenderUin:             &senderUin,
@@ -286,9 +286,8 @@ func (d *AutomationDispatcher) dispatchExecution(ctx context.Context,
 				}
 			},
 			routing,
-			&runPublishOptions{
-				CommandID: ex.PublicID,
-				NotAfter:  ex.NotAfter,
+			&MessageExecutionOptions{
+				QueueDeadline: ex.NotAfter,
 			},
 		)
 		if err != nil {

@@ -61,6 +61,12 @@ type RunInbox interface {
 	// GetNonTerminal returns non-terminal records for a topic, ordered by stream_seq.
 	GetNonTerminal(ctx context.Context, topic string) ([]Record, error)
 
+	// ResetProcessing returns records interrupted by a prior process to pending before recovery.
+	ResetProcessing(ctx context.Context, topic string) error
+
+	// CountByStatus returns the number of records for a topic with the given status.
+	CountByStatus(ctx context.Context, topic string, status Status) (int, error)
+
 	// DeleteTerminalBefore deletes terminal records older than the given time.
 	DeleteTerminalBefore(ctx context.Context, topic string, before time.Time) (int64, error)
 
@@ -253,6 +259,14 @@ func (i *SQLiteRunInbox) GetNonTerminal(ctx context.Context, topic string) ([]Re
 	)
 }
 
+func (i *SQLiteRunInbox) ResetProcessing(ctx context.Context, topic string) error {
+	_, err := i.db.ExecContext(ctx,
+		`UPDATE worker_run_inbox SET status = ?, updated_at = ? WHERE topic = ? AND status = ?`,
+		string(StatusPending), time.Now().Unix(), topic, string(StatusProcessing),
+	)
+	return err
+}
+
 func (i *SQLiteRunInbox) query(ctx context.Context, query string, args ...any) ([]Record, error) {
 	rows, err := i.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -282,6 +296,19 @@ func (i *SQLiteRunInbox) DeleteTerminalBefore(ctx context.Context, topic string,
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// CountByStatus returns the number of records for a topic with the given status.
+func (i *SQLiteRunInbox) CountByStatus(ctx context.Context, topic string, status Status) (int, error) {
+	var count int
+	err := i.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM worker_run_inbox WHERE topic = ? AND status = ?`,
+		topic, string(status),
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count inbox by status %q: %w", status, err)
+	}
+	return count, nil
 }
 
 // Close closes the database.

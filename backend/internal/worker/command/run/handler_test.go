@@ -152,9 +152,11 @@ type mockInbox struct {
 	nilInsertSeq uint64
 }
 type inboxRecord struct {
-	status  inbox.Status
-	errMsg  string
-	command messaging.WorkerCommand
+	status    inbox.Status
+	errMsg    string
+	command   messaging.WorkerCommand
+	createdAt int64
+	updatedAt int64
 }
 
 func newMockInbox() *mockInbox { return &mockInbox{records: make(map[string]*inboxRecord)} }
@@ -163,22 +165,24 @@ func (m *mockInbox) PutIfAbsent(_ context.Context, topic string, streamSeq uint6
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := keyOf(topic, streamSeq)
+	now := time.Now().Unix()
 	if r, ok := m.records[key]; ok {
-		return false, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: r.status}, nil
+		return false, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: r.status, CreatedAt: r.createdAt, UpdatedAt: r.updatedAt}, nil
 	}
 	// nilInsertSeq 模拟「插入被唯一索引拒绝但 (topic, stream_seq) 无记录」的边界场景，
 	// 即真实 SQLite 中按 command_id 冲突时 PutIfAbsent 会返回 (false, nil, nil)。
 	if streamSeq == m.nilInsertSeq {
 		return false, nil, nil
 	}
-	m.records[key] = &inboxRecord{status: inbox.StatusPending, command: cmd}
-	return true, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: inbox.StatusPending}, nil
+	m.records[key] = &inboxRecord{status: inbox.StatusPending, command: cmd, createdAt: now, updatedAt: now}
+	return true, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: inbox.StatusPending, CreatedAt: now, UpdatedAt: now}, nil
 }
 func (m *mockInbox) MarkProcessing(_ context.Context, topic string, seq uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r, ok := m.records[keyOf(topic, seq)]; ok {
 		r.status = inbox.StatusProcessing
+		r.updatedAt = time.Now().Unix()
 	}
 	return nil
 }
@@ -187,6 +191,7 @@ func (m *mockInbox) MarkCompleted(_ context.Context, topic string, seq uint64) e
 	defer m.mu.Unlock()
 	if r, ok := m.records[keyOf(topic, seq)]; ok {
 		r.status = inbox.StatusCompleted
+		r.updatedAt = time.Now().Unix()
 	}
 	return nil
 }
@@ -196,6 +201,7 @@ func (m *mockInbox) MarkFailed(_ context.Context, topic string, seq uint64, errM
 	if r, ok := m.records[keyOf(topic, seq)]; ok {
 		r.status = inbox.StatusFailed
 		r.errMsg = errMsg
+		r.updatedAt = time.Now().Unix()
 	}
 	return nil
 }
@@ -209,11 +215,21 @@ func (m *mockInbox) GetNonTerminal(_ context.Context, topic string) ([]inbox.Rec
 			// Key format is "topic:seq" — extract the seq.
 			if len(k) > len(topic)+1 && k[:len(topic)] == topic && k[len(topic)] == ':' {
 				seq := parseSeq(k[len(topic)+1:])
-				recs = append(recs, inbox.Record{Topic: topic, StreamSeq: seq, Status: r.status, Command: cmdJSON(r.command)})
+				recs = append(recs, inbox.Record{Topic: topic, StreamSeq: seq, Status: r.status, Command: cmdJSON(r.command), CreatedAt: r.createdAt, UpdatedAt: r.updatedAt})
 			}
 		}
 	}
 	return recs, nil
+}
+func (m *mockInbox) ResetProcessing(_ context.Context, topic string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, record := range m.records {
+		if record.status == inbox.StatusProcessing && len(key) > len(topic)+1 && key[:len(topic)] == topic && key[len(topic)] == ':' {
+			record.status = inbox.StatusPending
+		}
+	}
+	return nil
 }
 func (m *mockInbox) DeleteTerminalBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
 	return 0, nil
@@ -227,6 +243,21 @@ func (m *mockInbox) status(key string) inbox.Status {
 		return r.status
 	}
 	return ""
+}
+
+func (m *mockInbox) CountByStatus(_ context.Context, topic string, status inbox.Status) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for k, r := range m.records {
+		if r.status != status {
+			continue
+		}
+		if len(k) > len(topic)+1 && k[:len(topic)] == topic && k[len(topic)] == ':' {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func keyOf(topic string, seq uint64) string { return topic + ":" + itoa(seq) }
@@ -398,8 +429,8 @@ func TestHandlerPutIfAbsentNilRecord(t *testing.T) {
 	if err := h.HandleRunCommand(context.Background(), standardCommand(), delivery); err != nil {
 		t.Fatalf("HandleRunCommand error = %v", err)
 	}
-	if ack, nak, term, _ := delivery.snapshot(); !ack || nak || term {
-		t.Fatalf("disposition = ack:%v nak:%v term:%v, want Ack only", ack, nak, term)
+	if ack, nak, term, _ := delivery.snapshot(); ack || !nak || term {
+		t.Fatalf("disposition = ack:%v nak:%v term:%v, want Nak only", ack, nak, term)
 	}
 
 	<-runtime.started
@@ -603,7 +634,7 @@ func TestRecoverNonTerminal(t *testing.T) {
 	}
 }
 
-func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
+func TestHandlerAcknowledgesWhileAdmissionIsFull(t *testing.T) {
 	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
 	close(runtime.release)
 	registry := agent.NewRegistry()
@@ -614,8 +645,7 @@ func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
 		OrgID:          1,
 		WorkerID:       2,
 		MaxConcurrency: 1,
-		// 准入 sem 大小 = MaxInflight。显式设为 2，使得下方两次 h.sem <- 后准入已满，
-		// 触发 InProgress 心跳。
+		// 执行槽满不应阻塞 NATS 回调；消息应先持久化并确认。
 		MaxInflight:    2,
 		DebounceWindow: time.Millisecond,
 		InboxDBPath:    ":memory:",
@@ -635,22 +665,21 @@ func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
 		done <- h.HandleRunCommand(context.Background(), standardCommand(), delivery)
 	}()
 
-	deadline := time.After(time.Second)
-	for {
-		_, _, _, inProgress := delivery.snapshot()
-		if inProgress > 0 {
-			break
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("HandleRunCommand() error = %v", err)
 		}
-		select {
-		case <-deadline:
-			t.Fatal("InProgress was not called while admission was full")
-		default:
-			time.Sleep(time.Millisecond)
-		}
+	case <-time.After(time.Second):
+		t.Fatal("HandleRunCommand blocked on a full execution admission semaphore")
+	}
+	ack, _, _, _ := delivery.snapshot()
+	if !ack {
+		t.Fatal("run command was not Acked after durable inbox admission")
 	}
 
-	<-h.sem
-	if err := <-done; err != nil {
+	<-h.sem // release one background execution slot
+	if err := h.execCtx.Err(); err != nil {
 		t.Fatalf("HandleRunCommand() error = %v", err)
 	}
 	<-runtime.started

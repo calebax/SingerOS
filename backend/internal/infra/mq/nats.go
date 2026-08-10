@@ -38,6 +38,11 @@ type natsBus struct {
 	mu     sync.RWMutex
 }
 
+// 编译期断言：natsBus 满足 Core Requester 契约。
+var (
+	_ CoreRequester = (*natsBus)(nil)
+)
+
 // NewNATS 创建一个新的 NATS JetStream 客户端实例
 // 在初始化阶段创建所有预配置的 Streams
 func NewNATS(url string) (*natsBus, error) {
@@ -354,6 +359,57 @@ func injectReplyTo(data []byte, inbox string) []byte {
 // publishing reply messages from a worker consumer.
 func (p *natsBus) Conn() *nats.Conn {
 	return p.conn
+}
+
+// RequestReply implements CoreRequester. It sends a Core-NATS request/reply
+// using a temporary inbox, without going through JetStream.
+//
+// This is deliberately distinct from Request() (which publishes through
+// JetStream): ops-style queries should not pollute the task message stream.
+// The caller supplies a deadline via ctx so that a timeout can be told apart
+// from an unavailable connection.
+func (p *natsBus) RequestReply(ctx context.Context, subject string, request any) (*nats.Msg, error) {
+	if p.closed.Load() {
+		return nil, fmt.Errorf("NATS client is closed")
+	}
+
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// 生命周期协议：订阅+发布在读锁内完成（与 Close 写锁互斥），随后解锁等待回复。
+	// Core NATS request/reply 按需可空（requestData == nil 时仅发 subject，不带 data）。
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("NATS client is closed")
+	}
+	inbox := nats.NewInbox()
+	sub, err := p.conn.SubscribeSync(inbox)
+	if err != nil {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("failed to subscribe to inbox %s: %w", inbox, err)
+	}
+	if err := p.conn.PublishRequest(subject, inbox, body); err != nil {
+		_ = sub.Unsubscribe()
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("failed to send request to subject %s: %w", subject, err)
+	}
+	// 发布完成，释放读锁；下方等待回复不阻塞 Close。
+	p.mu.RUnlock()
+	defer sub.Unsubscribe()
+
+	reply, err := sub.NextMsgWithContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to receive reply on inbox %s for subject %s: %w", inbox, subject, err)
+	}
+	// Core NATS 在请求 subject 没有订阅者时，会向 inbox 投递一个空的
+	// 503 状态消息。不能把它当作正常业务回复交给上层 JSON 解码。
+	if len(reply.Data) == 0 && reply.Header.Get("Status") == "503" {
+		return nil, nats.ErrNoResponders
+	}
+	return reply, nil
 }
 
 // Subscribe implements the eventbus.Subscriber interface.

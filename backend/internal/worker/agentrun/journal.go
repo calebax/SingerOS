@@ -159,6 +159,7 @@ func (j *runJournal) envelopeLocked(
 	}
 	body.AssistantPKID = j.eventContext.AssistantID
 	body.AssistantID = j.eventContext.AssistantPublicID
+	body.MemberCommandIDs = append([]string(nil), j.eventContext.MemberCommandIDs...)
 	return messaging.RunEvent{
 		ID:        fmt.Sprintf("%s:%d", runID, body.Seq),
 		Type:      messaging.MessageTypeRunEvent,
@@ -354,6 +355,7 @@ func cloneRunEventRecords(records []messaging.RunEventRecord) []messaging.RunEve
 
 func cloneEventContext(eventContext EventContext) EventContext {
 	eventContext.ReplyToMessageIDs = append([]string(nil), eventContext.ReplyToMessageIDs...)
+	eventContext.MemberCommandIDs = append([]string(nil), eventContext.MemberCommandIDs...)
 	return eventContext
 }
 

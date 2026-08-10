@@ -47,6 +47,10 @@ const (
 	TableNameSession = tablenamePrefix + "session"
 	// TableNameSessionMessage 会话消息表名
 	TableNameSessionMessage = tablenamePrefix + "session_message"
+	// TableNameReliableTask 通用可靠任务 Outbox 表名。
+	TableNameReliableTask = tablenamePrefix + "reliable_task"
+	// TableNameProjectionReceipt 通用事件投影回执表名。
+	TableNameProjectionReceipt = tablenamePrefix + "projection_receipt"
 
 	// TableNameLLMModel LLM模型配置表名
 	TableNameLLMModel = tablenamePrefix + "llm_model"
