@@ -1,6 +1,11 @@
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createWithEqualityFn } from "zustand/traditional";
 import { type AuthAction, type AuthStore, authSlice } from "./slices/authSlice";
+import {
+	type AutomationAction,
+	type AutomationStore,
+	automationSlice,
+} from "./slices/automationSlice";
 import { type ChatAction, type ChatStore, chatSlice } from "./slices/chatSlice";
 import { type DAStore, type DigitalAssistantAction, daSlice } from "./slices/digitalAssistantSlice";
 import {
@@ -23,14 +28,16 @@ export type AppStore = AuthStore &
 	ChatStore &
 	DAStore &
 	PermissionStore &
-	GlobalConfigStore;
+	GlobalConfigStore &
+	AutomationStore;
 export type AppAction = AuthAction &
 	LayoutAction &
 	TopicAction &
 	ChatAction &
 	DigitalAssistantAction &
 	PermissionAction &
-	GlobalConfigAction;
+	GlobalConfigAction &
+	AutomationAction;
 
 const createStore: SliceCreator<AppStore> = (...params) => {
 	const layout = layoutSlice(...params);
@@ -43,11 +50,13 @@ const createStore: SliceCreator<AppStore> = (...params) => {
 		...da,
 		...permissionSlice(...params),
 		...globalConfigSlice(...params),
+		...automationSlice(...params),
 		// 中文注释：layout 与 DA 都导出了 resetAuthScopedData，对象展开时后者会盖掉前者，
 		// 导致登出只清助手、不清 projects。这里合并成一次调用，两个入口都生效。
 		resetAuthScopedData: () => {
 			layout.resetAuthScopedData();
 			da.resetAuthScopedData();
+			automationSlice(...params).resetAuthScopedData();
 		},
 	};
 };
@@ -78,4 +87,8 @@ export const useDAStore = <T>(selector: (state: DAStore & DigitalAssistantAction
 
 export const useGlobalConfigStore = <T>(
 	selector: (state: GlobalConfigStore & GlobalConfigAction) => T,
+): T => useAppStore(selector);
+
+export const useAutomationStore = <T>(
+	selector: (state: AutomationStore & AutomationAction) => T,
 ): T => useAppStore(selector);

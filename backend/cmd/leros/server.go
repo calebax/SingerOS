@@ -130,7 +130,7 @@ func newServerCommand() *cobra.Command {
 				}
 			}
 
-			r, workerScheduler := api.SetupRouter(*cfg, edition, publisher, db, modelInvoker)
+			r, workerScheduler := api.SetupRouter(*cfg, edition, publisher, publisher, db, modelInvoker)
 
 			srv := &http.Server{
 				Addr:    fmt.Sprintf(":%s", cfg.Server.Port),

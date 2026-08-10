@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
@@ -13,6 +14,14 @@ import (
 
 func TestMessagePosterPostMessageFillsSenderNameFromUserOrgUin(t *testing.T) {
 	database := setupTestDB(t)
+	// PostMessage→publishWorkerTask 会按项目解析插件快照，需补齐插件相关表。
+	if err := database.AutoMigrate(
+		&types.ProjectPluginBinding{},
+		&types.Plugin{},
+		&types.PluginRevision{},
+	); err != nil {
+		t.Fatalf("migrate plugin tables: %v", err)
+	}
 	userOrg := &types.UserOrg{
 		UserID: 1,
 		OrgID:  2,
@@ -20,16 +29,30 @@ func TestMessagePosterPostMessageFillsSenderNameFromUserOrgUin(t *testing.T) {
 	if err := database.Create(userOrg).Error; err != nil {
 		t.Fatalf("seed second user org: %v", err)
 	}
+	if err := database.Create(&types.LLMModel{
+		OrgID:           2,
+		Code:            "default-org2",
+		Name:            "Default",
+		Provider:        "openai",
+		ModelName:       "gpt-test",
+		BaseURL:         "https://api.openai.com",
+		BaseURLHasV1:    true,
+		APIKeyEncrypted: "sk-test",
+		Status:          string(types.LLMModelStatusActive),
+		IsDefault:       true,
+	}).Error; err != nil {
+		t.Fatalf("seed org 2 default llm model: %v", err)
+	}
 
 	ctx := auth.WithContext(context.Background(), &types.Caller{
-		Uin:   userOrg.ID,
+		Uin:   100,
 		OrgID: 2,
 		State: types.AuthStateSucc,
 	}, &types.Trace{
 		RequestID: "test-request-id",
 		TraceID:   "test-trace-id",
 	})
-	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil)
+	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, newTestOrgRepoForSender("Test User"))
 	assistant := seedReadyAssistant(t, database, "sender-name", "Sender Name Assistant", "answer")
 	project := &types.Project{
 		PublicID: "prj_sender_name",
@@ -370,7 +393,7 @@ func TestWriteSkillInvokeResourcesDoesNotMutateProjectMetadata(t *testing.T) {
 }
 
 // TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID 验证群聊历史注入时
-// publishWorkerTask 用 session.AssistantID（DigitalAssistant.ID）而非
+// buildWorkerTask 用 session.AssistantID（DigitalAssistant.ID）而非
 // session.AllocatedAssistantID（WorkerID）作为 GetLastAssistantMessageCreatedAt 过滤条件。
 //
 // 回归 Bug：修复前 main 分支 message_poster.go:776 把 session.AllocatedAssistantID
@@ -449,13 +472,9 @@ func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T)
 		t.Fatalf("create current message: %v", err)
 	}
 
-	if err := poster.publishWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID}); err != nil {
-		t.Fatalf("publishWorkerTask failed: %v", err)
-	}
-
-	cmd, ok := recorder.event.(messaging.WorkerCommand)
-	if !ok {
-		t.Fatalf("expected WorkerCommand, got %T", recorder.event)
+	_, cmd, err := poster.buildWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID})
+	if err != nil {
+		t.Fatalf("buildWorkerTask failed: %v", err)
 	}
 
 	if cmd.Route.AssistantPublicID != assistant.PublicID {
@@ -474,5 +493,14 @@ func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T)
 	}
 	if messages[0].Content != "这是当前消息" {
 		t.Errorf("current content = %q, want %q", messages[0].Content, "这是当前消息")
+	}
+}
+
+func TestNormalizeExecutionModePreservesPlanWireValue(t *testing.T) {
+	if got := normalizeExecutionMode(types.ExecutionModePlan); got != types.ExecutionModePlan {
+		t.Fatalf("normalizeExecutionMode(plan) = %q, want %q", got, types.ExecutionModePlan)
+	}
+	if got := string(normalizeExecutionMode(types.ExecutionModePlan)); got != "plan" {
+		t.Fatalf("plan wire value = %q, want plan", got)
 	}
 }

@@ -39,6 +39,15 @@ type ModelConfig struct {
 	IsDefault    bool
 	IsSystem     bool
 	Config       map[string]any
+	// Vision 表示该模型是否支持图片（多模态）输入，来源为 Config["vision"]。
+	Vision bool
+	// TopP/FrequencyPenalty/PresencePenalty 采样参数，来源为 Config 的驼峰键，仅 opencode 注入。
+	TopP             *float64
+	FrequencyPenalty *float64
+	PresencePenalty  *float64
+	// ContextLimit/OutputLimit 模型上下文与单次输出上限；0 表示未设置，走默认。
+	ContextLimit int
+	OutputLimit  int
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

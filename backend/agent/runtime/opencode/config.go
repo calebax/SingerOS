@@ -38,6 +38,54 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 		modelName = modelCfg.Provider + "/" + modelID
 	}
 
+	ctxLimit, outLimit := 200000, 16384
+	if modelCfg.ContextLimit > 0 {
+		ctxLimit = modelCfg.ContextLimit
+	}
+	if modelCfg.OutputLimit > 0 {
+		outLimit = modelCfg.OutputLimit
+	}
+
+	modelEntry := modelConfig{
+		ID:          modelID,
+		Name:        modelName,
+		ToolCall:    true,
+		Attachment:  true,
+		Reasoning:   false,
+		Temperature: true,
+		Limit: modelLimit{
+			Context: ctxLimit,
+			Output:  outLimit,
+		},
+	}
+
+	// 采样参数透传：snake_case 键，兼容 vLLM 等 OpenAI 兼容服务（其只识别 top_p 等蛇形字段）。
+	if modelCfg.TopP != nil || modelCfg.FrequencyPenalty != nil || modelCfg.PresencePenalty != nil {
+		options := make(map[string]any)
+		if modelCfg.TopP != nil {
+			options["top_p"] = *modelCfg.TopP
+		}
+		if modelCfg.FrequencyPenalty != nil {
+			options["frequency_penalty"] = *modelCfg.FrequencyPenalty
+		}
+		if modelCfg.PresencePenalty != nil {
+			options["presence_penalty"] = *modelCfg.PresencePenalty
+		}
+		modelEntry.Options = options
+	}
+
+	// 视觉模型声明其真正支持的输入输出模态（图片为主路径，文本输出）。
+	// 仅声明已支持的模态，未声明的（PDF/音视频/多模态输出）由 opencode 降级为文本提示，
+	// 避免声明过宽导致 AI SDK 层对不支持的 file part 返回硬错误（如视频报
+	// "'file part media type video/mp4' functionality not supported"）。
+	// 非多模态模型不声明，opencode 据此对全部附件优雅降级。
+	if modelCfg.Vision {
+		modelEntry.Modalities = &modalityConfig{
+			Input:  []string{"text", "image"},
+			Output: []string{"text"},
+		}
+	}
+
 	cfg := configContent{
 		Provider: map[string]providerConfig{
 			providerID: {
@@ -48,18 +96,7 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 					BaseURL: modelCfg.BaseURL,
 				},
 				Models: map[string]modelConfig{
-					modelID: {
-						ID:          modelID,
-						Name:        modelName,
-						ToolCall:    true,
-						Attachment:  true,
-						Reasoning:   false,
-						Temperature: true,
-						Limit: modelLimit{
-							Context: 200000,
-							Output:  16384,
-						},
-					},
+					modelID: modelEntry,
 				},
 			},
 		},

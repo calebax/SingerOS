@@ -152,6 +152,8 @@ func runMigrations(db *gorm.DB) error {
 		&types.WorkerDeployment{},
 		&types.Session{},
 		&types.SessionMessage{},
+		&types.ReliableTask{},
+		&types.ProjectionReceipt{},
 		&types.LLMModel{},
 		&types.LLMHistory{},
 		&types.Project{},
@@ -173,6 +175,8 @@ func runMigrations(db *gorm.DB) error {
 		&types.Department{},
 		&types.MemberDepartment{},
 		&types.SeedRecord{},
+		&types.Automation{},
+		&types.AutomationExecution{},
 	}
 
 	if err := renameLegacyColumns(db); err != nil {
