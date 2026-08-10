@@ -314,6 +314,5 @@ export {
 export { revokeAttachmentObjectUrls } from "./utils/messageAttachments";
 export {
 	buildMessageMetadata,
-	getAssistantMessageFooterSegments,
 	latencyFromRunCompletedTimes,
 } from "./utils/messageMetrics";
