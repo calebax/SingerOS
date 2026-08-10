@@ -90,13 +90,13 @@ func (s *automationService) CreateAutomation(ctx context.Context, req *contract.
 		PublicID:     generateAutomationPublicID(),
 		Name:         name,
 		Instruction:  instruction,
-		Enabled:      enabled,
 		ScheduleMode: mode,
 		ScheduleSpec: *spec,
 		Timezone:     timezone,
 		AssistantID:  assistantID,
 		NextRunAt:    nextRunAt,
 	}
+	automation.SetEnabled(enabled)
 	if err := db.CreateAutomation(ctx, s.db, automation); err != nil {
 		return nil, err
 	}
@@ -190,15 +190,15 @@ func (s *automationService) UpdateAutomation(ctx context.Context, publicID strin
 	}
 
 	// 启停状态
-	if req.Enabled != nil && *req.Enabled != automation.Enabled {
-		automation.Enabled = *req.Enabled
+	if req.Enabled != nil && *req.Enabled != automation.IsEnabled() {
+		automation.SetEnabled(*req.Enabled)
 		scheduleChanged = true
 	}
 
 	// 重新计算或清空 next_run_at；启用态若无法算出下一次执行时间，则拒绝保存
 	if scheduleChanged {
-		nextRunAt := computeNextRunAt(&automation.ScheduleSpec, automation.Enabled, time.Now().UTC())
-		if automation.Enabled && nextRunAt == nil {
+		nextRunAt := computeNextRunAt(&automation.ScheduleSpec, automation.IsEnabled(), time.Now().UTC())
+		if automation.IsEnabled() && nextRunAt == nil {
 			return nil, errInvalidAutomationSchedule
 		}
 		automation.NextRunAt = nextRunAt
@@ -432,7 +432,7 @@ func toContractAutomation(a *types.Automation) *contract.Automation {
 		OwnerID:      a.OwnerID,
 		Name:         a.Name,
 		Instruction:  a.Instruction,
-		Enabled:      a.Enabled,
+		Enabled:      a.IsEnabled(),
 		ScheduleMode: a.ScheduleMode,
 		Timezone:     a.Timezone,
 		AssistantID:  a.AssistantID,
