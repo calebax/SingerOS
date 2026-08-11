@@ -8,3 +8,4 @@ export * from "./components/layout";
 export * from "./components/org-admin";
 export * from "./components/private-deployment";
 export * from "./components/skills";
+export * from "./components/system-config";

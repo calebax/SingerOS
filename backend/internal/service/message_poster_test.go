@@ -551,3 +551,7 @@ func (r *testOrgRepo) UpdateOrgMember(ctx context.Context, id uint, req *account
 func (r *testOrgRepo) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInput) (*account.OrgMemberList, error) {
 	return nil, nil
 }
+
+func (r *testOrgRepo) IsOrgCreator(ctx context.Context, orgID, uin uint) (bool, error) {
+	return false, nil
+}

@@ -57,6 +57,16 @@ export type {
 } from "./frontendEventApi";
 export { FRONTEND_EVENT_ENDPOINT, frontendEventApi } from "./frontendEventApi";
 export type {
+	BackendModel,
+	CreateModelParams,
+	GetModelParams,
+	ListModelsParams,
+	TestModelParams,
+	TestModelResult,
+	UpdateModelParams,
+} from "./modelApi";
+export { modelApi } from "./modelApi";
+export type {
 	GetOfficialPluginLatestVersionParams,
 	InstallOfficialPluginResponse,
 	ListOfficialPluginMarketplaceItemsParams,

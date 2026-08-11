@@ -7,6 +7,8 @@ import (
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/insmtx/Leros/backend/types"
 )
 
 // SchemaMessage 是 eino schema.Message 的类型别名，供其他包在不直接 import eino 的情况下使用。
@@ -36,6 +38,7 @@ type ModelConfig struct {
 	Temperature  float64
 	TimeoutSec   int
 	Status       string
+	Purpose      types.LLMModelPurpose
 	IsDefault    bool
 	IsSystem     bool
 	Config       map[string]any
@@ -163,8 +166,11 @@ type CreateRequest struct {
 	BaseURL     string
 	APIKey      string
 	Status      string
+	Purpose     types.LLMModelPurpose
 	IsDefault   bool
 	Config      map[string]any
+	MaxTokens   *int
+	Temperature *float64
 }
 
 // UpdateRequest 表示更新 LLM 模型配置的请求参数。
@@ -177,14 +183,18 @@ type UpdateRequest struct {
 	BaseURL     *string
 	APIKey      *string
 	Status      string
+	Purpose     *types.LLMModelPurpose
 	IsDefault   *bool
 	Config      *map[string]any
+	MaxTokens   *int
+	Temperature *float64
 }
 
 // ListRequest 表示查询 LLM 模型配置列表的请求参数。
 type ListRequest struct {
 	Provider *string
 	Status   *string
+	Purpose  *string
 	Keyword  *string
 	Offset   int
 	Limit    int

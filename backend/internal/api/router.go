@@ -148,7 +148,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterAITeammateTemplateRoutes(authed, aiTeammateTemplateService)
 		logs.Info("AI teammate template routes registered successfully")
 
-		llmModelService := service.NewLLMModelService(db)
+		llmModelService := service.NewLLMModelService(db, orgRepo)
 		handler.RegisterLLMModelRoutes(authed, llmModelService)
 		logs.Info("LLM model routes registered successfully")
 

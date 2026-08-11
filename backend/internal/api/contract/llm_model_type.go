@@ -22,6 +22,7 @@ type LLMModel struct {
 	Temperature  float64                `json:"temperature"`
 	TimeoutSec   int                    `json:"timeout_sec"`
 	Status       string                 `json:"status"`
+	Purpose      string                 `json:"purpose"`
 	IsDefault    bool                   `json:"is_default"`
 	IsSystem     bool                   `json:"is_system"`
 	Config       map[string]interface{} `json:"config,omitempty"`
@@ -38,8 +39,11 @@ type CreateLLMModelRequest struct {
 	BaseURL     string                 `json:"base_url" binding:"required"`
 	APIKey      string                 `json:"api_key" binding:"required"`
 	Status      string                 `json:"status,omitempty"`
+	Purpose     string                 `json:"purpose,omitempty"`
 	IsDefault   bool                   `json:"is_default,omitempty"`
 	Config      map[string]interface{} `json:"config,omitempty"`
+	MaxTokens   *int                   `json:"max_tokens,omitempty"`
+	Temperature *float64               `json:"temperature,omitempty"`
 }
 
 // UpdateLLMModelRequest 更新LLM模型配置请求
@@ -51,14 +55,18 @@ type UpdateLLMModelRequest struct {
 	BaseURL     *string                 `json:"base_url,omitempty"`
 	APIKey      *string                 `json:"api_key,omitempty"`
 	Status      string                  `json:"status,omitempty"`
+	Purpose     *string                 `json:"purpose,omitempty"`
 	IsDefault   *bool                   `json:"is_default,omitempty"`
 	Config      *map[string]interface{} `json:"config,omitempty"`
+	MaxTokens   *int                    `json:"max_tokens,omitempty"`
+	Temperature *float64                `json:"temperature,omitempty"`
 }
 
 // ListLLMModelsRequest 查询LLM模型配置列表请求
 type ListLLMModelsRequest struct {
 	Provider *string `json:"provider,omitempty"`
 	Status   *string `json:"status,omitempty"`
+	Purpose  *string `json:"purpose,omitempty"`
 	Keyword  *string `json:"keyword,omitempty"`
 	types.Pagination
 }
