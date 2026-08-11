@@ -510,7 +510,7 @@ export const createLayoutSlice = (set: SetState, get: () => LayoutStore) =>
 export class LayoutActionImpl {
 	readonly #set: SetState;
 	readonly #get: () => LayoutStore;
-	#fetchProjectsPromise: Promise<void> | null = null;
+	#fetchProjectsPromise: Promise<boolean> | null = null;
 	#fetchProjectDetailPromises = new Map<string, Promise<void>>();
 	#projectDetailLoadedIds = new Set<string>();
 	#projectsFetchEpoch = 0;
@@ -817,12 +817,13 @@ export class LayoutActionImpl {
 		});
 	};
 
-	fetchProjects = async () => {
-		if (!readStoredAuthUser()?.jwtToken) return;
+	fetchProjects = async (): Promise<boolean> => {
+		if (!readStoredAuthUser()?.jwtToken) return false;
 		if (this.#fetchProjectsPromise) return this.#fetchProjectsPromise;
 
 		const fetchEpoch = this.#projectsFetchEpoch;
 		this.#fetchProjectsPromise = (async () => {
+			let succeeded = false;
 			try {
 				const pageSize = 100;
 				let offset = 0;
@@ -840,7 +841,7 @@ export class LayoutActionImpl {
 					offset += pageItems.length;
 				}
 
-				if (fetchEpoch !== this.#projectsFetchEpoch) return;
+				if (fetchEpoch !== this.#projectsFetchEpoch) return false;
 
 				const apiProjects = items.map(mapBackendProject);
 				this.#set((state) => ({
@@ -848,6 +849,7 @@ export class LayoutActionImpl {
 						? mergeProjectsFromListResult(apiProjects, state.projects)
 						: [],
 				}));
+				succeeded = true;
 			} catch (err) {
 				console.error("fetchProjects error:", err);
 			} finally {
@@ -855,6 +857,7 @@ export class LayoutActionImpl {
 					this.#fetchProjectsPromise = null;
 				}
 			}
+			return succeeded;
 		})();
 
 		return this.#fetchProjectsPromise;
