@@ -40,6 +40,7 @@ func modelConfigFromEntity(m *types.LLMModel) *ModelConfig {
 		Temperature:      m.Temperature,
 		TimeoutSec:       m.TimeoutSec,
 		Status:           m.Status,
+		Purpose:          m.Purpose,
 		IsDefault:        m.IsDefault,
 		IsSystem:         m.IsSystem,
 		Config:           map[string]any(m.Config),
@@ -295,6 +296,11 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 		status = string(types.LLMModelStatusActive)
 	}
 
+	purpose := req.Purpose
+	if purpose == "" {
+		purpose = types.LLMModelPurposeConversation
+	}
+
 	model := &types.LLMModel{
 		OrgID:           orgID,
 		Code:            code,
@@ -310,20 +316,27 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 		Temperature:     0.7,
 		TimeoutSec:      120,
 		Status:          status,
+		Purpose:         purpose,
 		IsDefault:       req.IsDefault,
 		Config:          types.LLMModelConfig(req.Config),
+	}
+	if req.MaxTokens != nil && *req.MaxTokens > 0 {
+		model.MaxTokens = *req.MaxTokens
+	}
+	if req.Temperature != nil {
+		model.Temperature = *req.Temperature
 	}
 
 	if err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if !model.IsDefault {
-			hasModels, err := db.OrgHasLLMModels(ctx, tx, orgID)
+			hasModels, err := db.OrgHasLLMModels(ctx, tx, orgID, purpose)
 			if err != nil {
 				return err
 			}
 			model.IsDefault = !hasModels
 		}
 		if model.IsDefault {
-			if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, 0); err != nil {
+			if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, 0, purpose); err != nil {
 				return err
 			}
 		}
@@ -453,10 +466,32 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 		if req.Config != nil {
 			model.Config = types.LLMModelConfig(*req.Config)
 		}
+		if req.MaxTokens != nil {
+			model.MaxTokens = *req.MaxTokens
+		}
+		if req.Temperature != nil {
+			model.Temperature = *req.Temperature
+		}
+		prevPurpose := model.Purpose
+		if req.Purpose != nil {
+			model.Purpose = *req.Purpose
+		}
 		if req.IsDefault != nil {
+			prevDefault := model.IsDefault
 			model.IsDefault = *req.IsDefault
+			if prevPurpose != model.Purpose && prevDefault {
+				// 默认模型变更用途：需保证原用途仍有一个默认，否则回填或拒绝。
+				if err := m.backfillOrRejectDefault(ctx, tx, orgID, prevPurpose, model.ID); err != nil {
+					return err
+				}
+			}
 			if model.IsDefault {
-				if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, model.ID); err != nil {
+				if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, model.ID, model.Purpose); err != nil {
+					return err
+				}
+			} else if prevDefault {
+				// 取消用途内唯一默认：需保证该用途仍有一个默认，否则回填或拒绝。
+				if err := m.backfillOrRejectDefault(ctx, tx, orgID, model.Purpose, model.ID); err != nil {
 					return err
 				}
 			}
@@ -497,8 +532,52 @@ func (m *ManagerDb) Delete(ctx context.Context, orgID uint, id uint) error {
 		if model.OrgID != orgID {
 			return errors.New("permission denied")
 		}
+		if model.IsSystem {
+			return errors.New("system built-in llm model cannot be deleted")
+		}
+		if model.IsDefault {
+			// 删除用途内唯一默认前，需保证该用途删除后仍有一个默认。
+			if err := m.backfillOrRejectDefault(ctx, tx, orgID, model.Purpose, model.ID); err != nil {
+				return err
+			}
+		}
 		return db.DeleteLLMModel(ctx, tx, id)
 	})
+}
+
+// backfillOrRejectDefault 在取消/删除一个默认模型时，保证目标用途仍保留一个默认。
+// 若该用途除 excludeID 外仍存在默认模型，直接返回成功；否则尝试把该用途内其余任一 active 模型设为默认；
+// 若该用途已无其他活跃模型，则拒绝该操作并返回错误。
+// 仅在事务内调用。
+func (m *ManagerDb) backfillOrRejectDefault(ctx context.Context, tx *gorm.DB, orgID uint, purpose types.LLMModelPurpose, excludeID uint) error {
+	var otherDefault int64
+	q := db.QueryByPurpose(tx.Model(&types.LLMModel{}), purpose).
+		Where("org_id = ? AND is_default = ? AND status = ?", orgID, true, string(types.LLMModelStatusActive)).
+		Where("id != ?", excludeID)
+	if err := q.Count(&otherDefault).Error; err != nil {
+		return err
+	}
+	if otherDefault > 0 {
+		return nil
+	}
+
+	var candidate types.LLMModel
+	q2 := db.QueryByPurpose(tx.Model(&types.LLMModel{}), purpose).
+		Where("org_id = ? AND status = ?", orgID, string(types.LLMModelStatusActive)).
+		Where("id != ?", excludeID).
+		Order("updated_at DESC").
+		First(&candidate)
+	if q2.Error != nil {
+		if errors.Is(q2.Error, gorm.ErrRecordNotFound) {
+			return errors.New("cannot remove the only default model since no other active model remains in this purpose")
+		}
+		return q2.Error
+	}
+	if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, candidate.ID, purpose); err != nil {
+		return err
+	}
+	candidate.IsDefault = true
+	return db.UpdateLLMModel(ctx, tx, &candidate)
 }
 
 // List 按分页和过滤条件查询组织内模型配置列表。
@@ -509,6 +588,9 @@ func (m *ManagerDb) List(ctx context.Context, orgID uint, req *ListRequest) (*Li
 	}
 	if req.Status != nil && *req.Status != "" {
 		opt.AddFilter("status", *req.Status)
+	}
+	if req.Purpose != nil && *req.Purpose != "" {
+		opt.AddFilter("purpose", *req.Purpose)
 	}
 	if req.Keyword != nil && *req.Keyword != "" {
 		opt.AddFilter("keyword", *req.Keyword)

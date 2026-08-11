@@ -257,7 +257,7 @@ func handleLLMModelServiceError(ctx *gin.Context, err error) {
 	errMsg := err.Error()
 
 	if isPermissionDenied(err) {
-		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
+		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, errMsg))
 		return
 	}
 

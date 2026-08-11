@@ -329,6 +329,116 @@ func TestCreateLLMModelFailsWhenBothProbesFail(t *testing.T) {
 	}
 }
 
+func TestManagerDb_Create_SamplingParams(t *testing.T) {
+	database := setupTestDB(t)
+	m := managerWithProbe(database, mockProbeSuccessV1)
+	ctx := context.Background()
+
+	maxTokens := 2048
+	temp := 0.3
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider:    string(types.LLMProviderOpenAI),
+		Model:       "gpt-4o-mini",
+		BaseURL:     "https://api.openai.com/v1",
+		APIKey:      "sk-test-1234567890",
+		MaxTokens:   &maxTokens,
+		Temperature: &temp,
+	})
+	if err != nil {
+		t.Fatalf("Create with sampling params failed: %v", err)
+	}
+	if model.MaxTokens != maxTokens {
+		t.Fatalf("expected MaxTokens=%d, got %d", maxTokens, model.MaxTokens)
+	}
+	if model.Temperature != temp {
+		t.Fatalf("expected Temperature=%v, got %v", temp, model.Temperature)
+	}
+
+	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
+	if err != nil {
+		t.Fatalf("GetLLMModelByID failed: %v", err)
+	}
+	if stored.MaxTokens != maxTokens {
+		t.Fatalf("expected stored MaxTokens=%d, got %d", maxTokens, stored.MaxTokens)
+	}
+	if stored.Temperature != temp {
+		t.Fatalf("expected stored Temperature=%v, got %v", temp, stored.Temperature)
+	}
+
+	// Create without sampling params → defaults 4096 / 0.7
+	defaultModel, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderDeepSeek),
+		Model:    "deepseek-chat",
+		BaseURL:  "https://api.deepseek.com/v1",
+		APIKey:   "sk-test-abcdefgh",
+	})
+	if err != nil {
+		t.Fatalf("Create without sampling params failed: %v", err)
+	}
+	if defaultModel.MaxTokens != 4096 {
+		t.Fatalf("expected default MaxTokens=4096, got %d", defaultModel.MaxTokens)
+	}
+	if defaultModel.Temperature != 0.7 {
+		t.Fatalf("expected default Temperature=0.7, got %v", defaultModel.Temperature)
+	}
+}
+
+func TestManagerDb_Update_SamplingParams(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	maxTokens := 2048
+	temp := 0.2
+	updated, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		MaxTokens:   &maxTokens,
+		Temperature: &temp,
+	})
+	if err != nil {
+		t.Fatalf("Update sampling params failed: %v", err)
+	}
+	if updated.MaxTokens != maxTokens {
+		t.Fatalf("expected updated MaxTokens=%d, got %d", maxTokens, updated.MaxTokens)
+	}
+	if updated.Temperature != temp {
+		t.Fatalf("expected updated Temperature=%v, got %v", temp, updated.Temperature)
+	}
+
+	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
+	if err != nil {
+		t.Fatalf("GetLLMModelByID failed: %v", err)
+	}
+	if stored.MaxTokens != maxTokens {
+		t.Fatalf("expected stored MaxTokens=%d, got %d", maxTokens, stored.MaxTokens)
+	}
+	if stored.Temperature != temp {
+		t.Fatalf("expected stored Temperature=%v, got %v", temp, stored.Temperature)
+	}
+
+	// Update with nil sampling params → values preserved
+	kept, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Name: "保留采样参数",
+	})
+	if err != nil {
+		t.Fatalf("Update with nil sampling params failed: %v", err)
+	}
+	if kept.MaxTokens != maxTokens {
+		t.Fatalf("expected MaxTokens preserved=%d, got %d", maxTokens, kept.MaxTokens)
+	}
+	if kept.Temperature != temp {
+		t.Fatalf("expected Temperature preserved=%v, got %v", temp, kept.Temperature)
+	}
+}
+
 // --- Update/Delete tests ---
 
 func TestUpdateLLMModelKeepsAPIKeyWhenOmitted(t *testing.T) {
@@ -560,7 +670,9 @@ func TestUpdateLLMModelFailsWhenProbeFailsAfterRelevantChange(t *testing.T) {
 	}
 }
 
-func TestDeleteLLMModelDoesNotLeaveMultipleDefaults(t *testing.T) {
+// TestDeleteLLMModelRejectOnlyDefault 验证删除某类唯一的默认模型且该类无其他 active 模型时会被拒绝，
+// 以保证目标类始终保留一个默认。
+func TestDeleteLLMModelRejectOnlyDefault(t *testing.T) {
 	m, database := setupManager(t)
 	ctx := context.Background()
 
@@ -575,11 +687,82 @@ func TestDeleteLLMModelDoesNotLeaveMultipleDefaults(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	if err := m.Delete(ctx, testOrgID, model.ID); err != nil {
-		t.Fatalf("Delete failed: %v", err)
+	if err := m.Delete(ctx, testOrgID, model.ID); err == nil {
+		t.Fatal("expected delete of the only default model to fail, got nil")
 	}
-	if count := countDefaultLLMModels(t, database, testOrgID); count != 0 {
-		t.Fatalf("expected no default llm model after deleting default, got %d", count)
+	if count := countDefaultLLMModels(t, database, testOrgID); count != 1 {
+		t.Fatalf("expected default model preserved, got %d", count)
+	}
+}
+
+// TestDeleteDefaultBackfillsAnother 验证删除某类默认模型时，若该类还有其他 active 模型，会自动回填为默认。
+func TestDeleteDefaultBackfillsAnother(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	first, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider:  string(types.LLMProviderOpenAI),
+		Model:     "gpt-4o-mini",
+		BaseURL:   "https://api.openai.com/v1",
+		APIKey:    "sk-test-1234567890",
+		IsDefault: true,
+	})
+	if err != nil {
+		t.Fatalf("Create default failed: %v", err)
+	}
+
+	// 第二个模型：类内已有模型，不标默认。
+	second, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create second failed: %v", err)
+	}
+	_ = second.ID
+
+	if err := m.Delete(ctx, testOrgID, first.ID); err != nil {
+		t.Fatalf("Delete default failed: %v", err)
+	}
+	// 类内仅剩 second，应自动成为默认。
+	defaultModel, err := m.GetDefault(ctx, testOrgID)
+	if err != nil {
+		t.Fatalf("GetDefault failed: %v", err)
+	}
+	if defaultModel == nil || defaultModel.ID != second.ID {
+		t.Fatalf("expected %d to become default, got %+v", second.ID, defaultModel)
+	}
+}
+
+func TestDeleteLLMModelRejectsSystemBuiltIn(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model := &types.LLMModel{
+		OrgID:     testOrgID,
+		Code:      "system-translation",
+		Name:      "内置翻译模型",
+		ModelName: "gpt-4o-mini",
+		BaseURL:   "https://api.example.com/v1",
+		Status:    string(types.LLMModelStatusActive),
+		IsSystem:  true,
+	}
+	if err := database.Create(model).Error; err != nil {
+		t.Fatalf("seed system model failed: %v", err)
+	}
+
+	if err := m.Delete(ctx, testOrgID, model.ID); err == nil {
+		t.Fatal("expected delete of system built-in model to fail, got nil")
+	}
+
+	var exists int64
+	if err := database.Model(&types.LLMModel{}).Where("id = ?", model.ID).Count(&exists).Error; err != nil {
+		t.Fatalf("count system model failed: %v", err)
+	}
+	if exists != 1 {
+		t.Fatalf("expected system model to remain after rejected delete, got %d rows", exists)
 	}
 }
 
@@ -723,6 +906,7 @@ func TestResolveSystemTranslationLLMModelClonesIntoCurrentOrganization(t *testin
 		Temperature:     0.1,
 		TimeoutSec:      60,
 		Status:          string(types.LLMModelStatusActive),
+		Purpose:         types.LLMModelPurposeTranslation,
 		IsSystem:        true,
 	}
 	if err := dbrepo.CreateLLMModel(ctx, database, source); err != nil {
@@ -732,6 +916,7 @@ func TestResolveSystemTranslationLLMModelClonesIntoCurrentOrganization(t *testin
 	existingSystemModel.ID = 0
 	existingSystemModel.OrgID = 2
 	existingSystemModel.Code = "llm_default"
+	existingSystemModel.Purpose = types.LLMModelPurposeConversation
 	if err := dbrepo.CreateLLMModel(ctx, database, &existingSystemModel); err != nil {
 		t.Fatalf("create existing target system model: %v", err)
 	}

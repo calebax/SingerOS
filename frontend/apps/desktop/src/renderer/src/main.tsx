@@ -1,10 +1,10 @@
-import ReactDOM from "react-dom/client";
 import {
 	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
 	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
 	savePrivateServerBaseURL,
 	saveServerBaseURL,
 } from "@leros/store";
+import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./globals.css";
 
@@ -14,8 +14,7 @@ window.lerosDesktop?.onOpenServer((serverURL) => {
 	try {
 		// 中文注释：深链传入的服务地址代表 Web 当前所在环境，桌面端应继承它。
 		saveServerBaseURL(serverURL);
-		const isPrivateBuild =
-			import.meta.env.VITE_LEROS_DEPLOYMENT_MODE === "private";
+		const isPrivateBuild = import.meta.env.VITE_LEROS_DEPLOYMENT_MODE === "private";
 		if (isPrivateBuild) {
 			savePrivateServerBaseURL(serverURL);
 			window.localStorage.setItem(PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY, "1");

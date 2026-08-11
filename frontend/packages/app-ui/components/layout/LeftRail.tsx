@@ -1,8 +1,9 @@
 "use client";
 
+import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import {
-	API_BASE_URL,
 	Action,
+	API_BASE_URL,
 	getNativeFileInputAccept,
 	isPrivateDeployment,
 	LEFT_RAIL_MAX_WIDTH,
@@ -16,7 +17,6 @@ import {
 	userApi,
 	useTaskCapabilities,
 } from "@leros/store";
-import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -831,6 +831,20 @@ export function LeftRail({
 								>
 									<Building2 className="size-4 shrink-0" />
 									<span>组织管理后台</span>
+								</DropdownMenuItem>
+							) : null}
+							{isOrgCreator ? (
+								<DropdownMenuItem
+									onClick={() => {
+										if (navigation) {
+											navigation.goToRoute("settings");
+											return;
+										}
+										switchView("settings");
+									}}
+								>
+									<Settings className="size-4 shrink-0" />
+									<span>系统设置</span>
 								</DropdownMenuItem>
 							) : null}
 							{canSwitchOrganization ? (

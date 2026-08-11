@@ -25,14 +25,6 @@ export type {
 	UpdateAutomationParams,
 } from "./api/automationApi";
 export { automationApi } from "./api/automationApi";
-export { clientUpdateApi } from "./api/clientUpdateApi";
-export type {
-	ClientApp,
-	ClientUpdatePolicy,
-	ClientUpgradeRequiredEvent,
-	ClientVersionReportParams,
-} from "./api/clientUpdatePolicy";
-export { CLIENT_UPGRADE_REQUIRED_EVENT, getClientVersionReport } from "./api/clientUpdatePolicy";
 export {
 	BRAND_LOGO_STORAGE_KEY,
 	BRAND_NAME_STORAGE_KEY,
@@ -47,6 +39,14 @@ export {
 	saveBrandLogo,
 	saveBrandName,
 } from "./api/branding";
+export { clientUpdateApi } from "./api/clientUpdateApi";
+export type {
+	ClientApp,
+	ClientUpdatePolicy,
+	ClientUpgradeRequiredEvent,
+	ClientVersionReportParams,
+} from "./api/clientUpdatePolicy";
+export { CLIENT_UPGRADE_REQUIRED_EVENT, getClientVersionReport } from "./api/clientUpdatePolicy";
 export {
 	API_BASE_URL,
 	hasPrivateServerConfiguration,
@@ -54,12 +54,12 @@ export {
 	normalizeAPIBaseURL,
 	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
 	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
-	SERVER_CONFIG_STORAGE_KEY,
 	readPrivateServerBaseURL,
 	readServerBaseURL,
 	resolveIsPrivateDeployment,
-	saveServerBaseURL,
+	SERVER_CONFIG_STORAGE_KEY,
 	savePrivateServerBaseURL,
+	saveServerBaseURL,
 	testServerConnection,
 } from "./api/config";
 export { digitalAssistantApi } from "./api/digitalAssistantApi";
@@ -83,6 +83,16 @@ export type {
 export { FRONTEND_EVENT_ENDPOINT, frontendEventApi } from "./api/frontendEventApi";
 export type { Edition, GlobalConfig } from "./api/globalConfigApi";
 export { globalConfigApi } from "./api/globalConfigApi";
+export type {
+	BackendModel,
+	CreateModelParams,
+	GetModelParams,
+	ListModelsParams,
+	TestModelParams,
+	TestModelResult,
+	UpdateModelParams,
+} from "./api/modelApi";
+export { modelApi } from "./api/modelApi";
 export type {
 	GetOfficialPluginLatestVersionParams,
 	InstallOfficialPluginResponse,
@@ -167,6 +177,7 @@ export {
 	useDAStore,
 	useGlobalConfigStore,
 	useLayoutStore,
+	useModelStore,
 	usePermissionStore,
 	useTopicStore,
 } from "./appStore";
@@ -258,6 +269,7 @@ export {
 	LEFT_RAIL_MIN_WIDTH,
 	projectMembersToInputs,
 } from "./slices/layoutSlice";
+export type { ModelAction, ModelItem, ModelState, ModelStore } from "./slices/modelSlice";
 export {
 	buildProjectCapabilityItems,
 	buildTaskCapabilityItems,

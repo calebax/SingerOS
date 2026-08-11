@@ -174,10 +174,7 @@ function isGlobalConfigResponse(value: unknown): boolean {
 
 function resolveAPIBaseURL(): string {
 	const baseURL =
-		readServerBaseURL() ||
-		getViteAPIBaseURL() ||
-		getNextAPIBaseURL() ||
-		DEFAULT_API_BASE_URL;
+		readServerBaseURL() || getViteAPIBaseURL() || getNextAPIBaseURL() || DEFAULT_API_BASE_URL;
 
 	return normalizeAPIBaseURL(baseURL);
 }

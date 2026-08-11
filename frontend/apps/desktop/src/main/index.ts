@@ -15,10 +15,7 @@ import {
 	prepareWindowForHide,
 } from "./app-lifecycle";
 import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
-import {
-	desktopDeepLinkScheme,
-	extractDesktopServerURL,
-} from "./deep-link";
+import { desktopDeepLinkScheme, extractDesktopServerURL } from "./deep-link";
 import { isProductionDevToolsShortcut } from "./devtools-shortcut";
 import { shouldOpenExternalUrl } from "./external-navigation";
 import { configureTrayInteractions } from "./tray-interactions";
