@@ -1,7 +1,7 @@
 "use client";
 
-import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import {
+	API_BASE_URL,
 	Action,
 	getNativeFileInputAccept,
 	isPrivateDeployment,
@@ -16,6 +16,7 @@ import {
 	userApi,
 	useTaskCapabilities,
 } from "@leros/store";
+import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -97,6 +98,12 @@ function handleRailMenuOpenChange(open: boolean) {
 	if (!open) {
 		blurFocusedElement();
 	}
+}
+
+function openCurrentEnvironmentInDesktop() {
+	const deepLink = new URL("leros://open");
+	deepLink.searchParams.set("server", API_BASE_URL);
+	window.location.assign(deepLink.toString());
 }
 
 type PublicEnv = {
@@ -195,6 +202,7 @@ export function LeftRail({
 	);
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
+	const isDesktopApp = getDesktopUpdateApi() !== null;
 
 	const resetProjectExpansionState = useCallback(() => {
 		setExpandedProjectIds(new Set());
@@ -793,6 +801,12 @@ export function LeftRail({
 									<span>系统设置</span>
 								</DropdownMenuItem>
 							) : null}
+							{isDesktopApp ? null : (
+								<DropdownMenuItem onClick={openCurrentEnvironmentInDesktop}>
+									<ExternalLink className="size-4 shrink-0" />
+									<span>在桌面端打开</span>
+								</DropdownMenuItem>
+							)}
 							{/* 其他菜单项先注释隐藏；恢复时记得同步恢复对应 import。 */}
 							{/*
 							<DropdownMenuItem>

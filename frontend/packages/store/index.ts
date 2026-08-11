@@ -54,8 +54,11 @@ export {
 	normalizeAPIBaseURL,
 	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
 	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
+	SERVER_CONFIG_STORAGE_KEY,
 	readPrivateServerBaseURL,
+	readServerBaseURL,
 	resolveIsPrivateDeployment,
+	saveServerBaseURL,
 	savePrivateServerBaseURL,
 	testServerConnection,
 } from "./api/config";
