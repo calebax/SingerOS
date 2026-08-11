@@ -171,7 +171,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterTaskRoutes(authed, taskService, permSvc)
 		logs.Info("Task routes registered successfully")
 
-		automationService := service.NewAutomationService(db)
+		automationService := service.NewAutomationService(db, permSvc)
 		handler.RegisterAutomationRoutes(authed, automationService)
 		logs.Info("Automation routes registered successfully")
 
