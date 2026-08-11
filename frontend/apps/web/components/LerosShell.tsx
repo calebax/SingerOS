@@ -1,13 +1,17 @@
 "use client";
 
-import { type AppNavigation, Shell } from "@leros/app-ui";
+import { type AppNavigation, PrivateDeploymentGate, Shell } from "@leros/app-ui";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
 export function LerosShell({ children }: { children: ReactNode }) {
 	const navigation = useWebNavigation();
 
-	return <Shell navigation={navigation}>{children}</Shell>;
+	return (
+		<PrivateDeploymentGate>
+			<Shell navigation={navigation}>{children}</Shell>
+		</PrivateDeploymentGate>
+	);
 }
 
 export function useWebNavigation(): AppNavigation {

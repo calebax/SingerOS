@@ -6,4 +6,5 @@ export * from "./components/digitalAssistant";
 export * from "./components/input";
 export * from "./components/layout";
 export * from "./components/org-admin";
+export * from "./components/private-deployment";
 export * from "./components/skills";
