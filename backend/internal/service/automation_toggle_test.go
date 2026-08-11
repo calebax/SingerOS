@@ -28,13 +28,14 @@ func TestToggleAutomationEnabledOnly(t *testing.T) {
 	// 先建一条自动化
 	now := time.Now().UTC()
 	next := now.Add(time.Hour)
+	initialEnabled := true
 	automation := &types.Automation{
 		OrgID:        1,
 		OwnerID:      7,
 		PublicID:     "auto_test_1",
 		Name:         "测试自动化",
 		Instruction:  "测试指令",
-		Enabled:      true,
+		Enabled:      &initialEnabled,
 		ScheduleMode: "interval",
 		ScheduleSpec: types.AutomationScheduleSpec{
 			Spec: types.AutomationScheduleSpecItem{

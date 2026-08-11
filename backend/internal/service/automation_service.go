@@ -111,7 +111,6 @@ func (s *automationService) CreateAutomation(ctx context.Context, req *contract.
 		PublicID:     generateAutomationPublicID(),
 		Name:         name,
 		Instruction:  instruction,
-		Enabled:      enabled,
 		ScheduleMode: mode,
 		ScheduleSpec: *spec,
 		Timezone:     timezone,
@@ -119,6 +118,7 @@ func (s *automationService) CreateAutomation(ctx context.Context, req *contract.
 		NextRunAt:    nextRunAt,
 		ProjectID:    linkProjectID, // 关联既有项目；否则 nil（首次执行懒创建）
 	}
+	automation.SetEnabled(enabled)
 	if err := db.CreateAutomation(ctx, s.db, automation); err != nil {
 		return nil, err
 	}
@@ -284,15 +284,15 @@ func applyAutomationUpdate(automation *types.Automation, req *contract.UpdateAut
 		}
 		scheduleChanged = true
 	}
-	if req.Enabled != nil && *req.Enabled != automation.Enabled {
-		automation.Enabled = *req.Enabled
+	if req.Enabled != nil && *req.Enabled != automation.IsEnabled() {
+		automation.SetEnabled(*req.Enabled)
 		scheduleChanged = true
 	}
 	if !scheduleChanged {
 		return nil
 	}
-	nextRunAt := computeNextRunAt(&automation.ScheduleSpec, automation.Enabled, time.Now().UTC())
-	if automation.Enabled && nextRunAt == nil {
+	nextRunAt := computeNextRunAt(&automation.ScheduleSpec, automation.IsEnabled(), time.Now().UTC())
+	if automation.IsEnabled() && nextRunAt == nil {
 		return errInvalidAutomationSchedule
 	}
 	automation.NextRunAt = nextRunAt
@@ -581,7 +581,7 @@ func toContractAutomation(a *types.Automation) *contract.Automation {
 		OwnerID:      a.OwnerID,
 		Name:         a.Name,
 		Instruction:  a.Instruction,
-		Enabled:      a.Enabled,
+		Enabled:      a.IsEnabled(),
 		ScheduleMode: a.ScheduleMode,
 		Timezone:     a.Timezone,
 		AssistantID:  a.AssistantID,

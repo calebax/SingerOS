@@ -261,7 +261,7 @@ func seedBaseAutomation(t *testing.T, db *gorm.DB, orgID, ownerUin uint, publicI
 		OwnerID:           ownerUin,
 		Name:              "基础自动化",
 		Instruction:       "指令",
-		Enabled:           true,
+		Enabled:           ptr(true),
 		ScheduleMode:      "interval",
 		ScheduleSpec:      types.AutomationScheduleSpec{Spec: types.AutomationScheduleSpecItem{Mode: "interval", IntervalSeconds: 300, AnchorAt: "00:00", Timezone: "Asia/Shanghai"}},
 		Timezone:          "Asia/Shanghai",
