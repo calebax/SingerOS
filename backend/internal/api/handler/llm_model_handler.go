@@ -277,7 +277,11 @@ func handleLLMModelServiceError(ctx *gin.Context, err error) {
 		"model is required",
 		"base_url is required",
 		"api_key is required",
-		"llm model with this code already exists":
+		"llm model with this code already exists",
+		"启用中的模型不可编辑，请先禁用",
+		"只能将启用中的模型设为默认",
+		"启用中的模型不可删除，请先禁用",
+		"该用途下没有其他启用中的模型可设为默认，无法禁用当前默认模型":
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 	default:
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))

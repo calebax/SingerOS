@@ -27,7 +27,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@leros/ui/components/ui/table";
-import { Bot, Loader2, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { Bot, Loader2, MoreHorizontal, Plus, Trash2, Wifi } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ModelFormDialog } from "./ModelFormDialog";
@@ -37,11 +37,13 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 export function ModelManagementView() {
-	const { models, loading, loaded, fetchModels, deleteModel, setDefault } = useModelStore((s) => s);
+	const { models, loading, loaded, fetchModels, deleteModel, setDefault, setStatus, testModel } =
+		useModelStore((s) => s);
 	const [createOpen, setCreateOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<ModelItem | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<ModelItem | null>(null);
 	const [deleting, setDeleting] = useState(false);
+	const [testingId, setTestingId] = useState<number | null>(null);
 
 	useEffect(() => {
 		void fetchModels();
@@ -72,6 +74,34 @@ export function ModelManagementView() {
 			toast.success("已设为默认模型");
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : "设置默认失败");
+		}
+	};
+
+	const handleSetStatus = async (item: ModelItem, status: string) => {
+		const verb = status === "active" ? "启用" : "禁用";
+		try {
+			await setStatus(item.id, status);
+			toast.success(`模型已${verb}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : `${verb}失败`);
+		}
+	};
+
+	const handleTestModel = async (item: ModelItem) => {
+		if (testingId !== null) return;
+		setTestingId(item.id);
+		try {
+			const res = await testModel({ id: item.id });
+			const data = res.data.data;
+			if (data?.success) {
+				toast.success(data.message || "连接成功");
+			} else {
+				toast.error(data?.message || "连接测试未通过");
+			}
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "连接测试失败");
+		} finally {
+			setTestingId(null);
 		}
 	};
 
@@ -158,7 +188,11 @@ export function ModelManagementView() {
 														: "bg-slate-100 text-slate-600"
 												}`}
 											>
-												{item.status === "active" ? "启用" : item.status}
+												{item.status === "active"
+													? "启用"
+													: item.status === "inactive"
+														? "禁用"
+														: item.status}
 											</span>
 										</TableCell>
 										<TableCell>
@@ -180,25 +214,47 @@ export function ModelManagementView() {
 													}
 												/>
 												<DropdownMenuContent align="end">
+													<DropdownMenuItem
+														onClick={() => void handleTestModel(item)}
+														disabled={testingId === item.id}
+													>
+														{testingId === item.id ? (
+															<Loader2 className="size-4 animate-spin" />
+														) : (
+															<Wifi className="size-4" />
+														)}
+														测试连接
+													</DropdownMenuItem>
 													{!item.isDefault && item.status === "active" ? (
 														<DropdownMenuItem onClick={() => void handleSetDefault(item)}>
 															设为默认
 														</DropdownMenuItem>
 													) : null}
-													<DropdownMenuItem onClick={() => setEditTarget(item)}>
-														编辑
-													</DropdownMenuItem>
-													{!item.isSystem ? (
-														<>
-															<DropdownMenuSeparator />
-															<DropdownMenuItem
-																variant="destructive"
-																onClick={() => setDeleteTarget(item)}
-															>
-																<Trash2 className="size-4" />
-																删除
-															</DropdownMenuItem>
-														</>
+													{item.status === "active" ? (
+														<DropdownMenuItem
+															onClick={() => void handleSetStatus(item, "inactive")}
+														>
+															禁用
+														</DropdownMenuItem>
+													) : (
+														<DropdownMenuItem onClick={() => void handleSetStatus(item, "active")}>
+															启用
+														</DropdownMenuItem>
+													)}
+													{item.status === "inactive" ? (
+														<DropdownMenuItem onClick={() => setEditTarget(item)}>
+															编辑
+														</DropdownMenuItem>
+													) : null}
+													<DropdownMenuSeparator />
+													{!item.isSystem && item.status === "inactive" ? (
+														<DropdownMenuItem
+															variant="destructive"
+															onClick={() => setDeleteTarget(item)}
+														>
+															<Trash2 className="size-4" />
+															删除
+														</DropdownMenuItem>
 													) : null}
 												</DropdownMenuContent>
 											</DropdownMenu>

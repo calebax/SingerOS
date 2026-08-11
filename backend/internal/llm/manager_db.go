@@ -269,12 +269,15 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 	if strings.TrimSpace(req.APIKey) == "" {
 		return nil, errors.New("api_key is required")
 	}
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, errors.New("name is required")
+	}
+	if req.Purpose == "" {
+		return nil, errors.New("purpose is required")
+	}
 
 	code := generateLLMModelCode()
-	name := req.Name
-	if name == "" {
-		name = req.Model
-	}
+	name := strings.TrimSpace(req.Name)
 	provider := req.Provider
 	if provider == "" {
 		provider = string(types.LLMProviderOpenAI)
@@ -297,9 +300,6 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 	}
 
 	purpose := req.Purpose
-	if purpose == "" {
-		purpose = types.LLMModelPurposeConversation
-	}
 
 	model := &types.LLMModel{
 		OrgID:           orgID,
@@ -435,10 +435,31 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 			return errors.New("permission denied")
 		}
 
+		// 启用中的模型不可编辑业务配置（仅禁用/启用属 status 变更，不受此限制）。
+		isEditOperation := req.Name != "" || req.Description != nil || req.Provider != "" ||
+			req.Model != "" || req.BaseURL != nil || req.APIKey != nil || req.Config != nil ||
+			req.MaxTokens != nil || req.Temperature != nil || req.Purpose != nil
+		if isEditOperation {
+			// 编辑业务配置时名称与用途必填，不允许保留旧值或清空。
+			if req.Name == "" {
+				return errors.New("name is required")
+			}
+			if req.Purpose == nil || *req.Purpose == "" {
+				return errors.New("purpose is required")
+			}
+		}
+		if isEditOperation && model.Status == string(types.LLMModelStatusActive) {
+			return errors.New("启用中的模型不可编辑，请先禁用")
+		}
+		// 只能将启用中的模型设为默认。
+		if req.IsDefault != nil && *req.IsDefault && model.Status != string(types.LLMModelStatusActive) {
+			return errors.New("只能将启用中的模型设为默认")
+		}
+
 		needsReDetect := false
 
 		if req.Name != "" {
-			model.Name = req.Name
+			model.Name = strings.TrimSpace(req.Name)
 		}
 		if req.Description != nil {
 			model.Description = *req.Description
@@ -461,6 +482,13 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 			needsReDetect = true
 		}
 		if req.Status != "" {
+			// 禁用默认模型前需保证该用途仍有一个启用中的默认，否则拒绝禁用。
+			if req.Status == string(types.LLMModelStatusInactive) && model.IsDefault {
+				if err := m.backfillOrRejectDefault(ctx, tx, orgID, model.Purpose, model.ID); err != nil {
+					return err
+				}
+				model.IsDefault = false
+			}
 			model.Status = req.Status
 		}
 		if req.Config != nil {
@@ -533,7 +561,10 @@ func (m *ManagerDb) Delete(ctx context.Context, orgID uint, id uint) error {
 			return errors.New("permission denied")
 		}
 		if model.IsSystem {
-			return errors.New("system built-in llm model cannot be deleted")
+			return errors.New("系统内置模型不可删除")
+		}
+		if model.Status == string(types.LLMModelStatusActive) {
+			return errors.New("启用中的模型不可删除，请先禁用")
 		}
 		if model.IsDefault {
 			// 删除用途内唯一默认前，需保证该用途删除后仍有一个默认。
@@ -569,7 +600,7 @@ func (m *ManagerDb) backfillOrRejectDefault(ctx context.Context, tx *gorm.DB, or
 		First(&candidate)
 	if q2.Error != nil {
 		if errors.Is(q2.Error, gorm.ErrRecordNotFound) {
-			return errors.New("cannot remove the only default model since no other active model remains in this purpose")
+			return errors.New("该用途下没有其他启用中的模型可设为默认，无法禁用当前默认模型")
 		}
 		return q2.Error
 	}

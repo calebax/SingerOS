@@ -32,14 +32,14 @@ type LLMModel struct {
 
 // CreateLLMModelRequest 创建LLM模型配置请求
 type CreateLLMModelRequest struct {
-	Name        string                 `json:"name,omitempty"`
+	Name        string                 `json:"name" binding:"required"`
 	Description string                 `json:"description,omitempty"`
 	Provider    string                 `json:"provider,omitempty"`
 	Model       string                 `json:"model" binding:"required"`
 	BaseURL     string                 `json:"base_url" binding:"required"`
 	APIKey      string                 `json:"api_key" binding:"required"`
 	Status      string                 `json:"status,omitempty"`
-	Purpose     string                 `json:"purpose,omitempty"`
+	Purpose     string                 `json:"purpose" binding:"required"`
 	IsDefault   bool                   `json:"is_default,omitempty"`
 	Config      map[string]interface{} `json:"config,omitempty"`
 	MaxTokens   *int                   `json:"max_tokens,omitempty"`
@@ -48,14 +48,14 @@ type CreateLLMModelRequest struct {
 
 // UpdateLLMModelRequest 更新LLM模型配置请求
 type UpdateLLMModelRequest struct {
-	Name        string                  `json:"name,omitempty"`
+	Name        string                  `json:"name" binding:"required"`
 	Description *string                 `json:"description,omitempty"`
 	Provider    string                  `json:"provider,omitempty"`
 	Model       string                  `json:"model,omitempty"`
 	BaseURL     *string                 `json:"base_url,omitempty"`
 	APIKey      *string                 `json:"api_key,omitempty"`
 	Status      string                  `json:"status,omitempty"`
-	Purpose     *string                 `json:"purpose,omitempty"`
+	Purpose     *string                 `json:"purpose" binding:"required"`
 	IsDefault   *bool                   `json:"is_default,omitempty"`
 	Config      *map[string]interface{} `json:"config,omitempty"`
 	MaxTokens   *int                    `json:"max_tokens,omitempty"`

@@ -181,7 +181,10 @@ function displayMCPPlatform(platform: MCPPlatform): MCPPlatform {
 	return {
 		...platform,
 		name: "知识库",
-		description: platform.description.replace(/corekg/gi, "").replace(/\s+/g, " ").trim(),
+		description: platform.description
+			.replace(/corekg/gi, "")
+			.replace(/\s+/g, " ")
+			.trim(),
 	};
 }
 
@@ -190,11 +193,7 @@ function platformMatchesKeyword(platform: MCPPlatform, query: string) {
 	const haystack = isCoreKGPlatformCode(platform.code)
 		? [platform.name, platform.description]
 		: [platform.name, platform.code, platform.description];
-	return haystack
-		.filter(Boolean)
-		.join(" ")
-		.toLocaleLowerCase()
-		.includes(query);
+	return haystack.filter(Boolean).join(" ").toLocaleLowerCase().includes(query);
 }
 
 function mcpDefinition(

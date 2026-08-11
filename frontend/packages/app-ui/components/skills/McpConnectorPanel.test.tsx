@@ -441,37 +441,38 @@ describe("McpConnectorPanel", () => {
 		expect(screen.getByText("暂无符合条件的连接器")).toBeInTheDocument();
 	});
 
-	it.each(["corekg", "CoreKG", "COREKG"])(
-		"hides the knowledge base platform from %s search",
-		async (keyword) => {
-			mockPluginListMCPPlatforms.mockResolvedValueOnce({
+	it.each([
+		"corekg",
+		"CoreKG",
+		"COREKG",
+	])("hides the knowledge base platform from %s search", async (keyword) => {
+		mockPluginListMCPPlatforms.mockResolvedValueOnce({
+			data: {
 				data: {
-					data: {
-						platforms: [
-							{
-								code: "corekg",
-								name: "CoreKG",
-								description: "COREKG 连接知识库",
-								auto_connect_supported: true,
-								connected: false,
-							},
-						],
-					},
+					platforms: [
+						{
+							code: "corekg",
+							name: "CoreKG",
+							description: "COREKG 连接知识库",
+							auto_connect_supported: true,
+							connected: false,
+						},
+					],
 				},
-			});
-			render(<McpConnectorPanel />);
+			},
+		});
+		render(<McpConnectorPanel />);
 
-			expect(await screen.findByText("知识库")).toBeInTheDocument();
-			expect(screen.getByText("连接知识库")).toBeInTheDocument();
-			expect(screen.queryByText(/CoreKG|COREKG/i)).not.toBeInTheDocument();
+		expect(await screen.findByText("知识库")).toBeInTheDocument();
+		expect(screen.getByText("连接知识库")).toBeInTheDocument();
+		expect(screen.queryByText(/CoreKG|COREKG/i)).not.toBeInTheDocument();
 
-			fireEvent.change(screen.getByRole("searchbox", { name: "搜索 MCP 连接器" }), {
-				target: { value: keyword },
-			});
-			expect(screen.queryByText("知识库")).not.toBeInTheDocument();
-			expect(screen.getByText("暂无符合条件的连接器")).toBeInTheDocument();
-		},
-	);
+		fireEvent.change(screen.getByRole("searchbox", { name: "搜索 MCP 连接器" }), {
+			target: { value: keyword },
+		});
+		expect(screen.queryByText("知识库")).not.toBeInTheDocument();
+		expect(screen.getByText("暂无符合条件的连接器")).toBeInTheDocument();
+	});
 
 	it("keeps the knowledge base platform searchable by 知识库", async () => {
 		mockPluginListMCPPlatforms.mockResolvedValueOnce({
