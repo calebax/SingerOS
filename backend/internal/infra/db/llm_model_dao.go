@@ -91,16 +91,11 @@ func GetAnyActiveLLMModel(ctx context.Context, db *gorm.DB, orgID uint) (*types.
 	return &entity, nil
 }
 
-// GetSystemTranslationLLMModel 获取系统内置翻译模型配置。
+// GetSystemTranslationLLMModel returns the active system translation model owned by orgID.
+// It deliberately does not fall back to another organization because callers execute it
+// with org-scoped model authorization.
 func GetSystemTranslationLLMModel(ctx context.Context, db *gorm.DB, orgID uint) (*types.LLMModel, error) {
-	model, err := getSystemTranslationLLMModelByOrg(ctx, db, orgID)
-	if err != nil {
-		return nil, err
-	}
-	if model != nil || orgID == 1 {
-		return model, nil
-	}
-	return getSystemTranslationLLMModelByOrg(ctx, db, 1)
+	return getSystemTranslationLLMModelByOrg(ctx, db, orgID)
 }
 
 func getSystemTranslationLLMModelByOrg(ctx context.Context, db *gorm.DB, orgID uint) (*types.LLMModel, error) {
@@ -292,4 +287,35 @@ func EnsureOrgSystemLLMModels(ctx context.Context, d *gorm.DB, orgID uint) (bool
 		return false, err
 	}
 	return true, nil
+}
+
+// EnsureOrgSystemTranslationLLMModel copies only the active system translation
+// model from the system seed organization when the target organization lacks it.
+// Keeping the copied model organization-owned preserves ManagerDb authorization.
+func EnsureOrgSystemTranslationLLMModel(ctx context.Context, d *gorm.DB, orgID uint) (bool, error) {
+	if orgID == 0 || orgID == 1 {
+		return false, nil
+	}
+
+	now := time.Now()
+	result := d.WithContext(ctx).Exec(`
+		INSERT INTO `+types.TableNameLLMModel+` (
+			org_id, code, name, description, provider, model, base_url,
+			base_url_has_v1, api_key_encrypted, api_key_masked,
+			max_tokens, temperature, timeout_sec, status, is_default, is_system, config,
+			created_at, updated_at
+		)
+		SELECT ?, code, name, description, provider, model, base_url,
+		       base_url_has_v1, api_key_encrypted, api_key_masked,
+		       max_tokens, temperature, timeout_sec, status, is_default, is_system, config,
+		       ?, ?
+		FROM `+types.TableNameLLMModel+`
+		WHERE org_id = ? AND code = ? AND is_system = true
+		  AND status = ? AND deleted_at IS NULL
+		ON CONFLICT (org_id, code) DO NOTHING
+	`, orgID, now, now, 1, SystemTranslationLLMModelCode, string(types.LLMModelStatusActive))
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }

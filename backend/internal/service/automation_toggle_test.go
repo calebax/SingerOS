@@ -50,7 +50,7 @@ func TestToggleAutomationEnabledOnly(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	svc := NewAutomationService(db)
+	svc := NewAutomationService(db, nil)
 	ctx := auth.WithContext(context.Background(), &types.Caller{Uin: 7, OrgID: 1, State: types.AuthStateSucc}, nil)
 
 	// 只传 enabled=false（停用）

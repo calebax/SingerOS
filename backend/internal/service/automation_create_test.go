@@ -38,7 +38,7 @@ func TestCreateAutomationPreservesDisabled(t *testing.T) {
 	caller := &types.Caller{Uin: 7, OrgID: 1, State: types.AuthStateSucc}
 	ctx := auth.WithContext(context.Background(), caller, nil)
 	disabled := false
-	created, err := NewAutomationService(database).CreateAutomation(ctx, &contract.CreateAutomationRequest{
+	created, err := NewAutomationService(database, nil).CreateAutomation(ctx, &contract.CreateAutomationRequest{
 		Name:         "停用自动化",
 		Instruction:  "测试指令",
 		Enabled:      &disabled,
@@ -68,7 +68,7 @@ func TestCreateAutomationPreservesDisabled(t *testing.T) {
 		t.Fatalf("persisted automation should be disabled, got %#v", persisted.Enabled)
 	}
 
-	defaultCreated, err := NewAutomationService(database).CreateAutomation(ctx, &contract.CreateAutomationRequest{
+	defaultCreated, err := NewAutomationService(database, nil).CreateAutomation(ctx, &contract.CreateAutomationRequest{
 		Name:         "默认启用自动化",
 		Instruction:  "测试默认状态",
 		ScheduleMode: "interval",

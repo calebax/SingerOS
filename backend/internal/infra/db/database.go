@@ -22,6 +22,7 @@ import (
 var legacyTables = []string{
 	"leros_artifact",
 	"leros_organization_profile",
+	"leros_plugin_marketplace_translation",
 }
 
 // legacyColumnsToDrop 记录了从模型中被移除但数据库中残留的列。
@@ -170,6 +171,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.PluginRevisionContent{},
 		&types.ProjectPluginBinding{},
 		&types.PluginMarketplaceItem{},
+		&types.PluginTranslation{},
 		&types.MCPChannel{},
 		&types.MessageResource{},
 		&types.Department{},

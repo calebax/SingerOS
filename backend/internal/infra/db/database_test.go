@@ -15,6 +15,9 @@ func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
+	if err := database.Exec("CREATE TABLE leros_plugin_marketplace_translation (id INTEGER PRIMARY KEY, org_id INTEGER)").Error; err != nil {
+		t.Fatalf("create legacy translation table: %v", err)
+	}
 
 	if err := runMigrations(database); err != nil {
 		t.Fatalf("failed to run migrations: %v", err)
@@ -28,11 +31,15 @@ func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
 		types.TableNamePluginRevisionContent,
 		types.TableNameProjectPluginBinding,
 		types.TableNamePluginMarketplaceItem,
+		types.TableNamePluginTranslation,
 		types.TableNameMCPChannel,
 	} {
 		if !database.Migrator().HasTable(tableName) {
 			t.Fatalf("expected table %s to be migrated", tableName)
 		}
+	}
+	if database.Migrator().HasTable("leros_plugin_marketplace_translation") {
+		t.Fatal("legacy marketplace translation table should be removed without data backfill")
 	}
 }
 

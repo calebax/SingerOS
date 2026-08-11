@@ -190,7 +190,7 @@ func TestGetDefaultLLMModel(t *testing.T) {
 	}
 }
 
-func TestGetSystemTranslationLLMModel(t *testing.T) {
+func TestGetSystemTranslationLLMModelOnlyReturnsTheCurrentOrganizationModel(t *testing.T) {
 	database := setupLLMModelTestDB(t)
 	ctx := context.Background()
 
@@ -225,18 +225,49 @@ func TestGetSystemTranslationLLMModel(t *testing.T) {
 
 	retrieved, err = GetSystemTranslationLLMModel(ctx, database, 3)
 	if err != nil {
-		t.Fatalf("GetSystemTranslationLLMModel fallback failed: %v", err)
+		t.Fatalf("GetSystemTranslationLLMModel for non-system model failed: %v", err)
 	}
-	if retrieved == nil || retrieved.OrgID != 1 {
-		t.Fatalf("expected fallback system translation model, got %#v", retrieved)
+	if retrieved != nil {
+		t.Fatalf("expected no cross-organization fallback, got %#v", retrieved)
 	}
 
 	missing, err := GetSystemTranslationLLMModel(ctx, database, 4)
 	if err != nil {
-		t.Fatalf("GetSystemTranslationLLMModel inactive fallback failed: %v", err)
+		t.Fatalf("GetSystemTranslationLLMModel for inactive model failed: %v", err)
 	}
-	if missing == nil || missing.OrgID != 1 {
-		t.Fatalf("expected fallback for inactive org model, got %#v", missing)
+	if missing != nil {
+		t.Fatalf("expected inactive model to be unavailable, got %#v", missing)
+	}
+}
+
+func TestEnsureOrgSystemTranslationLLMModelCopiesOnlyTranslationModel(t *testing.T) {
+	database := setupLLMModelTestDB(t)
+	ctx := context.Background()
+
+	translation := newTestLLMModel(1, SystemTranslationLLMModelCode)
+	translation.IsSystem = true
+	other := newTestLLMModel(1, "llm_default")
+	other.IsSystem = true
+	for _, model := range []*types.LLMModel{translation, other} {
+		if err := CreateLLMModel(ctx, database, model); err != nil {
+			t.Fatalf("create source model: %v", err)
+		}
+	}
+
+	created, err := EnsureOrgSystemTranslationLLMModel(ctx, database, 2)
+	if err != nil || !created {
+		t.Fatalf("ensure translation model = %v, %v", created, err)
+	}
+	model, err := GetSystemTranslationLLMModel(ctx, database, 2)
+	if err != nil || model == nil || model.OrgID != 2 || model.Code != SystemTranslationLLMModelCode {
+		t.Fatalf("target translation model = %#v, %v", model, err)
+	}
+	var count int64
+	if err := database.Model(&types.LLMModel{}).Where("org_id = ?", 2).Count(&count).Error; err != nil {
+		t.Fatalf("count target models: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("target organization received %d models, want only translation model", count)
 	}
 }
 

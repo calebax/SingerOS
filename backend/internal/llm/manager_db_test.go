@@ -706,3 +706,46 @@ func TestVisionFromConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveSystemTranslationLLMModelClonesIntoCurrentOrganization(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+	source := &types.LLMModel{
+		OrgID:           1,
+		Code:            dbrepo.SystemTranslationLLMModelCode,
+		Name:            "翻译模型",
+		Provider:        string(types.LLMProviderOpenAI),
+		ModelName:       "gpt-4o-mini",
+		BaseURL:         "https://api.openai.com",
+		APIKeyEncrypted: "test-key",
+		APIKeyMasked:    "tes***key",
+		MaxTokens:       4096,
+		Temperature:     0.1,
+		TimeoutSec:      60,
+		Status:          string(types.LLMModelStatusActive),
+		IsSystem:        true,
+	}
+	if err := dbrepo.CreateLLMModel(ctx, database, source); err != nil {
+		t.Fatalf("create source translation model: %v", err)
+	}
+	existingSystemModel := *source
+	existingSystemModel.ID = 0
+	existingSystemModel.OrgID = 2
+	existingSystemModel.Code = "llm_default"
+	if err := dbrepo.CreateLLMModel(ctx, database, &existingSystemModel); err != nil {
+		t.Fatalf("create existing target system model: %v", err)
+	}
+
+	model, err := ResolveSystemTranslationLLMModel(ctx, database, 2)
+	if err != nil {
+		t.Fatalf("ResolveSystemTranslationLLMModel: %v", err)
+	}
+	if model == nil || model.OrgID != 2 || model.Code != dbrepo.SystemTranslationLLMModelCode {
+		t.Fatalf("resolved translation model = %#v, want model owned by org 2", model)
+	}
+
+	manager := NewManager(database)
+	if _, err := manager.Get(ctx, 2, model.ID, ""); err != nil {
+		t.Fatalf("current organization cannot use resolved translation model: %v", err)
+	}
+}
