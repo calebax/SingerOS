@@ -1,6 +1,11 @@
 "use client";
 
-import type { CreateModelParams, ModelItem, UpdateModelParams } from "@leros/store";
+import type {
+	CreateModelParams,
+	ModelItem,
+	TestModelParams,
+	UpdateModelParams,
+} from "@leros/store";
 import { useModelStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -106,19 +111,28 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 		setTestResult(null);
 	}, [open, model]);
 
-	const formValid = Boolean(modelName.trim() && baseUrl.trim() && (isEdit || apiKey.trim()));
+	const formValid = Boolean(
+		name.trim() && modelName.trim() && baseUrl.trim() && (isEdit || apiKey.trim()),
+	);
 
 	const handleTest = async () => {
 		if (testing || submitting) return;
 		setTesting(true);
 		setTestResult(null);
 		try {
-			const res = await testModel({
+			const params: TestModelParams = {
 				provider,
 				model: modelName.trim(),
 				base_url: baseUrl.trim(),
-				api_key: apiKey.trim(),
-			});
+			};
+			// 编辑且未改 API Key 时，按 id 让后端读取已保存的密钥测试；
+			// 否则用当前表单值（含新建场景）
+			if (isEdit && model && !apiKey.trim()) {
+				params.id = model.id;
+			} else {
+				params.api_key = apiKey.trim();
+			}
+			const res = await testModel(params);
 			const data = res.data.data;
 			if (data?.success) {
 				setTestResult({ success: true, message: data.message || "连接成功" });
@@ -167,6 +181,14 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 
 	const handleSave = async () => {
 		if (submitting) return;
+		if (!name.trim()) {
+			toast.error("请填写名称");
+			return;
+		}
+		if (!purpose.trim()) {
+			toast.error("请选择用途");
+			return;
+		}
 		if (!modelName.trim() || !baseUrl.trim() || (!isEdit && !apiKey.trim())) {
 			toast.error("请填写模型名、地址和 API Key");
 			return;
@@ -176,6 +198,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 			if (isEdit && model) {
 				const params: UpdateModelParams = {
 					id: model.id,
+					name: name.trim(),
 					provider,
 					purpose,
 					model: modelName.trim(),
@@ -190,7 +213,6 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 					const m = Number(maxTokens);
 					if (!Number.isNaN(m) && m > 0) params.max_tokens = Math.round(m);
 				}
-				if (name.trim()) params.name = name.trim();
 				if (description.trim()) params.description = description.trim();
 				const cfg = buildConfig();
 				if (Object.keys(cfg).length > 0) params.config = cfg;
@@ -204,7 +226,6 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 					base_url: baseUrl.trim(),
 					api_key: apiKey.trim(),
 				};
-				if (name.trim()) params.name = name.trim();
 				if (description.trim()) params.description = description.trim();
 				if (temperature !== "") {
 					const t = Number(temperature);
@@ -235,17 +256,19 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 			}}
 		>
 			<DialogContent className="max-h-[min(92dvh,820px)] max-w-[min(94vw,640px)] gap-6 overflow-y-auto sm:rounded-2xl">
-				<DialogHeader className="border-b border-slate-200 pb-4">
+				<DialogHeader className="mb-6 border-b border-slate-200 pb-4">
 					<DialogTitle>{isEdit ? "编辑模型" : "新建模型"}</DialogTitle>
 					<DialogDescription>配置模型服务提供方与连接信息</DialogDescription>
 				</DialogHeader>
 				<div className="grid gap-4">
 					<div className="grid gap-2">
-						<Label>名称</Label>
+						<Label>
+							名称 <span className="text-red-500">*</span>
+						</Label>
 						<Input
 							value={name}
 							onChange={(e) => setName(e.target.value)}
-							placeholder="例如：主力对话模型（可选）"
+							placeholder="例如：主力对话模型"
 						/>
 					</div>
 					<div className="grid gap-2">
@@ -268,7 +291,9 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 						</Select>
 					</div>
 					<div className="grid gap-2">
-						<Label>用途</Label>
+						<Label>
+							用途 <span className="text-red-500">*</span>
+						</Label>
 						<Select value={purpose} onValueChange={(v) => setPurpose(v ?? "conversation")}>
 							<SelectTrigger className="w-full">
 								<SelectValue placeholder="选择用途">
@@ -298,11 +323,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 						<Label>
 							Base URL <span className="text-red-500">*</span>
 						</Label>
-						<Input
-							value={baseUrl}
-							onChange={(e) => setBaseUrl(e.target.value)}
-							placeholder="例如：https://api.openai.com/v1"
-						/>
+						<Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="" />
 					</div>
 					<div className="grid gap-2">
 						<Label>
@@ -312,12 +333,15 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 							type="password"
 							value={apiKey}
 							onChange={(e) => setApiKey(e.target.value)}
-							placeholder={isEdit ? "留空表示不修改" : "sk-..."}
+							placeholder={isEdit ? "留空表示不修改" : ""}
 						/>
+						{isEdit && !apiKey.trim() ? (
+							<span className="text-xs text-slate-400">留空时测试连接将使用已保存的密钥</span>
+						) : null}
 					</div>
 					<div className="grid grid-cols-2 gap-4">
 						<div className="grid gap-2">
-							<Label>Temperature (0-2)</Label>
+							<Label>温度 (Temperature, 0-2)</Label>
 							<Input
 								type="number"
 								min="0"
@@ -329,7 +353,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 							/>
 						</div>
 						<div className="grid gap-2">
-							<Label>Max Tokens</Label>
+							<Label>最大词元 (Max Tokens)</Label>
 							<Input
 								type="number"
 								min="1"
@@ -340,7 +364,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 						</div>
 					</div>
 					<div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-						<div className="text-sm font-medium text-slate-700">扩展配置</div>
+						<div className="text-sm font-medium text-slate-700">扩展配置（高级参数）</div>
 						<div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2">
 							<div className="flex flex-col">
 								<Label>支持图片输入 (Vision)</Label>
@@ -350,7 +374,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 						</div>
 						<div className="grid grid-cols-3 gap-3">
 							<div className="grid gap-2">
-								<Label>Top P (0-1)</Label>
+								<Label>随机采样 (Top P, 0-1)</Label>
 								<Input
 									type="number"
 									min="0"
@@ -360,9 +384,10 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 									onChange={(e) => setConfigTopP(e.target.value)}
 									placeholder="0.9"
 								/>
+								<span className="text-xs text-slate-400">按概率分布采样，值越大输出越多样</span>
 							</div>
 							<div className="grid gap-2">
-								<Label>Frequency Penalty (0-2)</Label>
+								<Label>重复控制 (Frequency Penalty, 0-2)</Label>
 								<Input
 									type="number"
 									min="0"
@@ -372,9 +397,10 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 									onChange={(e) => setConfigFrequencyPenalty(e.target.value)}
 									placeholder="0"
 								/>
+								<span className="text-xs text-slate-400">值越大，输出越不重复</span>
 							</div>
 							<div className="grid gap-2">
-								<Label>Presence Penalty (0-2)</Label>
+								<Label>话题探索 (Presence Penalty, 0-2)</Label>
 								<Input
 									type="number"
 									min="0"
@@ -384,11 +410,12 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 									onChange={(e) => setConfigPresencePenalty(e.target.value)}
 									placeholder="0"
 								/>
+								<span className="text-xs text-slate-400">值越大，越倾向谈论新内容</span>
 							</div>
 						</div>
 						<div className="grid grid-cols-2 gap-3">
 							<div className="grid gap-2">
-								<Label>Context Window</Label>
+								<Label>上下文窗口 (Context Window)</Label>
 								<Input
 									type="number"
 									min="1"
@@ -396,9 +423,10 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 									onChange={(e) => setConfigLimitContext(e.target.value)}
 									placeholder="例如：128000"
 								/>
+								<span className="text-xs text-slate-400">模型能接收的最大输入上下文长度</span>
 							</div>
 							<div className="grid gap-2">
-								<Label>Max Output Tokens</Label>
+								<Label>最大输出词元 (Max Output Tokens)</Label>
 								<Input
 									type="number"
 									min="1"
@@ -406,6 +434,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 									onChange={(e) => setConfigLimitOutput(e.target.value)}
 									placeholder="例如：8192"
 								/>
+								<span className="text-xs text-slate-400">单次生成结果的最大长度</span>
 							</div>
 						</div>
 					</div>
@@ -435,9 +464,13 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 					<Button
 						type="button"
 						variant="outline"
-						onClick={handleTest}
+						onClick={() => void handleTest()}
 						disabled={
-							testing || submitting || !modelName.trim() || !baseUrl.trim() || !apiKey.trim()
+							testing ||
+							submitting ||
+							!modelName.trim() ||
+							!baseUrl.trim() ||
+							(!isEdit && !apiKey.trim())
 						}
 					>
 						{testing ? <Loader2 className="animate-spin" /> : <Wifi />}

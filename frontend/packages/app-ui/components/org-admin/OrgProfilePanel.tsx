@@ -27,11 +27,7 @@ function revokeObjectURLSafe(url?: string) {
 	}
 }
 
-export function OrgProfilePanel({
-	active = true,
-}: {
-	active?: boolean;
-}) {
+export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 	const user = useAuthStore((s) => s.authUser);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const syncOrganizationProfile = useAuthStore((s) => s.syncOrganizationProfile);
@@ -106,8 +102,7 @@ export function OrgProfilePanel({
 
 	const dirty = useMemo(() => {
 		return (
-			nameDraft.trim() !== initialName.trim() ||
-			(pendingLogoUrl ?? "") !== (initialLogo ?? "")
+			nameDraft.trim() !== initialName.trim() || (pendingLogoUrl ?? "") !== (initialLogo ?? "")
 		);
 	}, [initialLogo, initialName, nameDraft, pendingLogoUrl]);
 

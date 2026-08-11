@@ -72,6 +72,8 @@ func TestCreateLLMModelGeneratesCodeDefaultsNameAndMasksAPIKey(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
@@ -115,6 +117,8 @@ func TestCreateLLMModelRequiresAPIKey(t *testing.T) {
 	_, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 	})
 	if err == nil {
@@ -132,6 +136,8 @@ func TestCreateLLMModelRequiresBaseURL(t *testing.T) {
 	_, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		APIKey:   "sk-test-1234567890",
 	})
 	if err == nil {
@@ -149,6 +155,8 @@ func TestCreateLLMModelTrimsChatCompletionsPath(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1/chat/completions",
 		APIKey:   "sk-test-1234567890",
 	})
@@ -175,6 +183,8 @@ func TestCreateLLMModelForcesFirstOrgModelDefault(t *testing.T) {
 	first, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
@@ -188,6 +198,8 @@ func TestCreateLLMModelForcesFirstOrgModelDefault(t *testing.T) {
 	second, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderDeepSeek),
 		Model:    "deepseek-chat",
+		Name:     "deepseek-chat",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.deepseek.com/v1",
 		APIKey:   "sk-test-abcdefgh",
 	})
@@ -217,6 +229,8 @@ func TestCreateLLMModelKeepsSingleDefault(t *testing.T) {
 	first, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:  string(types.LLMProviderOpenAI),
 		Model:     "gpt-4o-mini",
+		Name:      "gpt-4o-mini",
+		Purpose:   types.LLMModelPurposeConversation,
 		BaseURL:   "https://api.openai.com/v1",
 		APIKey:    "sk-test-1234567890",
 		IsDefault: true,
@@ -227,6 +241,8 @@ func TestCreateLLMModelKeepsSingleDefault(t *testing.T) {
 	second, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:  string(types.LLMProviderDeepSeek),
 		Model:     "deepseek-chat",
+		Name:      "deepseek-chat",
+		Purpose:   types.LLMModelPurposeConversation,
 		BaseURL:   "https://api.deepseek.com/v1",
 		APIKey:    "sk-test-abcdefgh",
 		IsDefault: true,
@@ -262,6 +278,8 @@ func TestCreateLLMModelStoresBaseURLHasV1WhenProbeV1Succeeds(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
@@ -290,6 +308,8 @@ func TestCreateLLMModelStoresBaseURLHasV1FalseWhenNoV1Succeeds(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com",
 		APIKey:   "sk-test-1234567890",
 	})
@@ -318,6 +338,8 @@ func TestCreateLLMModelFailsWhenBothProbesFail(t *testing.T) {
 	_, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
@@ -339,6 +361,8 @@ func TestManagerDb_Create_SamplingParams(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:    string(types.LLMProviderOpenAI),
 		Model:       "gpt-4o-mini",
+		Name:        "gpt-4o-mini",
+		Purpose:     types.LLMModelPurposeConversation,
 		BaseURL:     "https://api.openai.com/v1",
 		APIKey:      "sk-test-1234567890",
 		MaxTokens:   &maxTokens,
@@ -369,6 +393,8 @@ func TestManagerDb_Create_SamplingParams(t *testing.T) {
 	defaultModel, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderDeepSeek),
 		Model:    "deepseek-chat",
+		Name:     "deepseek-chat",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.deepseek.com/v1",
 		APIKey:   "sk-test-abcdefgh",
 	})
@@ -390,16 +416,40 @@ func TestManagerDb_Update_SamplingParams(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
+	// 新规则：启用中的模型不可编辑，需先禁用；为使其可被禁用，先铺垫一个
+	// 同用途的启用模型接管默认，再禁用目标。
+	second, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create second failed: %v", err)
+	}
+	_ = second.ID
+	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err != nil {
+		t.Fatalf("Disable model failed: %v", err)
+	}
 
 	maxTokens := 2048
 	temp := 0.2
+	purpose := types.LLMModelPurposeConversation
 	updated, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Name:        "gpt-4o-mini",
+		Purpose:     &purpose,
 		MaxTokens:   &maxTokens,
 		Temperature: &temp,
 	})
@@ -426,7 +476,8 @@ func TestManagerDb_Update_SamplingParams(t *testing.T) {
 
 	// Update with nil sampling params → values preserved
 	kept, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Name: "保留采样参数",
+		Name:    "保留采样参数",
+		Purpose: &purpose,
 	})
 	if err != nil {
 		t.Fatalf("Update with nil sampling params failed: %v", err)
@@ -449,15 +500,34 @@ func TestUpdateLLMModelKeepsAPIKeyWhenOmitted(t *testing.T) {
 		Name:     "主模型",
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
+	// 铺垫一个同用途启用模型接管默认，再禁用目标，使目标可被编辑。
+	if _, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	}); err != nil {
+		t.Fatalf("Create second failed: %v", err)
+	}
+	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err != nil {
+		t.Fatalf("Disable model failed: %v", err)
+	}
 
+	purpose := types.LLMModelPurposeConversation
 	updated, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Name: "更新后的主模型",
+		Name:    "更新后的主模型",
+		Purpose: &purpose,
 	})
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
@@ -486,6 +556,8 @@ func TestUpdateLLMModelKeepsSingleDefault(t *testing.T) {
 	first, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:  string(types.LLMProviderOpenAI),
 		Model:     "gpt-4o-mini",
+		Name:      "gpt-4o-mini",
+		Purpose:   types.LLMModelPurposeConversation,
 		BaseURL:   "https://api.openai.com/v1",
 		APIKey:    "sk-test-1234567890",
 		IsDefault: true,
@@ -496,6 +568,8 @@ func TestUpdateLLMModelKeepsSingleDefault(t *testing.T) {
 	second, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderDeepSeek),
 		Model:    "deepseek-chat",
+		Name:     "deepseek-chat",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.deepseek.com/v1",
 		APIKey:   "sk-test-abcdefgh",
 	})
@@ -536,15 +610,36 @@ func TestUpdateLLMModelTrimsChatCompletionsPath(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
+	// 铺垫一个同用途启用模型接管默认，再禁用目标，使目标可被编辑。
+	if _, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	}); err != nil {
+		t.Fatalf("Create second failed: %v", err)
+	}
+	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err != nil {
+		t.Fatalf("Disable model failed: %v", err)
+	}
 
 	baseURL := "https://example.com/v1/chat/completions/"
+	purpose := types.LLMModelPurposeConversation
 	updated, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Name:    "gpt-4o-mini",
+		Purpose: &purpose,
 		BaseURL: &baseURL,
 	})
 	if err != nil {
@@ -570,16 +665,37 @@ func TestUpdateLLMModelUpdatesMaskedAPIKeyWhenProvided(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
+	// 铺垫一个同用途启用模型接管默认，再禁用目标，使目标可被编辑。
+	if _, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	}); err != nil {
+		t.Fatalf("Create second failed: %v", err)
+	}
+	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err != nil {
+		t.Fatalf("Disable model failed: %v", err)
+	}
 
 	newAPIKey := "sk-new-abcdefgh"
+	purpose := types.LLMModelPurposeConversation
 	updated, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		APIKey: &newAPIKey,
+		Name:    "gpt-4o-mini",
+		Purpose: &purpose,
+		APIKey:  &newAPIKey,
 	})
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
@@ -609,6 +725,8 @@ func TestUpdateLLMModelRedetectsBaseURLHasV1WhenBaseURLChanges(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
@@ -618,11 +736,30 @@ func TestUpdateLLMModelRedetectsBaseURLHasV1WhenBaseURLChanges(t *testing.T) {
 	if !model.BaseURLHasV1 {
 		t.Fatal("expected initial BaseURLHasV1=true")
 	}
+	// 铺垫一个同用途启用模型接管默认，再禁用目标，使目标可被编辑。
+	if _, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	}); err != nil {
+		t.Fatalf("Create second failed: %v", err)
+	}
+	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err != nil {
+		t.Fatalf("Disable model failed: %v", err)
+	}
 
 	// Switch probe to no-v1 success and update base URL
 	m2 := managerWithProbe(database, mockProbeSuccessNoV1)
 	baseURL := "https://custom.api.com"
+	purpose := types.LLMModelPurposeConversation
 	updated, err := m2.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Name:    "gpt-4o-mini",
+		Purpose: &purpose,
 		BaseURL: &baseURL,
 	})
 	if err != nil {
@@ -649,17 +786,38 @@ func TestUpdateLLMModelFailsWhenProbeFailsAfterRelevantChange(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
+	// 铺垫一个同用途启用模型接管默认，再禁用目标，使目标可被编辑。
+	if _, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	}); err != nil {
+		t.Fatalf("Create second failed: %v", err)
+	}
+	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err != nil {
+		t.Fatalf("Disable model failed: %v", err)
+	}
 
 	// Update with a manager that will fail the probe
 	failMgr := managerWithProbe(database, mockProbeAlwaysFail)
 	baseURL := "https://dead.endpoint.com"
+	purpose := types.LLMModelPurposeConversation
 	_, err = failMgr.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Name:    "gpt-4o-mini",
+		Purpose: &purpose,
 		BaseURL: &baseURL,
 	})
 	if err == nil {
@@ -667,6 +825,117 @@ func TestUpdateLLMModelFailsWhenProbeFailsAfterRelevantChange(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "connectivity test failed") {
 		t.Fatalf("expected connectivity failure error, got %q", err.Error())
+	}
+}
+
+// TestUpdateEnabledModelRejected 验证启用中的模型不可编辑业务配置（仅 status 变更除外）。
+func TestUpdateEnabledModelRejected(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	purpose := types.LLMModelPurposeConversation
+	_, err = m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Name:    "试图修改名称",
+		Purpose: &purpose,
+	})
+	if err == nil {
+		t.Fatal("expected editing an enabled model to be rejected, got nil")
+	}
+	if err.Error() != "启用中的模型不可编辑，请先禁用" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestSetDefaultRequiresEnabled 验证只能将启用中的模型设为默认。
+func TestSetDefaultRequiresEnabled(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	// 铺垫一个启用模型接管默认，使目标成为可禁用的非默认模型。
+	defaultModel, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider:  string(types.LLMProviderOpenAI),
+		Model:     "gpt-4o-mini",
+		Name:      "gpt-4o-mini",
+		Purpose:   types.LLMModelPurposeConversation,
+		BaseURL:   "https://api.openai.com/v1",
+		APIKey:    "sk-test-1234567890",
+		IsDefault: true,
+	})
+	if err != nil {
+		t.Fatalf("Create default failed: %v", err)
+	}
+	target, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create target failed: %v", err)
+	}
+	if _, err := m.Update(ctx, testOrgID, target.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err != nil {
+		t.Fatalf("Disable target failed: %v", err)
+	}
+
+	isDefault := true
+	_, err = m.Update(ctx, testOrgID, target.ID, &UpdateRequest{
+		IsDefault: &isDefault,
+	})
+	if err == nil {
+		t.Fatal("expected setting a disabled model as default to be rejected, got nil")
+	}
+	if err.Error() != "只能将启用中的模型设为默认" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = defaultModel.ID
+}
+
+// TestDeleteEnabledModelRejected 验证启用中的模型不可删除。
+func TestDeleteEnabledModelRejected(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		Name:     "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	err = m.Delete(ctx, testOrgID, model.ID)
+	if err == nil {
+		t.Fatal("expected deleting an enabled model to be rejected, got nil")
+	}
+	if err.Error() != "启用中的模型不可删除，请先禁用" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var exists int64
+	if err := database.Model(&types.LLMModel{}).Where("id = ?", model.ID).Count(&exists).Error; err != nil {
+		t.Fatalf("count failed: %v", err)
+	}
+	if exists != 1 {
+		t.Fatalf("expected model to remain after rejected delete, got %d rows", exists)
 	}
 }
 
@@ -679,6 +948,8 @@ func TestDeleteLLMModelRejectOnlyDefault(t *testing.T) {
 	model, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:  string(types.LLMProviderOpenAI),
 		Model:     "gpt-4o-mini",
+		Name:      "gpt-4o-mini",
+		Purpose:   types.LLMModelPurposeConversation,
 		BaseURL:   "https://api.openai.com/v1",
 		APIKey:    "sk-test-1234567890",
 		IsDefault: true,
@@ -695,14 +966,17 @@ func TestDeleteLLMModelRejectOnlyDefault(t *testing.T) {
 	}
 }
 
-// TestDeleteDefaultBackfillsAnother 验证删除某类默认模型时，若该类还有其他 active 模型，会自动回填为默认。
-func TestDeleteDefaultBackfillsAnother(t *testing.T) {
+// TestDisableDefaultBackfillsAnother 验证禁用默认模型时，若该类还有其他启用模型，
+// 会自动回填为默认，从而让默认模型可被禁用。
+func TestDisableDefaultBackfillsAnother(t *testing.T) {
 	m, _ := setupManager(t)
 	ctx := context.Background()
 
 	first, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider:  string(types.LLMProviderOpenAI),
 		Model:     "gpt-4o-mini",
+		Name:      "gpt-4o-mini",
+		Purpose:   types.LLMModelPurposeConversation,
 		BaseURL:   "https://api.openai.com/v1",
 		APIKey:    "sk-test-1234567890",
 		IsDefault: true,
@@ -715,6 +989,8 @@ func TestDeleteDefaultBackfillsAnother(t *testing.T) {
 	second, err := m.Create(ctx, testOrgID, &CreateRequest{
 		Provider: string(types.LLMProviderOpenAI),
 		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
 		BaseURL:  "https://api.openai.com/v1",
 		APIKey:   "sk-test-1234567890",
 	})
@@ -723,16 +999,48 @@ func TestDeleteDefaultBackfillsAnother(t *testing.T) {
 	}
 	_ = second.ID
 
-	if err := m.Delete(ctx, testOrgID, first.ID); err != nil {
-		t.Fatalf("Delete default failed: %v", err)
+	// 禁用默认模型：应自动回填 second 为默认。
+	if _, err := m.Update(ctx, testOrgID, first.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err != nil {
+		t.Fatalf("Disable default failed: %v", err)
 	}
-	// 类内仅剩 second，应自动成为默认。
+	// 类内仅剩 second 启用，应自动成为默认。
 	defaultModel, err := m.GetDefault(ctx, testOrgID)
 	if err != nil {
 		t.Fatalf("GetDefault failed: %v", err)
 	}
 	if defaultModel == nil || defaultModel.ID != second.ID {
 		t.Fatalf("expected %d to become default, got %+v", second.ID, defaultModel)
+	}
+}
+
+// TestDisableOnlyDefaultRejected 验证当某类仅有一个启用的默认模型、无其他启用模型可回填时，
+// 禁用该默认模型会被拒绝，以保证该类始终保留一个启用中的默认。
+func TestDisableOnlyDefaultRejected(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider:  string(types.LLMProviderOpenAI),
+		Model:     "gpt-4o-mini",
+		Name:      "gpt-4o-mini",
+		Purpose:   types.LLMModelPurposeConversation,
+		BaseURL:   "https://api.openai.com/v1",
+		APIKey:    "sk-test-1234567890",
+		IsDefault: true,
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
+		Status: string(types.LLMModelStatusInactive),
+	}); err == nil {
+		t.Fatal("expected disabling the only default model to fail, got nil")
+	}
+	if count := countDefaultLLMModels(t, database, testOrgID); count != 1 {
+		t.Fatalf("expected default model preserved, got %d", count)
 	}
 }
 

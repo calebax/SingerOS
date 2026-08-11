@@ -118,6 +118,11 @@ export class ModelSliceImpl {
 		await this.fetchModels();
 	};
 
+	setStatus = async (id: number, status: string) => {
+		await modelApi.update({ id, status });
+		await this.fetchModels();
+	};
+
 	testModel = (params: Parameters<typeof modelApi.test>[0]) => modelApi.test(params);
 
 	resetAuthScopedData = () => {
