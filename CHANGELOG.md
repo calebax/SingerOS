@@ -11,6 +11,7 @@
 - Helm 新增 account 服务及内置 MySQL/Redis，支持统一登录；修复 MySQL DSN 生成格式
 - Eino ReAct 迭代上限调整为 30
 - 桌面端支持 localStorage 覆盖开关，便于本地调试私有化模式
+- macOS 正式版调试快捷键改为仅应用聚焦时生效的 Command+Option+Shift+I，避免功能键冲突与状态误判
 - 修复 AI 队友模板失效头像 seed 覆盖重传，并支持匿名访问 system 文件
 - 补充 Worker 状态查询文档与 llm.vision 多模态配置示例
 
