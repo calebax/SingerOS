@@ -80,7 +80,7 @@ export function ModelManagementView() {
 			data-slot="model-management-view"
 			className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-white"
 		>
-			<div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+			<div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-6">
 				<h2 className="text-lg font-semibold text-slate-900">模型管理</h2>
 				<div className="flex items-center gap-3">
 					<Button size="sm" onClick={() => setCreateOpen(true)}>
@@ -188,15 +188,17 @@ export function ModelManagementView() {
 													<DropdownMenuItem onClick={() => setEditTarget(item)}>
 														编辑
 													</DropdownMenuItem>
-													<DropdownMenuSeparator />
 													{!item.isSystem ? (
-														<DropdownMenuItem
-															variant="destructive"
-															onClick={() => setDeleteTarget(item)}
-														>
-															<Trash2 className="size-4" />
-															删除
-														</DropdownMenuItem>
+														<>
+															<DropdownMenuSeparator />
+															<DropdownMenuItem
+																variant="destructive"
+																onClick={() => setDeleteTarget(item)}
+															>
+																<Trash2 className="size-4" />
+																删除
+															</DropdownMenuItem>
+														</>
 													) : null}
 												</DropdownMenuContent>
 											</DropdownMenu>
