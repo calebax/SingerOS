@@ -35,7 +35,19 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
 // 项目列表由测试按需覆写
 let mockProjects: { id: string; name: string }[] = [];
 
-const { storeMock } = vi.hoisted(() => ({
+const { skillPickerMock, storeMock } = vi.hoisted(() => ({
+	skillPickerMock: {
+		skillOptions: [
+			{
+				code: "daily-report",
+				label: "日报 Skill",
+				description: "生成日报",
+				keywords: ["日报", "daily-report"],
+				source: "organization" as const,
+			},
+		],
+		skillsLoading: false,
+	},
 	storeMock: {
 		createAutomation: vi.fn(async () => ({ ok: true, status: undefined })),
 		updateAutomation: vi.fn(async () => ({ ok: true, status: undefined })),
@@ -54,6 +66,10 @@ vi.mock("@leros/store", () => ({
 			projects: mockProjects,
 			fetchProjects: storeMock.fetchProjects,
 		}),
+}));
+
+vi.mock("../input/useComposerSkillOptions", () => ({
+	useComposerSkillOptions: () => skillPickerMock,
 }));
 
 function renderDialog(props: Partial<Parameters<typeof AutomationFormDialog>[0]> = {}) {
@@ -221,6 +237,61 @@ describe("AutomationFormDialog 周/月多选", () => {
 	});
 });
 
+describe("AutomationFormDialog Skill 指令", () => {
+	it("输入 / 选择 Skill 后按 Enter 创建自动化", async () => {
+		const user = setupUser();
+		renderDialog();
+
+		await user.type(screen.getByPlaceholderText("例如：AI 热点日报"), "日报自动化");
+		const textbox = screen.getByRole("textbox", { name: /输入 \/ 选择技能/ });
+		await user.click(textbox);
+		await user.keyboard("/");
+		const picker = await screen.findByRole("dialog", { name: "选择技能" });
+		expect(picker).toHaveClass("w-[min(300px,calc(100vw-2rem))]", "rounded-xl");
+		expect(picker.closest("[data-slot='dialog-content']")).toBeNull();
+		expect(picker.parentElement).toHaveAttribute("data-skill-picker-positioner");
+		await user.click(await screen.findByText("日报 Skill"));
+
+		await waitFor(() => {
+			expect(textbox.querySelector('[data-mention-kind="skill"]')).toBeInTheDocument();
+			expect(textbox).toHaveTextContent("daily-report");
+		});
+		await waitFor(() => expect(document.activeElement).toBe(textbox));
+		await user.keyboard("{Enter}");
+
+		await waitFor(() =>
+			expect(storeMock.createAutomation).toHaveBeenCalledWith(
+				expect.objectContaining({
+					name: "日报自动化",
+					instruction: "/daily-report",
+				}),
+			),
+		);
+	});
+
+	it("编辑已有指令时恢复已知 Skill token", async () => {
+		const editTarget: AutomationItem = {
+			publicId: "auto-skill",
+			name: "日报自动化",
+			instruction: "请使用 /daily-report 生成日报",
+			enabled: true,
+			scheduleMode: "schedule",
+			timezone: "Asia/Shanghai",
+			assistantId: 1,
+			summary: "",
+			hasActiveExecution: false,
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		renderDialog({ editTarget });
+
+		const textbox = await screen.findByRole("textbox", { name: /输入 \/ 选择技能/ });
+		await waitFor(() => {
+			expect(textbox.querySelector('[data-mention-kind="skill"]')).toBeInTheDocument();
+		});
+	});
+});
+
 describe("AutomationFormDialog 关联项目选择", () => {
 	it("创建默认显示“新项目”，提交不携带 project_public_id", async () => {
 		mockProjects = [
@@ -236,7 +307,7 @@ describe("AutomationFormDialog 关联项目选择", () => {
 
 		// 填写必填项后保存
 		await user.type(screen.getByPlaceholderText(/例如：AI 热点日报/), "自动化一");
-		await user.type(screen.getByPlaceholderText(/每轮执行时发送/), "生成日报");
+		await user.type(screen.getByRole("textbox", { name: /输入 \/ 选择技能/ }), "生成日报");
 		await user.click(screen.getByRole("button", { name: "创建" }));
 
 		expect(storeMock.createAutomation).toHaveBeenCalledWith(
@@ -253,7 +324,7 @@ describe("AutomationFormDialog 关联项目选择", () => {
 		renderDialog();
 
 		await user.type(screen.getByPlaceholderText(/例如：AI 热点日报/), "自动化一");
-		await user.type(screen.getByPlaceholderText(/每轮执行时发送/), "生成日报");
+		await user.type(screen.getByRole("textbox", { name: /输入 \/ 选择技能/ }), "生成日报");
 
 		// 打开项目选择器并选中“项目乙”
 		const trigger = screen.getByRole("button", { name: /^新项目$/ });

@@ -38,6 +38,8 @@ import { Switch } from "@leros/ui/components/ui/switch";
 import { Check, ChevronsUpDown, Clock, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { StructuredComposer } from "../input/StructuredComposer";
+import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { ProjectIcon } from "../layout/project-icon";
 import {
 	type AutomationScheduleFormState,
@@ -95,6 +97,7 @@ export function AutomationFormDialog({
 	const [projectListReady, setProjectListReady] = useState(false);
 
 	const isEdit = Boolean(editTarget);
+	const { skillOptions, skillsLoading } = useComposerSkillOptions(selectedProjectId || null, open);
 	const nextRunPreview = useMemo(() => computeNextRunPreview(form), [form]);
 
 	// ListProjects 已按当前用户的项目绑定过滤；关联项目的最终可用性仍由保存接口权威校验。
@@ -385,13 +388,23 @@ export function AutomationFormDialog({
 							<span className="text-xs font-normal text-slate-700">
 								任务指令 <span className="text-red-500">*</span>
 							</span>
-							<textarea
-								value={instruction}
-								onChange={(e) => setInstruction(e.target.value)}
-								placeholder="每轮执行时发送给 Agent 的完整指令"
-								rows={3}
-								className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800 placeholder:text-slate-400 transition-colors focus:border-[#4f46e5] focus:outline-none"
-							/>
+							<div className="rounded-lg border border-slate-200 bg-white transition-colors focus-within:border-[#4f46e5] focus-within:outline-none">
+								<StructuredComposer
+									value={instruction}
+									onChange={setInstruction}
+									onSubmit={() => void handleSubmit()}
+									onPasteFiles={(event) => event.preventDefault()}
+									onFocus={() => undefined}
+									onBlur={() => undefined}
+									placeholder="每轮执行时发送给 Agent 的完整指令，输入 / 选择技能"
+									isProjectVariant
+									inputSize="compact"
+									pickerPlacement="bottom"
+									pickerSize="compact"
+									skillOptions={skillOptions}
+									skillsLoading={skillsLoading}
+								/>
+							</div>
 						</div>
 
 						{/* 关联项目（可选） */}
