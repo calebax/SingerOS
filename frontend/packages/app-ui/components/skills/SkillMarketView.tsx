@@ -185,11 +185,11 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 						variant="line"
 						className="!h-full self-stretch gap-6 rounded-none bg-transparent p-0"
 					>
-						<TabsTrigger value="mcp" className={PLUGIN_TAB_CLASS}>
-							MCP 连接器
-						</TabsTrigger>
 						<TabsTrigger value="skills" className={PLUGIN_TAB_CLASS}>
 							技能库
+						</TabsTrigger>
+						<TabsTrigger value="mcp" className={PLUGIN_TAB_CLASS}>
+							MCP 连接器
 						</TabsTrigger>
 					</TabsList>
 					<div aria-hidden="true" />
