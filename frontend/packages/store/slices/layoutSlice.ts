@@ -201,8 +201,10 @@ export type ViewMode =
 	| "project"
 	| "projectsHub"
 	| "taskDetail"
-	| "digitalAssistant"
-	| "aiTeammates"
+	| "orgProfile"
+	| "orgDepartments"
+	| "orgAssistants"
+	| "orgModels"
 	| "knowledge"
 	| "skills"
 	| "automation"
@@ -469,7 +471,7 @@ const _initialState: LayoutState = {
 			label: "",
 			items: [
 				{ id: "workbench", label: "新建任务", icon: "IconTask" },
-				{ id: "ai-teammates", label: "AI队友", icon: "IconAITeammate" },
+				// 中文注释：AI 队友入口已迁移至组织管理侧栏，主侧栏不再展示。
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "插件", icon: "IconSkill" },
 				// 中文注释：资源库入口暂时隐藏，恢复时取消下行注释。
