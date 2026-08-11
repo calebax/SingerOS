@@ -76,6 +76,7 @@ import { FeedbackDialog } from "../feedback/FeedbackDialog";
 import { OrgAdminDialog } from "../org-admin/OrgAdminDialog";
 import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 import { CanGate } from "../permission/CanGate";
+import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
 import { preventRailMenuClickThrough, runRailMenuAction } from "../project/ProjectActionsMenu";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
@@ -140,6 +141,7 @@ export function LeftRail({
 	logoSrc?: string;
 	navigation?: AppNavigation;
 }) {
+	const { logo: customBrandLogo, name: brandName } = useBrandIdentity();
 	const {
 		navGroups,
 		projects,
@@ -616,18 +618,38 @@ export function LeftRail({
 			<div className="leros-brand">
 				<div className="leros-brand-main">
 					<div className="leros-logo-placeholder" aria-hidden="true">
-						<img
-							src={logoSrc}
-							alt=""
-							className="leros-logo-image"
-							onError={(event) => {
-								event.currentTarget.hidden = true;
-							}}
-						/>
+						{customBrandLogo ? (
+							<ProtectedImage
+								src={customBrandLogo}
+								alt=""
+								className="leros-logo-image"
+								fallback={
+									<img
+										src={logoSrc}
+										alt=""
+										className="leros-logo-image"
+										onError={(event) => {
+											event.currentTarget.hidden = true;
+										}}
+									/>
+								}
+							/>
+						) : (
+							<img
+								src={logoSrc}
+								alt=""
+								className="leros-logo-image"
+								onError={(event) => {
+									event.currentTarget.hidden = true;
+								}}
+							/>
+						)}
 						<Network className="size-5" />
 					</div>
 					<div className="leros-sidebar-expandable min-w-0">
-						<div className="leros-brand-title">Lework</div>
+						<div className="leros-brand-title" title={brandName}>
+							{brandName}
+						</div>
 						<div className="leros-brand-version">{brandVersionLabel}</div>
 					</div>
 				</div>

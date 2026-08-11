@@ -48,7 +48,8 @@ export function AppRoutes() {
 
 				<Route path="/skills" element={<SkillMarketView navigation={navigation} />} />
 
-				<Route path="/knowledge" element={<EmptyRoutePage />} />
+				{/* 中文注释：资源库路由暂时隐藏，直接访问时回退到工作台。 */}
+				<Route path="/knowledge" element={<Navigate to="/workbench" replace />} />
 
 				<Route path="/automation" element={<AutomationListView navigation={navigation} />} />
 

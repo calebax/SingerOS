@@ -472,7 +472,8 @@ const _initialState: LayoutState = {
 				{ id: "ai-teammates", label: "AI队友", icon: "IconAITeammate" },
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "插件", icon: "IconSkill" },
-				{ id: "knowledge", label: "资源库", icon: "IconKnowledge" },
+				// 中文注释：资源库入口暂时隐藏，恢复时取消下行注释。
+				// { id: "knowledge", label: "资源库", icon: "IconKnowledge" },
 				{ id: "automation", label: "自动化", icon: "IconAutomation" },
 			],
 		},

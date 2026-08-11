@@ -34,6 +34,20 @@ export type {
 } from "./api/clientUpdatePolicy";
 export { CLIENT_UPGRADE_REQUIRED_EVENT, getClientVersionReport } from "./api/clientUpdatePolicy";
 export {
+	BRAND_LOGO_STORAGE_KEY,
+	BRAND_NAME_STORAGE_KEY,
+	BRANDING_CHANGED_EVENT,
+	BRANDING_SETTINGS_ENABLED_STORAGE_KEY,
+	clearBrandLogo,
+	DEFAULT_BRAND_NAME,
+	isBrandingSettingsEnabled,
+	readBrandLogo,
+	readBrandName,
+	readCustomBrandName,
+	saveBrandLogo,
+	saveBrandName,
+} from "./api/branding";
+export {
 	API_BASE_URL,
 	hasPrivateServerConfiguration,
 	isPrivateDeployment,
