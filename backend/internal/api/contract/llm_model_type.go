@@ -68,6 +68,11 @@ type SetLLMModelStatusRequest struct {
 	Status string `json:"status" binding:"required"`
 }
 
+// SetDefaultLLMModelRequest 将指定LLM模型设为所属用途的默认模型请求
+type SetDefaultLLMModelRequest struct {
+	ID uint `json:"id" binding:"required"`
+}
+
 // ListLLMModelsRequest 查询LLM模型配置列表请求
 type ListLLMModelsRequest struct {
 	Provider *string `json:"provider,omitempty"`

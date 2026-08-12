@@ -26,6 +26,7 @@ func (h *LLMModelHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/GetLLMModel", h.GetLLMModel)
 	r.POST("/GetDefaultLLMModel", h.GetDefaultLLMModel)
 	r.POST("/UpdateLLMModel", h.UpdateLLMModel)
+	r.POST("/SetDefaultLLMModel", h.SetDefaultLLMModel)
 	r.POST("/SetLLMModelStatus", h.SetLLMModelStatus)
 	r.POST("/DeleteLLMModel", h.DeleteLLMModel)
 	r.POST("/ListLLMModels", h.ListLLMModels)
@@ -158,6 +159,34 @@ func (h *LLMModelHandler) UpdateLLMModel(ctx *gin.Context) {
 	}
 
 	result, err := h.service.UpdateLLMModel(ctx, req.ID, &req.UpdateLLMModelRequest)
+	if err != nil {
+		handleLLMModelServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 设为默认LLM模型
+// @Description 将指定ID的LLM模型设为所属用途的默认模型
+// @Tags LLMModel
+// @Accept json
+// @Produce json
+// @Param body body contract.SetDefaultLLMModelRequest true "设为默认LLM模型请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 403 {object} dto.ErrorResponse "权限不足"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /SetDefaultLLMModel [post]
+func (h *LLMModelHandler) SetDefaultLLMModel(ctx *gin.Context) {
+	var req contract.SetDefaultLLMModelRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.SetDefaultLLMModel(ctx, req.ID)
 	if err != nil {
 		handleLLMModelServiceError(ctx, err)
 		return

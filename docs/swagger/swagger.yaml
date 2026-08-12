@@ -589,6 +589,13 @@ definitions:
     required:
     - session_id
     type: object
+  contract.SetDefaultLLMModelRequest:
+    properties:
+      id:
+        type: integer
+    required:
+    - id
+    type: object
   contract.SetLLMModelStatusRequest:
     properties:
       id:
@@ -3377,6 +3384,48 @@ paths:
       summary: 订阅会话事件流
       tags:
       - Session
+  /SetDefaultLLMModel:
+    post:
+      consumes:
+      - application/json
+      description: 将指定ID的LLM模型设为所属用途的默认模型
+      parameters:
+      - description: 设为默认LLM模型请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.SetDefaultLLMModelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 设为默认LLM模型
+      tags:
+      - LLMModel
   /SetLLMModelStatus:
     post:
       consumes:

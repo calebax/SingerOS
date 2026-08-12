@@ -1026,6 +1026,126 @@ func TestDisableOnlyDefaultRejected(t *testing.T) {
 	}
 }
 
+// TestSetDefaultOnlyActive 验证只能将启用中的模型设为默认，禁用中的模型会被拒绝。
+func TestSetDefaultOnlyActive(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	// 铺垫一个启用模型接管默认，使目标成为可禁用的非默认模型。
+	if _, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider:  string(types.LLMProviderOpenAI),
+		Model:     "gpt-4o-mini",
+		Name:      "gpt-4o-mini",
+		Purpose:   types.LLMModelPurposeConversation,
+		BaseURL:   "https://api.openai.com/v1",
+		APIKey:    "sk-test-1234567890",
+		IsDefault: true,
+	}); err != nil {
+		t.Fatalf("Create default failed: %v", err)
+	}
+	disabled, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create target failed: %v", err)
+	}
+	if _, err := m.SetStatus(ctx, testOrgID, disabled.ID, string(types.LLMModelStatusInactive)); err != nil {
+		t.Fatalf("Disable target failed: %v", err)
+	}
+
+	if _, err := m.SetDefault(ctx, testOrgID, disabled.ID); err == nil {
+		t.Fatal("expected setting a disabled model as default to be rejected, got nil")
+	} else if err.Error() != "只能将启用中的模型设为默认" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestSetDefaultSamePurposeUniqueness 验证设为默认后，同用途下其他默认模型被清除，保证唯一性。
+func TestSetDefaultSamePurposeUniqueness(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	first, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider:  string(types.LLMProviderOpenAI),
+		Model:     "gpt-4o-mini",
+		Name:      "gpt-4o-mini",
+		Purpose:   types.LLMModelPurposeConversation,
+		BaseURL:   "https://api.openai.com/v1",
+		APIKey:    "sk-test-1234567890",
+		IsDefault: true,
+	})
+	if err != nil {
+		t.Fatalf("first Create failed: %v", err)
+	}
+	second, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Provider: string(types.LLMProviderDeepSeek),
+		Model:    "deepseek-chat",
+		Name:     "deepseek-chat",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.deepseek.com/v1",
+		APIKey:   "sk-test-abcdefgh",
+	})
+	if err != nil {
+		t.Fatalf("second Create failed: %v", err)
+	}
+
+	got, err := m.SetDefault(ctx, testOrgID, second.ID)
+	if err != nil {
+		t.Fatalf("SetDefault failed: %v", err)
+	}
+	if got == nil || !got.IsDefault || got.ID != second.ID {
+		t.Fatalf("expected %d to become default, got %+v", second.ID, got)
+	}
+	// 同用途内应仅保留一个默认。
+	if count := countDefaultLLMModels(t, database, testOrgID); count != 1 {
+		t.Fatalf("expected exactly one default in purpose, got %d", count)
+	}
+	storedFirst, err := dbrepo.GetLLMModelByID(ctx, database, first.ID)
+	if err != nil {
+		t.Fatalf("GetLLMModelByID first failed: %v", err)
+	}
+	if storedFirst.IsDefault {
+		t.Fatalf("expected first model to lose default flag, still default")
+	}
+}
+
+// TestSetDefaultNotFound 验证设为默认的模型不存在时报错。
+func TestSetDefaultNotFound(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	if _, err := m.SetDefault(ctx, testOrgID, 99999); err == nil || err.Error() != "llm model not found" {
+		t.Fatalf("expected llm model not found, got %v", err)
+	}
+}
+
+// TestSetDefaultPermissionDenied 验证无法将其他组织的模型设为默认。
+func TestSetDefaultPermissionDenied(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, 999, &CreateRequest{
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o",
+		Name:     "gpt-4o",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create other-org model failed: %v", err)
+	}
+
+	if _, err := m.SetDefault(ctx, testOrgID, model.ID); err == nil || err.Error() != "permission denied" {
+		t.Fatalf("expected permission denied, got %v", err)
+	}
+}
+
 func TestSetStatusEnableDisable(t *testing.T) {
 	m, database := setupManager(t)
 	ctx := context.Background()
