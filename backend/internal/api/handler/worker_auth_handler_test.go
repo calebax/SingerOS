@@ -19,16 +19,38 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
+func setupWorkerAuthTestDatabase(t *testing.T, orgID, workerID uint) *gorm.DB {
+	t.Helper()
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.DigitalAssistant{}, &types.WorkerDeployment{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+	if err := database.Create(&types.DigitalAssistant{
+		Model:    gorm.Model{ID: workerID},
+		PublicID: "agent-config",
+		OrgID:    orgID,
+		Name:     "Config Agent",
+		Status:   string(types.DigitalAssistantStatusActive),
+	}).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	return database
+}
+
 func TestWorkerAuthHandlerIssueToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	database := setupWorkerAuthTestDatabase(t, 3, 7)
 	cfg := &config.WorkerAuthConfig{
 		BootstrapTokens: []config.WorkerBootstrapToken{
 			{OrgID: 3, WorkerID: 7, Token: "bootstrap-token"},
 		},
 		TokenTTLSeconds: 3600,
 	}
-	parser := oss.NewTokenParser(nil, "jwt-secret", cfg)
+	parser := oss.NewTokenParser(database, "jwt-secret", cfg)
 	RegisterWorkerAuthRoutes(router, parser)
 
 	body, err := json.Marshal(map[string]uint{
@@ -74,12 +96,13 @@ func TestWorkerAuthHandlerIssueToken(t *testing.T) {
 func TestWorkerAuthHandlerRejectsWrongBootstrapToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	database := setupWorkerAuthTestDatabase(t, 3, 7)
 	cfg := &config.WorkerAuthConfig{
 		BootstrapTokens: []config.WorkerBootstrapToken{
 			{OrgID: 3, WorkerID: 7, Token: "bootstrap-token"},
 		},
 	}
-	parser := oss.NewTokenParser(nil, "jwt-secret", cfg)
+	parser := oss.NewTokenParser(database, "jwt-secret", cfg)
 	RegisterWorkerAuthRoutes(router, parser)
 
 	body := []byte(`{"org_id":3,"worker_id":7}`)

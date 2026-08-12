@@ -1,10 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 
 import type { QuestionRequest } from "@leros/store/types/chat";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
+
+afterEach(cleanup);
 
 function makeQuestion(overrides: Partial<QuestionRequest> = {}): QuestionRequest {
 	return {

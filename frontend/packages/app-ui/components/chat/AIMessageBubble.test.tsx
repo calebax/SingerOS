@@ -10,6 +10,7 @@ vi.mock("@leros/store", () => ({
 	formatArtifactTime: () => "",
 	formatTime: () => "10:00",
 	formatTokenCount: (count: number) => String(count),
+	readBrandName: () => "Lework",
 	fetchFilePreviewByPublicId: vi.fn(async () => new Response("完整计划内容")),
 	messageArtifactToProjectArtifact: vi.fn(),
 	sortProjectArtifactsByNewestFirst: (artifacts: unknown[]) => artifacts,

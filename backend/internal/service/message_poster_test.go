@@ -2,15 +2,41 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
+	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
+
+func loadQueuedWorkerCommand(t *testing.T, database *gorm.DB, messageID uint) messaging.WorkerCommand {
+	t.Helper()
+	task, err := infradb.GetReliableTaskBySource(
+		context.Background(),
+		database,
+		"session_message",
+		strconv.FormatUint(uint64(messageID), 10),
+	)
+	if err != nil {
+		t.Fatalf("get queued worker task: %v", err)
+	}
+	if task == nil {
+		t.Fatal("queued worker task not found")
+	}
+	var command messaging.WorkerCommand
+	if err := json.Unmarshal(task.Payload, &command); err != nil {
+		t.Fatalf("decode queued worker command: %v", err)
+	}
+	return command
+}
 
 func TestMessagePosterPostMessageFillsSenderNameFromUserOrgUin(t *testing.T) {
 	database := setupTestDB(t)
@@ -154,7 +180,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	_, err := poster.PostMessage(ctx, session, "", func(sequence int64) *types.SessionMessage {
+	message, err := poster.PostMessage(ctx, session, "", func(sequence int64) *types.SessionMessage {
 		return &types.SessionMessage{
 			Role:        string(types.MessageRoleUser),
 			Content:     "帮我检查投标风险",
@@ -168,10 +194,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 		t.Fatalf("PostMessage failed: %v", err)
 	}
 
-	cmd, ok := recorder.event.(messaging.WorkerCommand)
-	if !ok {
-		t.Fatalf("published event = %T, want messaging.WorkerCommand", recorder.event)
-	}
+	cmd := loadQueuedWorkerCommand(t, database, message.ID)
 	if cmd.Trace.ReqID != "test-request-id" {
 		t.Fatalf("command req_id = %q, want test-request-id", cmd.Trace.ReqID)
 	}
@@ -258,7 +281,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 		t.Fatalf("create session: %v", err)
 	}
 
-	_, err := poster.PostMessage(ctx, session, "", func(sequence int64) *types.SessionMessage {
+	message, err := poster.PostMessage(ctx, session, "", func(sequence int64) *types.SessionMessage {
 		return &types.SessionMessage{
 			Role:        string(types.MessageRoleUser),
 			Content:     "帮我审查合同风险",
@@ -272,10 +295,7 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 		t.Fatalf("PostMessage failed: %v", err)
 	}
 
-	cmd, ok := recorder.event.(messaging.WorkerCommand)
-	if !ok {
-		t.Fatalf("published event = %T, want messaging.WorkerCommand", recorder.event)
-	}
+	cmd := loadQueuedWorkerCommand(t, database, message.ID)
 	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
 	if err != nil {
 		t.Fatalf("decode run command: %v", err)

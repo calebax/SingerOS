@@ -239,51 +239,6 @@ func TestUpdateUser_NotFound(t *testing.T) {
 	}
 }
 
-func TestDeleteUser_Success(t *testing.T) {
-	router, db := setupUserTest(t)
-	createTestUser(t, router, db, "张三")
-
-	lw := doRequest(t, router, "/ListUser", `{}`)
-	lresp := parseResponse(t, lw)
-	lresult := parseData[userListResult](t, lresp)
-	if len(lresult.Items) == 0 {
-		t.Fatal("expected at least one user in list")
-	}
-	publicID := lresult.Items[0].PublicID
-
-	dw := doRequest(t, router, "/DeleteUser", fmt.Sprintf(`{"public_id":"%s"}`, publicID))
-	if dw.Code != http.StatusOK {
-		t.Fatalf("DeleteUser expected 200, got %d: %s", dw.Code, dw.Body.String())
-	}
-	dresp := parseResponse(t, dw)
-	if dresp.Code != dto.CodeSuccess {
-		t.Fatalf("expected code %d, got %d", dto.CodeSuccess, dresp.Code)
-	}
-
-	gw := doRequest(t, router, "/GetUser", fmt.Sprintf(`{"public_id":"%s"}`, publicID))
-	if gw.Code != http.StatusInternalServerError {
-		t.Fatalf("GetUser after delete expected 500, got %d: %s", gw.Code, gw.Body.String())
-	}
-}
-
-func TestDeleteUser_NotFound(t *testing.T) {
-	router, _ := setupUserTest(t)
-	w := doRequest(t, router, "/DeleteUser", `{"public_id":"usr_nonexistent"}`)
-
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestDeleteUser_MissingPublicID(t *testing.T) {
-	router, _ := setupUserTest(t)
-	w := doRequest(t, router, "/DeleteUser", `{}`)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestListUser_All(t *testing.T) {
 	router, db := setupUserTest(t)
 	createTestUser(t, router, db, "张三")
@@ -350,7 +305,7 @@ func TestListUser_Pagination(t *testing.T) {
 	_ = doRequest(t, router, "/ListUser", `{"offset":2,"limit":2}`) // 分页第二页，不报错即可
 }
 
-func TestUserCRUDFlow(t *testing.T) {
+func TestUserCreateReadUpdateFlow(t *testing.T) {
 	router, db := setupUserTest(t)
 
 	createTestUser(t, router, db, "端到端测试")
@@ -384,15 +339,5 @@ func TestUserCRUDFlow(t *testing.T) {
 	user2 := parseData[userInfo](t, parseResponse(t, gw2))
 	if user2.Name != "端到端已更新" {
 		t.Fatalf("expected name 端到端已更新, got %s", user2.Name)
-	}
-
-	dw := doRequest(t, router, "/DeleteUser", fmt.Sprintf(`{"public_id":"%s"}`, publicID))
-	if dw.Code != http.StatusOK {
-		t.Fatalf("delete user expected 200, got %d: %s", dw.Code, dw.Body.String())
-	}
-
-	gw3 := doRequest(t, router, "/GetUser", fmt.Sprintf(`{"public_id":"%s"}`, publicID))
-	if gw3.Code != http.StatusInternalServerError {
-		t.Fatalf("get user after delete expected 500, got %d: %s", gw3.Code, gw3.Body.String())
 	}
 }

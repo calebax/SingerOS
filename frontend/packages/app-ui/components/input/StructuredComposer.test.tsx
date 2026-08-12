@@ -36,6 +36,15 @@ afterEach(() => {
 	cleanup();
 });
 
+function placeCaretAtEnd(element: HTMLElement) {
+	const range = document.createRange();
+	range.selectNodeContents(element);
+	range.collapse(false);
+	const selection = window.getSelection();
+	selection?.removeAllRanges();
+	selection?.addRange(range);
+}
+
 function TestHarness({
 	skillOptions,
 	onValueChange,
@@ -637,6 +646,7 @@ describe("StructuredComposer", () => {
 
 		const textbox = screen.getByRole("textbox", { name: "请输入" });
 		await user.click(textbox);
+		placeCaretAtEnd(textbox);
 		await user.keyboard("{Backspace}");
 
 		await waitFor(() => {
@@ -691,14 +701,17 @@ describe("StructuredComposer", () => {
 		await waitFor(() => {
 			expect(handleProjectTrigger).toHaveBeenLastCalledWith("leros");
 		});
+		handleProjectTrigger.mockClear();
 
 		await user.click(screen.getByRole("button", { name: "dismiss project menu" }));
+		await user.click(textbox);
+		placeCaretAtEnd(textbox);
 		await user.keyboard(" continue");
 
 		await waitFor(() => {
 			expect(handleValueChange).toHaveBeenLastCalledWith("#leros continue");
 		});
-		expect(handleProjectTrigger).toHaveBeenCalledTimes(1);
+		expect(handleProjectTrigger).not.toHaveBeenCalled();
 	});
 
 	it("单选模式下再次选择 AI 员工会替换旧选择", async () => {

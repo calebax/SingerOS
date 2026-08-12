@@ -229,7 +229,8 @@ func seedProjectWithFileTree(t *testing.T) (*gorm.DB, *types.Project, *types.Res
 
 func TestGetProjectFileTree_FiltersByFileView(t *testing.T) {
 	database, project, _ := seedProjectWithFileTree(t)
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil, NewSkillDisplayTranslationService(database))
+	permissionService := NewPermissionService(database, NewPermissionCore(database))
+	service := NewProjectService(database, permissionService, nil, nil, "test", nil, NewSkillDisplayTranslationService(database))
 
 	ownerCtx := setupTestContextWithCaller(t)
 	tree, err := service.GetProjectFileTree(ownerCtx, project.PublicID, contract.ProjectFileTreeQuery{})
@@ -252,7 +253,8 @@ func TestGetProjectFileTree_FiltersByFileView(t *testing.T) {
 
 func TestDownloadProjectFile_RequiresDownload(t *testing.T) {
 	database, project, _ := seedProjectWithFileTree(t)
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil, NewSkillDisplayTranslationService(database))
+	permissionService := NewPermissionService(database, NewPermissionCore(database))
+	service := NewProjectService(database, permissionService, nil, nil, "test", nil, NewSkillDisplayTranslationService(database))
 
 	outsiderCtx := setupTestContextWithCallerUin(t, 99)
 	_, _, _, err := service.DownloadProjectFile(outsiderCtx, project.PublicID, "uploads/report.pdf")
@@ -318,7 +320,10 @@ func TestBindProjectUserMembers_AdminCannotCreateOwner(t *testing.T) {
 	seedTestUser(t, database, "usr_target", 3)
 	seedProjectResourceBinding(t, database, 1, project.ID, 2, types.ResourceRoleAdmin)
 
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil, NewSkillDisplayTranslationService(database)).(*projectService)
+	permissionService := NewPermissionService(database, NewPermissionCore(database))
+	service := NewProjectService(database, permissionService, nil, nil, "test", newTestUserRepo(map[string]uint{
+		"usr_target": 3,
+	}), NewSkillDisplayTranslationService(database)).(*projectService)
 	adminCtx := setupTestContextWithCallerUin(t, 2)
 	err := service.bindProjectUserMembers(adminCtx, database, 1, resource.ID, project.ID, &types.Caller{
 		Uin:   2,
@@ -552,7 +557,9 @@ func TestSyncProjectAssistantMembers_OwnerCanAddAndRemoveAssistantBinding(t *tes
 		t.Fatalf("seed default assistant binding: %v", err)
 	}
 
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil, NewSkillDisplayTranslationService(database))
+	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", newTestUserRepo(map[string]uint{
+		"usr_test": 1,
+	}), NewSkillDisplayTranslationService(database))
 	ownerCtx := setupTestContextWithCaller(t)
 
 	if _, err := service.UpdateProject(ownerCtx, project.PublicID, &contract.UpdateProjectRequest{
@@ -617,7 +624,9 @@ func TestDetailProject_IncludesAllTasksWithoutPerTaskCan(t *testing.T) {
 		seedTaskResource(t, database, task, resource.ID)
 	}
 
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil, NewSkillDisplayTranslationService(database))
+	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", newTestUserRepo(map[string]uint{
+		"usr_test": 1,
+	}), NewSkillDisplayTranslationService(database))
 	detail, err := service.DetailProject(ctx, project.PublicID)
 	if err != nil {
 		t.Fatalf("DetailProject: %v", err)
@@ -658,7 +667,17 @@ func TestDetailProject_ReturnsUserProfileByMemberUin(t *testing.T) {
 	project, _ := seedProjectWithResource(t, database, "prj_detail_member_profile")
 	seedProjectResourceBinding(t, database, 1, project.ID, 17, types.ResourceRoleOwner)
 
-	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil, NewSkillDisplayTranslationService(database))
+	userRepo := &testUserRepo{
+		uinMap: map[string]uint{owner.PublicID: 17},
+		userInfos: map[uint]*account.UserInfo{
+			17: {
+				PublicID:  owner.PublicID,
+				Name:      owner.Name,
+				AvatarURL: owner.AvatarURL,
+			},
+		},
+	}
+	service := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", userRepo, NewSkillDisplayTranslationService(database))
 	detail, err := service.DetailProject(setupTestContextWithCallerUin(t, 17), project.PublicID)
 	if err != nil {
 		t.Fatalf("DetailProject: %v", err)

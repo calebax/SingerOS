@@ -194,7 +194,13 @@ func TestSendPhoneLoginAndLoginByPhoneCode(t *testing.T) {
 	if err := json.Unmarshal(data, &tokenResult); err != nil {
 		t.Fatalf("unmarshal token: %v", err)
 	}
-	if tokenResult.JwtToken == "" {
-		t.Fatal("expected jwt_token, got empty")
+	if tokenResult.LoginStatus != account.LoginStatusSuccess {
+		t.Fatalf("expected login_status %q, got %q", account.LoginStatusSuccess, tokenResult.LoginStatus)
+	}
+	if tokenResult.RefreshToken == "" {
+		t.Fatal("expected refresh_token, got empty")
+	}
+	if tokenResult.JwtToken != "" {
+		t.Fatal("new user should choose an organization before receiving jwt_token")
 	}
 }

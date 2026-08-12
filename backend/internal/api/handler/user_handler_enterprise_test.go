@@ -66,8 +66,6 @@ func (m *mockIAMServer) handler(w http.ResponseWriter, r *http.Request) {
 		m.handleListEmployee(w, req.Request)
 	case "account.EditDepartmentEmployee":
 		m.handleEditDepartmentEmployee(w, req.Request)
-	case "account.DeleteUser":
-		m.handleDeleteUser(w, req.Request)
 	case "account.GetDepartmentTree":
 		m.handleDepartmentTree(w, req.Request)
 	default:
@@ -237,24 +235,6 @@ func (m *mockIAMServer) handleEditDepartmentEmployee(w http.ResponseWriter, raw 
 			"department_ids": []int{},
 		},
 	})
-}
-
-func (m *mockIAMServer) handleDeleteUser(w http.ResponseWriter, raw json.RawMessage) {
-	var req struct {
-		UserID uint `json:"user_id"`
-	}
-	_ = json.Unmarshal(raw, &req)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i, u := range m.users {
-		if u.ID == int(req.UserID) {
-			m.users = append(m.users[:i], m.users[i+1:]...)
-			m.write(w, 0, nil)
-			return
-		}
-	}
-	m.write(w, -1, map[string]string{"error": "user not found"})
 }
 
 func (m *mockIAMServer) handleListEmployee(w http.ResponseWriter, raw json.RawMessage) {
@@ -518,50 +498,6 @@ func TestEnterpriseUpdateUser_NotFound(t *testing.T) {
 	}
 }
 
-func TestEnterpriseDeleteUser_Success(t *testing.T) {
-	mock := newMockIAMServer()
-	defer mock.close()
-	router := setupEnterpriseUserHandler(t, mock)
-
-	createResult := createEnterpriseUser(t, router, "张三")
-
-	dw := doRequest(t, router, "/DeleteUser", fmt.Sprintf(`{"public_id":"%d"}`, createResult.UserID))
-	if dw.Code != http.StatusOK {
-		t.Fatalf("DeleteUser expected 200, got %d: %s", dw.Code, dw.Body.String())
-	}
-	dresp := parseResponse(t, dw)
-	if dresp.Code != dto.CodeSuccess {
-		t.Fatalf("expected code %d, got %d", dto.CodeSuccess, dresp.Code)
-	}
-
-	gw := doRequest(t, router, "/GetUser", fmt.Sprintf(`{"public_id":"%d"}`, createResult.UserID))
-	if gw.Code != http.StatusInternalServerError {
-		t.Fatalf("GetUser after delete expected 500, got %d: %s", gw.Code, gw.Body.String())
-	}
-}
-
-func TestEnterpriseDeleteUser_NotFound(t *testing.T) {
-	mock := newMockIAMServer()
-	defer mock.close()
-	router := setupEnterpriseUserHandler(t, mock)
-
-	w := doRequest(t, router, "/DeleteUser", `{"public_id":"99999"}`)
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestEnterpriseDeleteUser_MissingPublicID(t *testing.T) {
-	mock := newMockIAMServer()
-	defer mock.close()
-	router := setupEnterpriseUserHandler(t, mock)
-
-	w := doRequest(t, router, "/DeleteUser", `{}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestEnterpriseListUser_All(t *testing.T) {
 	mock := newMockIAMServer()
 	defer mock.close()
@@ -637,7 +573,7 @@ func TestEnterpriseListUser_Pagination(t *testing.T) {
 	_ = doRequest(t, router, "/ListUser", `{"offset":2,"limit":2}`)
 }
 
-func TestEnterpriseUserCRUDFlow(t *testing.T) {
+func TestEnterpriseUserCreateReadUpdateFlow(t *testing.T) {
 	mock := newMockIAMServer()
 	defer mock.close()
 	router := setupEnterpriseUserHandler(t, mock)
@@ -665,16 +601,6 @@ func TestEnterpriseUserCRUDFlow(t *testing.T) {
 	user2 := parseData[userInfo](t, parseResponse(t, gw2))
 	if user2.Name != "端到端已更新" {
 		t.Fatalf("expected name 端到端已更新, got %s", user2.Name)
-	}
-
-	dw := doRequest(t, router, "/DeleteUser", fmt.Sprintf(`{"public_id":"%d"}`, result.UserID))
-	if dw.Code != http.StatusOK {
-		t.Fatalf("delete user expected 200, got %d: %s", dw.Code, dw.Body.String())
-	}
-
-	gw3 := doRequest(t, router, "/GetUser", fmt.Sprintf(`{"public_id":"%d"}`, result.UserID))
-	if gw3.Code != http.StatusInternalServerError {
-		t.Fatalf("get user after delete expected 500, got %d: %s", gw3.Code, gw3.Body.String())
 	}
 }
 

@@ -61,6 +61,9 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&types.FileUpload{},
 		&types.ProjectFile{},
 		&types.WorkerDeployment{},
+		&types.ProjectPluginBinding{},
+		&types.Plugin{},
+		&types.PluginRevision{},
 	); err != nil {
 		t.Fatalf("failed to migrate test database: %v", err)
 	}
@@ -90,7 +93,6 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	}).Error; err != nil {
 		t.Fatalf("failed to seed test user org: %v", err)
 	}
-
 	return db
 }
 
@@ -220,6 +222,7 @@ func (m *mockInferrer) InferAssignedAssistantID(ctx context.Context, sessionOrgI
 func setupTestService(t *testing.T) contract.SessionService {
 	t.Helper()
 	db := setupTestDB(t)
+	seedReadyAssistant(t, db, "test-default", "Test Default Assistant", "You are a test assistant.")
 	inferrer := &mockInferrer{assistantID: 1}
 	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil, nil, nil)
 }
@@ -227,6 +230,7 @@ func setupTestService(t *testing.T) contract.SessionService {
 func createSessionServiceAndDB(t *testing.T) (contract.SessionService, *gorm.DB) {
 	t.Helper()
 	db := setupTestDB(t)
+	seedReadyAssistant(t, db, "test-default", "Test Default Assistant", "You are a test assistant.")
 	inferrer := &mockInferrer{assistantID: 1}
 	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil, nil, nil), db
 }
@@ -234,13 +238,16 @@ func createSessionServiceAndDB(t *testing.T) (contract.SessionService, *gorm.DB)
 func setupTestServiceWithDB(t *testing.T) (contract.SessionService, *gorm.DB) {
 	t.Helper()
 	db := setupTestDB(t)
+	seedReadyAssistant(t, db, "test-default", "Test Default Assistant", "You are a test assistant.")
 	inferrer := &mockInferrer{assistantID: 1}
-	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil, nil, nil), db
+	userRepo := newTestUserRepo(map[string]uint{"usr_test": 1})
+	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil, userRepo, nil), db
 }
 
 func setupTestServiceWithSubscriber(t *testing.T, subscriber mq.Subscriber) contract.SessionService {
 	t.Helper()
 	db := setupTestDB(t)
+	seedReadyAssistant(t, db, "test-default", "Test Default Assistant", "You are a test assistant.")
 	inferrer := &mockInferrer{assistantID: 1}
 	eb := &struct {
 		mq.Publisher
@@ -273,6 +280,13 @@ func setupTestContextWithCaller(t *testing.T) context.Context {
 
 func createTestSession(t *testing.T, database *gorm.DB, svc contract.SessionService, ctx context.Context) *types.Session {
 	t.Helper()
+	var assistantCount int64
+	if err := database.Model(&types.DigitalAssistant{}).Where("id = ?", 1).Count(&assistantCount).Error; err != nil {
+		t.Fatalf("count default assistant: %v", err)
+	}
+	if assistantCount == 0 {
+		seedReadyAssistant(t, database, "test-default", "Test Default Assistant", "You are a test assistant.")
+	}
 	session, err := svc.CreateSession(ctx, &contract.CreateSessionRequest{
 		Type:  string(types.SessionTypeUserChat),
 		Title: "test",
@@ -1108,7 +1122,7 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 		Status:      string(types.MessageStatusCancelled),
 		CreatedAt:   time.Now().UTC(),
 		RunID:       "run-abc-123",
-		AssistantID: "da_public_1",
+		AssistantID: "da-1",
 	})
 	if err != nil {
 		t.Fatalf("FailedSessionMessage failed: %v", err)
@@ -1592,8 +1606,9 @@ func TestGetSessionForCallerAllowsProjectMemberForTaskSession(t *testing.T) {
 	}
 }
 
-func TestPublishWorkerTaskHistoryContext(t *testing.T) {
+func TestPublishWorkerTaskHistoryContextStartsAfterLastAssistantReply(t *testing.T) {
 	database := setupTestDB(t)
+	seedReadyAssistant(t, database, "history-default", "History Assistant", "History")
 	bus := &recordingEventBus{}
 	poster := NewMessagePoster(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil)
 	ctx := setupTestContextWithCaller(t)
@@ -1671,38 +1686,21 @@ func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 		t.Fatalf("buildWorkerTask failed: %v", err)
 	}
 
-	cmd, ok := bus.event.(messaging.WorkerCommand)
-	if !ok {
-		t.Fatalf("expected WorkerCommand, got %T", bus.event)
-	}
 	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
 	if err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
 
 	messages := payload.Input.Messages
-	if len(messages) != 3 {
-		t.Fatalf("expected 3 input messages (2 history + 1 current), got %d: %+v", len(messages), messages)
+	if len(messages) != 1 {
+		t.Fatalf("expected only the current message after the last assistant reply, got %d: %+v", len(messages), messages)
 	}
 
-	if messages[0].SenderName != "张三" {
-		t.Errorf("history[0] sender_name = %q, want %q", messages[0].SenderName, "张三")
+	if messages[0].SenderName != "李四" {
+		t.Errorf("current sender_name = %q, want %q", messages[0].SenderName, "李四")
 	}
-	if messages[0].Role != messaging.MessageRole(types.MessageRoleUser) {
-		t.Errorf("history[0] role = %q, want %q", messages[0].Role, types.MessageRoleUser)
-	}
-	if messages[1].SenderName != "AI助手" {
-		t.Errorf("history[1] sender_name = %q, want %q", messages[1].SenderName, "AI助手")
-	}
-	if messages[1].Role != messaging.MessageRole(types.MessageRoleAssistant) {
-		t.Errorf("history[1] role = %q, want %q", messages[1].Role, types.MessageRoleAssistant)
-	}
-
-	if messages[2].SenderName != "李四" {
-		t.Errorf("current sender_name = %q, want %q", messages[2].SenderName, "李四")
-	}
-	if messages[2].Content != "这是当前消息" {
-		t.Errorf("current content = %q, want %q", messages[2].Content, "这是当前消息")
+	if messages[0].Content != "这是当前消息" {
+		t.Errorf("current content = %q, want %q", messages[0].Content, "这是当前消息")
 	}
 }
 
@@ -2091,16 +2089,9 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
 	t.Helper()
 	ctx := context.Background()
-	if err := database.Create(&types.DigitalAssistant{
-		PublicID:     "default-assistant",
-		OrgID:        1,
-		OwnerID:      1,
-		Name:         "Default Assistant",
-		Status:       "active",
-		SystemPrompt: "Default",
-		Source:       "custom",
-	}).Error; err != nil {
-		t.Fatalf("seed assistant: %v", err)
+	var assistant types.DigitalAssistant
+	if err := database.First(&assistant, 1).Error; err != nil {
+		t.Fatalf("get default assistant: %v", err)
 	}
 	resource, err := db.GetResourceByBizID(ctx, database, 1, types.ResourceTypeProject, projectID)
 	if err != nil {
@@ -2109,7 +2100,7 @@ func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
 	if resource == nil {
 		t.Fatalf("project resource required before seedProjectAssistant")
 	}
-	assistantID := uint(1)
+	assistantID := assistant.ID
 	if err := db.CreateResourceBinding(ctx, database, &types.ResourceBinding{
 		OrgID:       1,
 		AssistantID: &assistantID,
@@ -2117,15 +2108,6 @@ func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
 		Role:        types.ResourceRoleMember,
 	}); err != nil {
 		t.Fatalf("seed assistant binding: %v", err)
-	}
-	if err := database.Create(&types.WorkerDeployment{
-		OrgID:              1,
-		DigitalAssistantID: 1,
-		WorkerID:           1,
-		DeploymentName:     "dep-default",
-		Status:             string(types.WorkerDeploymentStatusReady),
-	}).Error; err != nil {
-		t.Fatalf("seed worker deployment: %v", err)
 	}
 }
 
