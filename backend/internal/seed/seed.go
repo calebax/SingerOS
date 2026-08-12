@@ -17,6 +17,8 @@ type Options struct {
 	LLMConfig *config.LLMConfig
 	// SQLScriptDir SQL 脚本目录（相对进程工作目录）；为空时跳过 SQL 种子。
 	SQLScriptDir string
+	// MCPConnectors 是由 server 配置声明的系统 MCP 连接器模板。
+	MCPConnectors []config.MCPConnectorConfig
 }
 
 // SeedCoreData 初始化核心数据：OSS 账号种子（默认组织/用户/用户组织关联/默认 worker 部署）+ 两版系统级 LLM 模型。
@@ -65,11 +67,11 @@ func Run(ctx context.Context, db *gorm.DB, edition adapter.Edition, opts Options
 		logBuiltinSkillReport("seed: built-in server skill", report)
 	}
 
-	// 5. 内置连接器模板（失败仅告警）
-	if report, err := service.SyncBuiltinConnectorTemplates(ctx, db, ""); err != nil {
-		logs.Warnf("seed: built-in connector sync skipped: %v", err)
+	// 5. 配置声明的系统连接器模板（失败仅告警）
+	if report, err := SyncConfiguredMCPConnectors(ctx, db, "", configuredMCPConnectorSpecs(opts.MCPConnectors)); err != nil {
+		logs.Warnf("seed: configured connector sync skipped: %v", err)
 	} else {
-		logBuiltinSkillReport("seed: built-in connector", report)
+		logBuiltinSkillReport("seed: configured connector", report)
 	}
 
 	// 6. 内置 worker 技能（失败仅告警）

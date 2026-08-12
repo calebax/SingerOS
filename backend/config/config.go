@@ -66,6 +66,57 @@ type Config struct {
 	Feishu              *FeishuConfig              `yaml:"feishu,omitempty" json:"feishu,omitempty"`
 	Auth                *IAMConfig                 `yaml:"auth,omitempty" json:"auth,omitempty"`
 	AutomationScheduler *AutomationSchedulerConfig `yaml:"automation_scheduler,omitempty" json:"automation_scheduler,omitempty"`
+	MCPConnectors       []MCPConnectorConfig       `yaml:"mcp_connectors,omitempty" json:"mcp_connectors,omitempty"`
+}
+
+// MCPConnectorConfig describes one system MCP connector declared by the server configuration.
+// It defines only the reusable channel template; user credentials are collected when a user connects it.
+type MCPConnectorConfig struct {
+	Channel     string                 `yaml:"channel" json:"channel"`
+	Name        string                 `yaml:"name" json:"name"`
+	Description string                 `yaml:"description,omitempty" json:"description,omitempty"`
+	Status      string                 `yaml:"status,omitempty" json:"status,omitempty"`
+	SkillCode   string                 `yaml:"skill_code,omitempty" json:"skill_code,omitempty"`
+	Transport   string                 `yaml:"transport,omitempty" json:"transport,omitempty"`
+	URL         string                 `yaml:"url,omitempty" json:"url,omitempty"`
+	Headers     map[string]string      `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Bindings    MCPConnectorBindings   `yaml:"bindings,omitempty" json:"bindings,omitempty"`
+	Auth        MCPConnectorAuthConfig `yaml:"auth,omitempty" json:"auth,omitempty"`
+}
+
+// MCPConnectorAuthConfig declares the authorization schema for one system connector.
+type MCPConnectorAuthConfig struct {
+	Type    string                   `yaml:"type,omitempty" json:"type,omitempty"`
+	Fields  []MCPConnectorAuthField  `yaml:"fields,omitempty" json:"fields,omitempty"`
+	Handler string                   `yaml:"handler,omitempty" json:"handler,omitempty"`
+	OAuth   *MCPConnectorOAuthConfig `yaml:"oauth,omitempty" json:"oauth,omitempty"`
+}
+
+// MCPConnectorAuthField describes a value collected from a user when connecting a platform.
+type MCPConnectorAuthField struct {
+	Key         string `yaml:"key" json:"key"`
+	Label       string `yaml:"label" json:"label"`
+	Type        string `yaml:"type" json:"type"`
+	Required    bool   `yaml:"required" json:"required"`
+	Placeholder string `yaml:"placeholder,omitempty" json:"placeholder,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
+// MCPConnectorBindings maps connected credential values to runtime destinations.
+type MCPConnectorBindings struct {
+	SkillEnv       map[string]string `yaml:"skill_env,omitempty" json:"skill_env,omitempty"`
+	MCPBearerToken string            `yaml:"mcp_bearer_token,omitempty" json:"mcp_bearer_token,omitempty"`
+	MCPHeaders     map[string]string `yaml:"mcp_headers,omitempty" json:"mcp_headers,omitempty"`
+	MCPEnv         map[string]string `yaml:"mcp_env,omitempty" json:"mcp_env,omitempty"`
+	MCPQuery       map[string]string `yaml:"mcp_query,omitempty" json:"mcp_query,omitempty"`
+}
+
+// MCPConnectorOAuthConfig stores operations-managed OAuth application settings.
+type MCPConnectorOAuthConfig struct {
+	AppKey      string   `yaml:"app_key,omitempty" json:"app_key,omitempty"`
+	SecretKey   string   `yaml:"secret_key,omitempty" json:"secret_key,omitempty"`
+	RedirectURI string   `yaml:"redirect_uri,omitempty" json:"redirect_uri,omitempty"`
+	Scopes      []string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 }
 
 // AutomationSchedulerConfig 配置自动化定时任务的 Planner/Dispatcher 后台调度。

@@ -84,3 +84,43 @@ func TestMCPChannelSchemaAndReadQueries(t *testing.T) {
 		t.Fatalf("inactive channel/error = %#v/%v", inactive, err)
 	}
 }
+
+func TestMCPChannelUpsertCreatesAndUpdates(t *testing.T) {
+	database := setupMCPChannelDAOTestDB(t)
+	ctx := context.Background()
+	initial := &types.MCPChannel{
+		Channel: "configured", Name: "Initial", Transport: "http", URL: "https://initial.example/mcp",
+		Status: types.MCPChannelStatusInactive,
+	}
+	if err := database.Transaction(func(tx *gorm.DB) error {
+		return UpsertMCPChannel(ctx, tx, initial)
+	}); err != nil || initial.ID == 0 {
+		t.Fatalf("UpsertMCPChannel() create ID/error = %d/%v", initial.ID, err)
+	}
+
+	updated := &types.MCPChannel{
+		Channel: "configured", Name: "Updated", Description: "Updated description",
+		Transport: "sse", URL: "https://updated.example/mcp",
+		Headers:  types.MCPChannelHeaders{"X-Configured": "true"},
+		AuthType: types.MCPChannelAuthTypeForm,
+		AuthConfig: types.MCPChannelAuthConfigJSON{Fields: []types.MCPChannelAuthField{
+			{Key: "token", Label: "Token", Type: "password", Required: true},
+		}},
+		Status: types.MCPChannelStatusActive,
+	}
+	if err := database.Transaction(func(tx *gorm.DB) error {
+		return UpsertMCPChannel(ctx, tx, updated)
+	}); err != nil {
+		t.Fatalf("UpsertMCPChannel() error = %v", err)
+	}
+	var loaded types.MCPChannel
+	if err := database.Where("channel = ?", "configured").First(&loaded).Error; err != nil {
+		t.Fatalf("load updated channel: %v", err)
+	}
+	if loaded.ID != initial.ID || loaded.Name != "Updated" || loaded.Transport != "sse" ||
+		loaded.URL != updated.URL || loaded.Status != types.MCPChannelStatusActive ||
+		loaded.Headers["X-Configured"] != "true" ||
+		types.MCPChannelAuthConfig(loaded.AuthConfig).Fields[0].Key != "token" {
+		t.Fatalf("updated channel = %#v", loaded)
+	}
+}

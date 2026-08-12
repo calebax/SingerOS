@@ -13,6 +13,9 @@ const (
 	MCPChannelStatusActive = "active"
 	// MCPChannelStatusInactive keeps a channel configuration without allowing new connections.
 	MCPChannelStatusInactive = "inactive"
+)
+
+const (
 	// MCPChannelAuthTypeNone requires no user authorization.
 	MCPChannelAuthTypeNone = "none"
 	// MCPChannelAuthTypeForm collects connector values from a schema-driven form.
@@ -94,6 +97,21 @@ type MCPChannelAuthConfig struct {
 
 // MCPChannelAuthConfigJSON stores one typed channel authorization schema.
 type MCPChannelAuthConfigJSON MCPChannelAuthConfig
+
+// MCPConnectorSpec describes a system connector without persistence metadata.
+// It is shared by startup reconciliation and service-side template publication.
+type MCPConnectorSpec struct {
+	Channel     string
+	Name        string
+	Description string
+	Status      string
+	SkillCode   string
+	Transport   string
+	URL         string
+	Headers     MCPChannelHeaders
+	AuthType    string
+	AuthConfig  MCPChannelAuthConfig
+}
 
 // Scan implements sql.Scanner.
 func (c *MCPChannelAuthConfigJSON) Scan(value interface{}) error {
