@@ -47,6 +47,7 @@ type CreateLLMModelRequest struct {
 }
 
 // UpdateLLMModelRequest 更新LLM模型配置请求
+// 不含 Status 字段：启用/禁用走独立的 SetStatus 逻辑/请求。
 type UpdateLLMModelRequest struct {
 	Name        string                  `json:"name" binding:"required"`
 	Description *string                 `json:"description,omitempty"`
@@ -54,12 +55,17 @@ type UpdateLLMModelRequest struct {
 	Model       string                  `json:"model,omitempty"`
 	BaseURL     *string                 `json:"base_url,omitempty"`
 	APIKey      *string                 `json:"api_key,omitempty"`
-	Status      string                  `json:"status,omitempty"`
 	Purpose     *string                 `json:"purpose" binding:"required"`
 	IsDefault   *bool                   `json:"is_default,omitempty"`
 	Config      *map[string]interface{} `json:"config,omitempty"`
 	MaxTokens   *int                    `json:"max_tokens,omitempty"`
 	Temperature *float64                `json:"temperature,omitempty"`
+}
+
+// SetLLMModelStatusRequest 启用或禁用LLM模型配置请求
+type SetLLMModelStatusRequest struct {
+	ID     uint   `json:"id" binding:"required"`
+	Status string `json:"status" binding:"required"`
 }
 
 // ListLLMModelsRequest 查询LLM模型配置列表请求

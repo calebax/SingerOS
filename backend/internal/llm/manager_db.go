@@ -435,7 +435,7 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 			return errors.New("permission denied")
 		}
 
-		// 启用中的模型不可编辑业务配置（仅禁用/启用属 status 变更，不受此限制）。
+		// 启用中的模型不可编辑业务配置（启用/禁用走独立的 SetStatus 接口）。
 		isEditOperation := req.Name != "" || req.Description != nil || req.Provider != "" ||
 			req.Model != "" || req.BaseURL != nil || req.APIKey != nil || req.Config != nil ||
 			req.MaxTokens != nil || req.Temperature != nil || req.Purpose != nil
@@ -480,16 +480,6 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 			model.APIKeyEncrypted = *req.APIKey
 			model.APIKeyMasked = maskAPIKey(*req.APIKey)
 			needsReDetect = true
-		}
-		if req.Status != "" {
-			// 禁用默认模型前需保证该用途仍有一个启用中的默认，否则拒绝禁用。
-			if req.Status == string(types.LLMModelStatusInactive) && model.IsDefault {
-				if err := m.backfillOrRejectDefault(ctx, tx, orgID, model.Purpose, model.ID); err != nil {
-					return err
-				}
-				model.IsDefault = false
-			}
-			model.Status = req.Status
 		}
 		if req.Config != nil {
 			model.Config = types.LLMModelConfig(*req.Config)
@@ -540,6 +530,42 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 			}
 		}
 
+		return db.UpdateLLMModel(ctx, tx, model)
+	}); err != nil {
+		return nil, err
+	}
+	return modelConfigFromEntity(model), nil
+}
+
+// SetStatus 启用或禁用指定 ID 的模型配置，orgID 用于校验归属。
+// 仅允许合法状态：LLMModelStatusActive 与 LLMModelStatusInactive。
+// 禁用默认模型前需保证该用途仍有一个启用中的默认，否则回填或拒绝。
+func (m *ManagerDb) SetStatus(ctx context.Context, orgID uint, id uint, status string) (*ModelConfig, error) {
+	if status != string(types.LLMModelStatusActive) && status != string(types.LLMModelStatusInactive) {
+		return nil, errors.New("invalid status")
+	}
+	var model *types.LLMModel
+	if err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		model, err = db.GetLLMModelByID(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if model == nil {
+			return errors.New("llm model not found")
+		}
+		if model.OrgID != orgID {
+			return errors.New("permission denied")
+		}
+
+		if status == string(types.LLMModelStatusInactive) && model.IsDefault {
+			// 禁用默认模型前需保证该用途仍有一个启用中的默认，否则拒绝禁用。
+			if err := m.backfillOrRejectDefault(ctx, tx, orgID, model.Purpose, model.ID); err != nil {
+				return err
+			}
+			model.IsDefault = false
+		}
+		model.Status = status
 		return db.UpdateLLMModel(ctx, tx, model)
 	}); err != nil {
 		return nil, err

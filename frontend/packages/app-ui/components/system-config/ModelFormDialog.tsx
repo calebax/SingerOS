@@ -252,6 +252,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 				toast.success("模型已更新");
 			} else {
 				const params: CreateModelParams = {
+					name: name.trim(),
 					provider,
 					purpose,
 					model: modelName.trim(),
@@ -305,7 +306,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 					</div>
 					<div className="grid gap-2">
 						<Label>
-							供应商 <span className="text-red-500">*</span>
+							供应商类型 <span className="text-red-500">*</span>
 						</Label>
 						<Select value={provider} onValueChange={(v) => setProvider(v ?? "openai")}>
 							<SelectTrigger className="w-full">
@@ -348,7 +349,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 						<Input
 							value={modelName}
 							onChange={(e) => setModelName(e.target.value)}
-							placeholder="例如：gpt-4o"
+							placeholder="例如：deepseek-v4-flash"
 						/>
 					</div>
 					<div className="grid gap-2">
@@ -358,7 +359,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 						<Input
 							value={baseUrl}
 							onChange={(e) => setBaseUrl(e.target.value)}
-							placeholder=""
+							placeholder="https://api.deepseek.com"
 							autoComplete="off"
 						/>
 					</div>
@@ -370,7 +371,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 							type="password"
 							value={apiKey}
 							onChange={(e) => setApiKey(e.target.value)}
-							placeholder={isEdit ? "留空表示不修改" : ""}
+							placeholder={isEdit ? "留空表示不修改" : "sk-xxxxx"}
 							autoComplete="new-password"
 						/>
 						{isEdit && !apiKey.trim() ? (
@@ -387,7 +388,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 								step="0.1"
 								value={temperature}
 								onChange={(e) => setTemperature(e.target.value)}
-								placeholder="1"
+								placeholder="0.7"
 							/>
 						</div>
 						<div className="grid gap-2">
@@ -459,7 +460,7 @@ export function ModelFormDialog({ open, onOpenChange, model }: ModelFormDialogPr
 									min="1"
 									value={configLimitContext}
 									onChange={(e) => setConfigLimitContext(e.target.value)}
-									placeholder="例如：128000"
+									placeholder="例如：32768"
 								/>
 								<FieldHint>模型能接收的最大输入上下文长度</FieldHint>
 							</div>

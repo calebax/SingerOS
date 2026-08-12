@@ -175,6 +175,8 @@ type CreateRequest struct {
 
 // UpdateRequest 表示更新 LLM 模型配置的请求参数。
 // 指针类型的字段仅在非 nil 时表示需要更新。
+// 启用/禁用（status）不属于编辑业务配置，走独立的 SetStatus。
+// UpdateRequest 中不含 Status 字段，避免与编辑语义混淆。
 type UpdateRequest struct {
 	Name        string
 	Description *string
@@ -182,7 +184,6 @@ type UpdateRequest struct {
 	Model       string
 	BaseURL     *string
 	APIKey      *string
-	Status      string
 	Purpose     *types.LLMModelPurpose
 	IsDefault   *bool
 	Config      *map[string]any

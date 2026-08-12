@@ -438,9 +438,7 @@ func TestManagerDb_Update_SamplingParams(t *testing.T) {
 		t.Fatalf("Create second failed: %v", err)
 	}
 	_ = second.ID
-	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err != nil {
+	if _, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusInactive)); err != nil {
 		t.Fatalf("Disable model failed: %v", err)
 	}
 
@@ -518,9 +516,7 @@ func TestUpdateLLMModelKeepsAPIKeyWhenOmitted(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create second failed: %v", err)
 	}
-	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err != nil {
+	if _, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusInactive)); err != nil {
 		t.Fatalf("Disable model failed: %v", err)
 	}
 
@@ -629,9 +625,7 @@ func TestUpdateLLMModelTrimsChatCompletionsPath(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create second failed: %v", err)
 	}
-	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err != nil {
+	if _, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusInactive)); err != nil {
 		t.Fatalf("Disable model failed: %v", err)
 	}
 
@@ -684,9 +678,7 @@ func TestUpdateLLMModelUpdatesMaskedAPIKeyWhenProvided(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create second failed: %v", err)
 	}
-	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err != nil {
+	if _, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusInactive)); err != nil {
 		t.Fatalf("Disable model failed: %v", err)
 	}
 
@@ -747,9 +739,7 @@ func TestUpdateLLMModelRedetectsBaseURLHasV1WhenBaseURLChanges(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create second failed: %v", err)
 	}
-	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err != nil {
+	if _, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusInactive)); err != nil {
 		t.Fatalf("Disable model failed: %v", err)
 	}
 
@@ -805,9 +795,7 @@ func TestUpdateLLMModelFailsWhenProbeFailsAfterRelevantChange(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create second failed: %v", err)
 	}
-	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err != nil {
+	if _, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusInactive)); err != nil {
 		t.Fatalf("Disable model failed: %v", err)
 	}
 
@@ -887,9 +875,7 @@ func TestSetDefaultRequiresEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create target failed: %v", err)
 	}
-	if _, err := m.Update(ctx, testOrgID, target.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err != nil {
+	if _, err := m.SetStatus(ctx, testOrgID, target.ID, string(types.LLMModelStatusInactive)); err != nil {
 		t.Fatalf("Disable target failed: %v", err)
 	}
 
@@ -1000,9 +986,7 @@ func TestDisableDefaultBackfillsAnother(t *testing.T) {
 	_ = second.ID
 
 	// 禁用默认模型：应自动回填 second 为默认。
-	if _, err := m.Update(ctx, testOrgID, first.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err != nil {
+	if _, err := m.SetStatus(ctx, testOrgID, first.ID, string(types.LLMModelStatusInactive)); err != nil {
 		t.Fatalf("Disable default failed: %v", err)
 	}
 	// 类内仅剩 second 启用，应自动成为默认。
@@ -1034,13 +1018,159 @@ func TestDisableOnlyDefaultRejected(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	if _, err := m.Update(ctx, testOrgID, model.ID, &UpdateRequest{
-		Status: string(types.LLMModelStatusInactive),
-	}); err == nil {
+	if _, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusInactive)); err == nil {
 		t.Fatal("expected disabling the only default model to fail, got nil")
 	}
 	if count := countDefaultLLMModels(t, database, testOrgID); count != 1 {
 		t.Fatalf("expected default model preserved, got %d", count)
+	}
+}
+
+func TestSetStatusEnableDisable(t *testing.T) {
+	m, database := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Name:     "主模型",
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	// 铺垫第二个启用模型接管默认，使目标模型可被禁用。
+	if _, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Name:     "接管模型",
+		Provider: string(types.LLMProviderDeepSeek),
+		Model:    "deepseek-chat",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.deepseek.com/v1",
+		APIKey:   "sk-test-abcdefgh",
+	}); err != nil {
+		t.Fatalf("Create second failed: %v", err)
+	}
+	if model.Status != string(types.LLMModelStatusActive) {
+		t.Fatalf("expected initial status active, got %q", model.Status)
+	}
+
+	disabled, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusInactive))
+	if err != nil {
+		t.Fatalf("SetStatus inactive failed: %v", err)
+	}
+	if disabled.Status != string(types.LLMModelStatusInactive) {
+		t.Fatalf("expected status inactive, got %q", disabled.Status)
+	}
+
+	enabled, err := m.SetStatus(ctx, testOrgID, model.ID, string(types.LLMModelStatusActive))
+	if err != nil {
+		t.Fatalf("SetStatus active failed: %v", err)
+	}
+	if enabled.Status != string(types.LLMModelStatusActive) {
+		t.Fatalf("expected status active, got %q", enabled.Status)
+	}
+
+	stored, err := dbrepo.GetLLMModelByID(ctx, database, model.ID)
+	if err != nil {
+		t.Fatalf("GetLLMModelByID failed: %v", err)
+	}
+	if stored.Status != string(types.LLMModelStatusActive) {
+		t.Fatalf("expected stored status active, got %q", stored.Status)
+	}
+}
+
+func TestSetStatusDisableDefaultBackfillsOtherActive(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	first, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Name:     "first",
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("first Create failed: %v", err)
+	}
+	second, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Name:     "second",
+		Provider: string(types.LLMProviderDeepSeek),
+		Model:    "deepseek-chat",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.deepseek.com/v1",
+		APIKey:   "sk-test-abcdefgh",
+	})
+	if err != nil {
+		t.Fatalf("second Create failed: %v", err)
+	}
+
+	disabled, err := m.SetStatus(ctx, testOrgID, first.ID, string(types.LLMModelStatusInactive))
+	if err != nil {
+		t.Fatalf("SetStatus inactive failed: %v", err)
+	}
+	if disabled.IsDefault {
+		t.Fatal("expected disabled default model's is_default to be cleared")
+	}
+
+	defaultModel, err := m.GetDefault(ctx, testOrgID)
+	if err != nil {
+		t.Fatalf("GetDefault failed: %v", err)
+	}
+	if defaultModel == nil || defaultModel.ID != second.ID {
+		t.Fatalf("expected %d to become default, got %+v", second.ID, defaultModel)
+	}
+}
+
+func TestSetStatusInvalidStatus(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Name:     "主模型",
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if _, err := m.SetStatus(ctx, testOrgID, model.ID, "paused"); err == nil {
+		t.Fatal("expected invalid status to fail, got nil")
+	}
+}
+
+func TestSetStatusNotFound(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	if _, err := m.SetStatus(ctx, testOrgID, 9999, string(types.LLMModelStatusInactive)); err == nil {
+		t.Fatal("expected not found model to fail, got nil")
+	}
+}
+
+func TestSetStatusPermissionDenied(t *testing.T) {
+	m, _ := setupManager(t)
+	ctx := context.Background()
+
+	model, err := m.Create(ctx, testOrgID, &CreateRequest{
+		Name:     "主模型",
+		Provider: string(types.LLMProviderOpenAI),
+		Model:    "gpt-4o-mini",
+		Purpose:  types.LLMModelPurposeConversation,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test-1234567890",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if _, err := m.SetStatus(ctx, testOrgID+1, model.ID, string(types.LLMModelStatusInactive)); err == nil {
+		t.Fatal("expected cross-org status change to fail, got nil")
 	}
 }
 

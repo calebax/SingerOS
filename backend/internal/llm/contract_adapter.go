@@ -107,13 +107,28 @@ func (a *ContractAdapter) UpdateLLMModel(ctx context.Context, id uint, req *cont
 		Model:       req.Model,
 		BaseURL:     req.BaseURL,
 		APIKey:      req.APIKey,
-		Status:      req.Status,
 		Purpose:     purposePtr(req.Purpose),
 		IsDefault:   req.IsDefault,
 		Config:      req.Config,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return modelConfigToContract(cfg), nil
+}
+
+// SetLLMModelStatus 启用或禁用 LLM 模型配置。
+func (a *ContractAdapter) SetLLMModelStatus(ctx context.Context, id uint, status string) (*contract.LLMModel, error) {
+	orgID, err := orgIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
+		return nil, err
+	}
+	cfg, err := a.manager.SetStatus(ctx, orgID, id, status)
 	if err != nil {
 		return nil, err
 	}
