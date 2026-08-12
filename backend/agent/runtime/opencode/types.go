@@ -218,6 +218,12 @@ type configContent struct {
 	Agent      map[string]agentConfig    `json:"agent,omitempty"`
 	Permission map[string]any            `json:"permission,omitempty"`
 	MCP        map[string]any            `json:"mcp,omitempty"`
+	Skills     *skillsConfig             `json:"skills,omitempty"`
+}
+
+// skillsConfig configures additional OpenCode Skill search paths.
+type skillsConfig struct {
+	Paths []string `json:"paths,omitempty"`
 }
 
 // agentConfig 描述 OpenCode V1 agent 配置。

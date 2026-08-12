@@ -26,9 +26,9 @@ const (
 	openCodeDBName = "opencode.db"
 )
 
-// buildConfigContent 根据 ModelConfig 和 MCPServerConfig 列表
+// buildConfigContent 根据 ModelConfig、MCPServerConfig 列表和任务 Skill 目录
 // 生成 OPENCODE_CONFIG_CONTENT JSON 字符串。
-func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig) (string, error) {
+func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig, skillDir string) (string, error) {
 	modelID := modelCfg.Model
 	if modelID == "" {
 		modelID = "default"
@@ -114,6 +114,9 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 	// 构建 MCP 配置（遵循 opencode V1 config schema）
 	if mcpCfg := buildMCPConfig(mcps); len(mcpCfg) > 0 {
 		cfg.MCP = mcpCfg
+	}
+	if skillDir = strings.TrimSpace(skillDir); skillDir != "" {
+		cfg.Skills = &skillsConfig{Paths: []string{skillDir}}
 	}
 
 	data, err := json.Marshal(cfg)

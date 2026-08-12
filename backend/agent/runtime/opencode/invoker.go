@@ -38,16 +38,24 @@ func NewServerInvoker(binary string, extraEnv map[string]string, dataDir string)
 // Run 启动 opcode serve，创建会话并执行提示。
 func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
-	runEnv := runtimeprocess.BuildRunEnv(inv.baseEnv, req.ExtraEnv, nil)
-	configDir := openCodeConfigDir(req)
-	runEnv = append(runEnv, "OPENCODE_CONFIG_DIR="+configDir, "OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_CLAUDE_CODE=1")
+	runEnv := buildOpenCodeInvocationEnv(inv.baseEnv, req.ExtraEnv, inv.dataDir)
 	startedAt := time.Now()
 	logs.InfoContextf(ctx,
 		"OpenCode invocation starting: execution_id=%s trace_id=%s mode=%s model=%s resume=%v provider_session_id=%s work_dir=%s progress_timeout=%s",
 		req.ExecutionID, req.TraceID, req.ExecutionMode, req.Model.Model, req.Resume, req.SessionID, workDir, defaultProgressIdleTimeout,
 	)
 	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 15s/次）
-	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, runEnv, req.Model, req.MCPServers, 0, inv.dataDir)
+	srv, err := startOpenCodeServer(
+		ctx,
+		inv.binary,
+		workDir,
+		runEnv,
+		req.Model,
+		req.MCPServers,
+		0,
+		inv.dataDir,
+		req.SkillDir,
+	)
 	if err != nil {
 		logs.WarnContextf(ctx, "OpenCode invocation failed during server start: execution_id=%s elapsed=%s err=%v",
 			req.ExecutionID, time.Since(startedAt).Truncate(time.Millisecond), err)
@@ -110,8 +118,13 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest)
 	return st.buildHandle(req)
 }
 
-func openCodeConfigDir(req cli.InvocationRequest) string {
-	return cli.TaskRuntimeRoot(req.TaskDir, req.WorkDir)
+func buildOpenCodeInvocationEnv(baseEnv, extraEnv []string, dataDir string) []string {
+	entries := append([]string(nil), extraEnv...)
+	if configDir := strings.TrimSpace(dataDir); configDir != "" {
+		entries = append(entries, "OPENCODE_CONFIG_DIR="+configDir)
+	}
+	entries = append(entries, "OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_CLAUDE_CODE=1")
+	return runtimeprocess.BuildRunEnv(baseEnv, entries, nil)
 }
 
 // ============================================================================

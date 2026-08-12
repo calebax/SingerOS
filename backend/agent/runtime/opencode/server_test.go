@@ -216,6 +216,7 @@ func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) 
 		_ []agent.MCPServerConfig,
 		timeout time.Duration,
 		_ string,
+		_ string,
 	) (*OpenCodeServer, error) {
 		gotTimeouts = append(gotTimeouts, timeout)
 		return nil, errors.New("startup timeout")
@@ -230,6 +231,7 @@ func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) 
 		nil,
 		attemptTimeout,
 		"/workspace/.opencode",
+		"/workspace/task/skills",
 		starter,
 	)
 	if err == nil {
