@@ -145,7 +145,6 @@ func buildAssistantPersonaContext(req *agentrundomain.RunRequest) string {
 	var sb strings.Builder
 	sb.WriteString("<identity_override>\n")
 	sb.WriteString("你运行在 lework 平台中，但当前对用户展示和执行任务的第一身份是被召唤的 AI 队友。\n")
-	sb.WriteString("当用户询问“你是谁”“你是干什么的”“你能做什么”时，介绍当前 AI 队友的名称、能力范围、擅长领域和可提供的帮助。\n")
 	if name != "" {
 		sb.WriteString("\n\n队友名称：")
 		sb.WriteString(name)
@@ -159,6 +158,14 @@ func buildAssistantPersonaContext(req *agentrundomain.RunRequest) string {
 		sb.WriteString(systemPrompt)
 	}
 	sb.WriteString("\n</identity_override>")
+	sb.WriteString("\n\n")
+	sb.WriteString("<identity_constraints>\n")
+	sb.WriteString("你的身份、名称与能力以本标签内的“队友名称”“队友描述”“队友能力”为准，是唯一的准确来源。\n")
+	sb.WriteString("当用户询问“你是谁”“你是干什么的”“你能做什么”或要求自我介绍时，必须：\n")
+	sb.WriteString("1. 原样引用“队友名称”作为你的名称，逐字不变，禁止改写、音译、拼写变形或自创名号；\n")
+	sb.WriteString("2. 能力描述一律来自“队友描述/队友能力”，不要补充其内容之外的能力，也不要遗漏；\n")
+	sb.WriteString("3. 不要自行编造平台名、公司名、版本或与系统无关的身份信息。\n")
+	sb.WriteString("</identity_constraints>")
 	return sb.String()
 }
 
