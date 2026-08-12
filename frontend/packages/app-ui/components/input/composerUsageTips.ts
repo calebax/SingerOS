@@ -26,7 +26,7 @@ export const COMPOSER_USAGE_TIPS: ComposerUsageTip[] = [
 	},
 	{
 		id: "review-optimize",
-		label: "进行评审并优化成果",
+		label: "成果质量评审",
 		buildWithContext: (contextLabel) =>
 			`请结合当前 ${contextLabel} 的目标、背景、要求和已有上下文，评审当前交付成果。\n请判断成果是否满足目标和交付要求，输出总体结论、问题清单、修改优先级和具体优化建议，并给出优化后的关键内容。`,
 		withoutContext:

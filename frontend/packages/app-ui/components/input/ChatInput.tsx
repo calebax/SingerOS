@@ -60,6 +60,13 @@ import {
 } from "../layout/project-chat-layout";
 import { getLatestProjectFileVersion } from "../layout/project-file-version-sync";
 import { AttachmentPreview } from "./AttachmentPreview";
+import { type BidComparisonConfig, BidComparisonConfigDialog } from "./BidComparisonConfigDialog";
+import {
+	bidComparisonConfigToAttachments,
+	bidComparisonOutputFormat,
+	bidComparisonPrompt,
+	ensureBidComparisonFilesUploaded,
+} from "./bidComparisonAttachments";
 import { ComposerActionBar } from "./ComposerActionBar";
 import { ComposerUsageTipsPanel } from "./ComposerUsageTipsPanel";
 import { buildComposerUsageTips } from "./composerUsageTips";
@@ -126,11 +133,13 @@ export function ChatInput({
 		currentView,
 		projectComposerPrefill,
 		projects,
+		fetchTasks,
 		consumeProjectComposerPrefill,
 	} = useLayoutStore((s) => s);
 	const { assistants, assistantsLoaded } = useDAStore((s) => s);
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
+	const [bidComparisonOpen, setBidComparisonOpen] = useState(false);
 	const lastAppliedSelectionDraftRef = useRef<{
 		id: string;
 		suggestedPrompt?: string;
@@ -219,6 +228,31 @@ export function ChatInput({
 			setInputText(prompt);
 		},
 		[setInputText],
+	);
+	const startBidComparison = useCallback(
+		async (config: BidComparisonConfig) => {
+			try {
+				const resolved = await ensureBidComparisonFilesUploaded(config, config.projectId);
+				const taskEntry = await sendProjectMessage(
+					bidComparisonPrompt(resolved),
+					resolved.projectId,
+					bidComparisonConfigToAttachments(resolved),
+					undefined,
+					{
+						scene: "bid_comparison",
+						outputFormat: bidComparisonOutputFormat(resolved),
+					},
+				);
+				if (taskEntry?.project_id && taskEntry.task_id && taskEntry.session_id) {
+					navigation?.goToTaskDetail(taskEntry.project_id, taskEntry.task_id, taskEntry.session_id);
+				}
+			} catch (err) {
+				console.error("ChatInput bid comparison upload error:", err);
+				toast.error(getRequestErrorMessage(err) ?? "启动标书对比失败");
+				throw err;
+			}
+		},
+		[navigation, sendProjectMessage],
 	);
 	const activeProjectComposerPrefill =
 		isProjectVariant &&
@@ -359,7 +393,9 @@ export function ChatInput({
 						activeProjectId,
 						outgoingAttachments,
 						composerMetadata,
-						{ connectorIds: selectedConnectorIds },
+						{
+							connectorIds: selectedConnectorIds,
+						},
 					);
 					submitted = taskEntry;
 					if (taskEntry?.project_id && taskEntry?.task_id && taskEntry.session_id) {
@@ -558,7 +594,27 @@ export function ChatInput({
 		>
 			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && projectLayout.inner)}>
 				{isNewProjectTaskView && (
-					<ComposerUsageTipsPanel tips={composerUsageTips} onApply={applyUsageTip} />
+					<>
+						<ComposerUsageTipsPanel
+							tips={composerUsageTips}
+							onApply={applyUsageTip}
+							variant="workbench"
+							onBidComparisonClick={() => setBidComparisonOpen(true)}
+						/>
+						<BidComparisonConfigDialog
+							open={bidComparisonOpen}
+							onOpenChange={setBidComparisonOpen}
+							onSave={startBidComparison}
+							initialProjectId={currentProjectId}
+							lockProjectSelection
+							onProjectChange={fetchTasks}
+							projects={projects.map((project) => ({
+								id: project.id,
+								name: project.name,
+								tasks: project.tasks,
+							}))}
+						/>
+					</>
 				)}
 				<div
 					className={cn(

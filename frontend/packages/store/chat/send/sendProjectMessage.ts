@@ -34,6 +34,10 @@ export type SendProjectMessageOptions = {
 	fromWorkbench?: boolean;
 	/** 关联到项目的连接器插件 Public ID（仅服务端关联用，不写入消息正文） */
 	connectorIds?: string[];
+	/** 新建任务场景：bid_comparison 等；空为普通问答 */
+	scene?: string;
+	/** 工具场景要求生成的最终交付格式，例如 docx、pdf、pptx、md */
+	outputFormat?: string;
 };
 
 /**
@@ -73,6 +77,8 @@ export async function sendProjectMessage(
 			...(options?.taskId ? { task_id: options.taskId } : {}),
 			...(assistantIds?.length ? { assistant_ids: assistantIds } : {}),
 			...(options?.connectorIds?.length ? { connector_ids: options.connectorIds } : {}),
+			...(options?.scene ? { scene: options.scene } : {}),
+			...(options?.outputFormat ? { output_format: options.outputFormat } : {}),
 			metadata: buildBackendMessageMetadata(resolvedMetadata),
 			attachments: mapOutgoingAttachments(resolvedAttachments),
 		});

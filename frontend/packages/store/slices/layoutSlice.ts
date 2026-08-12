@@ -681,6 +681,11 @@ export class LayoutActionImpl {
 		_metadata?: MessageMetadata,
 		assistantIds?: string[],
 		connectorIds?: string[],
+		scene?: string,
+		outputFormat?: string,
+		taskId?: string | null,
+		/** 工具场景必须创建首条消息，不能续用已有任务会话。 */
+		forceNewTaskSession?: boolean,
 	) => {
 		const trimmed = content.trim();
 		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，或仅附件提问。
@@ -689,10 +694,14 @@ export class LayoutActionImpl {
 
 		const state = this.#get();
 		const workbenchProjectId = projectId ?? state.activeWorkbenchProjectId;
-		const selectedTaskId = workbenchProjectId ? state.activeWorkbenchTaskId : null;
+		const selectedTaskId = workbenchProjectId
+			? taskId === undefined
+				? state.activeWorkbenchTaskId
+				: taskId
+			: null;
 		const chat = this.#get() as LayoutStore & ChatSendBridge;
 
-		if (workbenchProjectId && selectedTaskId) {
+		if (workbenchProjectId && selectedTaskId && !forceNewTaskSession) {
 			let project = state.projects.find((p) => p.id === workbenchProjectId);
 			let selectedTask = project?.tasks.find((task) => task.id === selectedTaskId);
 
@@ -780,6 +789,8 @@ export class LayoutActionImpl {
 			allowEmptyContent: true,
 			fromWorkbench: true,
 			connectorIds,
+			scene,
+			outputFormat,
 		});
 	};
 

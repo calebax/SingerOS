@@ -483,7 +483,7 @@ export function FilePreviewDrawer({
 	return (
 		<div
 			ref={drawerRef}
-			className="fixed inset-y-4 right-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl"
+			className="fixed inset-y-4 right-4 z-[60] flex flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl"
 			style={{ width: `${drawerWidth}px`, maxWidth: `${drawerWidth}px` }}
 		>
 			<button

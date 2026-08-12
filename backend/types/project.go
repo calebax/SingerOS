@@ -59,6 +59,40 @@ func (Project) TableName() string {
 	return TableNameProject
 }
 
+// MessageScene 标识新建任务/首条消息的业务场景（普通问答或工具场景）。
+type MessageScene string
+
+const (
+	// MessageSceneNormal 普通问答（与空值等价）。
+	MessageSceneNormal MessageScene = "normal"
+	// MessageSceneBidComparison 标书对比工具场景。
+	MessageSceneBidComparison MessageScene = "bid_comparison"
+)
+
+// OutputFormat 标识工具场景要求生成的最终交付格式。
+type OutputFormat string
+
+const (
+	// OutputFormatDOCX 表示 Word 文档。
+	OutputFormatDOCX OutputFormat = "docx"
+	// OutputFormatPDF 表示 PDF 文档。
+	OutputFormatPDF OutputFormat = "pdf"
+	// OutputFormatPPTX 表示 PowerPoint 演示文稿。
+	OutputFormatPPTX OutputFormat = "pptx"
+	// OutputFormatMarkdown 表示 Markdown 文档。
+	OutputFormatMarkdown OutputFormat = "md"
+)
+
+// AttachmentRole 标识消息附件在工具场景中的语义角色。
+type AttachmentRole string
+
+const (
+	// AttachmentRoleMain 场景主文件（如标书对比的招标文件）。
+	AttachmentRoleMain AttachmentRole = "main"
+	// AttachmentRoleCompare 场景对比文件。
+	AttachmentRoleCompare AttachmentRole = "compare"
+)
+
 // ObjectMetadata 项目元数据结构
 type ObjectMetadata struct {
 	// 元数据 - 项目标签
@@ -69,13 +103,18 @@ type ObjectMetadata struct {
 	Bucket string `json:"bucket,omitempty"`
 	// 元数据 - 对象存储键
 	Key string `json:"key,omitempty"`
+	// Scene 新建任务场景（如 bid_comparison）；空表示普通问答。
+	Scene string `json:"scene,omitempty"`
+	// OutputFormat 工具场景要求的最终交付格式（如 docx、pdf）。
+	OutputFormat string `json:"output_format,omitempty"`
 	// 元数据 - 其他扩展字段
 	Extra map[string]interface{} `json:"extra,omitempty"`
 }
 
 // IsZero 判断 ObjectMetadata 是否所有字段均为零值。
 func (m ObjectMetadata) IsZero() bool {
-	return len(m.Tags) == 0 && m.Type == "" && m.Bucket == "" && m.Key == "" && len(m.Extra) == 0
+	return len(m.Tags) == 0 && m.Type == "" && m.Bucket == "" && m.Key == "" &&
+		m.Scene == "" && m.OutputFormat == "" && len(m.Extra) == 0
 }
 
 // Scan 实现 sql.Scanner 接口

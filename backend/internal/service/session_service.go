@@ -436,6 +436,12 @@ func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract
 		return nil, errors.New("user not authenticated or org not set")
 	}
 
+	scene, err := ValidateNewMessageScene(req)
+	if err != nil {
+		return nil, err
+	}
+	req.Scene = scene
+
 	return s.newMessagePoster().RunNewMessage(ctx, req, caller)
 }
 

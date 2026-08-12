@@ -93,6 +93,11 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agentrundom
 		sectionNames = append(sectionNames, "project")
 	}
 
+	if scene := strings.TrimSpace(buildSceneContextSection(req)); scene != "" {
+		sections = append(sections, scene)
+		sectionNames = append(sectionNames, "scene")
+	}
+
 	if workspace := strings.TrimSpace(buildWorkspaceContext(req)); workspace != "" {
 		sections = append(sections, workspace)
 		sectionNames = append(sectionNames, "workspace")
@@ -194,6 +199,25 @@ func buildProjectContextSection(req *agentrundomain.RunRequest) string {
 		sb.WriteString(fmt.Sprintf("- %s：%s（%s）\n", label, m.Name, m.MemberRole))
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+func buildSceneContextSection(req *agentrundomain.RunRequest) string {
+	if req == nil {
+		return ""
+	}
+	switch strings.TrimSpace(strings.ToLower(req.Input.Scene)) {
+	case "bid_comparison":
+		scenePrompt := strings.TrimSpace(prompts.Get(prompts.KeyAgentSceneBidComparison))
+		outputFormat := strings.TrimSpace(strings.ToLower(req.Input.OutputFormat))
+		if outputFormat == "" {
+			return scenePrompt
+		}
+		return scenePrompt + "\n\n## 本次最终交付格式\n\n" +
+			"本次配置的最终交付格式为 `" + outputFormat + "`。该结构化配置优先于用户正文中的格式描述，" +
+			"必须直接生成该格式的最终文件。"
+	default:
+		return ""
+	}
 }
 
 func buildWorkspaceContext(req *agentrundomain.RunRequest) string {

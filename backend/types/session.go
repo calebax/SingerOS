@@ -230,9 +230,10 @@ type MessageAttachment struct {
 	Name         string `json:"name"`
 	MimeType     string `json:"mime_type"`
 	Size         int64  `json:"size"`
-	Purpose      string `json:"purpose,omitempty"`
-	PublicURL    string `json:"PublicURL"`
-	RelativePath string `json:"relative_path"`
+	// AttachmentRole 是工具场景赋予附件的语义角色；空表示普通附件。
+	AttachmentRole string `json:"attachment_role,omitempty"`
+	PublicURL      string `json:"PublicURL"`
+	RelativePath   string `json:"relative_path"`
 }
 
 type MessageAttachmentSlice []MessageAttachment

@@ -2,14 +2,85 @@
 
 import { cn } from "@leros/ui/lib/utils";
 import { ChevronRight, Lightbulb, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BID_COMPARISON_ICON_SRC } from "../../assets";
 
 type ComposerUsageTipsPanelProps = {
 	tips: Array<{ id: string; label: string; prompt: string }>;
 	onApply: (prompt: string) => void;
 	className?: string;
+	/** default：独立提示区；workbench：工作台胶囊快捷入口 */
+	variant?: "default" | "workbench";
+	onBidComparisonClick?: () => void;
 };
 
-export function ComposerUsageTipsPanel({ tips, onApply, className }: ComposerUsageTipsPanelProps) {
+/** Windows ClearType 旋转文字易糊；仅在非 Windows 保留旋转动效。 */
+function canUseCrispTextRotate(): boolean {
+	if (typeof navigator === "undefined") return false;
+	return !/win/i.test(navigator.platform) && !/windows/i.test(navigator.userAgent);
+}
+
+export function ComposerUsageTipsPanel({
+	tips,
+	onApply,
+	className,
+	variant = "default",
+	onBidComparisonClick,
+}: ComposerUsageTipsPanelProps) {
+	const [enableRotate, setEnableRotate] = useState(false);
+
+	useEffect(() => {
+		setEnableRotate(canUseCrispTextRotate());
+	}, []);
+
+	if (variant === "workbench") {
+		return (
+			<div className={cn("mb-4", className)}>
+				<div className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--leros-text-muted)]">
+					<Lightbulb className="size-4 shrink-0" />
+					<span>使用提示</span>
+				</div>
+				<div className="flex min-w-0 flex-wrap items-center gap-2.5">
+					{onBidComparisonClick ? (
+						<>
+							<button
+								type="button"
+								onClick={onBidComparisonClick}
+								className={cn(
+									"inline-flex max-w-full items-center gap-2 rounded-full border border-violet-400 px-3.5 py-2 text-left text-sm font-semibold text-violet-600 transition hover:bg-violet-50",
+									enableRotate && "hover:rotate-5",
+								)}
+							>
+								<img
+									src={BID_COMPARISON_ICON_SRC}
+									alt=""
+									className="size-3.5"
+								/>
+								<span>标书对比</span>
+							</button>
+							<span aria-hidden className="mx-0.5 h-5 border-l border-slate-200" />
+						</>
+					) : null}
+					{tips.map((tip) => (
+						<button
+							key={tip.id}
+							type="button"
+							onClick={() => onApply(tip.prompt)}
+							className={cn(
+								"inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3.5 py-2 text-left shadow-sm ring-1 ring-slate-200/80 transition hover:bg-slate-50",
+								enableRotate && "hover:rotate-5",
+							)}
+						>
+							<Sparkles className="size-3.5 shrink-0 text-slate-400" />
+							<span className="truncate text-sm text-[var(--leros-text)]">{tip.label}</span>
+							<ChevronRight className="size-3.5 shrink-0 text-slate-300" />
+						</button>
+					))}
+				</div>
+			</div>
+		);
+	}
+
 	return (
 		<div className={cn("mb-4", className)}>
 			<div className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--leros-text-muted)]">
@@ -24,7 +95,7 @@ export function ComposerUsageTipsPanel({ tips, onApply, className }: ComposerUsa
 						onClick={() => onApply(tip.prompt)}
 						className="inline-flex w-auto max-w-full items-center gap-3 rounded-xl bg-white px-4 py-2 text-left shadow-sm ring-1 ring-slate-200/70 transition-colors hover:bg-slate-50"
 					>
-						<Sparkles className="size-4 shrink-0 text-violet-500" />
+						<Sparkles className="size-4 shrink-0 text-slate-400" />
 						<span className="whitespace-nowrap text-sm text-[var(--leros-text)]">{tip.label}</span>
 						<ChevronRight className="size-4 shrink-0 text-slate-300" />
 					</button>

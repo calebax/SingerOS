@@ -522,6 +522,10 @@ func handleSessionServiceError(ctx *gin.Context, err error) {
 		ctx.JSON(http.StatusServiceUnavailable, dto.Error(dto.CodeInternalError, errMsg))
 		return
 	}
+	if errors.Is(err, service.ErrInvalidNewMessage) {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
+		return
+	}
 	if errMsg == "user not authenticated or org not set" {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeUnauthorized, errMsg))
 		return

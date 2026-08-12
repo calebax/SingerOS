@@ -126,3 +126,25 @@ func TestBuildProjectContextSection(t *testing.T) {
 		t.Fatal("expected project section to appear before workspace section")
 	}
 }
+
+func TestBuildSystemPrompt_BidComparisonScene(t *testing.T) {
+	builder := NewContextBuilder(ContextBuilder{})
+	prompt, err := builder.BuildSystemPrompt(context.Background(), &agentrundomain.RunRequest{
+		Input: agentrundomain.InputContext{
+			Scene:        "bid_comparison",
+			OutputFormat: "docx",
+		},
+	})
+	if err != nil {
+		t.Fatalf("build system prompt: %v", err)
+	}
+	if !strings.Contains(prompt, "场景：标书对比") {
+		t.Fatalf("expected bid comparison scene section, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "attachment_role=main") {
+		t.Fatalf("expected main purpose guidance, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "最终交付格式为 `docx`") {
+		t.Fatalf("expected structured output format guidance, got %q", prompt)
+	}
+}

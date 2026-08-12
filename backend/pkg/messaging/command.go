@@ -370,9 +370,11 @@ type MemberBrief struct {
 }
 
 type TaskInput struct {
-	Type        InputType     `json:"type"`
-	Messages    []ChatMessage `json:"messages,omitempty"`
-	Attachments []Attachment  `json:"attachments,omitempty"`
+	Type         InputType     `json:"type"`
+	Scene        string        `json:"scene,omitempty"`
+	OutputFormat string        `json:"output_format,omitempty"`
+	Messages     []ChatMessage `json:"messages,omitempty"`
+	Attachments  []Attachment  `json:"attachments,omitempty"`
 }
 
 type ChatMessage struct {
@@ -387,6 +389,8 @@ type Attachment struct {
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mime_type,omitempty"`
 	URL      string `json:"url,omitempty"`
+	// AttachmentRole 是工具场景赋予附件的语义角色；空表示普通附件。
+	AttachmentRole string `json:"attachment_role,omitempty"`
 }
 
 type ModelOptions struct {

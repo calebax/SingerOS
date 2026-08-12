@@ -12,6 +12,7 @@ export type OutgoingMessageAttachment = {
 	mime_type: string;
 	size: number;
 	relative_path: string;
+	attachment_role?: string;
 };
 
 /** 释放输入框本地 blob 预览，避免发送/移除后泄漏 object URL。 */
@@ -106,6 +107,7 @@ export function mapOutgoingAttachments(
 			mime_type: attachment.mimeType || attachment.file?.type || "application/octet-stream",
 			size: attachment.size,
 			relative_path: fileName,
+			...(attachment.attachmentRole ? { attachment_role: attachment.attachmentRole } : {}),
 		});
 	}
 

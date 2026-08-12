@@ -177,12 +177,13 @@ func TestDefaultManagerBuiltinPrompts(t *testing.T) {
 			KeyAgentSystemCommunication, KeyAgentSystemMemoryGuidance,
 			KeyAgentSystemPlatformWechat, KeyAgentSystemPlatformFeishu,
 			KeyAgentSystemPlatformSlack, KeyAgentSystemPlatformAPI,
-			KeyWorkShortTitle, KeyAgentNativeArtifactDeclaration:
+			KeyWorkShortTitle, KeyAgentNativeArtifactDeclaration,
+			KeyAgentSceneBidComparison:
 			matchCount++
 		}
 	}
-	if matchCount != 19 {
-		t.Fatalf("expected 19 built-in keys, matched %d", matchCount)
+	if matchCount != 20 {
+		t.Fatalf("expected 20 built-in keys, matched %d", matchCount)
 	}
 
 	_, err := Run(context.Background(), KeyLLMTestConnectivity, nil)
