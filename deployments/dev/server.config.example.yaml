@@ -95,18 +95,43 @@ storage:
 
 # 系统级 MCP 连接器：启动时仅按此列表幂等创建或更新渠道和系统模板；空列表不执行同步。
 # 未列出的数据库渠道不会被修改或重新发布模板；
+# bindings 支持直接凭据字段名或 {{credential}} 模板，动态 Header、查询参数和环境变量统一在此声明；
 # OAuth 密钥使用环境变量注入，示例中不包含真实凭据。
 mcp_connectors:
   # 服务端托管授权：Enterprise 版通过 CoreKG handler 为每位用户创建独立 API Key。
   - channel: corekg
     name: 知识库
-    description: CoreKG 知识库服务
+    description: 知识库服务
     status: active
     transport: http
     url: https://tapi.yygu.cn/v3/keapi/mcp
+    bindings:
+      mcp_headers:
+        Authorization: "Bearer {{api_key}}"
     auth:
       type: managed
       handler: corekg
+
+  # API Key 表单授权：用户连接时填写 CatAPI API Key。
+  - channel: catapi
+    name: CatAPI
+    description: 连接 CatAPI API 市场中的工具与服务
+    status: active
+    transport: http
+    url: https://api.insmtx.com/v6/api/mcp
+    bindings:
+      mcp_headers:
+        Authorization: "Bearer {{api_key}}"
+    auth:
+      type: form
+      description: 输入 CatAPI API Key，连接后即可使用 API 市场中的工具与服务。请先在 CatAPI 控制台创建 API Key。
+      fields:
+        - key: api_key
+          label: API Key
+          type: password
+          required: true
+          placeholder: 请输入 CatAPI API Key
+          description: 在 CatAPI API Key 管理页面创建并获取
 
   # 表单授权 + 内置 Skill：用户连接时填写邮箱与客户端授权码。
   - channel: netease-mail
@@ -120,6 +145,7 @@ mcp_connectors:
         NETEASE_EMAIL_PASS: authorization_code
     auth:
       type: form
+      description: 输入邮箱地址和 IMAP/SMTP 授权码（非登录密码）。支持 163、126、yeah.net 等网易邮箱，以及其他支持 IMAP/SMTP 的邮箱。
       fields:
         - key: email
           label: 邮箱地址
@@ -143,8 +169,8 @@ mcp_connectors:
     transport: sse
     url: "https://mcp-pan.baidu.com/sse"
     bindings:
-      mcp_query:
-        access_token: access_token
+      mcp_headers:
+        Authorization: "Bearer {{access_token}}"
     auth:
       type: oauth
       handler: baidu-netdisk

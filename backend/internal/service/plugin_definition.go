@@ -227,9 +227,25 @@ func validateConnectorDefinition(raw json.RawMessage) error {
 			return fmt.Errorf("unsupported connector oauth status %q", value.Auth.OAuth.Status)
 		}
 	}
-	for envName, valueKey := range value.Auth.Bindings.SkillEnv {
-		if !envNamePattern.MatchString(envName) || strings.TrimSpace(valueKey) == "" {
+	for envName, expression := range value.Auth.Bindings.SkillEnv {
+		if !envNamePattern.MatchString(envName) || validateConnectorBinding(expression, nil) != nil {
 			return fmt.Errorf("connector skill environment binding is invalid")
+		}
+	}
+	for header, expression := range value.Auth.Bindings.MCPHeaders {
+		if !headerNamePattern.MatchString(header) || validateConnectorBinding(expression, nil) != nil {
+			return fmt.Errorf("connector MCP header binding is invalid")
+		}
+	}
+	for envName, expression := range value.Auth.Bindings.MCPEnv {
+		if !envNamePattern.MatchString(envName) || validateConnectorBinding(expression, nil) != nil {
+			return fmt.Errorf("connector MCP environment binding is invalid")
+		}
+	}
+	for queryName, expression := range value.Auth.Bindings.MCPQuery {
+		if strings.TrimSpace(queryName) == "" || strings.ContainsAny(queryName, "&=?#") ||
+			validateConnectorBinding(expression, nil) != nil {
+			return fmt.Errorf("connector MCP query binding is invalid")
 		}
 	}
 	return nil
@@ -274,21 +290,31 @@ func MCPFromDefinition(raw json.RawMessage) (*MCPDefinition, error) {
 		mcp := *value.MCP
 		mcp.Headers = cloneStringMap(value.MCP.Headers)
 		mcp.Env = cloneStringMap(value.MCP.Env)
-		if key := strings.TrimSpace(value.Auth.Bindings.MCPBearerToken); key != "" {
+		if key, legacyErr := legacyMCPBearerBinding(raw); legacyErr != nil {
+			return nil, legacyErr
+		} else if key != "" {
 			if credential := value.Auth.Values[key]; credential != "" {
 				mcp.BearerToken = credential
 			}
 		}
-		for header, key := range value.Auth.Bindings.MCPHeaders {
-			if credential := value.Auth.Values[key]; credential != "" {
+		for header, expression := range value.Auth.Bindings.MCPHeaders {
+			credential, ok, renderErr := RenderConnectorBinding(expression, value.Auth.Values)
+			if renderErr != nil {
+				return nil, renderErr
+			}
+			if ok {
 				if mcp.Headers == nil {
 					mcp.Headers = make(map[string]string)
 				}
 				mcp.Headers[header] = credential
 			}
 		}
-		for envName, key := range value.Auth.Bindings.MCPEnv {
-			if credential := value.Auth.Values[key]; credential != "" {
+		for envName, expression := range value.Auth.Bindings.MCPEnv {
+			credential, ok, renderErr := RenderConnectorBinding(expression, value.Auth.Values)
+			if renderErr != nil {
+				return nil, renderErr
+			}
+			if ok {
 				if mcp.Env == nil {
 					mcp.Env = make(map[string]string)
 				}
@@ -305,8 +331,12 @@ func MCPFromDefinition(raw json.RawMessage) (*MCPDefinition, error) {
 				return nil, parseErr
 			}
 			query := parsed.Query()
-			for queryName, key := range value.Auth.Bindings.MCPQuery {
-				if credential := value.Auth.Values[key]; credential != "" {
+			for queryName, expression := range value.Auth.Bindings.MCPQuery {
+				credential, ok, renderErr := RenderConnectorBinding(expression, value.Auth.Values)
+				if renderErr != nil {
+					return nil, renderErr
+				}
+				if ok {
 					query.Set(queryName, credential)
 				}
 			}
@@ -320,6 +350,20 @@ func MCPFromDefinition(raw json.RawMessage) (*MCPDefinition, error) {
 		return nil, err
 	}
 	return &value, nil
+}
+
+func legacyMCPBearerBinding(raw json.RawMessage) (string, error) {
+	var legacy struct {
+		Auth struct {
+			Bindings struct {
+				MCPBearerToken string `json:"mcp_bearer_token"`
+			} `json:"bindings"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(legacy.Auth.Bindings.MCPBearerToken), nil
 }
 
 // ConnectorFromDefinition decodes a connector revision, returning nil for legacy mcp/v1 definitions.

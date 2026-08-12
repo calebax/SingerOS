@@ -11,9 +11,11 @@ func TestConfiguredMCPConnectorSpecsMapsDefaultsAndAuthorization(t *testing.T) {
 	specs := configuredMCPConnectorSpecs([]config.MCPConnectorConfig{
 		{
 			Channel: "example", Name: "Example",
-			Bindings: config.MCPConnectorBindings{MCPBearerToken: "token"},
+			Bindings: config.MCPConnectorBindings{MCPHeaders: map[string]string{
+				"Authorization": "Bearer {{token}}",
+			}},
 			Auth: config.MCPConnectorAuthConfig{
-				Type: "form",
+				Type: "form", Description: "Enter the token.",
 				Fields: []config.MCPConnectorAuthField{{
 					Key: "token", Label: "Token", Type: "password", Required: true,
 				}},
@@ -27,8 +29,9 @@ func TestConfiguredMCPConnectorSpecsMapsDefaultsAndAuthorization(t *testing.T) {
 	if spec.Status != types.MCPChannelStatusActive || spec.AuthType != types.MCPChannelAuthTypeForm {
 		t.Fatalf("defaults = %#v", spec)
 	}
-	if len(spec.AuthConfig.Fields) != 1 || spec.AuthConfig.Fields[0].Key != "token" ||
-		spec.AuthConfig.Bindings.MCPBearerToken != "token" {
+	if spec.AuthConfig.Description != "Enter the token." ||
+		len(spec.AuthConfig.Fields) != 1 || spec.AuthConfig.Fields[0].Key != "token" ||
+		spec.AuthConfig.Bindings.MCPHeaders["Authorization"] != "Bearer {{token}}" {
 		t.Fatalf("authorization = %#v", spec.AuthConfig)
 	}
 }

@@ -24,6 +24,7 @@ func RegisterPluginRoutes(r gin.IRouter, service contract.PluginService) {
 	r.POST("/plugins/mcp/test", testMCPPlugin(service))
 	r.GET("/plugins/mcp/platforms", listMCPPlatforms(service))
 	r.POST("/plugins/mcp/platforms/:platform_code/connect", connectMCPPlatform(service))
+	r.POST("/plugins/mcp/platforms/:platform_code/test", testMCPPlatform(service))
 	r.POST("/plugins/mcp/platforms/:platform_code/oauth/start", startMCPPlatformOAuth(service))
 	r.GET("/plugins/mcp/platforms/:platform_code/oauth/status", getMCPPlatformOAuthStatus(service))
 	r.PUT("/plugins/mcp/:plugin_id", updateMCPPlugin(service))
@@ -170,6 +171,22 @@ func connectMCPPlatform(service contract.PluginService) gin.HandlerFunc {
 			}
 		}
 		result, err := service.ConnectMCPPlatform(ctx, caller.OrgID, caller.Uin, platformCode, &req)
+		writePluginServiceResult(ctx, result, err)
+	}
+}
+
+func testMCPPlatform(service contract.PluginService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		caller, ok := pluginCaller(ctx)
+		if !ok {
+			return
+		}
+		platformCode := strings.TrimSpace(ctx.Param("platform_code"))
+		if platformCode == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "platform_code is required"))
+			return
+		}
+		result, err := service.TestMCPPlatform(ctx, caller.OrgID, caller.Uin, platformCode)
 		writePluginServiceResult(ctx, result, err)
 	}
 }

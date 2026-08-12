@@ -296,6 +296,9 @@ llm:
 #     status: active
 #     transport: http
 #     url: http://xxxxxxx/v3/keapi/mcp
+#     bindings:
+#       mcp_headers:
+#         Authorization: "Bearer {{api_key}}"
 #     auth:
 #       type: managed
 #       handler: corekg

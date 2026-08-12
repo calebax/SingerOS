@@ -76,11 +76,14 @@ func prepareConnectorRuntimeEnv(
 		}
 		valid := true
 		pending := make(map[string]string)
-		for envName, valueKey := range definition.Auth.Bindings.SkillEnv {
-			value, ok := definition.Auth.Values[valueKey]
-			if !ok || value == "" || !connectorRuntimeEnvAllowed(envName) || strings.ContainsRune(value, '\x00') {
+		for envName, expression := range definition.Auth.Bindings.SkillEnv {
+			value, ok, renderErr := service.RenderConnectorBinding(expression, definition.Auth.Values)
+			if renderErr != nil || !connectorRuntimeEnvAllowed(envName) || strings.ContainsRune(value, '\x00') {
 				valid = false
 				break
+			}
+			if !ok {
+				continue
 			}
 			if existing, exists := values[envName]; exists && existing != value {
 				valid = false

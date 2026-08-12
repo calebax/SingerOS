@@ -278,8 +278,8 @@ func testConnectorServiceSpecs() []types.MCPConnectorSpec {
 			Transport: "sse", URL: "https://mcp-pan.baidu.com/sse", AuthType: types.MCPChannelAuthTypeOAuth,
 			AuthConfig: types.MCPChannelAuthConfig{Handler: baiduNetdiskPlatformCode,
 				OAuth: &types.MCPChannelOAuthConfig{Scopes: []string{"basic", "netdisk"}},
-				Bindings: types.MCPChannelAuthBindings{MCPQuery: map[string]string{
-					baiduNetdiskOAuthValueKey: baiduNetdiskOAuthValueKey,
+				Bindings: types.MCPChannelAuthBindings{MCPHeaders: map[string]string{
+					"Authorization": "Bearer {{access_token}}",
 				}}},
 		},
 		{
@@ -295,6 +295,40 @@ func testConnectorServiceSpecs() []types.MCPConnectorSpec {
 				}},
 			},
 		},
+	}
+}
+
+func TestNormalizeSystemConnectorSpecValidatesBindingTemplates(t *testing.T) {
+	base := types.MCPConnectorSpec{
+		Channel: "catapi", Name: "CatAPI", Status: types.MCPChannelStatusActive,
+		Transport: "http", URL: "https://api.insmtx.com/v6/api/mcp",
+		AuthType: types.MCPChannelAuthTypeForm,
+		AuthConfig: types.MCPChannelAuthConfig{Fields: []types.MCPChannelAuthField{{
+			Key: "api_key", Label: "API Key", Type: "password", Required: true,
+		}}},
+	}
+	cases := []struct {
+		name       string
+		expression string
+		wantError  bool
+	}{
+		{name: "header template", expression: "Bearer {{api_key}}"},
+		{name: "direct credential", expression: "api_key"},
+		{name: "unknown credential", expression: "Bearer {{missing}}", wantError: true},
+		{name: "malformed template", expression: "Bearer {{api_key}", wantError: true},
+		{name: "static value", expression: "Bearer static-secret", wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := base
+			spec.AuthConfig.Bindings = types.MCPChannelAuthBindings{MCPHeaders: map[string]string{
+				"Authorization": tc.expression,
+			}}
+			_, err := normalizeSystemConnectorSpec(spec)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("normalizeSystemConnectorSpec() error = %v", err)
+			}
+		})
 	}
 }
 

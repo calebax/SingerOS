@@ -21,10 +21,11 @@ func configuredMCPConnectorSpecs(configs []config.MCPConnectorConfig) []types.MC
 			Headers:     types.MCPChannelHeaders(copyStringMap(item.Headers)),
 			AuthType:    auth.Type,
 			AuthConfig: types.MCPChannelAuthConfig{
-				Fields:   makeMCPAuthFields(auth.Fields),
-				Bindings: makeMCPAuthBindings(item.Bindings),
-				Handler:  auth.Handler,
-				OAuth:    makeMCPOAuthConfig(auth.OAuth),
+				Description: auth.Description,
+				Fields:      makeMCPAuthFields(auth.Fields),
+				Bindings:    makeMCPAuthBindings(item.Bindings),
+				Handler:     auth.Handler,
+				OAuth:       makeMCPOAuthConfig(auth.OAuth),
 			},
 		}
 		if spec.Status == "" {
@@ -51,11 +52,10 @@ func makeMCPAuthFields(fields []config.MCPConnectorAuthField) []types.MCPChannel
 
 func makeMCPAuthBindings(bindings config.MCPConnectorBindings) types.MCPChannelAuthBindings {
 	return types.MCPChannelAuthBindings{
-		SkillEnv:       copyStringMap(bindings.SkillEnv),
-		MCPBearerToken: bindings.MCPBearerToken,
-		MCPHeaders:     copyStringMap(bindings.MCPHeaders),
-		MCPEnv:         copyStringMap(bindings.MCPEnv),
-		MCPQuery:       copyStringMap(bindings.MCPQuery),
+		SkillEnv:   copyStringMap(bindings.SkillEnv),
+		MCPHeaders: copyStringMap(bindings.MCPHeaders),
+		MCPEnv:     copyStringMap(bindings.MCPEnv),
+		MCPQuery:   copyStringMap(bindings.MCPQuery),
 	}
 }
 

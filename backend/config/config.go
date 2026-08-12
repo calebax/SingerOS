@@ -86,10 +86,12 @@ type MCPConnectorConfig struct {
 
 // MCPConnectorAuthConfig declares the authorization schema for one system connector.
 type MCPConnectorAuthConfig struct {
-	Type    string                   `yaml:"type,omitempty" json:"type,omitempty"`
-	Fields  []MCPConnectorAuthField  `yaml:"fields,omitempty" json:"fields,omitempty"`
-	Handler string                   `yaml:"handler,omitempty" json:"handler,omitempty"`
-	OAuth   *MCPConnectorOAuthConfig `yaml:"oauth,omitempty" json:"oauth,omitempty"`
+	Type string `yaml:"type,omitempty" json:"type,omitempty"`
+	// Description is user-facing guidance shown above the connector authorization form.
+	Description string                   `yaml:"description,omitempty" json:"description,omitempty"`
+	Fields      []MCPConnectorAuthField  `yaml:"fields,omitempty" json:"fields,omitempty"`
+	Handler     string                   `yaml:"handler,omitempty" json:"handler,omitempty"`
+	OAuth       *MCPConnectorOAuthConfig `yaml:"oauth,omitempty" json:"oauth,omitempty"`
 }
 
 // MCPConnectorAuthField describes a value collected from a user when connecting a platform.
@@ -102,13 +104,13 @@ type MCPConnectorAuthField struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
-// MCPConnectorBindings maps connected credential values to runtime destinations.
+// MCPConnectorBindings maps connected credentials to runtime destinations.
+// A value may be a credential key or a template such as "Bearer {{api_key}}".
 type MCPConnectorBindings struct {
-	SkillEnv       map[string]string `yaml:"skill_env,omitempty" json:"skill_env,omitempty"`
-	MCPBearerToken string            `yaml:"mcp_bearer_token,omitempty" json:"mcp_bearer_token,omitempty"`
-	MCPHeaders     map[string]string `yaml:"mcp_headers,omitempty" json:"mcp_headers,omitempty"`
-	MCPEnv         map[string]string `yaml:"mcp_env,omitempty" json:"mcp_env,omitempty"`
-	MCPQuery       map[string]string `yaml:"mcp_query,omitempty" json:"mcp_query,omitempty"`
+	SkillEnv   map[string]string `yaml:"skill_env,omitempty" json:"skill_env,omitempty"`
+	MCPHeaders map[string]string `yaml:"mcp_headers,omitempty" json:"mcp_headers,omitempty"`
+	MCPEnv     map[string]string `yaml:"mcp_env,omitempty" json:"mcp_env,omitempty"`
+	MCPQuery   map[string]string `yaml:"mcp_query,omitempty" json:"mcp_query,omitempty"`
 }
 
 // MCPConnectorOAuthConfig stores operations-managed OAuth application settings.

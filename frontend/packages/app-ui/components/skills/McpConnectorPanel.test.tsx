@@ -12,6 +12,7 @@ const {
 	mockPluginListMCPPlatforms,
 	mockPluginGetMCPPlatformOAuthStatus,
 	mockPluginStartMCPPlatformOAuth,
+	mockPluginTestMCPPlatform,
 	mockPluginTestMCP,
 	mockPluginUpdateMCP,
 	mockOpenExternalLink,
@@ -24,6 +25,7 @@ const {
 	mockPluginListMCPPlatforms: vi.fn(),
 	mockPluginGetMCPPlatformOAuthStatus: vi.fn(),
 	mockPluginStartMCPPlatformOAuth: vi.fn(),
+	mockPluginTestMCPPlatform: vi.fn(),
 	mockPluginTestMCP: vi.fn(),
 	mockPluginUpdateMCP: vi.fn(),
 	mockOpenExternalLink: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock("@leros/store", () => ({
 		listMCPPlatforms: mockPluginListMCPPlatforms,
 		getMCPPlatformOAuthStatus: mockPluginGetMCPPlatformOAuthStatus,
 		startMCPPlatformOAuth: mockPluginStartMCPPlatformOAuth,
+		testMCPPlatform: mockPluginTestMCPPlatform,
 		testMCP: mockPluginTestMCP,
 		updateMCP: mockPluginUpdateMCP,
 	},
@@ -101,6 +104,9 @@ describe("McpConnectorPanel", () => {
 		mockPluginTestMCP.mockResolvedValue({
 			data: { data: { ok: true, tool_count: 3 } },
 		});
+		mockPluginTestMCPPlatform.mockResolvedValue({
+			data: { data: { ok: true, tool_count: 3 } },
+		});
 		mockPluginListMCPPlatforms.mockResolvedValue({
 			data: {
 				data: {
@@ -152,11 +158,10 @@ describe("McpConnectorPanel", () => {
 		expect(screen.getByText("文档连接器")).toBeInTheDocument();
 		expect(screen.getByText("平台连接器")).toBeInTheDocument();
 		expect(screen.getByText("自定义连接器")).toBeInTheDocument();
-		expect(screen.getByText("知识库")).toBeInTheDocument();
-		expect(screen.getByText("连接知识库、知识图谱与智能问答能力")).toBeInTheDocument();
-		expect(screen.queryByText(/CoreKG/)).not.toBeInTheDocument();
+		expect(screen.getByText("CoreKG")).toBeInTheDocument();
+		expect(screen.getByText("CoreKG 连接知识库、知识图谱与智能问答能力")).toBeInTheDocument();
 		expect(screen.getByText("已连接")).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "管理 知识库" })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "管理 CoreKG" })).toBeInTheDocument();
 		expect(screen.queryByText("自定义 MCP 服务")).not.toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "管理 浏览器连接器" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "管理 文档连接器" })).toBeInTheDocument();
@@ -226,7 +231,7 @@ describe("McpConnectorPanel", () => {
 		render(<McpConnectorPanel />);
 
 		expect(await screen.findByText("浏览器连接器")).toBeInTheDocument();
-		expect(screen.getAllByText("知识库")).toHaveLength(1);
+		expect(screen.getAllByText("CoreKG")).toHaveLength(1);
 		expect(screen.getByText("共 1 个")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "管理 浏览器连接器" })).toBeInTheDocument();
 	});
@@ -268,13 +273,15 @@ describe("McpConnectorPanel", () => {
 		expect(mockPluginConnectMCPPlatform).not.toHaveBeenCalled();
 	});
 
-	it("does not expose test or disconnect actions for CoreKG", async () => {
+	it("exposes only the test action for CoreKG", async () => {
 		render(<McpConnectorPanel />);
 
 		expect(await screen.findByText("已连接")).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "管理 知识库" })).not.toBeInTheDocument();
-		expect(screen.queryByText("测试连接")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "管理 CoreKG" }));
+		expect(await screen.findByRole("menuitem", { name: "测试连接" })).toBeInTheDocument();
 		expect(screen.queryByText("断开连接")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("menuitem", { name: "测试连接" }));
+		await waitFor(() => expect(mockPluginTestMCPPlatform).toHaveBeenCalledWith("corekg"));
 	});
 
 	it("keeps manual actions for non-CoreKG platforms", async () => {
@@ -299,6 +306,9 @@ describe("McpConnectorPanel", () => {
 		fireEvent.click(await screen.findByRole("button", { name: "管理 未来平台" }));
 		expect(await screen.findByRole("menuitem", { name: "测试连接" })).toBeInTheDocument();
 		expect(screen.getByRole("menuitem", { name: "断开连接" })).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("menuitem", { name: "测试连接" }));
+		await waitFor(() => expect(mockPluginTestMCPPlatform).toHaveBeenCalledWith("future-platform"));
+		expect(mockPluginGet).not.toHaveBeenCalled();
 	});
 
 	it("connects a Skill-only email platform with schema-driven authorization", async () => {
@@ -312,6 +322,8 @@ describe("McpConnectorPanel", () => {
 							description: "通过 IMAP/SMTP 收发邮件",
 							mode: "skill_only",
 							auth_type: "form",
+							auth_description:
+								"输入邮箱地址和 IMAP/SMTP 授权码（非登录密码）。支持 163、126、yeah.net 等网易邮箱，以及其他支持 IMAP/SMTP 的邮箱。",
 							auth_fields: [
 								{
 									key: "email",
@@ -347,6 +359,11 @@ describe("McpConnectorPanel", () => {
 
 		fireEvent.click(await screen.findByRole("button", { name: "连接 邮箱" }));
 		expect(screen.getByRole("heading", { name: "连接 邮箱" })).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"输入邮箱地址和 IMAP/SMTP 授权码（非登录密码）。支持 163、126、yeah.net 等网易邮箱，以及其他支持 IMAP/SMTP 的邮箱。",
+			),
+		).toBeInTheDocument();
 		fireEvent.change(screen.getByLabelText("邮箱地址"), {
 			target: { value: "user@example.com" },
 		});
@@ -445,7 +462,7 @@ describe("McpConnectorPanel", () => {
 		"corekg",
 		"CoreKG",
 		"COREKG",
-	])("hides the knowledge base platform from %s search", async (keyword) => {
+	])("keeps the CoreKG platform searchable by %s", async (keyword) => {
 		mockPluginListMCPPlatforms.mockResolvedValueOnce({
 			data: {
 				data: {
@@ -463,18 +480,16 @@ describe("McpConnectorPanel", () => {
 		});
 		render(<McpConnectorPanel />);
 
-		expect(await screen.findByText("知识库")).toBeInTheDocument();
-		expect(screen.getByText("连接知识库")).toBeInTheDocument();
-		expect(screen.queryByText(/CoreKG|COREKG/i)).not.toBeInTheDocument();
+		expect(await screen.findByText("CoreKG")).toBeInTheDocument();
+		expect(screen.getByText("COREKG 连接知识库")).toBeInTheDocument();
 
 		fireEvent.change(screen.getByRole("searchbox", { name: "搜索 MCP 连接器" }), {
 			target: { value: keyword },
 		});
-		expect(screen.queryByText("知识库")).not.toBeInTheDocument();
-		expect(screen.getByText("暂无符合条件的连接器")).toBeInTheDocument();
+		expect(screen.getByText("CoreKG")).toBeInTheDocument();
 	});
 
-	it("keeps the knowledge base platform searchable by 知识库", async () => {
+	it("keeps the CoreKG platform searchable by server-provided description", async () => {
 		mockPluginListMCPPlatforms.mockResolvedValueOnce({
 			data: {
 				data: {
@@ -492,11 +507,11 @@ describe("McpConnectorPanel", () => {
 		});
 		render(<McpConnectorPanel />);
 
-		expect(await screen.findByText("知识库")).toBeInTheDocument();
+		expect(await screen.findByText("CoreKG")).toBeInTheDocument();
 		fireEvent.change(screen.getByRole("searchbox", { name: "搜索 MCP 连接器" }), {
 			target: { value: "知识库" },
 		});
-		expect(screen.getByText("知识库")).toBeInTheDocument();
+		expect(screen.getByText("CoreKG")).toBeInTheDocument();
 	});
 
 	it("creates an HTTP MCP without exposing or sending code", async () => {
