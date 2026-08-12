@@ -114,7 +114,7 @@ export class ModelSliceImpl {
 	};
 
 	setDefault = async (id: number) => {
-		await modelApi.update({ id, is_default: true });
+		await modelApi.setDefault(id);
 		await this.fetchModels();
 	};
 

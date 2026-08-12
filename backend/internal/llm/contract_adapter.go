@@ -119,6 +119,22 @@ func (a *ContractAdapter) UpdateLLMModel(ctx context.Context, id uint, req *cont
 	return modelConfigToContract(cfg), nil
 }
 
+// SetDefaultLLMModel 将指定LLM模型设为所属用途的默认模型。
+func (a *ContractAdapter) SetDefaultLLMModel(ctx context.Context, id uint) (*contract.LLMModel, error) {
+	orgID, err := orgIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
+		return nil, err
+	}
+	cfg, err := a.manager.SetDefault(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	return modelConfigToContract(cfg), nil
+}
+
 // SetLLMModelStatus 启用或禁用 LLM 模型配置。
 func (a *ContractAdapter) SetLLMModelStatus(ctx context.Context, id uint, status string) (*contract.LLMModel, error) {
 	orgID, err := orgIDFromContext(ctx)
