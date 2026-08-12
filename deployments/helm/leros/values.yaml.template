@@ -288,46 +288,47 @@ llm:
 # 启动时仅按此列表幂等创建或更新渠道和系统模板；空列表（默认）不执行同步。
 # 结构与 server.config.example.yaml 顶层 mcp_connectors 一致。
 # OAuth 密钥等敏感字段可引用 ${VAR} 环境变量，实际值来自 Secret。
-mcpConnectors: []
-  # - channel: corekg
-  #   name: 知识库
-  #   description: CoreKG 知识库服务
-  #   status: active
-  #   transport: http
-  #   url: http://xxxxxxx/v3/keapi/mcp
-  #   auth:
-  #     type: managed
-  #     handler: corekg
-  # - channel: netease-mail
-  #   name: 邮箱
-  #   description: 邮箱服务
-  #   status: active
-  #   skill_code: connector-netease-mail
-  #   bindings:
-  #     skill_env:
-  #       NETEASE_EMAIL_USER: email
-  #       NETEASE_EMAIL_PASS: authorization_code
-  #   auth:
-  #     type: form
-  #     fields:
-  #       - key: email
-  #         label: 邮箱地址
-  #         type: text
-  #         required: true
-  #   - channel: baidu-netdisk
-  #     name: 百度网盘
-  #     status: inactive
-  #     skill_code: connector-baidu-netdisk
-  #     transport: sse
-  #     url: "https://mcp-pan.baidu.com/sse"
-  #     auth:
-  #       type: oauth
-  #       handler: baidu-netdisk
-  #       oauth:
-  #         app_key: "${BAIDU_NETDISK_APP_KEY}"
-  #         secret_key: "${BAIDU_NETDISK_SECRET_KEY}"
-  #         redirect_uri: "${LEROS_BASE_URL}/v1/plugins/mcp/oauth/baidu-netdisk/callback"
-  #         scopes: [basic, netdisk]
+# 示例（取消注释并调整为实际连接器后启用）：
+# mcpConnectors:
+#   - channel: corekg
+#     name: 知识库
+#     description: CoreKG 知识库服务
+#     status: active
+#     transport: http
+#     url: http://xxxxxxx/v3/keapi/mcp
+#     auth:
+#       type: managed
+#       handler: corekg
+#   - channel: netease-mail
+#     name: 邮箱
+#     description: 邮箱服务
+#     status: active
+#     skill_code: connector-netease-mail
+#     bindings:
+#       skill_env:
+#         NETEASE_EMAIL_USER: email
+#         NETEASE_EMAIL_PASS: authorization_code
+#     auth:
+#       type: form
+#       fields:
+#         - key: email
+#           label: 邮箱地址
+#           type: text
+#           required: true
+#   - channel: baidu-netdisk
+#     name: 百度网盘
+#     status: inactive
+#     skill_code: connector-baidu-netdisk
+#     transport: sse
+#     url: "https://mcp-pan.baidu.com/sse"
+#     auth:
+#       type: oauth
+#       handler: baidu-netdisk
+#       oauth:
+#         app_key: "${BAIDU_NETDISK_APP_KEY}"
+#         secret_key: "${BAIDU_NETDISK_SECRET_KEY}"
+#         redirect_uri: "${LEROS_BASE_URL}/v1/plugins/mcp/oauth/baidu-netdisk/callback"
+#         scopes: [basic, netdisk]
 
 # =============================================================================
 # Enterprise IAM 认证（仅 enterprise 版本使用）
