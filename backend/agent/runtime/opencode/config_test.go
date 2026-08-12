@@ -48,7 +48,7 @@ func TestBuildServerEnvOverridesInheritedOpenCodeDB(t *testing.T) {
 }
 
 func TestBuildConfigContentSetsBuildAgentPrompt(t *testing.T) {
-	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil)
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "")
 	if err != nil {
 		t.Fatalf("build config content: %v", err)
 	}
@@ -67,9 +67,44 @@ func TestBuildConfigContentSetsBuildAgentPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildConfigContentInjectsTaskSkillDirectory(t *testing.T) {
+	for _, skillDir := range []string{
+		"/workspace/task-1/skills",
+		"/workspace/task-2/skills",
+	} {
+		content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, skillDir)
+		if err != nil {
+			t.Fatalf("build config content for %q: %v", skillDir, err)
+		}
+
+		var cfg configContent
+		if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+			t.Fatalf("unmarshal config content for %q: %v", skillDir, err)
+		}
+		if cfg.Skills == nil || len(cfg.Skills.Paths) != 1 || cfg.Skills.Paths[0] != skillDir {
+			t.Fatalf("skills config = %#v, want path %q", cfg.Skills, skillDir)
+		}
+	}
+}
+
+func TestBuildConfigContentOmitsEmptyTaskSkillDirectory(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, " ")
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	if cfg.Skills != nil {
+		t.Fatalf("empty SkillDir should omit skills config: %#v", cfg.Skills)
+	}
+}
+
 func TestBuildConfigContentDeclaresImageModalityOnlyForVisionModel(t *testing.T) {
 	for _, vision := range []bool{true, false} {
-		content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-4o", Vision: vision}, nil)
+		content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-4o", Vision: vision}, nil, "")
 		if err != nil {
 			t.Fatalf("build config content (vision=%v): %v", vision, err)
 		}
@@ -136,7 +171,7 @@ func TestBuildConfigContentInjectsSamplingParamsAndLimit(t *testing.T) {
 		PresencePenalty:  &presence,
 		ContextLimit:     82144,
 		OutputLimit:      42768,
-	}, nil)
+	}, nil, "")
 	if err != nil {
 		t.Fatalf("build config content: %v", err)
 	}
@@ -163,7 +198,7 @@ func TestBuildConfigContentInjectsSamplingParamsAndLimit(t *testing.T) {
 }
 
 func TestBuildConfigContentFallsBackToDefaultLimit(t *testing.T) {
-	content, err := buildConfigContent(agent.ModelConfig{Model: "default-model"}, nil)
+	content, err := buildConfigContent(agent.ModelConfig{Model: "default-model"}, nil, "")
 	if err != nil {
 		t.Fatalf("build config content: %v", err)
 	}
