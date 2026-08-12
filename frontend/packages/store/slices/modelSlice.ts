@@ -119,7 +119,7 @@ export class ModelSliceImpl {
 	};
 
 	setStatus = async (id: number, status: string) => {
-		await modelApi.update({ id, status });
+		await modelApi.setStatus(id, status);
 		await this.fetchModels();
 	};
 

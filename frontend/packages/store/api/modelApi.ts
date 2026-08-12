@@ -26,7 +26,6 @@ export type UpdateModelParams = {
 	api_key?: string;
 	max_tokens?: number;
 	temperature?: number;
-	status?: string;
 	purpose?: string;
 	is_default?: boolean;
 	config?: Record<string, unknown>;
@@ -93,6 +92,7 @@ const MODEL_ENDPOINTS = {
 	get: "/GetLLMModel",
 	getDefault: "/GetDefaultLLMModel",
 	update: "/UpdateLLMModel",
+	setStatus: "/SetLLMModelStatus",
 	delete: "/DeleteLLMModel",
 	list: "/ListLLMModels",
 	test: "/TestLLMModel",
@@ -107,6 +107,8 @@ export const modelApi = {
 		apiClient.post<BackendDataResponse<BackendModel>>(MODEL_ENDPOINTS.getDefault, {}),
 	update: (params: UpdateModelParams) =>
 		apiClient.post<BackendDataResponse<BackendModel>>(MODEL_ENDPOINTS.update, params),
+	setStatus: (id: number, status: string) =>
+		apiClient.post<BackendDataResponse<BackendModel>>(MODEL_ENDPOINTS.setStatus, { id, status }),
 	delete: (id: number) => apiClient.post<BackendDataResponse<null>>(MODEL_ENDPOINTS.delete, { id }),
 	list: (params: ListModelsParams = {}) =>
 		apiClient.post<BackendPaginatedResponse<BackendModel>>(MODEL_ENDPOINTS.list, params),
