@@ -70,13 +70,13 @@ type MCPChannelAuthField struct {
 	Description string `json:"description,omitempty"`
 }
 
-// MCPChannelAuthBindings maps stored value keys into runtime destinations.
+// MCPChannelAuthBindings maps stored credentials into runtime destinations.
+// Values support direct credential keys and {{credential}} templates.
 type MCPChannelAuthBindings struct {
-	SkillEnv       map[string]string `json:"skill_env,omitempty"`
-	MCPBearerToken string            `json:"mcp_bearer_token,omitempty"`
-	MCPHeaders     map[string]string `json:"mcp_headers,omitempty"`
-	MCPEnv         map[string]string `json:"mcp_env,omitempty"`
-	MCPQuery       map[string]string `json:"mcp_query,omitempty"`
+	SkillEnv   map[string]string `json:"skill_env,omitempty"`
+	MCPHeaders map[string]string `json:"mcp_headers,omitempty"`
+	MCPEnv     map[string]string `json:"mcp_env,omitempty"`
+	MCPQuery   map[string]string `json:"mcp_query,omitempty"`
 }
 
 // MCPChannelOAuthConfig stores operations-managed OAuth application settings.
@@ -89,10 +89,12 @@ type MCPChannelOAuthConfig struct {
 
 // MCPChannelAuthConfig defines channel-specific authorization without storing user credentials.
 type MCPChannelAuthConfig struct {
-	Fields   []MCPChannelAuthField  `json:"fields,omitempty"`
-	Bindings MCPChannelAuthBindings `json:"bindings,omitempty"`
-	Handler  string                 `json:"handler,omitempty"`
-	OAuth    *MCPChannelOAuthConfig `json:"oauth,omitempty"`
+	// Description is user-facing guidance shown while collecting authorization values.
+	Description string                 `json:"description,omitempty"`
+	Fields      []MCPChannelAuthField  `json:"fields,omitempty"`
+	Bindings    MCPChannelAuthBindings `json:"bindings,omitempty"`
+	Handler     string                 `json:"handler,omitempty"`
+	OAuth       *MCPChannelOAuthConfig `json:"oauth,omitempty"`
 }
 
 // MCPChannelAuthConfigJSON stores one typed channel authorization schema.

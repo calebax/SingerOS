@@ -42,7 +42,7 @@ func TestBaiduNetdiskOAuthCreatesImmutableActiveRevisionAndRedactsSecrets(t *tes
 				Scopes:      []string{"basic", "netdisk"},
 			},
 			Bindings: types.MCPChannelAuthBindings{
-				MCPQuery: map[string]string{"access_token": baiduNetdiskOAuthValueKey},
+				MCPHeaders: map[string]string{"Authorization": "Bearer {{access_token}}"},
 			},
 		},
 		Status: types.MCPChannelStatusActive,
@@ -127,9 +127,8 @@ func TestBaiduNetdiskOAuthCreatesImmutableActiveRevisionAndRedactsSecrets(t *tes
 	if err != nil || mcp == nil || mcp.Transport != "sse" {
 		t.Fatalf("MCP definition = %#v, %v", mcp, err)
 	}
-	parsedMCPURL, _ := url.Parse(mcp.URL)
-	if parsedMCPURL.Query().Get("access_token") != "access-secret" {
-		t.Fatalf("MCP URL = %q", mcp.URL)
+	if mcp.Headers["Authorization"] != "Bearer access-secret" {
+		t.Fatalf("MCP headers = %#v", mcp.Headers)
 	}
 	detail, err := service.GetPlugin(context.Background(), 7, 9, plugin.PublicID, nil)
 	if err != nil {
@@ -159,7 +158,7 @@ func TestBaiduNetdiskOAuthRefreshPublishesSuccessorRevision(t *testing.T) {
 				Scopes: []string{"basic", "netdisk"},
 			},
 			Bindings: types.MCPChannelAuthBindings{
-				MCPQuery: map[string]string{"access_token": baiduNetdiskOAuthValueKey},
+				MCPHeaders: map[string]string{"Authorization": "Bearer {{access_token}}"},
 			},
 		},
 		Status: types.MCPChannelStatusActive,
@@ -176,7 +175,7 @@ func TestBaiduNetdiskOAuthRefreshPublishesSuccessorRevision(t *testing.T) {
 		Auth: ConnectorAuthDefinition{
 			Type: types.MCPChannelAuthTypeOAuth,
 			Bindings: types.MCPChannelAuthBindings{
-				MCPQuery: map[string]string{"access_token": baiduNetdiskOAuthValueKey},
+				MCPHeaders: map[string]string{"Authorization": "Bearer {{access_token}}"},
 			},
 			Values: map[string]string{
 				baiduNetdiskOAuthValueKey:   "old-access",
@@ -239,8 +238,7 @@ func TestBaiduNetdiskOAuthRefreshPublishesSuccessorRevision(t *testing.T) {
 	if err != nil || mcp == nil {
 		t.Fatalf("MCPFromDefinition() = %#v, %v", mcp, err)
 	}
-	parsed, _ := url.Parse(mcp.URL)
-	if parsed.Query().Get("access_token") != "new-access" {
-		t.Fatalf("refreshed MCP URL = %q", mcp.URL)
+	if mcp.Headers["Authorization"] != "Bearer new-access" {
+		t.Fatalf("refreshed MCP headers = %#v", mcp.Headers)
 	}
 }

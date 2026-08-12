@@ -35,6 +35,7 @@ type pluginHandlerTestService struct {
 	platformUin         uint
 	platformCode        string
 	platformAuthValues  map[string]string
+	platformTestCode    string
 	oauthAttemptID      string
 	oauthState          string
 	oauthCode           string
@@ -124,6 +125,15 @@ func (s *pluginHandlerTestService) ConnectMCPPlatform(
 		Plugin:    contract.PluginView{PublicID: "plugin_corekg", Kind: "mcp"},
 		ToolCount: 21,
 	}, nil
+}
+
+func (s *pluginHandlerTestService) TestMCPPlatform(
+	_ context.Context,
+	orgID, uin uint,
+	platformCode string,
+) (*contract.TestMCPPluginResponse, error) {
+	s.platformOrgID, s.platformUin, s.platformTestCode = orgID, uin, platformCode
+	return &contract.TestMCPPluginResponse{OK: true, ToolCount: 3}, nil
 }
 
 func (s *pluginHandlerTestService) StartMCPPlatformOAuth(
@@ -260,6 +270,26 @@ func TestPluginMCPPlatformRoutesPassCallerIdentity(t *testing.T) {
 			service.platformOrgID,
 			service.platformUin,
 			service.platformCode,
+		)
+	}
+
+	testRecorder := httptest.NewRecorder()
+	testRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/plugins/mcp/platforms/catapi/test",
+		nil,
+	)
+	router.ServeHTTP(testRecorder, testRequest)
+	if testRecorder.Code != http.StatusOK ||
+		service.platformOrgID != 42 ||
+		service.platformUin != 7 ||
+		service.platformTestCode != "catapi" {
+		t.Fatalf(
+			"test status/caller/platform = %d/%d/%d/%q",
+			testRecorder.Code,
+			service.platformOrgID,
+			service.platformUin,
+			service.platformTestCode,
 		)
 	}
 }

@@ -76,6 +76,7 @@ export interface MCPPlatform {
 	description: string;
 	mode: "skill_only" | "mcp_only" | "hybrid";
 	auth_type: "none" | "form" | "oauth" | "managed";
+	auth_description?: string;
 	auth_fields?: MCPPlatformAuthField[];
 	auto_connect_supported: boolean;
 	connected: boolean;
@@ -310,6 +311,10 @@ export const pluginApi = {
 		apiClient.post<BackendDataResponse<ConnectMCPPlatformResponse>>(
 			`/plugins/mcp/platforms/${platformCode}/connect`,
 			params,
+		),
+	testMCPPlatform: (platformCode: string) =>
+		apiClient.post<BackendDataResponse<TestMCPPluginResponse>>(
+			`/plugins/mcp/platforms/${platformCode}/test`,
 		),
 	startMCPPlatformOAuth: (platformCode: string) =>
 		apiClient.post<BackendDataResponse<StartMCPPlatformOAuthResponse>>(

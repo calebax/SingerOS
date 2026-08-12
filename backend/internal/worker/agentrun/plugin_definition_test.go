@@ -104,7 +104,8 @@ func TestPrepareConnectorRuntimeEnvUsesSkillBindings(t *testing.T) {
 			Definition: json.RawMessage(
 				`{"schema":"connector/v1","channel":"netease-mail","mode":"skill_only",` +
 					`"auth":{"type":"form","values":{"email":"user@example.com","authorization_code":"mail-code"},` +
-					`"bindings":{"skill_env":{"NETEASE_EMAIL_PASS":"authorization_code","NETEASE_EMAIL_USER":"email"}}},` +
+					`"bindings":{"skill_env":{"NETEASE_EMAIL_PASS":"authorization_code",` +
+					`"NETEASE_EMAIL_USER":"{{email}}"}}},` +
 					`"skill":{"code":"connector-netease-mail","revision":1,"artifact":` +
 					`{"file_upload_id":"file_mail","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}`,
 			),

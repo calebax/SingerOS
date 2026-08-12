@@ -229,13 +229,13 @@ func syncSystemConnectorTemplateTx(
 
 func cloneMCPAuthConfig(config types.MCPChannelAuthConfig) types.MCPChannelAuthConfig {
 	result := types.MCPChannelAuthConfig{
-		Fields: append([]types.MCPChannelAuthField(nil), config.Fields...),
+		Description: config.Description,
+		Fields:      append([]types.MCPChannelAuthField(nil), config.Fields...),
 		Bindings: types.MCPChannelAuthBindings{
-			SkillEnv:       cloneStringMap(config.Bindings.SkillEnv),
-			MCPBearerToken: config.Bindings.MCPBearerToken,
-			MCPHeaders:     cloneStringMap(config.Bindings.MCPHeaders),
-			MCPEnv:         cloneStringMap(config.Bindings.MCPEnv),
-			MCPQuery:       cloneStringMap(config.Bindings.MCPQuery),
+			SkillEnv:   cloneStringMap(config.Bindings.SkillEnv),
+			MCPHeaders: cloneStringMap(config.Bindings.MCPHeaders),
+			MCPEnv:     cloneStringMap(config.Bindings.MCPEnv),
+			MCPQuery:   cloneStringMap(config.Bindings.MCPQuery),
 		},
 		Handler: config.Handler,
 	}
