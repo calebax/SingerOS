@@ -114,6 +114,10 @@ data:
         update_url: {{ .Values.clientUpdate.desktop.updateUrl | quote }}
         force_message: {{ .Values.clientUpdate.desktop.forceMessage | quote }}
     {{- end }}
+    {{- if .Values.mcpConnectors }}
+    mcp_connectors:
+{{ toYaml .Values.mcpConnectors | nindent 6 }}
+    {{- end }}
     {{- if .Values.auth.enabled }}
     auth:
       base_url: {{ .Values.auth.baseUrl | quote }}
