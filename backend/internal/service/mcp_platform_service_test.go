@@ -38,7 +38,7 @@ func createTestMCPChannel(t *testing.T, database *gorm.DB, url string) *types.MC
 		Description: "CoreKG configured from database",
 		Transport:   "http",
 		URL:         url,
-		Headers:     types.MCPChannelHeaders{"X-CoreKG-Channel": "database"},
+		Headers:     types.MCPChannelHeaders{"X-Connector-Scope": "database"},
 		Status:      types.MCPChannelStatusActive,
 	}
 	if err := database.Create(channel).Error; err != nil {
@@ -61,7 +61,7 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if req.Header.Get("X-CoreKG-Channel") != "database" {
+		if req.Header.Get("X-Connector-Scope") != "database" {
 			http.Error(w, "missing configured header", http.StatusBadRequest)
 			return
 		}
@@ -134,7 +134,7 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 	if definition.Provider != "corekg" ||
 		definition.URL != httpServer.URL ||
 		definition.BearerToken != "yg-corekg-test" ||
-		definition.Headers["X-CoreKG-Channel"] != "database" {
+		definition.Headers["X-Connector-Scope"] != "database" {
 		t.Fatalf("CoreKG definition = %#v", definition)
 	}
 

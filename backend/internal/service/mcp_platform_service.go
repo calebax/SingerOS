@@ -19,13 +19,6 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
-const (
-	coreKGPlatformCode          = "corekg"
-	baiduNetdiskPlatformCode    = "baidu-netdisk"
-	baiduNetdiskOAuthValueKey   = "access_token"
-	baiduNetdiskRefreshValueKey = "refresh_token"
-)
-
 func (s *pluginService) ListMCPPlatforms(
 	ctx context.Context,
 	orgID, uin uint,
@@ -292,10 +285,6 @@ func (s *pluginService) getSupportedMCPChannel(
 
 func normalizeSupportedMCPChannel(channel *types.MCPChannel) (*types.MCPChannel, bool) {
 	return normalizeMCPChannel(channel, true)
-}
-
-func normalizeBuiltinConnectorTemplateChannel(channel *types.MCPChannel) (*types.MCPChannel, bool) {
-	return normalizeMCPChannel(channel, false)
 }
 
 func normalizeMCPChannel(channel *types.MCPChannel, requireOAuthAppConfig bool) (*types.MCPChannel, bool) {

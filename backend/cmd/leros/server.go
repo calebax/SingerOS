@@ -125,7 +125,11 @@ func newServerCommand() *cobra.Command {
 			})
 
 			if db != nil {
-				if err := seed.Run(cmd.Context(), db, edition, seed.Options{LLMConfig: cfg.LLM, SQLScriptDir: defaultSeedScriptDir}); err != nil {
+				if err := seed.Run(cmd.Context(), db, edition, seed.Options{
+					LLMConfig:     cfg.LLM,
+					SQLScriptDir:  defaultSeedScriptDir,
+					MCPConnectors: cfg.MCPConnectors,
+				}); err != nil {
 					logs.Fatalf("Failed to seed initial data: %v", err)
 				}
 			}

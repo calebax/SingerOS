@@ -50,9 +50,18 @@ func TestBaiduNetdiskOAuthCreatesImmutableActiveRevisionAndRedactsSecrets(t *tes
 	if err := database.Create(channel).Error; err != nil {
 		t.Fatalf("create Baidu Netdisk channel: %v", err)
 	}
-	report, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir)
-	if err != nil || report.Created != 2 || len(report.Failures) != 0 {
-		t.Fatalf("sync connector templates = %#v, %v", report, err)
+	operation, err := SyncSystemConnectorTemplate(context.Background(), database, sourceDir, types.MCPConnectorSpec{
+		Channel:    channel.Channel,
+		Name:       channel.Name,
+		Status:     channel.Status,
+		SkillCode:  channel.SkillCode,
+		Transport:  channel.Transport,
+		URL:        channel.URL,
+		AuthType:   channel.AuthType,
+		AuthConfig: types.MCPChannelAuthConfig(channel.AuthConfig),
+	})
+	if err != nil || operation != "created" {
+		t.Fatalf("sync connector template = %q, %v", operation, err)
 	}
 
 	tokenCalls := 0
