@@ -58,6 +58,7 @@ data:
       {{- end }}
       env:
         LEROS_STORAGE_LOCAL_DIR: {{ .Values.worker.storageMountPath | quote }}
+        LEROS_MODELROUTER_DEBUG: {{ .Values.worker.modelrouterDebug | quote }}
 
     llm:
       provider: {{ .Values.llm.provider | quote }}
