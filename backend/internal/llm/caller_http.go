@@ -18,8 +18,6 @@ import (
 )
 
 const (
-	defaultHTTPTimeout    = 120 * time.Second
-	defaultStreamTimeout  = 180 * time.Second
 	defaultSSEBufferSize  = 64 * 1024
 	defaultSSEMaxScanSize = 1024 * 1024
 )
@@ -40,7 +38,7 @@ type CallerHTTP struct {
 
 func NewCallerHTTP(client *http.Client, recorder Recorder) *CallerHTTP {
 	if client == nil {
-		client = &http.Client{Timeout: defaultHTTPTimeout}
+		client = &http.Client{}
 	}
 	return &CallerHTTP{httpClient: client, recorder: recorder}
 }
@@ -69,11 +67,6 @@ func (c *CallerHTTP) CallRaw(ctx context.Context, orgID uint, cfg *ModelConfig, 
 	apiPath := llmprotocol.UpstreamAPIPath(proto, false)
 	endpointURL := BuildLLMEndpointURL(cfg.BaseURL, cfg.BaseURLHasV1) + apiPath
 
-	timeout := time.Duration(cfg.TimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = defaultHTTPTimeout
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body))
 	if err != nil {
 		return c.recordHTTPError(ctx, orgID, cfg, false, startedAt,
@@ -82,12 +75,10 @@ func (c *CallerHTTP) CallRaw(ctx context.Context, orgID uint, cfg *ModelConfig, 
 	req.Header.Set("Content-Type", "application/json")
 	setAuthHeader(req, cfg)
 
-	client := withTimeout(c.httpClient, timeout)
+	logs.InfoContextf(ctx, "[LLM-CALL] org=%d model=%s provider=%s url=%s body=%s",
+		orgID, cfg.ModelName, cfg.Provider, endpointURL, truncateForLog(string(body), 500))
 
-	logs.InfoContextf(ctx, "[LLM-CALL] org=%d model=%s provider=%s url=%s timeout=%s body=%s",
-		orgID, cfg.ModelName, cfg.Provider, endpointURL, timeout, truncateForLog(string(body), 500))
-
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return c.recordHTTPError(ctx, orgID, cfg, false, startedAt,
 			fmt.Errorf("upstream request failed: %w", err), string(body))
@@ -165,11 +156,6 @@ func (c *CallerHTTP) StreamRaw(ctx context.Context, orgID uint, cfg *ModelConfig
 	apiPath := llmprotocol.UpstreamAPIPath(proto, false)
 	endpointURL := BuildLLMEndpointURL(cfg.BaseURL, cfg.BaseURLHasV1) + apiPath
 
-	timeout := time.Duration(cfg.TimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = defaultStreamTimeout
-	}
-
 	streamBody, err := ensureStreamField(body)
 	if err != nil {
 		return c.recordHTTPError(ctx, orgID, cfg, true, startedAt,
@@ -184,12 +170,10 @@ func (c *CallerHTTP) StreamRaw(ctx context.Context, orgID uint, cfg *ModelConfig
 	req.Header.Set("Content-Type", "application/json")
 	setAuthHeader(req, cfg)
 
-	client := withTimeout(c.httpClient, timeout)
+	logs.InfoContextf(ctx, "[LLM-STREAM] org=%d model=%s provider=%s url=%s body=%s",
+		orgID, cfg.ModelName, cfg.Provider, endpointURL, truncateForLog(string(streamBody), 500))
 
-	logs.InfoContextf(ctx, "[LLM-STREAM] org=%d model=%s provider=%s url=%s timeout=%s body=%s",
-		orgID, cfg.ModelName, cfg.Provider, endpointURL, timeout, truncateForLog(string(streamBody), 500))
-
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return c.recordHTTPError(ctx, orgID, cfg, true, startedAt,
 			fmt.Errorf("upstream stream request failed: %w", err), string(streamBody))
@@ -425,19 +409,6 @@ func buildUsageFromMap(usageMap map[string]interface{}) *Usage {
 		PromptTokens:   int64(promptTokens),
 		CacheHitTokens: int64(cachedTokens),
 	}
-}
-
-func withTimeout(client *http.Client, timeout time.Duration) *http.Client {
-	if client == nil {
-		return &http.Client{Timeout: timeout}
-	}
-	if client.Timeout != timeout {
-		return &http.Client{
-			Timeout:   timeout,
-			Transport: client.Transport,
-		}
-	}
-	return client
 }
 
 func getIntFromMap(m map[string]interface{}, key string) int {
