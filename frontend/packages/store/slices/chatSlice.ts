@@ -251,6 +251,8 @@ export class ChatActionImpl {
 			sessionId: string;
 			metadata?: MessageMetadata;
 			connectorIds?: string[];
+			scene?: string;
+			outputFormat?: string;
 		},
 		attachments?: Attachment[],
 	) => {

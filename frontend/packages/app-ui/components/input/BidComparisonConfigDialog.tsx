@@ -40,6 +40,8 @@ export type BidComparisonProjectFile = {
 
 export type BidComparisonConfig = {
 	projectId?: string;
+	/** 选中已有任务时续聊；空表示在该项目下新建任务 */
+	taskId?: string;
 	mainFile?: BidComparisonProjectFile;
 	compareFiles: BidComparisonProjectFile[];
 	reportFormat: "Word" | "PDF" | "PPT" | "MD";
@@ -68,7 +70,11 @@ export function BidComparisonConfigDialog({
 	onSave,
 	projects = [],
 	initialProjectId,
+	initialTaskId,
+	hideTargetPicker = false,
+	allowSelectTask = true,
 	lockProjectSelection = false,
+	continueInCurrentTask = false,
 	onProjectChange,
 }: {
 	open: boolean;
@@ -76,11 +82,19 @@ export function BidComparisonConfigDialog({
 	onSave: (config: BidComparisonConfig) => void | Promise<void>;
 	projects?: BidComparisonProjectOption[];
 	initialProjectId?: string | null;
+	initialTaskId?: string | null;
+	/** 项目新建任务 / 任务详情等已有默认目标时，不展示项目任务选择。 */
+	hideTargetPicker?: boolean;
+	/** 与工作台问答一致：可选已有任务；为 false 时仅选项目（隐含新建任务）。 */
+	allowSelectTask?: boolean;
 	/** 项目中新建任务固定当前项目，避免跨项目创建。 */
 	lockProjectSelection?: boolean;
+	/** 任务详情续聊场景，用于文案提示。 */
+	continueInCurrentTask?: boolean;
 	onProjectChange?: (projectId: string) => void;
 }) {
 	const [targetProjectId, setTargetProjectId] = useState(initialProjectId ?? "");
+	const [targetTaskId, setTargetTaskId] = useState(initialTaskId ?? "");
 	const [mainFile, setMainFile] = useState<BidComparisonProjectFile | undefined>();
 	const [compareFiles, setCompareFiles] = useState<BidComparisonProjectFile[]>([]);
 	const [reportFormat, setReportFormat] = useState<BidComparisonConfig["reportFormat"]>("Word");
@@ -96,17 +110,26 @@ export function BidComparisonConfigDialog({
 	useEffect(() => {
 		if (!open) return;
 		setTargetProjectId(initialProjectId ?? "");
+		setTargetTaskId(initialTaskId ?? "");
 		setMainFile(undefined);
 		setCompareFiles([]);
 		setReportFormat("Word");
 		setComparisonRequirements("");
-	}, [initialProjectId, open]);
+	}, [initialProjectId, initialTaskId, open]);
 
 	useEffect(() => {
 		if (open && targetProjectId) {
 			onProjectChange?.(targetProjectId);
 		}
 	}, [onProjectChange, open, targetProjectId]);
+
+	const dialogDescription = continueInCurrentTask
+		? "选择文件后，将在当前任务中开始标书对比"
+		: hideTargetPicker
+			? "选择文件后，将新建任务并开始标书对比"
+			: allowSelectTask
+				? "选择项目/任务与文件后，开始标书对比"
+				: "选择项目与文件后，将新建任务并开始标书对比";
 
 	const chooseUploadedFiles = (files: FileList | null, kind: "main" | "compare") => {
 		const selectedFiles = Array.from(files ?? []).map(
@@ -158,6 +181,7 @@ export function BidComparisonConfigDialog({
 		try {
 			await onSave({
 				projectId: targetProjectId || undefined,
+				taskId: allowSelectTask || continueInCurrentTask ? targetTaskId || undefined : undefined,
 				mainFile,
 				compareFiles,
 				reportFormat,
@@ -174,33 +198,38 @@ export function BidComparisonConfigDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="flex max-h-[min(88dvh,720px)] max-w-[min(94vw,720px)] flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
+			<DialogContent className="flex max-h-[min(92dvh,880px)] max-w-[min(92vw,560px)] flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
 				<DialogHeader className="shrink-0 border-b border-slate-100 px-7 py-5">
 					<div className="flex items-center gap-3">
 						<div className="flex size-9 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
 							<img src={BID_COMPARISON_ICON_SRC} alt="" className="size-5" />
 						</div>
 						<div>
-							<DialogTitle className="text-base">新建标书对比</DialogTitle>
-							<DialogDescription className="mt-1 text-xs">
-								选择项目与文件后，将新建任务并开始标书对比
-							</DialogDescription>
+							<DialogTitle className="text-base">
+								{continueInCurrentTask ? "标书对比" : "新建标书对比"}
+							</DialogTitle>
+							<DialogDescription className="mt-1 text-xs">{dialogDescription}</DialogDescription>
 						</div>
 					</div>
 				</DialogHeader>
 
 				<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-7 py-5">
-					<ProjectTaskPickerField
-						projects={projects}
-						projectId={targetProjectId}
-						disabled={lockProjectSelection}
-						allowNewProject={!lockProjectSelection}
-						allowSelectTask={false}
-						onSelect={(nextProjectId) => {
-							setTargetProjectId(nextProjectId);
-							if (nextProjectId) onProjectChange?.(nextProjectId);
-						}}
-					/>
+					{!hideTargetPicker ? (
+						<ProjectTaskPickerField
+							projects={projects}
+							projectId={targetProjectId}
+							taskId={targetTaskId}
+							disabled={lockProjectSelection}
+							allowNewProject={!lockProjectSelection}
+							allowSelectTask={allowSelectTask}
+							onLoadProjectTasks={onProjectChange}
+							onSelect={(nextProjectId, nextTaskId) => {
+								setTargetProjectId(nextProjectId);
+								setTargetTaskId(nextTaskId);
+								if (nextProjectId) onProjectChange?.(nextProjectId);
+							}}
+						/>
+					) : null}
 					<FilePickerSection
 						title="投标文件"
 						required

@@ -545,7 +545,12 @@ function ProjectChat({
 			<div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
 				<ProjectEmptyState layout={layout} />
 			</div>
-			<ChatInput variant="project" projectLayoutMode={layoutMode} navigation={navigation} />
+			<ChatInput
+				variant="project"
+				projectLayoutMode={layoutMode}
+				navigation={navigation}
+				bidComparisonEntry="tips"
+			/>
 		</div>
 	);
 }

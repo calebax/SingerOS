@@ -96,3 +96,52 @@ func TestValidateNewMessageScene_BidComparison(t *testing.T) {
 		t.Fatalf("ordinary attachment role should remain extensible: %v", err)
 	}
 }
+
+func TestValidateAddMessageScene_BidComparison(t *testing.T) {
+	t.Parallel()
+
+	okReq := &contract.AddMessageRequest{
+		Role:         string(types.MessageRoleUser),
+		Content:      "请进行标书对比",
+		Scene:        "bid_comparison",
+		OutputFormat: "PDF",
+		Attachments: []types.MessageAttachment{
+			{FileUploadID: "fu_main", Name: "main.pdf", AttachmentRole: "Main"},
+			{FileUploadID: "fu_cmp1", Name: "a.pdf", AttachmentRole: "COMPARE"},
+		},
+	}
+	scene, err := ValidateAddMessageScene(okReq)
+	if err != nil {
+		t.Fatalf("valid add message bid_comparison: %v", err)
+	}
+	if scene != string(types.MessageSceneBidComparison) {
+		t.Fatalf("scene = %q", scene)
+	}
+	if okReq.OutputFormat != string(types.OutputFormatPDF) {
+		t.Fatalf("output format = %q", okReq.OutputFormat)
+	}
+	if okReq.Attachments[0].AttachmentRole != string(types.AttachmentRoleMain) {
+		t.Fatalf("main role not normalized: %q", okReq.Attachments[0].AttachmentRole)
+	}
+
+	_, err = ValidateAddMessageScene(&contract.AddMessageRequest{
+		Role:         string(types.MessageRoleUser),
+		Content:      "缺少对比文件",
+		Scene:        "bid_comparison",
+		OutputFormat: "docx",
+		Attachments: []types.MessageAttachment{
+			{FileUploadID: "fu_main", Name: "main.pdf", AttachmentRole: "main"},
+		},
+	})
+	if !errors.Is(err, ErrInvalidNewMessage) {
+		t.Fatalf("missing compare: got %v", err)
+	}
+
+	_, err = ValidateAddMessageScene(&contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: "普通续聊",
+	})
+	if err != nil {
+		t.Fatalf("ordinary add message should pass: %v", err)
+	}
+}

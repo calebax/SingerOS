@@ -8,7 +8,7 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
-// ErrInvalidNewMessage 表示 CreateInitialMessage 请求参数不合法。
+// ErrInvalidNewMessage 表示 CreateInitialMessage / AddMessage 场景参数不合法。
 var ErrInvalidNewMessage = fmt.Errorf("invalid new message")
 
 // NormalizeMessageScene 将 scene 规范化为空（普通）或已知场景值。
@@ -24,25 +24,50 @@ func NormalizeMessageScene(scene string) (string, error) {
 	}
 }
 
+// ValidateMessageScene 校验消息场景、输出格式与附件角色约定（新建与续聊共用）。
+// 返回规范化后的 scene 与 outputFormat；attachments 的 AttachmentRole 会被就地规范化。
+func ValidateMessageScene(scene string, outputFormat string, attachments []types.MessageAttachment) (string, string, error) {
+	normalizedScene, err := NormalizeMessageScene(scene)
+	if err != nil {
+		return "", "", err
+	}
+	normalizedFormat := strings.TrimSpace(strings.ToLower(outputFormat))
+	normalizeAttachmentRoles(attachments)
+	if normalizedScene == string(types.MessageSceneBidComparison) {
+		if err := validateBidComparisonOutputFormat(normalizedFormat); err != nil {
+			return "", "", err
+		}
+		if err := validateBidComparisonAttachments(attachments); err != nil {
+			return "", "", err
+		}
+	}
+	return normalizedScene, normalizedFormat, nil
+}
+
 // ValidateNewMessageScene 校验新建任务场景、输出格式与附件角色约定。
 func ValidateNewMessageScene(req *contract.NewMessageRequest) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("%w: request is required", ErrInvalidNewMessage)
 	}
-	scene, err := NormalizeMessageScene(req.Scene)
+	scene, outputFormat, err := ValidateMessageScene(req.Scene, req.OutputFormat, req.Attachments)
 	if err != nil {
 		return "", err
 	}
-	outputFormat := strings.TrimSpace(strings.ToLower(req.OutputFormat))
-	normalizeAttachmentRoles(req.Attachments)
-	if scene == string(types.MessageSceneBidComparison) {
-		if err := validateBidComparisonOutputFormat(outputFormat); err != nil {
-			return "", err
-		}
-		if err := validateBidComparisonAttachments(req.Attachments); err != nil {
-			return "", err
-		}
+	req.Scene = scene
+	req.OutputFormat = outputFormat
+	return scene, nil
+}
+
+// ValidateAddMessageScene 校验续聊场景；与新建任务一样只认顶层 scene/output_format。
+func ValidateAddMessageScene(req *contract.AddMessageRequest) (string, error) {
+	if req == nil {
+		return "", fmt.Errorf("%w: request is required", ErrInvalidNewMessage)
 	}
+	scene, outputFormat, err := ValidateMessageScene(req.Scene, req.OutputFormat, req.Attachments)
+	if err != nil {
+		return "", err
+	}
+	req.Scene = scene
 	req.OutputFormat = outputFormat
 	return scene, nil
 }

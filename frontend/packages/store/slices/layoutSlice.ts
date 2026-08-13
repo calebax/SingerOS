@@ -41,6 +41,8 @@ type ChatSendBridge = {
 			sessionId: string;
 			metadata?: MessageMetadata;
 			connectorIds?: string[];
+			scene?: string;
+			outputFormat?: string;
 		},
 		attachments?: Attachment[],
 	) => Promise<{
@@ -684,8 +686,6 @@ export class LayoutActionImpl {
 		scene?: string,
 		outputFormat?: string,
 		taskId?: string | null,
-		/** 工具场景必须创建首条消息，不能续用已有任务会话。 */
-		forceNewTaskSession?: boolean,
 	) => {
 		const trimmed = content.trim();
 		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，或仅附件提问。
@@ -701,7 +701,8 @@ export class LayoutActionImpl {
 			: null;
 		const chat = this.#get() as LayoutStore & ChatSendBridge;
 
-		if (workbenchProjectId && selectedTaskId && !forceNewTaskSession) {
+		// 中文注释：选中已有任务则续聊（含标书对比等工具场景）；未选任务则 CreateInitialMessage 新建。
+		if (workbenchProjectId && selectedTaskId) {
 			let project = state.projects.find((p) => p.id === workbenchProjectId);
 			let selectedTask = project?.tasks.find((task) => task.id === selectedTaskId);
 
@@ -769,6 +770,8 @@ export class LayoutActionImpl {
 							sessionId: data.session_id,
 							metadata: _metadata,
 							connectorIds,
+							scene,
+							outputFormat,
 						},
 						attachments,
 					);

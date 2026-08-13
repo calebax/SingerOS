@@ -20,6 +20,41 @@ function canUseCrispTextRotate(): boolean {
 	return !/win/i.test(navigator.platform) && !/windows/i.test(navigator.userAgent);
 }
 
+/** 标书对比入口按钮；任务详情等场景单独使用，不挂「使用提示」。 */
+export function BidComparisonEntryButton({
+	onClick,
+	disabled = false,
+	className,
+}: {
+	onClick: () => void;
+	disabled?: boolean;
+	className?: string;
+}) {
+	const [enableRotate, setEnableRotate] = useState(false);
+
+	useEffect(() => {
+		setEnableRotate(canUseCrispTextRotate());
+	}, []);
+
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={disabled}
+			aria-disabled={disabled}
+			className={cn(
+				"inline-flex max-w-full items-center gap-2 rounded-full border border-violet-400 px-3.5 py-2 text-left text-sm font-semibold text-violet-600 transition hover:bg-violet-50",
+				enableRotate && !disabled && "hover:rotate-5",
+				disabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
+				className,
+			)}
+		>
+			<img src={BID_COMPARISON_ICON_SRC} alt="" className="size-3.5" />
+			<span>标书对比</span>
+		</button>
+	);
+}
+
 export function ComposerUsageTipsPanel({
 	tips,
 	onApply,
@@ -43,21 +78,7 @@ export function ComposerUsageTipsPanel({
 				<div className="flex min-w-0 flex-wrap items-center gap-2.5">
 					{onBidComparisonClick ? (
 						<>
-							<button
-								type="button"
-								onClick={onBidComparisonClick}
-								className={cn(
-									"inline-flex max-w-full items-center gap-2 rounded-full border border-violet-400 px-3.5 py-2 text-left text-sm font-semibold text-violet-600 transition hover:bg-violet-50",
-									enableRotate && "hover:rotate-5",
-								)}
-							>
-								<img
-									src={BID_COMPARISON_ICON_SRC}
-									alt=""
-									className="size-3.5"
-								/>
-								<span>标书对比</span>
-							</button>
+							<BidComparisonEntryButton onClick={onBidComparisonClick} />
 							<span aria-hidden className="mx-0.5 h-5 border-l border-slate-200" />
 						</>
 					) : null}

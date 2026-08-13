@@ -648,6 +648,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		async (config: BidComparisonConfig) => {
 			try {
 				const resolved = await ensureBidComparisonFilesUploaded(config, config.projectId);
+				// 中文注释：与问答一致——有任务则续聊，无任务则新建；显式传 taskId（可为空）避免回落到工作台条旧选中。
 				const data = await sendWorkbenchMessage(
 					bidComparisonPrompt(resolved),
 					resolved.projectId,
@@ -658,14 +659,21 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					undefined,
 					"bid_comparison",
 					bidComparisonOutputFormat(resolved),
-					null,
+					resolved.taskId ?? null,
 				);
-				if (navigation && data?.project_id && data.task_id && data.session_id) {
+				if (!data?.project_id || !data.task_id || !data.session_id) {
+					toast.error("启动标书对比失败，请确认所选任务未在回复中后重试");
+					throw new Error("启动标书对比失败，请确认所选任务未在回复中后重试");
+				}
+				if (navigation) {
 					navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
 				}
 			} catch (err) {
 				console.error("WorkbenchPanel bid comparison upload error:", err);
-				toast.error(getRequestErrorMessage(err) ?? "启动标书对比失败");
+				const message = err instanceof Error ? err.message.trim() : "";
+				if (message !== "启动标书对比失败，请确认所选任务未在回复中后重试") {
+					toast.error(getRequestErrorMessage(err) ?? "启动标书对比失败");
+				}
 				throw err;
 			}
 		},
@@ -864,6 +872,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						onOpenChange={setBidComparisonOpen}
 						onSave={startBidComparison}
 						initialProjectId={activeWorkbenchProjectId}
+						initialTaskId={activeWorkbenchTaskId}
+						allowSelectTask
 						onProjectChange={fetchTasks}
 						projects={projects.map((project) => ({
 							id: project.id,

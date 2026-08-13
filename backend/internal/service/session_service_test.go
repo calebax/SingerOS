@@ -2403,6 +2403,163 @@ func TestCreateInitialMessage_RejectsInvalidBidComparisonScene(t *testing.T) {
 	}
 }
 
+func TestAddMessage_PersistsBidComparisonSceneAndAttachmentRoles(t *testing.T) {
+	service, database := setupTestServiceWithDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	project := &types.Project{
+		PublicID: "prj_test_add_bid_scene",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Add Bid Comparison",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	seedProjectResourceOwner(t, database, project, 1)
+	seedProjectAssistant(t, database, project.ID)
+
+	task := &types.Task{
+		PublicID:  "task_test_add_bid_scene",
+		OrgID:     1,
+		ProjectID: project.ID,
+		Title:     "续聊标书对比",
+		Status:    string(types.TaskStatusInProgress),
+	}
+	if err := database.Create(task).Error; err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	session := &types.Session{
+		PublicID:  "sess_test_add_bid_scene",
+		Type:      types.SessionTypeProject,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		TaskID:    &task.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     "续聊标书对比",
+	}
+	if err := db.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	mainUpload := &types.FileUpload{
+		PublicID:     "fu_add_bid_main",
+		OrgID:        1,
+		OwnerID:      1,
+		Filename:     "main.pdf",
+		OriginalName: "main.pdf",
+		MimeType:     "application/pdf",
+		FileSize:     1024,
+		StorageURI:   "project-files/add-main.pdf",
+		Purpose:      "project_file",
+		Status:       "active",
+	}
+	compareUpload := &types.FileUpload{
+		PublicID:     "fu_add_bid_compare",
+		OrgID:        1,
+		OwnerID:      1,
+		Filename:     "compare.pdf",
+		OriginalName: "compare.pdf",
+		MimeType:     "application/pdf",
+		FileSize:     2048,
+		StorageURI:   "project-files/add-compare.pdf",
+		Purpose:      "project_file",
+		Status:       "active",
+	}
+	for _, upload := range []*types.FileUpload{mainUpload, compareUpload} {
+		if err := db.CreateFileUpload(context.Background(), database, upload); err != nil {
+			t.Fatalf("CreateFileUpload %s failed: %v", upload.PublicID, err)
+		}
+	}
+
+	msg, err := service.AddMessage(ctx, session.PublicID, &contract.AddMessageRequest{
+		Role:         string(types.MessageRoleUser),
+		Content:      "请继续进行标书对比",
+		Scene:        "bid_comparison",
+		OutputFormat: "docx",
+		Attachments: []types.MessageAttachment{
+			{FileUploadID: mainUpload.PublicID, Name: "main.pdf", MimeType: "application/pdf", Size: 1024, AttachmentRole: "main"},
+			{FileUploadID: compareUpload.PublicID, Name: "compare.pdf", MimeType: "application/pdf", Size: 2048, AttachmentRole: "compare"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	var stored types.SessionMessage
+	if err := database.WithContext(context.Background()).
+		Where("session_id = ? AND sequence = ?", session.ID, msg.Sequence).
+		First(&stored).Error; err != nil {
+		t.Fatalf("load message failed: %v", err)
+	}
+	if stored.Metadata.Scene != string(types.MessageSceneBidComparison) {
+		t.Fatalf("expected scene %q, got %q", types.MessageSceneBidComparison, stored.Metadata.Scene)
+	}
+	if stored.Metadata.OutputFormat != string(types.OutputFormatDOCX) {
+		t.Fatalf("expected output format %q, got %q", types.OutputFormatDOCX, stored.Metadata.OutputFormat)
+	}
+	if len(stored.Attachments) != 2 {
+		t.Fatalf("expected 2 attachments, got %d", len(stored.Attachments))
+	}
+	roles := map[string]string{}
+	for _, attachment := range stored.Attachments {
+		roles[attachment.FileUploadID] = attachment.AttachmentRole
+	}
+	if roles[mainUpload.PublicID] != string(types.AttachmentRoleMain) {
+		t.Fatalf("main attachment role = %q", roles[mainUpload.PublicID])
+	}
+	if roles[compareUpload.PublicID] != string(types.AttachmentRoleCompare) {
+		t.Fatalf("compare attachment role = %q", roles[compareUpload.PublicID])
+	}
+}
+
+func TestAddMessage_RejectsInvalidBidComparisonScene(t *testing.T) {
+	service, database := setupTestServiceWithDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	project := &types.Project{
+		PublicID: "prj_test_add_bid_invalid",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Add Bid Invalid",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	seedProjectResourceOwner(t, database, project, 1)
+	seedProjectAssistant(t, database, project.ID)
+
+	session := &types.Session{
+		PublicID:  "sess_test_add_bid_invalid",
+		Type:      types.SessionTypeProject,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     "无效标书对比",
+	}
+	if err := db.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	_, err := service.AddMessage(ctx, session.PublicID, &contract.AddMessageRequest{
+		Role:         string(types.MessageRoleUser),
+		Content:      "请进行标书对比",
+		Scene:        "bid_comparison",
+		OutputFormat: "docx",
+		Attachments: []types.MessageAttachment{
+			{FileUploadID: "fu_missing", Name: "only-compare.pdf", AttachmentRole: "compare"},
+		},
+	})
+	if !errors.Is(err, ErrInvalidNewMessage) {
+		t.Fatalf("expected ErrInvalidNewMessage, got %v", err)
+	}
+}
+
 func TestCreateInitialMessage_TouchesProjectUpdatedAt(t *testing.T) {
 	service, database := setupTestServiceWithDB(t)
 	ctx := setupTestContextWithCaller(t)

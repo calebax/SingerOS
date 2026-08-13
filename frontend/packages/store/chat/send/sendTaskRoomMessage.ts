@@ -20,6 +20,10 @@ export type SendTaskRoomParams = {
 	metadata?: MessageMetadata;
 	/** 关联到项目的连接器插件 Public ID（仅服务端关联用，不写入消息正文） */
 	connectorIds?: string[];
+	/** 工具场景：bid_comparison 等；走 AddMessage 顶层字段，与 CreateInitialMessage 一致 */
+	scene?: string;
+	/** 工具场景要求的最终交付格式 */
+	outputFormat?: string;
 };
 
 /** 发送成功后回给调用方的任务身份（供导航复用）。 */
@@ -80,6 +84,8 @@ export async function sendTaskRoomMessage(
 			execution_mode: deps.get().executionMode,
 			assistant_ids: extractAssistantIdsFromMetadata(params.metadata),
 			...(params.connectorIds?.length ? { connector_ids: params.connectorIds } : {}),
+			...(params.scene ? { scene: params.scene } : {}),
+			...(params.outputFormat ? { output_format: params.outputFormat } : {}),
 			message_type: "text",
 			attachments: mapOutgoingAttachments(attachments),
 			metadata: buildBackendMessageMetadata(params.metadata),

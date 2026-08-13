@@ -25,7 +25,7 @@ export function extractAssistantIdsFromMetadata(metadata?: MessageMetadata): str
 
 /**
  * 将前端 MessageMetadata 压成后端 metadata.extra。
- * 用于透传输入框展示态，避免新增后端字段。
+ * 用于透传输入框展示态；scene/output_format 走请求顶层字段，不放进 metadata。
  */
 export function buildBackendMessageMetadata(
 	metadata?: MessageMetadata,
