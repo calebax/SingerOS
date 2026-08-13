@@ -1,9 +1,12 @@
+"use client";
+
 import { type ReactNode, useMemo } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { isExternalHttpLink, openExternalLink } from "../../utils/open-external-link";
+import { CodeBlock } from "./CodeBlock";
 import { PlanBlock } from "./PlanBlock";
 
 type MarkdownRendererProps = {
@@ -114,6 +117,7 @@ const markdownComponents: Components = {
 			</a>
 		);
 	},
+	pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
 };
 
 export function MarkdownRenderer({
