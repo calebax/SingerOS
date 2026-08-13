@@ -508,7 +508,7 @@ export function SkillDetailView({
 							{skill.skill_md ? (
 								<MarkdownRenderer
 									content={skill.skill_md}
-									className="prose prose-slate prose-sm min-w-0 max-w-none [overflow-wrap:anywhere] prose-headings:text-[var(--leros-text-strong)] prose-p:text-xs prose-p:leading-relaxed prose-p:text-[var(--leros-text-muted)] prose-p:my-1 prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-slate-800 prose-pre:bg-slate-950 prose-pre:p-4 prose-pre:text-slate-100 prose-pre:shadow-sm [&>*]:min-w-0 [&_:not(pre)>code]:break-words [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[11px] [&_:not(pre)>code]:font-medium [&_:not(pre)>code]:text-slate-800 [&_pre]:max-w-full [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[13px] [&_pre_code]:leading-6 [&_pre_code]:text-slate-100"
+									className="prose prose-slate prose-sm min-w-0 max-w-none [overflow-wrap:anywhere] prose-headings:text-[var(--leros-text-strong)] prose-p:text-xs prose-p:leading-relaxed prose-p:text-[var(--leros-text-muted)] prose-p:my-1 [&>*]:min-w-0 [&_:not(pre)>code]:break-words [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[11px] [&_:not(pre)>code]:font-medium [&_:not(pre)>code]:text-slate-800 [&_[data-slot=code-block]]:max-w-full [&_[data-slot=code-block][data-theme=light]]:border-slate-300 [&_[data-slot=code-block][data-theme=light]]:bg-white"
 								/>
 							) : (
 								<div className="flex flex-col items-center justify-center py-10 text-[var(--leros-text-subtle)]">

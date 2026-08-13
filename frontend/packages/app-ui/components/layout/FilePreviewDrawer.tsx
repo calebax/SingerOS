@@ -851,7 +851,7 @@ function FilePreviewContent({
 			<div className="min-h-0 flex-1 overflow-auto rounded-xl bg-white px-8 py-7 shadow-sm">
 				<MarkdownRenderer
 					content={preview.text ?? ""}
-					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7 prose-pre:rounded-lg prose-pre:bg-slate-950"
+					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7"
 				/>
 			</div>
 		);
