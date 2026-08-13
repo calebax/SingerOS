@@ -1000,7 +1000,9 @@ func (p *MessagePoster) buildWorkerTask(
 	})
 	executionTarget := p.buildExecutionTarget(ctx, session, effectiveAssistantID, message)
 	projectContext := p.buildProjectContext(ctx, session, effectiveAssistantID)
-	pluginSnapshots, err := p.resolveProjectPluginSnapshots(ctx, orgID, coalesceUintPtr(session.ProjectID))
+	projectID := coalesceUintPtr(session.ProjectID)
+	disableProjectMCP := p.shouldDisableProjectMCP(ctx, orgID, projectID)
+	pluginSnapshots, err := p.resolveProjectPluginSnapshots(ctx, orgID, projectID, disableProjectMCP)
 	if err != nil {
 		return "", messaging.WorkerCommand{}, fmt.Errorf("resolve project plugin snapshots: %w", err)
 	}
@@ -1061,13 +1063,62 @@ func (p *MessagePoster) buildWorkerTask(
 	return topic, cmd, nil
 }
 
-func (p *MessagePoster) resolveProjectPluginSnapshots(ctx context.Context, orgID, projectID uint) ([]messaging.PluginSnapshot, error) {
+func (p *MessagePoster) shouldDisableProjectMCP(ctx context.Context, orgID, projectID uint) bool {
+	if projectID == 0 {
+		return false
+	}
+	resource, err := infradb.GetResourceByBizID(ctx, p.db, orgID, types.ResourceTypeProject, projectID)
+	if err != nil {
+		logs.WarnContextf(
+			ctx,
+			"get project resource for MCP collaboration policy failed; MCP disabled: project_id=%d error=%v",
+			projectID,
+			err,
+		)
+		return true
+	}
+	if resource == nil {
+		logs.WarnContextf(
+			ctx,
+			"project resource for MCP collaboration policy not found; MCP disabled: project_id=%d",
+			projectID,
+		)
+		return true
+	}
+	humanCount, err := infradb.CountResourceUserBindings(ctx, p.db, resource.ID)
+	if err != nil {
+		logs.WarnContextf(
+			ctx,
+			"count project human members for MCP collaboration policy failed; MCP disabled: project_id=%d error=%v",
+			projectID,
+			err,
+		)
+		return true
+	}
+	return humanCount >= 2
+}
+
+func (p *MessagePoster) resolveProjectPluginSnapshots(
+	ctx context.Context,
+	orgID, projectID uint,
+	disableMCP bool,
+) ([]messaging.PluginSnapshot, error) {
 	if projectID == 0 {
 		return nil, nil
 	}
 	rows, err := infradb.ListProjectPluginSnapshots(ctx, p.db, orgID, projectID)
 	if err != nil {
 		return nil, err
+	}
+	if disableMCP {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if strings.EqualFold(row.Kind, "mcp") {
+				continue
+			}
+			filtered = append(filtered, row)
+		}
+		rows = filtered
 	}
 	oauthService := &pluginService{db: p.db, oauth: newConnectorOAuthManager()}
 	refreshUsable := make(map[string]bool)
