@@ -41,7 +41,8 @@ export function BidComparisonEntryButton({
 			disabled={disabled}
 			aria-disabled={disabled}
 			className={cn(
-				"inline-flex max-w-full items-center gap-2 rounded-full border border-violet-400 px-3.5 py-2 text-left text-sm font-semibold text-violet-600 transition hover:bg-violet-50",
+				// 中文注释：! 避免 ChatInput 全局 [data-slot=chat-input] button 覆盖紫色字色。
+				"inline-flex max-w-full items-center gap-2 rounded-full border border-violet-400 px-3.5 py-2 text-left text-sm font-semibold !text-violet-600 transition hover:bg-violet-50",
 				enableRotate && !disabled && "hover:rotate-5",
 				disabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
 				className,
