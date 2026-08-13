@@ -14,6 +14,7 @@ import (
 	"github.com/ygpkg/storage-go"
 
 	"github.com/insmtx/Leros/backend/internal/cli"
+	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -55,9 +56,11 @@ type Processor struct {
 
 // RunContext carries only the business identifiers needed for Skill publication.
 type RunContext struct {
-	RunID     string
-	ProjectID uint
-	ActorUIN  uint
+	RunID               string
+	ProjectID           uint
+	ActorUIN            uint
+	PublishChanges      bool
+	LocalOnlySkillCodes []string
 }
 
 // NewProcessor creates a worker Skill post-run processor.
@@ -87,7 +90,7 @@ func NewProcessor(
 	}, nil
 }
 
-// Process publishes created/updated Skills and restores deleted Skills locally.
+// Process restores local-only Skills and publishes eligible successful-Run changes.
 func (p *Processor) Process(ctx context.Context, run RunContext) error {
 	if p == nil || strings.TrimSpace(run.RunID) == "" {
 		return fmt.Errorf("Skill post-run context is required")
@@ -96,12 +99,49 @@ func (p *Processor) Process(ctx context.Context, run RunContext) error {
 	if err != nil {
 		return err
 	}
+	localOnly := make(map[string]struct{}, len(run.LocalOnlySkillCodes))
+	for _, code := range run.LocalOnlySkillCodes {
+		code, validateErr := validSkillCode(code)
+		if validateErr == nil {
+			localOnly[code] = struct{}{}
+		}
+	}
+	manifest, manifestErr := p.repository.CommittedInstallManifest(ctx)
+	if manifestErr == nil {
+		for code, record := range manifest.Records {
+			if record.SyncPolicy == skillstate.SyncPolicyLocalOnly {
+				localOnly[code] = struct{}{}
+			}
+		}
+		if len(manifest.Warnings) > 0 {
+			manifestErr = fmt.Errorf("committed Skill manifest is invalid: %v", manifest.Warnings)
+		}
+	}
 	for _, code := range deleted {
+		_, isLocalOnly := localOnly[code]
+		if !isLocalOnly && !run.PublishChanges {
+			continue
+		}
 		if err := p.repository.Restore(ctx, code); err != nil {
 			logs.WarnContextf(ctx, "restore deleted Skill %q: %v", code, err)
 		}
 	}
-	if len(changes) == 0 {
+	publishable := make([]Change, 0, len(changes))
+	for _, change := range changes {
+		if _, isLocalOnly := localOnly[change.Code]; isLocalOnly {
+			if err := p.repository.Restore(ctx, change.Code); err != nil {
+				logs.WarnContextf(ctx, "restore local-only Skill %q: %v", change.Code, err)
+			}
+			continue
+		}
+		if run.PublishChanges {
+			publishable = append(publishable, change)
+		}
+	}
+	if manifestErr != nil {
+		return fmt.Errorf("read committed Skill manifest before publication: %w", manifestErr)
+	}
+	if len(publishable) == 0 {
 		return nil
 	}
 	storageConfig, err := p.storage.Config(ctx)
@@ -111,7 +151,7 @@ func (p *Processor) Process(ctx context.Context, run RunContext) error {
 	if storageConfig == nil || strings.TrimSpace(storageConfig.Bucket) == "" {
 		return fmt.Errorf("Skill storage bucket is required")
 	}
-	for _, change := range changes {
+	for _, change := range publishable {
 		if err := p.publishChange(ctx, run, change, storageConfig); err != nil {
 			logs.WarnContextf(ctx, "publish Skill %q change: %v", change.Code, err)
 		}

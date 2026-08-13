@@ -101,7 +101,7 @@ func TestFinalizerReturnsPreparedWorkspaceGitFailure(t *testing.T) {
 	}
 }
 
-func TestFinalizerRunsPostProcessorOnlyForCompletedRun(t *testing.T) {
+func TestFinalizerRunsPostProcessorForTerminalRuns(t *testing.T) {
 	processor := &postRunProcessorStub{}
 	finalizer := NewFinalizerWithPostRunProcessor(processor)
 	run := &PreparedRun{Request: &agentrundomain.RunRequest{RunID: "run-1"}}
@@ -111,7 +111,7 @@ func TestFinalizerRunsPostProcessorOnlyForCompletedRun(t *testing.T) {
 		&agentrundomain.RunResult{Status: agentrundomain.RunStatusFailed},
 		JournalSnapshot{},
 	)
-	if processor.calls != 0 {
+	if processor.calls != 1 {
 		t.Fatalf("failed Run post-processing calls = %d", processor.calls)
 	}
 	finalizer.PostRunBestEffort(
@@ -120,7 +120,7 @@ func TestFinalizerRunsPostProcessorOnlyForCompletedRun(t *testing.T) {
 		&agentrundomain.RunResult{Status: agentrundomain.RunStatusCompleted},
 		JournalSnapshot{},
 	)
-	if processor.calls != 1 {
+	if processor.calls != 2 {
 		t.Fatalf("completed Run post-processing calls = %d", processor.calls)
 	}
 }

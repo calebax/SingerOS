@@ -19,6 +19,7 @@ import (
 
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 )
 
@@ -169,7 +170,7 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 	}
 	firstHash := testPackageHash(firstPackage)
 	manifestPath := filepath.Join(workspaceRoot, ".leros", "skills", ".seed-manifest")
-	if got, err := os.ReadFile(manifestPath); err != nil || string(got) != "xlsx:"+firstHash+":1\n" {
+	if got, err := os.ReadFile(manifestPath); err != nil || string(got) != "xlsx:"+firstHash+":1:publish\n" {
 		t.Fatalf("manifest = %q, err=%v", got, err)
 	}
 	if _, err := os.Stat(filepath.Join(workspaceRoot, ".leros", "skills", ".plugins")); !os.IsNotExist(err) {
@@ -200,7 +201,7 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 		t.Fatalf("existing run link must follow updated skill, got %q", got)
 	}
 	secondHash := testPackageHash(secondPackage)
-	if got, err := os.ReadFile(manifestPath); err != nil || string(got) != "xlsx:"+secondHash+":2\n" {
+	if got, err := os.ReadFile(manifestPath); err != nil || string(got) != "xlsx:"+secondHash+":2:publish\n" {
 		t.Fatalf("updated manifest = %q, err=%v", got, err)
 	}
 	if len(baseline.commits) != 2 ||
@@ -217,12 +218,176 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 	}
 }
 
+func TestPluginSkillPreparerInstallsConnectorSkillAsLocalOnlyAndReusesIt(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	packageBytes := testSkillPackage(t, "connector-mail", "mail connector")
+	hash := testPackageHash(packageBytes)
+	downloadURLRequests := 0
+	packageDownloads := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/plugins/skills/download-urls":
+			downloadURLRequests++
+			var payload struct {
+				SkillCodes      []string                    `json:"skill_codes"`
+				ConnectorSkills []connectorSkillDownloadRef `json:"connector_skills"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if len(payload.SkillCodes) != 0 || len(payload.ConnectorSkills) != 1 {
+				t.Fatalf("download request = %#v", payload)
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{"skills": []map[string]any{{
+					"code": "connector-mail", "revision": 1, "sha256": hash,
+					"download_url": server.URL + "/package",
+				}}},
+			})
+		case "/package":
+			packageDownloads++
+			_, _ = writer.Write(packageBytes)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	baseline := &skillBaselineCommitterStub{}
+	preparer := NewPluginSkillPreparerWithBaseline(server.URL, "", baseline)
+	request := &agentrundomain.RunRequest{
+		RunID: "run-connector",
+		Plugins: []agentrundomain.PluginSnapshot{
+			testConnectorSkillSnapshot("connector-mail", 1, packageBytes),
+		},
+	}
+	_, cleanup, err := preparer.PrepareSkills(
+		context.Background(), request, WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(workspaceRoot, ".leros", "skills", ".seed-manifest")
+	if got, err := os.ReadFile(manifestPath); err != nil ||
+		string(got) != "connector-mail:"+hash+":1:local_only\n" {
+		t.Fatalf("connector manifest = %q, err=%v", got, err)
+	}
+	_, secondCleanup, err := preparer.PrepareSkills(
+		context.Background(), request, WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	defer secondCleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if downloadURLRequests != 1 || packageDownloads != 1 {
+		t.Fatalf("connector cache requests=%d downloads=%d", downloadURLRequests, packageDownloads)
+	}
+	if codes := ConnectorSkillCodes(request.Plugins); !slices.Equal(codes, []string{"connector-mail"}) {
+		t.Fatalf("connector Skill codes = %#v", codes)
+	}
+}
+
+func TestPluginSkillPreparerReclassifiesLegacyConnectorWithoutDownload(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	packageBytes := testSkillPackage(t, "connector-mail", "mail connector")
+	hash := testPackageHash(packageBytes)
+	skillsRoot := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSkillPackageDirectory(t, filepath.Join(skillsRoot, "connector-mail"), packageBytes)
+	manifestPath := filepath.Join(skillsRoot, ".seed-manifest")
+	if err := os.WriteFile(manifestPath, []byte("connector-mail:"+hash+":1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("legacy connector reclassification must not download")
+	}))
+	defer server.Close()
+	baseline := &skillBaselineCommitterStub{}
+	_, cleanup, err := NewPluginSkillPreparerWithBaseline(server.URL, "", baseline).PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{
+			RunID: "run-legacy-connector",
+			Plugins: []agentrundomain.PluginSnapshot{
+				testConnectorSkillSnapshot("connector-mail", 1, packageBytes),
+			},
+		},
+		WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(manifestPath); err != nil ||
+		string(got) != "connector-mail:"+hash+":1:local_only\n" {
+		t.Fatalf("reclassified manifest = %q, err=%v", got, err)
+	}
+	if len(baseline.commits) != 1 || len(baseline.commits[0]) != 0 {
+		t.Fatalf("manifest-only baseline commits = %#v", baseline.commits)
+	}
+}
+
+func TestPluginSnapshotSkillRejectsSkillWithoutTrustedArtifactIdentity(t *testing.T) {
+	validHash := testPackageHash([]byte("valid"))
+	tests := []struct {
+		name       string
+		definition string
+	}{
+		{
+			name:       "invalid sha256",
+			definition: `{"schema":"skill/v1","artifact":{"file_upload_id":"file_demo","sha256":"not-a-sha"}}`,
+		},
+		{
+			name:       "github source without artifact",
+			definition: `{"schema":"skill/v1","source":{"type":"github","url":"https://github.com/example/skill"}}`,
+		},
+		{
+			name:       "malformed definition",
+			definition: `{"schema":"skill/v2","artifact":{"file_upload_id":"file_demo","sha256":"` + validHash + `"}}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			descriptor, err := pluginSnapshotSkill(agentrundomain.PluginSnapshot{
+				PluginID: "plugin_demo", Code: "demo", Kind: "skill", Revision: 1,
+				Definition: []byte(test.definition),
+			})
+			if err == nil || descriptor != nil {
+				t.Fatalf("pluginSnapshotSkill() = %#v, %v; want rejected snapshot", descriptor, err)
+			}
+		})
+	}
+}
+
+func TestPluginSnapshotSkillRequiresArtifactSHAForCacheIdentity(t *testing.T) {
+	hash := testPackageHash([]byte("skill"))
+	descriptor, err := pluginSnapshotSkill(agentrundomain.PluginSnapshot{
+		PluginID: "plugin_demo", Code: "demo", Kind: "skill", Revision: 1,
+		Definition: []byte(`{"schema":"skill/v1","artifact":{"file_upload_id":"file_demo","sha256":"` + strings.ToUpper(hash) + `"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if descriptor == nil || descriptor.SHA256 != hash {
+		t.Fatalf("descriptor = %#v, want normalized sha256 %q", descriptor, hash)
+	}
+}
+
 type skillBaselineCommitterStub struct {
-	commits [][]string
+	commits  [][]string
+	restores []string
 }
 
 func (s *skillBaselineCommitterStub) CommitInstalled(_ context.Context, codes []string) error {
 	s.commits = append(s.commits, append([]string(nil), codes...))
+	return nil
+}
+
+func (s *skillBaselineCommitterStub) Restore(_ context.Context, code string) error {
+	s.restores = append(s.restores, code)
 	return nil
 }
 
@@ -295,7 +460,7 @@ func TestPluginSkillPreparerRepairsLegacyAndInvalidManifestEntries(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "docx:" + stableHash + ":2\nxlsx:" + testPackageHash(packageBytes) + ":1\n"
+	want := "docx:" + stableHash + ":2:publish\nxlsx:" + testPackageHash(packageBytes) + ":1:publish\n"
 	if string(got) != want {
 		t.Fatalf("repaired manifest = %q, want %q", got, want)
 	}
@@ -475,8 +640,8 @@ func TestSkillInstallManifestIsTolerantAndSorted(t *testing.T) {
 	hashA := testPackageHash([]byte("a"))
 	hashB := testPackageHash([]byte("b"))
 	entries := map[string]skillInstallRecord{
-		"xlsx": {SHA256: hashB, Revision: 2},
-		"docx": {SHA256: hashA, Revision: 1},
+		"xlsx": {SHA256: hashB, Revision: 2, SyncPolicy: skillstate.SyncPolicyLocalOnly},
+		"docx": {SHA256: hashA, Revision: 1, SyncPolicy: skillstate.SyncPolicyPublish},
 	}
 	if err := writeSkillInstallManifest(manifestPath, entries); err != nil {
 		t.Fatalf("write manifest: %v", err)
@@ -485,7 +650,7 @@ func TestSkillInstallManifestIsTolerantAndSorted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "docx:" + hashA + ":1\nxlsx:" + hashB + ":2\n"
+	want := "docx:" + hashA + ":1:publish\nxlsx:" + hashB + ":2:local_only\n"
 	if string(got) != want {
 		t.Fatalf("manifest = %q, want %q", got, want)
 	}
@@ -513,7 +678,9 @@ func TestSkillInstallManifestIsTolerantAndSorted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(parsed.Records) != 1 ||
-		parsed.Records["docx"] != (skillInstallRecord{SHA256: hashA, Revision: 1}) {
+		parsed.Records["docx"] != (skillInstallRecord{
+			SHA256: hashA, Revision: 1, SyncPolicy: skillstate.SyncPolicyPublish,
+		}) {
 		t.Fatalf("trusted manifest records = %#v", parsed.Records)
 	}
 	if !slices.Equal(parsed.RefreshCodes, []string{"duplicate", "xlsx"}) {
@@ -541,7 +708,9 @@ func TestRepairSkillInstallManifestWriteFailureKeepsValidRecords(t *testing.T) {
 		t.Fatalf("repair write failure must not discard valid records: %v", err)
 	}
 	if len(records) != 1 ||
-		records["docx"] != (skillInstallRecord{SHA256: hash, Revision: 1}) {
+		records["docx"] != (skillInstallRecord{
+			SHA256: hash, Revision: 1, SyncPolicy: skillstate.SyncPolicyPublish,
+		}) {
 		t.Fatalf("valid records after repair failure = %#v", records)
 	}
 	if len(baseline.commits) != 0 {
@@ -556,6 +725,52 @@ func testPluginSkillSnapshot(code string, revision int, packageBytes []byte) age
 		Kind:       "skill",
 		Revision:   revision,
 		Definition: []byte(fmt.Sprintf(`{"schema":"skill/v1","artifact":{"file_upload_id":"file_%s","sha256":"%s"}}`, code, testPackageHash(packageBytes))),
+	}
+}
+
+func testConnectorSkillSnapshot(code string, revision int, packageBytes []byte) agentrundomain.PluginSnapshot {
+	return agentrundomain.PluginSnapshot{
+		PluginID: "plugin_" + code,
+		Code:     "mail",
+		Kind:     "mcp",
+		Revision: revision,
+		Definition: []byte(fmt.Sprintf(
+			`{"schema":"connector/v1","channel":"mail","mode":"skill_only",`+
+				`"auth":{"type":"none"},"skill":{"code":%q,"revision":%d,`+
+				`"artifact":{"file_upload_id":"file_%s","sha256":"%s"}}}`,
+			code,
+			revision,
+			code,
+			testPackageHash(packageBytes),
+		)),
+	}
+}
+
+func writeSkillPackageDirectory(t *testing.T, directory string, packageBytes []byte) {
+	t.Helper()
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(packageBytes), int64(len(packageBytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range reader.File {
+		content, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw := new(bytes.Buffer)
+		if _, err := raw.ReadFrom(content); err != nil {
+			_ = content.Close()
+			t.Fatal(err)
+		}
+		if err := content.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, file.Name), raw.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

@@ -27,7 +27,7 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// PostRunProcessor handles an independent best-effort concern after a successful Run.
+// PostRunProcessor handles an independent best-effort concern after a terminal Run.
 type PostRunProcessor interface {
 	Process(context.Context, *PreparedRun, *agentrundomain.RunResult) error
 }
@@ -115,8 +115,12 @@ func (f *finalizer) PostRunBestEffort(
 	result *agentrundomain.RunResult,
 	snapshot JournalSnapshot,
 ) {
-	if f == nil || f.postRunProcessor == nil || result == nil ||
-		result.Status != agentrundomain.RunStatusCompleted {
+	if f == nil || f.postRunProcessor == nil || result == nil {
+		return
+	}
+	switch result.Status {
+	case agentrundomain.RunStatusCompleted, agentrundomain.RunStatusFailed, agentrundomain.RunStatusCancelled:
+	default:
 		return
 	}
 	if err := f.postRunProcessor.Process(ctx, run, result); err != nil {
