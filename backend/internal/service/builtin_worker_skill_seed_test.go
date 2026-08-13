@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
@@ -378,6 +379,100 @@ func TestListBuiltinSkillsReturnsOnlyWorkerSkills(t *testing.T) {
 	}
 	if len(resp.Plugins) != 0 {
 		t.Fatalf("plugin count after archive = %d, want 0", len(resp.Plugins))
+	}
+}
+
+func TestListBuiltinSkillsAppliesFixedSystemTranslation(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	sourceDir := t.TempDir()
+	writeBuiltinSkillTestFiles(t, sourceDir, "worker-translated", "", "Worker.")
+	if _, err := SyncBuiltinWorkerSkills(context.Background(), database, sourceDir); err != nil {
+		t.Fatalf("worker sync: %v", err)
+	}
+
+	plugin, err := infradb.GetSystemPluginByCode(context.Background(), database, "skill", "worker-translated")
+	if err != nil || plugin == nil {
+		t.Fatalf("system plugin = %#v, %v", plugin, err)
+	}
+	revision, err := infradb.GetCurrentPluginRevision(context.Background(), database, plugin)
+	if err != nil || revision == nil {
+		t.Fatalf("current revision = %#v, %v", revision, err)
+	}
+	if err := database.Create(&types.PluginTranslation{
+		OrgID:                 0,
+		SourceType:            types.PluginTranslationSourceSystem,
+		SourceID:              plugin.ID,
+		PluginRevisionID:      revision.ID,
+		SourceRevision:        revision.Revision,
+		Locale:                "zh-CN",
+		MetadataSourceHash:    skillMetadataHash(plugin.Name, plugin.Description),
+		TranslatedName:        "中文技能",
+		TranslatedDescription: "中文技能描述",
+		CreatedAt:             time.Now(),
+		UpdatedAt:             time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create system translation: %v", err)
+	}
+
+	svc := &pluginService{db: database, displayTranslation: &SkillDisplayTranslationService{db: database}}
+	resp, err := svc.ListBuiltinSkills(context.Background())
+	if err != nil {
+		t.Fatalf("list builtin skills: %v", err)
+	}
+	if len(resp.Plugins) != 1 {
+		t.Fatalf("plugin count = %d, want 1", len(resp.Plugins))
+	}
+	view := resp.Plugins[0]
+	if view.Name != "worker-translated" || view.DisplayName != "中文技能" || view.Description != "中文技能描述" {
+		t.Fatalf("translated plugin view = %#v", view)
+	}
+}
+
+func TestListBuiltinSkillsFallsBackWhenSystemTranslationHashIsStale(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	sourceDir := t.TempDir()
+	writeBuiltinSkillTestFiles(t, sourceDir, "worker-stale-translation", "", "Worker.")
+	if _, err := SyncBuiltinWorkerSkills(context.Background(), database, sourceDir); err != nil {
+		t.Fatalf("worker sync: %v", err)
+	}
+
+	plugin, err := infradb.GetSystemPluginByCode(context.Background(), database, "skill", "worker-stale-translation")
+	if err != nil || plugin == nil {
+		t.Fatalf("system plugin = %#v, %v", plugin, err)
+	}
+	revision, err := infradb.GetCurrentPluginRevision(context.Background(), database, plugin)
+	if err != nil || revision == nil {
+		t.Fatalf("current revision = %#v, %v", revision, err)
+	}
+	if err := database.Create(&types.PluginTranslation{
+		OrgID:                 0,
+		SourceType:            types.PluginTranslationSourceSystem,
+		SourceID:              plugin.ID,
+		PluginRevisionID:      revision.ID,
+		SourceRevision:        revision.Revision,
+		Locale:                "zh-CN",
+		MetadataSourceHash:    "stale",
+		TranslatedName:        "过期中文名",
+		TranslatedDescription: "过期中文描述",
+		CreatedAt:             time.Now(),
+		UpdatedAt:             time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create stale system translation: %v", err)
+	}
+
+	svc := &pluginService{db: database, displayTranslation: &SkillDisplayTranslationService{db: database}}
+	resp, err := svc.ListBuiltinSkills(context.Background())
+	if err != nil {
+		t.Fatalf("list builtin skills: %v", err)
+	}
+	if len(resp.Plugins) != 1 {
+		t.Fatalf("plugin count = %d, want 1", len(resp.Plugins))
+	}
+	view := resp.Plugins[0]
+	if view.DisplayName != "" || view.Description != plugin.Description {
+		t.Fatalf("stale translation should fall back to original metadata: %#v", view)
 	}
 }
 

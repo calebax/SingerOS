@@ -7,15 +7,18 @@ const (
 	PluginTranslationSourceMarketplace = "marketplace"
 	// PluginTranslationSourceOrganization identifies a translation attached to an organization plugin.
 	PluginTranslationSourceOrganization = "organization"
+	// PluginTranslationSourceSystem identifies a fixed translation attached to a system plugin.
+	PluginTranslationSourceSystem = "system"
 )
 
-// PluginTranslation stores organization-scoped display translations for one immutable Skill source revision.
-// SourceID points to a marketplace item or organization plugin according to SourceType.
+// PluginTranslation stores display translations for one immutable Skill source revision.
+// Organization and marketplace rows are scoped to OrgID; system rows use OrgID 0
+// and point to a system plugin by SourceID.
 type PluginTranslation struct {
 	ID uint `gorm:"column:id;primaryKey"`
 
 	OrgID            uint   `gorm:"column:org_id;type:bigint;not null;uniqueIndex:ux_plugin_translation_scope,priority:1"`
-	SourceType       string `gorm:"column:source_type;type:varchar(32);not null;uniqueIndex:ux_plugin_translation_scope,priority:2;index:idx_plugin_translation_source_revision,priority:1;check:chk_plugin_translation_source_type,source_type IN ('marketplace','organization')"`
+	SourceType       string `gorm:"column:source_type;type:varchar(32);not null;uniqueIndex:ux_plugin_translation_scope,priority:2;index:idx_plugin_translation_source_revision,priority:1;check:chk_plugin_translation_source_type,source_type IN ('marketplace','organization','system')"`
 	SourceID         uint   `gorm:"column:source_id;type:bigint;not null;uniqueIndex:ux_plugin_translation_scope,priority:3;index:idx_plugin_translation_source_revision,priority:2"`
 	PluginRevisionID uint   `gorm:"column:plugin_revision_id;type:bigint;not null;uniqueIndex:ux_plugin_translation_scope,priority:4;index:idx_plugin_translation_source_revision,priority:3"`
 	SourceRevision   int    `gorm:"column:source_revision;type:integer;not null"`
@@ -31,7 +34,7 @@ type PluginTranslation struct {
 	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
 }
 
-// TableName returns the organization-scoped Skill presentation translation cache table.
+// TableName returns the Skill presentation translation cache table.
 func (PluginTranslation) TableName() string {
 	return TableNamePluginTranslation
 }

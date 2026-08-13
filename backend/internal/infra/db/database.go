@@ -202,6 +202,7 @@ func runMigrations(db *gorm.DB) error {
 	if err := dbtools.InitModel(db, models...); err != nil {
 		return err
 	}
+
 	if err := backfillMCPChannelAuthorization(db); err != nil {
 		return err
 	}

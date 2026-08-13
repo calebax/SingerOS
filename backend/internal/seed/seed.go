@@ -50,35 +50,35 @@ func Run(ctx context.Context, db *gorm.DB, edition adapter.Edition, opts Options
 		return err
 	}
 
-	// 2.5 可选：基于固定目录的 SQL 文件初始化
-	if err := RunSQLScripts(ctx, db, opts.SQLScriptDir); err != nil {
-		return err
-	}
-
-	// 3. 内置 AI 队友模板（头像系统级归属）
+	// 2. 内置 AI 队友模板（头像系统级归属）
 	if err := service.SeedAITeammateTemplates(ctx, db, ""); err != nil {
 		return err
 	}
 
-	// 4. 内置 server 技能市场（失败仅告警）
+	// 3. 内置 server 技能市场（失败仅告警）
 	if report, err := service.SyncBuiltinServerSkillMarketplace(ctx, db, ""); err != nil {
 		logs.Warnf("seed: built-in server skill sync skipped: %v", err)
 	} else {
 		logBuiltinSkillReport("seed: built-in server skill", report)
 	}
 
-	// 5. 配置声明的系统连接器模板（失败仅告警）
+	// 4. 配置声明的系统连接器模板（失败仅告警）
 	if report, err := SyncConfiguredMCPConnectors(ctx, db, "", configuredMCPConnectorSpecs(opts.MCPConnectors)); err != nil {
 		logs.Warnf("seed: configured connector sync skipped: %v", err)
 	} else {
 		logBuiltinSkillReport("seed: configured connector", report)
 	}
 
-	// 6. 内置 worker 技能（失败仅告警）
+	// 5. 内置 worker 技能（失败仅告警）
 	if report, err := service.SyncBuiltinWorkerSkills(ctx, db, ""); err != nil {
 		logs.Warnf("seed: built-in worker skill sync skipped: %v", err)
 	} else {
 		logBuiltinSkillReport("seed: built-in worker skill", report)
+	}
+
+	// 6. 固定 SQL 种子；内置 Skill 必须先同步，供系统翻译脚本按 code 关联。
+	if err := RunSQLScripts(ctx, db, opts.SQLScriptDir); err != nil {
+		return err
 	}
 
 	return nil

@@ -92,7 +92,13 @@ func splitSQLChunk(current *strings.Builder, statements *[]sqlline, startNumber 
 		}
 	}
 	current.Reset()
-	current.WriteString(strings.TrimSpace(stmt.String()))
+	remaining := strings.TrimSpace(stmt.String())
+	current.WriteString(remaining)
+	if remaining != "" {
+		// 当前行尚未构成完整语句时，为下一行保留词法分隔符。
+		// 否则多行 SQL 中的 "SELECT\n0" 会被拼接成 "SELECT0"。
+		current.WriteByte(' ')
+	}
 }
 
 // renderSQLTemplate 用 envs 渲染 SQL 模板。缺失 key 时返回错误，满足"必填缺失即报错"。

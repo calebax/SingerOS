@@ -208,6 +208,93 @@ func (s *SkillDisplayTranslationService) translateMetadata(
 	return result
 }
 
+// translateSystemMetadata reads fixed system Skill translations from the
+// global cache. System translations are maintained by SQL seed files and must
+// never trigger the organization-scoped LLM translator.
+func (s *SkillDisplayTranslationService) translateSystemMetadata(
+	ctx context.Context,
+	sources []skillTranslationSource,
+) map[skillTranslationKey]TranslatedSkillText {
+	result := make(map[skillTranslationKey]TranslatedSkillText)
+	if s == nil || s.db == nil || len(sources) == 0 {
+		return result
+	}
+
+	sourceIDs := make([]uint, 0, len(sources))
+	seenSourceIDs := make(map[uint]struct{}, len(sources))
+	for _, source := range sources {
+		if source.sourceType != types.PluginTranslationSourceSystem || source.sourceID == 0 ||
+			source.revision == nil || source.revision.ID == 0 {
+			continue
+		}
+		if _, exists := seenSourceIDs[source.sourceID]; exists {
+			continue
+		}
+		seenSourceIDs[source.sourceID] = struct{}{}
+		sourceIDs = append(sourceIDs, source.sourceID)
+	}
+	if len(sourceIDs) == 0 {
+		return result
+	}
+
+	cached, err := infradb.ListPluginTranslations(
+		ctx,
+		s.db,
+		0,
+		types.PluginTranslationSourceSystem,
+		sourceIDs,
+		translationLocale,
+	)
+	if err != nil {
+		logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s use=false reason=system_cache_read_failed: %v",
+			types.PluginTranslationSourceSystem, err)
+		return result
+	}
+
+	cacheByKey := make(map[skillTranslationKey]types.PluginTranslation, len(cached))
+	for _, translation := range cached {
+		cacheByKey[skillTranslationKey{
+			sourceType: translation.SourceType,
+			sourceID:   translation.SourceID,
+			revisionID: translation.PluginRevisionID,
+		}] = translation
+	}
+
+	for _, source := range sources {
+		if source.sourceType != types.PluginTranslationSourceSystem || source.sourceID == 0 ||
+			source.revision == nil || source.revision.ID == 0 {
+			continue
+		}
+		key := skillTranslationKey{
+			sourceType: source.sourceType,
+			sourceID:   source.sourceID,
+			revisionID: source.revision.ID,
+		}
+		translation, exists := cacheByKey[key]
+		if !exists {
+			logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s source_id=%d revision_id=%d use=false reason=system_cache_missing",
+				source.sourceType, source.sourceID, source.revision.ID)
+			continue
+		}
+		if translation.MetadataSourceHash != skillMetadataHash(source.name, source.description) {
+			logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s source_id=%d revision_id=%d use=false reason=system_source_hash_changed",
+				source.sourceType, source.sourceID, source.revision.ID)
+			continue
+		}
+		translated, complete := validatedMetadataTranslation(source.name, source.description, TranslatedSkillText{
+			DisplayName: translation.TranslatedName,
+			Description: translation.TranslatedDescription,
+		})
+		if !complete {
+			logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s source_id=%d revision_id=%d use=false reason=system_result_incomplete",
+				source.sourceType, source.sourceID, source.revision.ID)
+			continue
+		}
+		result[key] = translated
+	}
+	return result
+}
+
 func (s *SkillDisplayTranslationService) translateDocumentBody(
 	ctx context.Context,
 	orgID uint,

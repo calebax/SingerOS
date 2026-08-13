@@ -660,8 +660,9 @@ func ListPluginMarketplaceItems(ctx context.Context, database *gorm.DB, filter P
 	return items, nil
 }
 
-// ListPluginTranslations returns cached translations for one organization and source IDs.
-// The caller selects the source revision and falls back to the original content when no matching row exists.
+// ListPluginTranslations returns cached translations for one translation scope and source IDs.
+// System translations use orgID 0; the caller selects the source revision and
+// falls back to the original content when no matching row exists.
 func ListPluginTranslations(
 	ctx context.Context,
 	database *gorm.DB,
