@@ -203,6 +203,8 @@ export type Attachment = {
 	storageUri?: string;
 	folderFiles?: AttachmentFileRef[];
 	uploadStatus?: AttachmentUploadStatus;
+	/** 工具场景赋予附件的语义角色；空=普通上传 */
+	attachmentRole?: string;
 };
 
 export type ModelOption = {

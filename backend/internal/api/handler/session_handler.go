@@ -289,7 +289,7 @@ type AddMessageRequest struct {
 }
 
 // @Summary 添加会话消息
-// @Description 向指定会话添加一条消息
+// @Description 向指定会话添加一条消息；工具场景可传 scene/output_format（或 metadata 同名字段）与带 attachment_role 的附件
 // @Tags Session
 // @Accept json
 // @Produce json
@@ -520,6 +520,10 @@ func handleSessionServiceError(ctx *gin.Context, err error) {
 	errMsg := err.Error()
 	if errors.Is(err, service.ErrRunDispatchUnavailable) {
 		ctx.JSON(http.StatusServiceUnavailable, dto.Error(dto.CodeInternalError, errMsg))
+		return
+	}
+	if errors.Is(err, service.ErrInvalidNewMessage) {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 		return
 	}
 	if errMsg == "user not authenticated or org not set" {

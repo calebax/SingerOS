@@ -561,6 +561,7 @@ export function TaskDetailPage({
 						variant="project"
 						projectLayoutMode={taskChatLayoutMode}
 						navigation={navigation}
+						bidComparisonEntry="button"
 					/>
 				</main>
 

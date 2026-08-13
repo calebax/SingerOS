@@ -321,6 +321,10 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		return nil, errors.New("content is required")
 	}
 
+	if _, err := ValidateAddMessageScene(req); err != nil {
+		return nil, err
+	}
+
 	session, caller, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -436,6 +440,12 @@ func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract
 		return nil, errors.New("user not authenticated or org not set")
 	}
 
+	scene, err := ValidateNewMessageScene(req)
+	if err != nil {
+		return nil, err
+	}
+	req.Scene = scene
+
 	return s.newMessagePoster().RunNewMessage(ctx, req, caller)
 }
 
@@ -462,6 +472,13 @@ func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence 
 		message.Metadata = *req.Metadata
 	} else {
 		message.Metadata = types.ObjectMetadata{}
+	}
+	// 中文注释：工具场景字段以请求顶层为准，确保续聊与新建任务一样能注入 worker scene prompt。
+	if scene := strings.TrimSpace(req.Scene); scene != "" {
+		message.Metadata.Scene = scene
+	}
+	if outputFormat := strings.TrimSpace(req.OutputFormat); outputFormat != "" {
+		message.Metadata.OutputFormat = outputFormat
 	}
 	message.Usage = normalizeMessageUsage(req.Usage)
 

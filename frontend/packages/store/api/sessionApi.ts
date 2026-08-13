@@ -24,6 +24,10 @@ export type AddMessageParams = {
 	assistant_ids?: string[];
 	connector_ids?: string[];
 	message_type?: string;
+	/** 工具场景：空/normal=普通问答，bid_comparison=标书对比 */
+	scene?: string;
+	/** 工具场景要求的最终交付格式，例如 docx、pdf、pptx、md */
+	output_format?: string;
 	attachments?: OutgoingMessageAttachment[];
 	thinking?: string;
 	metadata?: {
@@ -79,6 +83,10 @@ export type CreateInitialMessageParams = {
 	message_type?: string;
 	assistant_ids?: string[];
 	connector_ids?: string[];
+	/** 新建任务场景：空/normal=普通问答，bid_comparison=标书对比 */
+	scene?: string;
+	/** 工具场景要求生成的最终交付格式，例如 docx、pdf、pptx、md */
+	output_format?: string;
 	metadata?: BackendMessageMetadata;
 	attachments?: OutgoingMessageAttachment[];
 };

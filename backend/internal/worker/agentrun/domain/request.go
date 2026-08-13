@@ -130,9 +130,11 @@ type MemberBrief struct {
 
 // InputContext is the normalized input passed to the agent.
 type InputContext struct {
-	Type        InputType      `json:"type"`
-	Messages    []InputMessage `json:"messages,omitempty"`
-	Attachments []Attachment   `json:"attachments,omitempty"`
+	Type         InputType      `json:"type"`
+	Scene        string         `json:"scene,omitempty"`
+	OutputFormat string         `json:"output_format,omitempty"`
+	Messages     []InputMessage `json:"messages,omitempty"`
+	Attachments  []Attachment   `json:"attachments,omitempty"`
 }
 
 // InputMessage is a simple role/content message snapshot.
@@ -148,6 +150,8 @@ type Attachment struct {
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mime_type,omitempty"`
 	URL      string `json:"url,omitempty"`
+	// AttachmentRole 是工具场景赋予附件的语义角色；空表示普通附件。
+	AttachmentRole string `json:"attachment_role,omitempty"`
 	// Data holds decoded bytes for multimodal attachments (e.g. images).
 	// It is populated in-process by the preparer and never serialized.
 	Data []byte `json:"-"`
@@ -217,6 +221,9 @@ func BuildAttachmentText(attachments []Attachment) string {
 		sb.WriteString("The user attached the following files. Their visual content is already provided in this message, you can see them directly (do NOT call the read tool on them):\n")
 		for _, a := range inline {
 			sb.WriteString(fmt.Sprintf("- %s", a.Name))
+			if role := attachmentRoleLabel(a.AttachmentRole); role != "" {
+				sb.WriteString(fmt.Sprintf(" [%s]", role))
+			}
 			if a.MimeType != "" {
 				sb.WriteString(fmt.Sprintf(" (%s)", a.MimeType))
 			}
@@ -226,7 +233,11 @@ func BuildAttachmentText(attachments []Attachment) string {
 	if len(external) > 0 {
 		sb.WriteString("The following files were attached by the user in this message, read them on disk to understand their content:\n")
 		for _, a := range external {
-			sb.WriteString(fmt.Sprintf("- %s\n", a.Name))
+			sb.WriteString(fmt.Sprintf("- %s", a.Name))
+			if role := attachmentRoleLabel(a.AttachmentRole); role != "" {
+				sb.WriteString(fmt.Sprintf(" [%s]", role))
+			}
+			sb.WriteString("\n")
 			if a.Name != "" {
 				sb.WriteString(fmt.Sprintf("  Location: %s/%s\n", consts.RepoDirUploads, a.Name))
 			}
@@ -236,9 +247,16 @@ func BuildAttachmentText(attachments []Attachment) string {
 			if a.MimeType != "" {
 				sb.WriteString(fmt.Sprintf("  Type: %s\n", a.MimeType))
 			}
+			if a.AttachmentRole != "" {
+				sb.WriteString(fmt.Sprintf("  Attachment role: %s\n", a.AttachmentRole))
+			}
 		}
 	}
 	return sb.String()
+}
+
+func attachmentRoleLabel(role string) string {
+	return strings.TrimSpace(strings.ToLower(role))
 }
 
 // IsVisualMime 判断附件是否随消息内联为视觉内容。仅图片如此——vision 模型声明的

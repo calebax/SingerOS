@@ -34,17 +34,21 @@ type ListSessionsRequest struct {
 
 // AddMessageRequest adds a message to a session.
 type AddMessageRequest struct {
-	Role          string                    `json:"role" binding:"required"`
-	Content       string                    `json:"content" binding:"required"`
-	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
-	AssistantIDs  []string                  `json:"assistant_ids,omitempty"`
-	ConnectorIDs  []string                  `json:"connector_ids,omitempty"`
-	MessageType   string                    `json:"message_type,omitempty"`
-	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
-	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
-	Thinking      string                    `json:"thinking,omitempty"`
-	Metadata      *types.ObjectMetadata     `json:"metadata,omitempty"`
-	Usage         *types.MessageUsage       `json:"usage,omitempty"`
+	Role          string              `json:"role" binding:"required"`
+	Content       string              `json:"content" binding:"required"`
+	ExecutionMode types.ExecutionMode `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
+	AssistantIDs  []string            `json:"assistant_ids,omitempty"`
+	ConnectorIDs  []string            `json:"connector_ids,omitempty"`
+	MessageType   string              `json:"message_type,omitempty"`
+	// Scene 区分普通问答与工具场景；空或 normal 为普通问答，bid_comparison 为标书对比。
+	Scene string `json:"scene,omitempty"`
+	// OutputFormat 是工具场景要求生成的最终交付格式，如 docx、pdf、pptx、md。
+	OutputFormat string                    `json:"output_format,omitempty"`
+	Chunks       []types.MessageChunk      `json:"chunks,omitempty"`
+	Attachments  []types.MessageAttachment `json:"attachments,omitempty"`
+	Thinking     string                    `json:"thinking,omitempty"`
+	Metadata     *types.ObjectMetadata     `json:"metadata,omitempty"`
+	Usage        *types.MessageUsage       `json:"usage,omitempty"`
 }
 
 // Session is the API response shape for a conversation.

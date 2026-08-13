@@ -19,30 +19,34 @@ import {
 } from "@leros/store";
 import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
-import { Command, CommandInput } from "@leros/ui/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	BookOpenText,
-	Check,
 	ChevronDown,
-	ChevronRight,
 	FileText,
 	ListTodo,
-	LoaderCircle,
 	type LucideIcon,
-	Plus,
 	SendHorizonal,
 	TrendingUp,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { WORKBENCH_HERO_OCTOPUS_SRC } from "../../assets";
+import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
 import { useAuth } from "../auth";
-import { renderHighlightedText } from "../common/searchText";
 import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 import { AttachmentPreview } from "../input/AttachmentPreview";
+import {
+	BidComparisonConfigDialog,
+	type BidComparisonConfig,
+} from "../input/BidComparisonConfigDialog";
+import {
+	bidComparisonConfigToAttachments,
+	bidComparisonOutputFormat,
+	bidComparisonPrompt,
+	ensureBidComparisonFilesUploaded,
+} from "../input/bidComparisonAttachments";
 import { ComposerActionBar } from "../input/ComposerActionBar";
 import { ComposerUsageTipsPanel } from "../input/ComposerUsageTipsPanel";
 import { buildComposerUsageTips } from "../input/composerUsageTips";
@@ -63,6 +67,10 @@ import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectIcon } from "./project-icon";
+import {
+	formatProjectTaskPickerLabel,
+	ProjectTaskPickerContent,
+} from "./ProjectTaskPicker";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
 	// 中文注释：选择已有项目后不再支持临时召唤队友，需要同步移除输入框中已插入的 @ 指令 token，但保留 /skill 指令。
@@ -133,14 +141,6 @@ function resolveMentionedAssistant(
 	return null;
 }
 
-function getFilteredProjects(projects: Project[], query: string) {
-	const keyword = query.trim().toLowerCase();
-	if (!keyword) return projects;
-	return projects.filter((project) => project.name.toLowerCase().includes(keyword));
-}
-
-const PROJECT_PICKER_MAX_HEIGHT = "max-h-[min(420px,70vh)]";
-
 const WORKBENCH_FEATURE_CARDS: Array<{
 	title: string;
 	description: string;
@@ -172,75 +172,6 @@ const WORKBENCH_FEATURE_CARDS: Array<{
 		iconClassName: "bg-orange-100 text-orange-600",
 	},
 ];
-
-const PROJECT_PICKER_PANEL_CLASS = cn(
-	"w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur",
-	PROJECT_PICKER_MAX_HEIGHT,
-);
-
-const PROJECT_PICKER_LIST_CLASS = "no-scrollbar mt-1 max-h-60 space-y-1 overflow-y-auto";
-
-// 子菜单固定最大高度
-const PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX = 250;
-const PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX = 16;
-const PROJECT_PICKER_ROW_HEIGHT_PX = 40;
-const PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX = 12;
-
-// 与右侧子菜单 p-1.5 一致，定位时扣除以使首条记录与左侧 hover 行顶边对齐。
-const PROJECT_PICKER_SUBMENU_PADDING_TOP_PX = 6;
-
-function estimateSubmenuHeightForFlip(
-	submenu: string,
-	project: Project | undefined,
-	isLoadingTasks: boolean,
-): number {
-	let contentHeight = PROJECT_PICKER_ROW_HEIGHT_PX;
-	if (submenu.startsWith("project:")) {
-		const taskCount = project?.tasks.length ?? 0;
-		if (taskCount > 0) {
-			contentHeight = taskCount * PROJECT_PICKER_ROW_HEIGHT_PX;
-		} else if (isLoadingTasks) {
-			contentHeight = PROJECT_PICKER_ROW_HEIGHT_PX;
-		}
-	}
-	return Math.min(
-		PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX,
-		contentHeight + PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX,
-	);
-}
-
-// 中文注释：碰撞检测针对页面视口（window.innerHeight），不是左侧主面板高度。
-function resolveSubmenuTop(rootRect: DOMRect, rowTop: number, submenuHeight: number): number {
-	const alignedTop = rowTop - PROJECT_PICKER_SUBMENU_PADDING_TOP_PX;
-	const submenuScreenTop = rootRect.top + alignedTop;
-	const viewportTop = PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX;
-	const viewportBottom = window.innerHeight - PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX;
-	const submenuScreenBottom = submenuScreenTop + submenuHeight;
-
-	if (submenuScreenBottom <= viewportBottom) {
-		return alignedTop;
-	}
-
-	const flippedTop = alignedTop - (submenuScreenBottom - viewportBottom);
-	const minTop = viewportTop - rootRect.top;
-	return Math.max(minTop, flippedTop);
-}
-
-const PROJECT_PICKER_SUBMENU_PANEL_CLASS =
-	"no-scrollbar absolute left-[calc(100%+4px)] z-50 w-[260px] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur";
-
-function projectPickerRowClass(selected: boolean) {
-	return cn(
-		"flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium transition-colors",
-		selected
-			? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
-			: "text-slate-700 hover:bg-slate-100",
-	);
-}
-
-function projectPickerPlaceholderRowClass() {
-	return cn(projectPickerRowClass(false), "pointer-events-none text-xs text-slate-400");
-}
 
 function detectDesktopApp(): boolean {
 	if (typeof window === "undefined") return false;
@@ -291,8 +222,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, []);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
 	const projectTriggerDismissRef = useRef<(() => void) | null>(null);
-	const pickerRootRef = useRef<HTMLDivElement>(null);
-	const submenuRowRef = useRef<HTMLElement | null>(null);
 	const sendingRef = useRef(false);
 	const [input, setInput] = useState("");
 	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
@@ -303,10 +232,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const [isSending, setIsSending] = useState(false);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
-	const [hoveredSubmenu, setHoveredSubmenu] = useState<"new-project" | string | null>(null);
-	const [submenuTop, setSubmenuTop] = useState(0);
-	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
 	const [isDesktopApp, setIsDesktopApp] = useState(false);
+	const [bidComparisonOpen, setBidComparisonOpen] = useState(false);
 	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
 	const wasAuthenticatedRef = useRef(isAuthenticated);
 
@@ -698,44 +625,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			})),
 		[assistants],
 	);
-	const filteredProjects = useMemo(
-		() => (isAuthenticated ? getFilteredProjects(projects, projectSearch) : []),
-		[isAuthenticated, projectSearch, projects],
-	);
-
-	// 中文注释：项目列表接口不含任务；hover 子菜单时每次都刷新，确保 runtime_status 及时反映回复中状态。
-	const loadProjectTasksIfNeeded = useCallback(
-		(projectId: string) => {
-			const project = projects.find((item) => item.id === projectId);
-			if (!project || loadingTaskProjectIds.has(projectId)) {
-				return;
-			}
-			setLoadingTaskProjectIds((current) => new Set(current).add(projectId));
-			void fetchTasks(projectId).finally(() => {
-				setLoadingTaskProjectIds((current) => {
-					const next = new Set(current);
-					next.delete(projectId);
-					return next;
-				});
-			});
-		},
-		[fetchTasks, loadingTaskProjectIds, projects],
-	);
-
 	const activeTask = activeProject?.tasks.find((t) => t.id === activeWorkbenchTaskId);
-	const projectTaskSelectorLabel = activeProject
-		? activeTask
-			? `${activeProject.name} / ${activeTask.title}`
-			: `${activeProject.name} / 新建任务`
-		: "新建项目/任务";
-	const hasWorkbenchSelection = isAuthenticated && Boolean(activeWorkbenchProjectId);
-	const hoveredProject =
-		hoveredSubmenu?.startsWith("project:") === true
-			? projects.find((project) => project.id === hoveredSubmenu.slice("project:".length))
-			: undefined;
-	const hoveredProjectTaskLoading = hoveredProject
-		? loadingTaskProjectIds.has(hoveredProject.id)
-		: false;
+	const projectTaskSelectorLabel = formatProjectTaskPickerLabel(
+		projects,
+		activeWorkbenchProjectId,
+		activeWorkbenchTaskId,
+	);
 	const workbenchUsageTips = useMemo(
 		() => buildComposerUsageTips(activeProject, activeTask),
 		[activeProject, activeTask],
@@ -748,6 +643,42 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		}
 		setInput(prompt);
 	}, []);
+
+	const startBidComparison = useCallback(
+		async (config: BidComparisonConfig) => {
+			try {
+				const resolved = await ensureBidComparisonFilesUploaded(config, config.projectId);
+				// 中文注释：与问答一致——有任务则续聊，无任务则新建；显式传 taskId（可为空）避免回落到工作台条旧选中。
+				const data = await sendWorkbenchMessage(
+					bidComparisonPrompt(resolved),
+					resolved.projectId,
+					executionMode,
+					bidComparisonConfigToAttachments(resolved),
+					undefined,
+					undefined,
+					undefined,
+					"bid_comparison",
+					bidComparisonOutputFormat(resolved),
+					resolved.taskId ?? null,
+				);
+				if (!data?.project_id || !data.task_id || !data.session_id) {
+					toast.error("启动标书对比失败，请确认所选任务未在回复中后重试");
+					throw new Error("启动标书对比失败，请确认所选任务未在回复中后重试");
+				}
+				if (navigation) {
+					navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
+				}
+			} catch (err) {
+				console.error("WorkbenchPanel bid comparison upload error:", err);
+				const message = err instanceof Error ? err.message.trim() : "";
+				if (message !== "启动标书对比失败，请确认所选任务未在回复中后重试") {
+					toast.error(getRequestErrorMessage(err) ?? "启动标书对比失败");
+				}
+				throw err;
+			}
+		},
+		[executionMode, navigation, sendWorkbenchMessage],
+	);
 
 	const clearProjectTriggerText = useCallback(() => {
 		projectTriggerClearRef.current?.();
@@ -762,18 +693,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		projectTriggerDismissRef.current = null;
 	}, []);
 
-	const closeSubmenu = useCallback(() => {
-		setHoveredSubmenu(null);
-		setSubmenuTop(0);
-		submenuRowRef.current = null;
-	}, []);
-
 	const closeProjectMenu = useCallback(() => {
 		dismissProjectTriggerText();
 		setProjectMenuOpen(false);
 		setProjectSearch("");
-		closeSubmenu();
-	}, [closeSubmenu, dismissProjectTriggerText]);
+	}, [dismissProjectTriggerText]);
 
 	const resetWorkbenchOnLogout = useCallback(() => {
 		clearTaskDetailRoute();
@@ -784,7 +708,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		setAttachments([]);
 		setExecutionMode("default");
 		closeProjectMenu();
-		setLoadingTaskProjectIds(new Set());
 	}, [clearTaskDetailRoute, closeProjectMenu, selectWorkbenchProject]);
 
 	useEffect(() => {
@@ -793,14 +716,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		}
 		wasAuthenticatedRef.current = isAuthenticated;
 	}, [isAuthenticated, resetWorkbenchOnLogout]);
-
-	const handleProjectSearchChange = useCallback(
-		(value: string) => {
-			setProjectSearch(value);
-			closeSubmenu();
-		},
-		[closeSubmenu],
-	);
 
 	const handleSelectProject = useCallback(
 		(project: Project) => {
@@ -840,55 +755,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			closeProjectMenu();
 		});
 	}, [clearProjectTriggerText, closeProjectMenu, requireAuth, selectWorkbenchProject]);
-
-	const showSubmenuAtRow = useCallback(
-		(row: HTMLElement, submenu: "new-project" | `project:${string}`) => {
-			const root = pickerRootRef.current;
-			submenuRowRef.current = row;
-			setHoveredSubmenu(submenu);
-			if (root) {
-				const projectId = submenu.startsWith("project:") ? submenu.slice("project:".length) : null;
-				const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
-				const isLoadingTasks = projectId ? loadingTaskProjectIds.has(projectId) : false;
-				const rootRect = root.getBoundingClientRect();
-				const rowTop = row.getBoundingClientRect().top - rootRect.top;
-				const submenuHeight = estimateSubmenuHeightForFlip(submenu, project, isLoadingTasks);
-				setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
-			}
-			if (submenu.startsWith("project:")) {
-				loadProjectTasksIfNeeded(submenu.slice("project:".length));
-			}
-		},
-		[loadProjectTasksIfNeeded, loadingTaskProjectIds, projects],
-	);
-
-	useEffect(() => {
-		const row = submenuRowRef.current;
-		const root = pickerRootRef.current;
-		if (!row || !root || !hoveredSubmenu) return;
-
-		const projectId = hoveredSubmenu.startsWith("project:")
-			? hoveredSubmenu.slice("project:".length)
-			: null;
-		const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
-		const isLoadingTasks = projectId ? loadingTaskProjectIds.has(projectId) : false;
-		const rootRect = root.getBoundingClientRect();
-		const rowTop = row.getBoundingClientRect().top - rootRect.top;
-		const submenuHeight = estimateSubmenuHeightForFlip(hoveredSubmenu, project, isLoadingTasks);
-		setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
-		// 中文注释：仅在切换 hover 目标时重算位置；任务列表刷新/首次加载只向下展开，避免 submenuTop 跳变导致底部抖动。
-	}, [hoveredSubmenu]);
-
-	const projectListRefCallback = useCallback(
-		(node: HTMLDivElement | null) => {
-			if (!node || !projectMenuOpen || !activeWorkbenchProjectId) return;
-			const item = node.querySelector<HTMLElement>(
-				`[data-project-picker-item="${CSS.escape(activeWorkbenchProjectId)}"]`,
-			);
-			item?.scrollIntoView({ block: "center", behavior: "instant" });
-		},
-		[activeWorkbenchProjectId, projectMenuOpen],
-	);
 
 	const handleProjectTrigger = useCallback(
 		(query: string, clearTrigger: () => void, dismissTrigger: () => void) => {
@@ -949,7 +815,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				<section>
 					<div className="mb-4 flex items-center gap-5 text-left md:gap-6">
 						<div className="leros-workbench-hero-icon shrink-0">
-							<img src={WORKBENCH_HERO_OCTOPUS_SRC} alt="" className="size-50 object-contain" />
+							<img src={PROJECT_NEW_TASK_HERO_OCTOPUS_SRC} alt="" className="size-50 object-contain" />
 						</div>
 						<div className="flex min-w-0 flex-col gap-8">
 							<h2 className="text-4xl  tracking-tight text-[var(--leros-primary)] md:text-5xl">
@@ -995,7 +861,26 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						})}
 					</div>
 
-					<ComposerUsageTipsPanel tips={workbenchUsageTips} onApply={applyUsageTip} />
+					<ComposerUsageTipsPanel
+						tips={workbenchUsageTips}
+						onApply={applyUsageTip}
+						variant="workbench"
+						onBidComparisonClick={() => setBidComparisonOpen(true)}
+					/>
+					<BidComparisonConfigDialog
+						open={bidComparisonOpen}
+						onOpenChange={setBidComparisonOpen}
+						onSave={startBidComparison}
+						initialProjectId={activeWorkbenchProjectId}
+						initialTaskId={activeWorkbenchTaskId}
+						allowSelectTask
+						onProjectChange={fetchTasks}
+						projects={projects.map((project) => ({
+							id: project.id,
+							name: project.name,
+							tasks: project.tasks,
+						}))}
+					/>
 
 					{/* 中文注释：工作台输入卡片与 ChatInput 的 project 变体保持同一套边框、阴影与内边距规范。 */}
 					{/* 中文注释：输入框保持完整圆角，和 Codex 一样作为上层卡片悬浮在项目选择条之上。 */}
@@ -1117,142 +1002,21 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
 							className="!flex-none w-auto overflow-visible rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
 						>
-							<div ref={pickerRootRef} className="relative">
-								<div className={PROJECT_PICKER_PANEL_CLASS}>
-									<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
-										<CommandInput
-											value={projectSearch}
-											onValueChange={handleProjectSearchChange}
-											placeholder="搜索项目"
-											className="placeholder:text-slate-300"
-										/>
-									</Command>
-									<div ref={projectListRefCallback} className={PROJECT_PICKER_LIST_CLASS}>
-										{filteredProjects.map((project) => {
-											const projectSelected =
-												isAuthenticated && activeWorkbenchProjectId === project.id;
-
-											return (
-												<button
-													key={project.id}
-													type="button"
-													data-project-picker-item={project.id}
-													onMouseEnter={(event) =>
-														showSubmenuAtRow(event.currentTarget, `project:${project.id}`)
-													}
-													onClick={() => handleSelectProject(project)}
-													className={projectPickerRowClass(projectSelected)}
-												>
-													<ProjectIcon className="size-4 shrink-0" />
-													<span className="min-w-0 flex-1 truncate">
-														{renderHighlightedText(project.name, projectSearch)}
-													</span>
-													{projectSelected && <Check className="size-4 shrink-0" />}
-													<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
-												</button>
-											);
-										})}
-										{filteredProjects.length === 0 && (
-											<div className="px-3 py-8 text-center text-sm text-slate-400">
-												没有匹配的项目
-											</div>
-										)}
-									</div>
-									<div className="mt-1 border-t border-slate-100 pt-1">
-										<button
-											type="button"
-											onMouseEnter={(event) => showSubmenuAtRow(event.currentTarget, "new-project")}
-											className={projectPickerRowClass(false)}
-										>
-											<Plus className="size-4 shrink-0" />
-											<span className="min-w-0 flex-1 truncate">新建项目</span>
-											<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
-										</button>
-									</div>
-								</div>
-
-								{hoveredSubmenu === "new-project" && (
-									<div
-										className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
-										style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
-									>
-										<button
-											type="button"
-											onClick={handleSelectNewProjectTask}
-											className={projectPickerRowClass(!hasWorkbenchSelection)}
-										>
-											<Plus className="size-4 shrink-0" />
-											<span className="min-w-0 flex-1 truncate">新建空白项目</span>
-											{!hasWorkbenchSelection && <Check className="size-4 shrink-0" />}
-										</button>
-									</div>
-								)}
-
-								{hoveredProject && (
-									<div
-										className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
-										style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
-									>
-										<div className="relative">
-											<div
-												className={cn(
-													"space-y-1",
-													hoveredProjectTaskLoading &&
-														hoveredProject.tasks.length > 0 &&
-														"pointer-events-none",
-												)}
-											>
-												{hoveredProjectTaskLoading && hoveredProject.tasks.length === 0 ? (
-													<div className={projectPickerPlaceholderRowClass()}>
-														<LoaderCircle className="size-4 shrink-0 animate-spin opacity-75" />
-														<span className="min-w-0 flex-1 truncate">任务加载中...</span>
-													</div>
-												) : hoveredProject.tasks.length > 0 ? (
-													hoveredProject.tasks.map((task) => {
-														const isResponding = task.runtimeStatus === "responding";
-														const selected =
-															!isResponding &&
-															isAuthenticated &&
-															activeWorkbenchProjectId === hoveredProject.id &&
-															activeWorkbenchTaskId === task.id;
-														return (
-															<button
-																key={task.id}
-																type="button"
-																disabled={isResponding}
-																onClick={() => handleSelectTask(hoveredProject, task)}
-																className={cn(
-																	projectPickerRowClass(selected),
-																	isResponding && "cursor-not-allowed opacity-60",
-																)}
-															>
-																<ListTodo className="size-4 shrink-0 opacity-75" />
-																<span className="min-w-0 flex-1 truncate">{task.title}</span>
-																{isResponding ? (
-																	<span className="shrink-0 text-xs text-slate-400">回复中</span>
-																) : (
-																	selected && <Check className="size-4 shrink-0" />
-																)}
-															</button>
-														);
-													})
-												) : (
-													<div className={projectPickerPlaceholderRowClass()}>
-														<span className="min-w-0 flex-1 truncate">
-															暂无任务，选择项目后将新建任务
-														</span>
-													</div>
-												)}
-											</div>
-											{hoveredProjectTaskLoading && hoveredProject.tasks.length > 0 ? (
-												<div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/80">
-													<LoaderCircle className="size-4 shrink-0 animate-spin text-slate-400" />
-												</div>
-											) : null}
-										</div>
-									</div>
-								)}
-							</div>
+							<ProjectTaskPickerContent
+								projects={isAuthenticated ? projects : []}
+								selectedProjectId={activeWorkbenchProjectId}
+								selectedTaskId={activeWorkbenchTaskId}
+								searchQuery={projectSearch}
+								onSearchQueryChange={setProjectSearch}
+								allowNewProject
+								scrollSelectedIntoView={projectMenuOpen}
+								onLoadProjectTasks={fetchTasks}
+								onSelectProject={(project) => handleSelectProject(project as Project)}
+								onSelectTask={(project, task) =>
+									handleSelectTask(project as Project, task as ProjectTask)
+								}
+								onSelectNewProject={handleSelectNewProjectTask}
+							/>
 						</PopoverContent>
 					</Popover>
 				</section>

@@ -329,6 +329,12 @@ func (p *MessagePoster) RunNewMessage(
 			if req.Metadata != nil {
 				msg.Metadata = *req.Metadata
 			}
+			if scene := strings.TrimSpace(req.Scene); scene != "" {
+				msg.Metadata.Scene = scene
+			}
+			if outputFormat := strings.TrimSpace(req.OutputFormat); outputFormat != "" {
+				msg.Metadata.OutputFormat = outputFormat
+			}
 			if o.taskRoute != nil {
 				msg.AssistantID = o.taskRoute.AssistantID
 			}
@@ -1037,9 +1043,11 @@ func (p *MessagePoster) buildWorkerTask(
 				TaskID:    taskPublicID,
 			},
 			Input: messaging.TaskInput{
-				Type:        messaging.InputTypeMessage,
-				Messages:    inputMessages,
-				Attachments: convertMessageToMessagingAttachments(message.Attachments),
+				Type:         messaging.InputTypeMessage,
+				Scene:        strings.TrimSpace(message.Metadata.Scene),
+				OutputFormat: strings.TrimSpace(message.Metadata.OutputFormat),
+				Messages:     inputMessages,
+				Attachments:  convertMessageToMessagingAttachments(message.Attachments),
 			},
 			Model:             modelOptions,
 			Execution:         executionTarget,
@@ -1242,10 +1250,11 @@ func convertMessageToMessagingAttachments(attachments types.MessageAttachmentSli
 	result := make([]messaging.Attachment, 0, len(attachments))
 	for _, a := range attachments {
 		result = append(result, messaging.Attachment{
-			ID:       a.FileUploadID,
-			Name:     a.Name,
-			MimeType: a.MimeType,
-			URL:      a.PublicURL,
+			ID:             a.FileUploadID,
+			Name:           a.Name,
+			MimeType:       a.MimeType,
+			URL:            a.PublicURL,
+			AttachmentRole: strings.TrimSpace(a.AttachmentRole),
 		})
 	}
 	return result

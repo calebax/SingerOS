@@ -163,3 +163,23 @@ func TestBuildAttachmentText_NoMimeType(t *testing.T) {
 		t.Fatalf("expected no Type line when MimeType is empty, got %q", got)
 	}
 }
+
+func TestBuildAttachmentText_AttachmentRoleLabels(t *testing.T) {
+	attachments := []Attachment{
+		{Name: "main.pdf", MimeType: "application/pdf", AttachmentRole: "main"},
+		{Name: "cmp.docx", MimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", AttachmentRole: "compare"},
+	}
+	got := BuildAttachmentText(attachments)
+	if !strings.Contains(got, "- main.pdf [main]") {
+		t.Fatalf("expected main attachment role label in %q", got)
+	}
+	if !strings.Contains(got, "- cmp.docx [compare]") {
+		t.Fatalf("expected compare attachment role label in %q", got)
+	}
+	if !strings.Contains(got, "Attachment role: main") {
+		t.Fatalf("expected attachment role field for main in %q", got)
+	}
+	if !strings.Contains(got, "Attachment role: compare") {
+		t.Fatalf("expected attachment role field for compare in %q", got)
+	}
+}

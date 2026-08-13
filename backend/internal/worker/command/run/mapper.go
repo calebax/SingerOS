@@ -47,9 +47,11 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			Members:     membersFromTask(task.Project.Members),
 		},
 		Input: agentrundomain.InputContext{
-			Type:        agentrundomain.InputType(task.Input.Type),
-			Messages:    inputMessagesFromTask(task.Input.Messages),
-			Attachments: attachmentsFromTask(task.Input.Attachments),
+			Type:         agentrundomain.InputType(task.Input.Type),
+			Scene:        task.Input.Scene,
+			OutputFormat: task.Input.OutputFormat,
+			Messages:     inputMessagesFromTask(task.Input.Messages),
+			Attachments:  attachmentsFromTask(task.Input.Attachments),
 		},
 		Runtime: agentrundomain.RuntimeOptions{
 			Kind:    task.Runtime.Kind,
@@ -124,14 +126,15 @@ func attachmentsFromTask(attachments []messaging.Attachment) []agentrundomain.At
 	result := make([]agentrundomain.Attachment, 0, len(attachments))
 	for _, attachment := range attachments {
 		result = append(result, agentrundomain.Attachment{
-			ID:       attachment.ID,
-			Name:     attachment.Name,
-			MimeType: attachment.MimeType,
-			URL:      attachment.URL,
+			ID:             attachment.ID,
+			Name:           attachment.Name,
+			MimeType:       attachment.MimeType,
+			URL:            attachment.URL,
+			AttachmentRole: attachment.AttachmentRole,
 		})
 	}
 	for _, a := range result {
-		logs.Infof("[forensic][mapper] attachment from task: name=%q mime=%q url_nonempty=%v", a.Name, a.MimeType, a.URL != "")
+		logs.Infof("[forensic][mapper] attachment from task: name=%q mime=%q attachment_role=%q url_nonempty=%v", a.Name, a.MimeType, a.AttachmentRole, a.URL != "")
 	}
 	return result
 }
