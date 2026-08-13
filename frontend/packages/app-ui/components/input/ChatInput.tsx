@@ -682,7 +682,6 @@ export function ChatInput({
 					<ComposerUsageTipsPanel
 						tips={composerUsageTips}
 						onApply={applyUsageTip}
-						variant="workbench"
 						onBidComparisonClick={() => setBidComparisonOpen(true)}
 					/>
 				) : null}
