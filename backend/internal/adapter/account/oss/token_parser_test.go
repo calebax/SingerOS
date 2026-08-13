@@ -14,14 +14,36 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
+func setupWorkerTokenTestDatabase(t *testing.T, orgID, workerID uint) *gorm.DB {
+	t.Helper()
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.DigitalAssistant{}, &types.WorkerDeployment{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := database.Create(&types.DigitalAssistant{
+		Model:    gorm.Model{ID: workerID},
+		PublicID: "agent-config",
+		OrgID:    orgID,
+		Name:     "Config Agent",
+		Status:   string(types.DigitalAssistantStatusActive),
+	}).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	return database
+}
+
 func TestBuiltinTokenParserIssueWorkerFromConfig(t *testing.T) {
+	database := setupWorkerTokenTestDatabase(t, 3, 7)
 	cfg := &config.WorkerAuthConfig{
 		BootstrapTokens: []config.WorkerBootstrapToken{
 			{OrgID: 3, WorkerID: 7, Token: "bootstrap-token"},
 		},
 		TokenTTLSeconds: 3600,
 	}
-	p := NewTokenParser(nil, "jwt-secret", cfg)
+	p := NewTokenParser(database, "jwt-secret", cfg)
 	token, _, err := p.IssueWorker(context.Background(), 3, 7, "bootstrap-token")
 	if err != nil {
 		t.Fatalf("IssueWorker failed: %v", err)
@@ -36,12 +58,13 @@ func TestBuiltinTokenParserIssueWorkerFromConfig(t *testing.T) {
 }
 
 func TestBuiltinTokenParserRejectsWrongBootstrapToken(t *testing.T) {
+	database := setupWorkerTokenTestDatabase(t, 3, 7)
 	cfg := &config.WorkerAuthConfig{
 		BootstrapTokens: []config.WorkerBootstrapToken{
 			{OrgID: 3, WorkerID: 7, Token: "bootstrap-token"},
 		},
 	}
-	p := NewTokenParser(nil, "jwt-secret", cfg)
+	p := NewTokenParser(database, "jwt-secret", cfg)
 	_, _, err := p.IssueWorker(context.Background(), 3, 7, "wrong-token")
 	if err == nil {
 		t.Fatal("expected error for wrong bootstrap token")

@@ -79,6 +79,18 @@ func ListResourceBindingsByResourceID(ctx context.Context, d *gorm.DB, resourceI
 	return entities, nil
 }
 
+// CountResourceUserBindings counts active human collaborators bound to one resource.
+func CountResourceUserBindings(ctx context.Context, d *gorm.DB, resourceID uint) (int64, error) {
+	var count int64
+	if err := d.WithContext(ctx).
+		Model(&types.ResourceBinding{}).
+		Where("resource_id = ? AND uin IS NOT NULL AND uin <> 0 AND deleted_at IS NULL", resourceID).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ListResourceBindingsByResourceIDs 按资源 ID 列表批量查询有效绑定。
 // 供 PermissionService 沿资源树一次性加载所有祖先资源的绑定。
 func ListResourceBindingsByResourceIDs(ctx context.Context, d *gorm.DB, resourceIDs []uint) ([]*types.ResourceBinding, error) {

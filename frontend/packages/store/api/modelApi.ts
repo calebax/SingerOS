@@ -92,6 +92,7 @@ const MODEL_ENDPOINTS = {
 	get: "/GetLLMModel",
 	getDefault: "/GetDefaultLLMModel",
 	update: "/UpdateLLMModel",
+	setDefault: "/SetDefaultLLMModel",
 	setStatus: "/SetLLMModelStatus",
 	delete: "/DeleteLLMModel",
 	list: "/ListLLMModels",
@@ -107,6 +108,8 @@ export const modelApi = {
 		apiClient.post<BackendDataResponse<BackendModel>>(MODEL_ENDPOINTS.getDefault, {}),
 	update: (params: UpdateModelParams) =>
 		apiClient.post<BackendDataResponse<BackendModel>>(MODEL_ENDPOINTS.update, params),
+	setDefault: (id: number) =>
+		apiClient.post<BackendDataResponse<BackendModel>>(MODEL_ENDPOINTS.setDefault, { id }),
 	setStatus: (id: number, status: string) =>
 		apiClient.post<BackendDataResponse<BackendModel>>(MODEL_ENDPOINTS.setStatus, { id, status }),
 	delete: (id: number) => apiClient.post<BackendDataResponse<null>>(MODEL_ENDPOINTS.delete, { id }),

@@ -32,6 +32,20 @@ func TestParseSQLStatementsHandlesNoFinalSemicolon(t *testing.T) {
 	}
 }
 
+func TestParseSQLStatementsPreservesWhitespaceBetweenLines(t *testing.T) {
+	src := "WITH values_cte(id) AS (\nVALUES (1)\n)\nINSERT INTO target (id)\nSELECT\n  id\nFROM values_cte;\n"
+	stmts, err := parseSQLStatements(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(stmts) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(stmts))
+	}
+	if !strings.Contains(stmts[0].line, "SELECT id FROM values_cte") {
+		t.Fatalf("expected SQL tokens separated across lines, got %q", stmts[0].line)
+	}
+}
+
 func TestParseSQLStatementsSemicolonInSingleQuoteNotTerminator(t *testing.T) {
 	src := `INSERT INTO t VALUES ('a;b');INSERT INTO u VALUES (1);`
 	stmts, err := parseSQLStatements(strings.NewReader(src))

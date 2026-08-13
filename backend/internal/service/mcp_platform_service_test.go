@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"gorm.io/gorm"
@@ -38,11 +40,42 @@ func createTestMCPChannel(t *testing.T, database *gorm.DB, url string) *types.MC
 		Description: "CoreKG configured from database",
 		Transport:   "http",
 		URL:         url,
-		Headers:     types.MCPChannelHeaders{"X-CoreKG-Channel": "database"},
+		Headers:     types.MCPChannelHeaders{"X-Connector-Scope": "database"},
 		Status:      types.MCPChannelStatusActive,
+		AuthType:    types.MCPChannelAuthTypeManaged,
+		AuthConfig: types.MCPChannelAuthConfigJSON(types.MCPChannelAuthConfig{
+			Handler: coreKGPlatformCode,
+			Bindings: types.MCPChannelAuthBindings{MCPHeaders: map[string]string{
+				"Authorization": "Bearer {{api_key}}",
+			}},
+		}),
 	}
 	if err := database.Create(channel).Error; err != nil {
 		t.Fatalf("create MCP channel: %v", err)
+	}
+	return channel
+}
+
+func syncTestCoreKGConnectorTemplate(t *testing.T, database *gorm.DB, url string) *types.MCPChannel {
+	t.Helper()
+	operation, err := SyncSystemConnectorTemplate(context.Background(), database, "", types.MCPConnectorSpec{
+		Channel: coreKGPlatformCode, Name: "CoreKG", Description: "CoreKG configured from database",
+		Status: types.MCPChannelStatusActive, Transport: "http", URL: url,
+		Headers:  types.MCPChannelHeaders{"X-Connector-Scope": "database"},
+		AuthType: types.MCPChannelAuthTypeManaged,
+		AuthConfig: types.MCPChannelAuthConfig{
+			Handler: coreKGPlatformCode,
+			Bindings: types.MCPChannelAuthBindings{MCPHeaders: map[string]string{
+				"Authorization": "Bearer {{api_key}}",
+			}},
+		},
+	})
+	if err != nil || operation != "created" {
+		t.Fatalf("sync CoreKG connector = %q, %v", operation, err)
+	}
+	channel, err := infradb.GetActiveMCPChannelByChannel(context.Background(), database, coreKGPlatformCode)
+	if err != nil || channel == nil {
+		t.Fatalf("load synced CoreKG channel = %#v, %v", channel, err)
 	}
 	return channel
 }
@@ -61,7 +94,7 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if req.Header.Get("X-CoreKG-Channel") != "database" {
+		if req.Header.Get("X-Connector-Scope") != "database" {
 			http.Error(w, "missing configured header", http.StatusBadRequest)
 			return
 		}
@@ -70,7 +103,7 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 	defer httpServer.Close()
 
 	database := setupPluginServiceTestDB(t)
-	channel := createTestMCPChannel(t, database, httpServer.URL)
+	channel := syncTestCoreKGConnectorTemplate(t, database, httpServer.URL)
 	issuer := &mcpPlatformAPIKeyIssuer{}
 	service := &pluginService{db: database, apiKeyIssuer: issuer}
 
@@ -127,15 +160,30 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 	if err != nil || revision == nil {
 		t.Fatalf("GetCurrentPluginRevision() revision/error = %#v/%v", revision, err)
 	}
+	template, err := infradb.GetSystemPluginByCode(context.Background(), database, "mcp", coreKGPlatformCode)
+	if err != nil || template == nil {
+		t.Fatalf("CoreKG system template = %#v, %v", template, err)
+	}
+	templateRevision, err := infradb.GetCurrentPluginRevision(context.Background(), database, template)
+	if err != nil || templateRevision == nil {
+		t.Fatalf("CoreKG template revision = %#v, %v", templateRevision, err)
+	}
+	if revision.SourcePluginRevisionID == nil || *revision.SourcePluginRevisionID != templateRevision.ID {
+		t.Fatalf("CoreKG source revision = %#v, want %d", revision.SourcePluginRevisionID, templateRevision.ID)
+	}
 	definition, err := MCPFromDefinition(revision.Definition)
 	if err != nil {
 		t.Fatalf("MCPFromDefinition() error = %v", err)
 	}
 	if definition.Provider != "corekg" ||
 		definition.URL != httpServer.URL ||
-		definition.BearerToken != "yg-corekg-test" ||
-		definition.Headers["X-CoreKG-Channel"] != "database" {
+		definition.BearerToken != "" ||
+		definition.Headers["Authorization"] != "Bearer yg-corekg-test" ||
+		definition.Headers["X-Connector-Scope"] != "database" {
 		t.Fatalf("CoreKG definition = %#v", definition)
+	}
+	if strings.Contains(string(revision.Definition), "mcp_bearer_token") {
+		t.Fatalf("CoreKG revision uses removed bearer shortcut: %s", revision.Definition)
 	}
 
 	otherUser, err := service.ListMCPPlatforms(context.Background(), 10, 21)
@@ -144,6 +192,71 @@ func TestCoreKGMCPPlatformConnectIsUserScopedAndIdempotent(t *testing.T) {
 	}
 	if otherUser.Platforms[0].Connected {
 		t.Fatalf("other user platform = %#v", otherUser.Platforms[0])
+	}
+}
+
+func TestCatAPIMCPPlatformConnectUsesBearerHeaderBinding(t *testing.T) {
+	server := mcpserver.NewMCPServer("catapi-test", "1.0.0")
+	server.AddTool(
+		mcpsdk.NewTool("search", mcpsdk.WithDescription("Search API market")),
+		func(context.Context, mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+			return mcpsdk.NewToolResultText("ok"), nil
+		},
+	)
+	streamableServer := mcpserver.NewStreamableHTTPServer(server)
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Header.Get("Authorization") != "Bearer catapi-secret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		streamableServer.ServeHTTP(w, req)
+	}))
+	defer httpServer.Close()
+
+	database := setupPluginServiceTestDB(t)
+	operation, err := SyncSystemConnectorTemplate(context.Background(), database, "", types.MCPConnectorSpec{
+		Channel: "catapi", Name: "CatAPI", Description: "CatAPI API market",
+		Status: types.MCPChannelStatusActive, Transport: "http",
+		URL: httpServer.URL, AuthType: types.MCPChannelAuthTypeForm,
+		AuthConfig: types.MCPChannelAuthConfig{
+			Description: "输入 CatAPI API Key，连接后即可使用 API 市场中的工具和服务。",
+			Fields: []types.MCPChannelAuthField{{
+				Key: "api_key", Label: "API Key", Type: "password", Required: true,
+			}},
+			Bindings: types.MCPChannelAuthBindings{MCPHeaders: map[string]string{
+				"Authorization": "Bearer {{api_key}}",
+			}},
+		},
+	})
+	if err != nil || operation != "created" {
+		t.Fatalf("sync CatAPI connector = %q, %v", operation, err)
+	}
+	service := &pluginService{db: database}
+	connected, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "catapi", &contract.ConnectMCPPlatformRequest{
+		AuthValues: map[string]string{"api_key": "catapi-secret"},
+	})
+	if err != nil {
+		t.Fatalf("ConnectMCPPlatform() error = %v", err)
+	}
+	if connected.Platform.AuthDescription != "输入 CatAPI API Key，连接后即可使用 API 市场中的工具和服务。" {
+		t.Fatalf("CatAPI platform auth description = %q", connected.Platform.AuthDescription)
+	}
+	tested, err := service.TestMCPPlatform(context.Background(), 10, 20, "catapi")
+	if err != nil || tested == nil || !tested.OK || tested.ToolCount != 1 {
+		t.Fatalf("TestMCPPlatform() = %#v, %v", tested, err)
+	}
+	plugin, err := infradb.GetPluginByPublicID(context.Background(), database, 10, connected.Plugin.PublicID)
+	if err != nil || plugin == nil {
+		t.Fatalf("CatAPI plugin = %#v, %v", plugin, err)
+	}
+	revision, err := infradb.GetCurrentPluginRevision(context.Background(), database, plugin)
+	if err != nil || revision == nil {
+		t.Fatalf("CatAPI revision = %#v, %v", revision, err)
+	}
+	mcp, err := MCPFromDefinition(revision.Definition)
+	if err != nil || mcp == nil || mcp.BearerToken != "" ||
+		mcp.Headers["Authorization"] != "Bearer catapi-secret" {
+		t.Fatalf("CatAPI MCP definition = %#v, %v", mcp, err)
 	}
 }
 
@@ -163,7 +276,7 @@ func TestMCPListEnsuresCoreKGConnection(t *testing.T) {
 
 	issuer := &mcpPlatformAPIKeyIssuer{}
 	database := setupPluginServiceTestDB(t)
-	createTestMCPChannel(t, database, httpServer.URL)
+	syncTestCoreKGConnectorTemplate(t, database, httpServer.URL)
 	service := &pluginService{
 		db:           database,
 		apiKeyIssuer: issuer,
@@ -198,6 +311,22 @@ func TestCoreKGMCPPlatformIsUnavailableWithoutIAMIssuer(t *testing.T) {
 	}
 	if _, err := service.ConnectMCPPlatform(context.Background(), 10, 20, "corekg", nil); err == nil {
 		t.Fatal("ConnectMCPPlatform() expected unsupported error")
+	}
+}
+
+func TestCoreKGMCPPlatformRequiresSystemConnectorTemplate(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	createTestMCPChannel(t, database, "https://example.com/mcp")
+	issuer := &mcpPlatformAPIKeyIssuer{}
+	service := &pluginService{db: database, apiKeyIssuer: issuer}
+
+	_, err := service.ConnectMCPPlatform(context.Background(), 10, 20, coreKGPlatformCode, nil)
+	if !errors.Is(err, contract.ErrInvalidPluginConfig) ||
+		!strings.Contains(err.Error(), "connector template is not available") {
+		t.Fatalf("ConnectMCPPlatform() error = %v, want unavailable template configuration error", err)
+	}
+	if issuer.calls != 0 {
+		t.Fatalf("API key issuer calls = %d, want 0", issuer.calls)
 	}
 }
 

@@ -171,29 +171,16 @@ function formConfig(form: MCPForm): MCPPluginConfig {
 	};
 }
 
-/** CoreKG 对用户展示为「知识库」，描述中去掉 CoreKG 字样（兼容大小写）。 */
 function isCoreKGPlatformCode(code: string) {
 	return code.trim().toLocaleLowerCase() === "corekg";
 }
 
-function displayMCPPlatform(platform: MCPPlatform): MCPPlatform {
-	if (!isCoreKGPlatformCode(platform.code)) return platform;
-	return {
-		...platform,
-		name: "知识库",
-		description: platform.description
-			.replace(/corekg/gi, "")
-			.replace(/\s+/g, " ")
-			.trim(),
-	};
-}
-
 function platformMatchesKeyword(platform: MCPPlatform, query: string) {
-	// 知识库不再暴露 corekg 品牌：搜索不匹配 code，也不匹配 corekg 关键字
-	const haystack = isCoreKGPlatformCode(platform.code)
-		? [platform.name, platform.description]
-		: [platform.name, platform.code, platform.description];
-	return haystack.filter(Boolean).join(" ").toLocaleLowerCase().includes(query);
+	return [platform.name, platform.code, platform.description]
+		.filter(Boolean)
+		.join(" ")
+		.toLocaleLowerCase()
+		.includes(query);
 }
 
 function mcpDefinition(
@@ -241,7 +228,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 			});
 			setConnectors(connectorResponse.data.data.plugins ?? []);
 			const platformResponse = await pluginApi.listMCPPlatforms();
-			setPlatforms((platformResponse.data.data.platforms ?? []).map(displayMCPPlatform));
+			setPlatforms(platformResponse.data.data.platforms ?? []);
 		} catch (requestError) {
 			setError(requestErrorMessage(requestError, "加载失败"));
 		} finally {
@@ -331,19 +318,12 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 			toast.info("Skill 连接器会在关联项目的 Worker Run 中验证");
 			return;
 		}
-		if (!platform.plugin_id) return;
-		const connector = connectors.find((item) => item.public_id === platform.plugin_id);
-		await testSavedConnector(
-			connector ?? {
-				public_id: platform.plugin_id,
-				code: platform.code,
-				kind: "mcp",
-				name: platform.name,
-				status: "active",
-				origin: "org",
-				current_revision: 1,
-			},
-		);
+		try {
+			const result = await pluginApi.testMCPPlatform(platform.code);
+			toast.success(`连接成功，发现 ${result.data.data.tool_count} 个工具`);
+		} catch (requestError) {
+			toast.error(requestErrorMessage(requestError, "连接测试失败"));
+		}
 	};
 
 	const connectPlatform = async (
@@ -612,7 +592,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 													</p>
 												) : null}
 											</div>
-											{!isManagedCoreKG && platform.connected ? (
+											{platform.connected ? (
 												<DropdownMenu>
 													<DropdownMenuTrigger
 														render={(props) => (
@@ -633,12 +613,14 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 																测试连接
 															</DropdownMenuItem>
 														) : null}
-														<DropdownMenuItem
-															className="text-red-600 focus:text-red-600"
-															onClick={() => setDisconnectingPlatform(platform)}
-														>
-															断开连接
-														</DropdownMenuItem>
+														{!isManagedCoreKG ? (
+															<DropdownMenuItem
+																className="text-red-600 focus:text-red-600"
+																onClick={() => setDisconnectingPlatform(platform)}
+															>
+																断开连接
+															</DropdownMenuItem>
+														) : null}
 													</DropdownMenuContent>
 												</DropdownMenu>
 											) : !isManagedCoreKG ? (
@@ -926,9 +908,9 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 				<DialogContent className="max-w-md">
 					<DialogHeader>
 						<DialogTitle>连接 {authorizingPlatform?.name}</DialogTitle>
-						<DialogDescription>
-							认证信息会保存到该连接器的插件 Revision，并在关联项目运行时注入。
-						</DialogDescription>
+						{authorizingPlatform?.auth_description ? (
+							<DialogDescription>{authorizingPlatform.auth_description}</DialogDescription>
+						) : null}
 					</DialogHeader>
 					<div className="grid gap-4 py-2">
 						{(authorizingPlatform?.auth_fields ?? []).map((field) => (

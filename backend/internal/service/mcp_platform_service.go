@@ -19,13 +19,6 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
-const (
-	coreKGPlatformCode          = "corekg"
-	baiduNetdiskPlatformCode    = "baidu-netdisk"
-	baiduNetdiskOAuthValueKey   = "access_token"
-	baiduNetdiskRefreshValueKey = "refresh_token"
-)
-
 func (s *pluginService) ListMCPPlatforms(
 	ctx context.Context,
 	orgID, uin uint,
@@ -95,11 +88,17 @@ func (s *pluginService) ConnectMCPPlatform(
 		if validateErr != nil {
 			return nil, validateErr
 		}
-		definition, sourceRevisionID, err = s.personalConnectorDefinition(ctx, channel, values)
+		definition, sourceRevisionID, err = s.instantiateSystemConnectorTemplate(ctx, channel, values)
 	case types.MCPChannelAuthTypeManaged:
 		handler := strings.TrimSpace(types.MCPChannelAuthConfig(channel.AuthConfig).Handler)
 		if handler != coreKGPlatformCode || s.apiKeyIssuer == nil {
 			return nil, invalidMCPConfig("current edition does not support this managed authorization")
+		}
+		var template *ConnectorDefinition
+		var templateRevision *types.PluginRevision
+		template, templateRevision, err = s.loadSystemConnectorTemplate(ctx, channel)
+		if err != nil {
+			return nil, err
 		}
 		var credential *account.CreatedAPIKey
 		credential, err = s.apiKeyIssuer.CreateAPIKey(ctx, account.CreateAPIKeyInput{
@@ -109,9 +108,10 @@ func (s *pluginService) ConnectMCPPlatform(
 		if err != nil {
 			return nil, fmt.Errorf("create CoreKG API key: %w", err)
 		}
-		definition, err = managedCoreKGDefinition(channel, credential.APIKey)
+		definition, err = instantiateSystemConnectorDefinition(template, map[string]string{"api_key": credential.APIKey})
+		sourceRevisionID = &templateRevision.ID
 	case types.MCPChannelAuthTypeNone:
-		definition, sourceRevisionID, err = s.personalConnectorDefinition(ctx, channel, nil)
+		definition, sourceRevisionID, err = s.instantiateSystemConnectorTemplate(ctx, channel, nil)
 	default:
 		return nil, invalidMCPConfig("unsupported connector authorization type")
 	}
@@ -149,6 +149,56 @@ func (s *pluginService) ConnectMCPPlatform(
 	}, nil
 }
 
+// TestMCPPlatform tests a connected platform using its server-side revision and credentials.
+// Platform connector definitions are intentionally not exposed as editable custom MCP definitions.
+func (s *pluginService) TestMCPPlatform(
+	ctx context.Context,
+	orgID, uin uint,
+	platformCode string,
+) (*contract.TestMCPPluginResponse, error) {
+	if orgID == 0 || uin == 0 {
+		return nil, invalidMCPConfig("organization and user identity are required")
+	}
+	channelCode := strings.ToLower(strings.TrimSpace(platformCode))
+	channel, err := s.getSupportedMCPChannel(ctx, channelCode)
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil {
+		return nil, invalidMCPConfig("MCP platform is not configured or active")
+	}
+
+	plugin, err := infradb.GetOrganizationPluginByIdentity(
+		ctx, s.db, orgID, "mcp", platformPluginCode(orgID, uin, channelCode),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if plugin == nil || plugin.CreatedBy != uin {
+		return nil, invalidMCPConfig("MCP platform is not connected")
+	}
+	revision, err := infradb.GetCurrentPluginRevision(ctx, s.db, plugin)
+	if err != nil {
+		return nil, err
+	}
+	if revision == nil {
+		return nil, invalidMCPConfig("MCP platform has no published revision")
+	}
+	mcp, err := MCPFromDefinition(revision.Definition)
+	if err != nil {
+		return nil, err
+	}
+	if mcp == nil || strings.TrimSpace(mcp.URL) == "" {
+		return nil, invalidMCPConfig("MCP platform does not expose a testable MCP service")
+	}
+	return s.TestMCPPlugin(ctx, &contract.TestMCPPluginRequest{
+		Transport:   mcp.Transport,
+		URL:         mcp.URL,
+		BearerToken: mcp.BearerToken,
+		Headers:     mcp.Headers,
+	})
+}
+
 func validateChannelAuthValues(
 	channel *types.MCPChannel,
 	req *contract.ConnectMCPPlatformRequest,
@@ -178,11 +228,27 @@ func validateChannelAuthValues(
 	return values, nil
 }
 
-func (s *pluginService) personalConnectorDefinition(
+// instantiateSystemConnectorTemplate copies one system connector template with caller-specific credentials.
+func (s *pluginService) instantiateSystemConnectorTemplate(
 	ctx context.Context,
 	channel *types.MCPChannel,
 	values map[string]string,
 ) (json.RawMessage, *uint, error) {
+	definition, revision, err := s.loadSystemConnectorTemplate(ctx, channel)
+	if err != nil {
+		return nil, nil, err
+	}
+	encoded, err := instantiateSystemConnectorDefinition(definition, values)
+	if err != nil {
+		return nil, nil, err
+	}
+	return encoded, &revision.ID, nil
+}
+
+func (s *pluginService) loadSystemConnectorTemplate(
+	ctx context.Context,
+	channel *types.MCPChannel,
+) (*ConnectorDefinition, *types.PluginRevision, error) {
 	template, err := infradb.GetSystemPluginByCode(ctx, s.db, "mcp", channel.Channel)
 	if err != nil {
 		return nil, nil, err
@@ -202,37 +268,26 @@ func (s *pluginService) personalConnectorDefinition(
 	if err != nil || definition == nil {
 		return nil, nil, invalidMCPConfig("connector template definition is invalid")
 	}
+	return definition, revision, nil
+}
+
+func instantiateSystemConnectorDefinition(
+	template *ConnectorDefinition,
+	values map[string]string,
+) (json.RawMessage, error) {
+	if template == nil {
+		return nil, invalidMCPConfig("connector template definition is invalid")
+	}
+	definition := *template
 	definition.Auth.Values = cloneStringMap(values)
 	encoded, err := json.Marshal(definition)
 	if err != nil {
-		return nil, nil, err
-	}
-	if err := ValidatePluginDefinition("mcp", encoded); err != nil {
-		return nil, nil, err
-	}
-	sourceRevisionID := revision.ID
-	return encoded, &sourceRevisionID, nil
-}
-
-func managedCoreKGDefinition(channel *types.MCPChannel, apiKey string) (json.RawMessage, error) {
-	mcp := &MCPDefinition{
-		Schema: "mcp/v1", Transport: channel.Transport, Name: channel.Channel,
-		Provider: channel.Channel, URL: channel.URL,
-		Headers: cloneStringMap(map[string]string(channel.Headers)),
-	}
-	encoded, err := json.Marshal(ConnectorDefinition{
-		Schema: "connector/v1", Channel: channel.Channel, Mode: ConnectorModeMCPOnly,
-		Auth: ConnectorAuthDefinition{
-			Type:     types.MCPChannelAuthTypeManaged,
-			Values:   map[string]string{"api_key": apiKey},
-			Bindings: types.MCPChannelAuthBindings{MCPBearerToken: "api_key"},
-		},
-		MCP: mcp,
-	})
-	if err != nil {
 		return nil, err
 	}
-	return encoded, ValidatePluginDefinition("mcp", encoded)
+	if err := ValidatePluginDefinition("mcp", encoded); err != nil {
+		return nil, err
+	}
+	return encoded, nil
 }
 
 func (s *pluginService) createPlatformConnector(
@@ -292,10 +347,6 @@ func (s *pluginService) getSupportedMCPChannel(
 
 func normalizeSupportedMCPChannel(channel *types.MCPChannel) (*types.MCPChannel, bool) {
 	return normalizeMCPChannel(channel, true)
-}
-
-func normalizeBuiltinConnectorTemplateChannel(channel *types.MCPChannel) (*types.MCPChannel, bool) {
-	return normalizeMCPChannel(channel, false)
 }
 
 func normalizeMCPChannel(channel *types.MCPChannel, requireOAuthAppConfig bool) (*types.MCPChannel, bool) {
@@ -378,6 +429,9 @@ func validateChannelAuthConfig(channel *types.MCPChannel, requireOAuthAppConfig 
 		return fmt.Errorf("managed authorization requires a handler")
 	}
 	knownValues := fields
+	if channel.AuthType == types.MCPChannelAuthTypeManaged {
+		knownValues = map[string]struct{}{"api_key": {}}
+	}
 	if channel.AuthType == types.MCPChannelAuthTypeOAuth {
 		if strings.TrimSpace(config.Handler) != baiduNetdiskPlatformCode || config.OAuth == nil {
 			return fmt.Errorf("oauth authorization requires a supported handler")
@@ -392,41 +446,36 @@ func validateChannelAuthConfig(channel *types.MCPChannel, requireOAuthAppConfig 
 		}
 	}
 	bindings := config.Bindings
-	for envName, valueKey := range bindings.SkillEnv {
+	for envName, expression := range bindings.SkillEnv {
 		if !envNamePattern.MatchString(envName) {
 			return fmt.Errorf("skill environment binding is invalid")
 		}
-		if _, exists := knownValues[valueKey]; !exists {
-			return fmt.Errorf("skill environment binding references an unknown field")
+		if err := validateConnectorBinding(expression, knownValues); err != nil {
+			return fmt.Errorf("skill environment binding is invalid: %w", err)
 		}
 	}
-	if bindings.MCPBearerToken != "" {
-		if _, exists := knownValues[bindings.MCPBearerToken]; !exists {
-			return fmt.Errorf("MCP bearer binding references an unknown field")
-		}
-	}
-	for header, valueKey := range bindings.MCPHeaders {
+	for header, expression := range bindings.MCPHeaders {
 		if !headerNamePattern.MatchString(header) {
 			return fmt.Errorf("MCP header binding is invalid")
 		}
-		if _, exists := knownValues[valueKey]; !exists {
-			return fmt.Errorf("MCP header binding references an unknown field")
+		if err := validateConnectorBinding(expression, knownValues); err != nil {
+			return fmt.Errorf("MCP header binding is invalid: %w", err)
 		}
 	}
-	for envName, valueKey := range bindings.MCPEnv {
+	for envName, expression := range bindings.MCPEnv {
 		if !envNamePattern.MatchString(envName) {
 			return fmt.Errorf("MCP environment binding is invalid")
 		}
-		if _, exists := knownValues[valueKey]; !exists {
-			return fmt.Errorf("MCP environment binding references an unknown field")
+		if err := validateConnectorBinding(expression, knownValues); err != nil {
+			return fmt.Errorf("MCP environment binding is invalid: %w", err)
 		}
 	}
-	for queryName, valueKey := range bindings.MCPQuery {
+	for queryName, expression := range bindings.MCPQuery {
 		if strings.TrimSpace(queryName) == "" || strings.ContainsAny(queryName, "&=?#") {
 			return fmt.Errorf("MCP query binding is invalid")
 		}
-		if _, exists := knownValues[valueKey]; !exists {
-			return fmt.Errorf("MCP query binding references an unknown field")
+		if err := validateConnectorBinding(expression, knownValues); err != nil {
+			return fmt.Errorf("MCP query binding is invalid: %w", err)
 		}
 	}
 	return nil
@@ -516,7 +565,7 @@ func mcpPlatformViewFromPlugin(
 	}
 	return contract.MCPPlatformView{
 		Code: channel.Channel, Name: channel.Name, Description: channel.Description,
-		Mode: mode, AuthType: channel.AuthType,
+		Mode: mode, AuthType: channel.AuthType, AuthDescription: config.Description,
 		AuthFields:           append([]types.MCPChannelAuthField(nil), config.Fields...),
 		AutoConnectSupported: autoConnectSupported,
 		Connected:            connectedPluginID(pluginID), PluginID: pluginID,

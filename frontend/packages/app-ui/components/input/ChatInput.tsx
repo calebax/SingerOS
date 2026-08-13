@@ -59,6 +59,10 @@ import {
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
 import { getLatestProjectFileVersion } from "../layout/project-file-version-sync";
+import {
+	hasMultipleHumanProjectMembers,
+	PROJECT_MCP_COLLABORATION_WARNING,
+} from "../layout/project-mcp-collaboration-warning";
 import { AttachmentPreview } from "./AttachmentPreview";
 import { type BidComparisonConfig, BidComparisonConfigDialog } from "./BidComparisonConfigDialog";
 import {
@@ -173,6 +177,8 @@ export function ChatInput({
 	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
 	const currentProjectId = activeTaskDetailProjectId ?? activeProjectId;
 	const currentProject = projects.find((project) => project.id === currentProjectId);
+	const projectConnectorsDisabled =
+		isProjectVariant && hasMultipleHumanProjectMembers(currentProject?.members ?? []);
 	const { skillOptions, skillsLoading } = useComposerSkillOptions(
 		isProjectVariant ? currentProjectId : null,
 	);
@@ -180,9 +186,13 @@ export function ChatInput({
 		projectId: isProjectVariant ? currentProjectId : null,
 	});
 	const [selectedConnectorIds, setSelectedConnectorIds] = useState<string[]>([]);
-	const handleSelectConnector = useCallback((publicId: string) => {
-		setSelectedConnectorIds((prev) => (prev.includes(publicId) ? prev : [...prev, publicId]));
-	}, []);
+	const handleSelectConnector = useCallback(
+		(publicId: string) => {
+			if (projectConnectorsDisabled) return;
+			setSelectedConnectorIds((prev) => (prev.includes(publicId) ? prev : [...prev, publicId]));
+		},
+		[projectConnectorsDisabled],
+	);
 	const handleRemoveConnector = useCallback((publicId: string) => {
 		setSelectedConnectorIds((prev) => prev.filter((id) => id !== publicId));
 	}, []);
@@ -387,6 +397,13 @@ export function ChatInput({
 		}
 	}, [currentProjectId, isProjectVariant, selectedConnectorIds.length]);
 
+	// 中文注释：项目进入多人真人协作状态后立即清理旧选择，避免成员变更与发送并发时携带连接器。
+	useEffect(() => {
+		if (projectConnectorsDisabled && selectedConnectorIds.length > 0) {
+			setSelectedConnectorIds([]);
+		}
+	}, [projectConnectorsDisabled, selectedConnectorIds.length]);
+
 	const submitMessage = useCallback(async () => {
 		// 中文注释：真实 SessionEvents 当前由单条 SSE 连接接管，生成中先阻止重复发送。
 		if (isGenerating) return;
@@ -451,7 +468,7 @@ export function ChatInput({
 						taskId: activeTaskDetailTaskId,
 						sessionId: activeTaskDetailSessionId,
 						metadata: composerMetadata,
-						connectorIds: selectedConnectorIds,
+						connectorIds: projectConnectorsDisabled ? [] : selectedConnectorIds,
 					},
 					outgoingAttachments,
 				);
@@ -462,9 +479,7 @@ export function ChatInput({
 						activeProjectId,
 						outgoingAttachments,
 						composerMetadata,
-						{
-							connectorIds: selectedConnectorIds,
-						},
+						{ connectorIds: projectConnectorsDisabled ? [] : selectedConnectorIds },
 					);
 					submitted = taskEntry;
 					if (taskEntry?.project_id && taskEntry?.task_id && taskEntry.session_id) {
@@ -513,6 +528,7 @@ export function ChatInput({
 		sendProjectMessage,
 		sendTaskRoomMessage,
 		selectedConnectorIds,
+		projectConnectorsDisabled,
 	]);
 
 	const uploadProjectAttachment = useCallback(
@@ -777,9 +793,11 @@ export function ChatInput({
 									isGenerating={isGenerating}
 									connectorOptions={connectorOptions}
 									connectorsLoading={connectorsLoading}
-									selectedConnectorIds={selectedConnectorIds}
+									selectedConnectorIds={projectConnectorsDisabled ? [] : selectedConnectorIds}
 									onSelectConnector={handleSelectConnector}
 									onRemoveConnector={handleRemoveConnector}
+									connectorDisabled={projectConnectorsDisabled}
+									connectorDisabledReason={PROJECT_MCP_COLLABORATION_WARNING}
 								/>
 							) : (
 								<>

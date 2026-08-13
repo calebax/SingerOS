@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
@@ -64,7 +66,7 @@ func TestEmailConnectorTemplateConnectAndResolveSkill(t *testing.T) {
 		"Use the Baidu Netdisk connector.",
 	)
 
-	report, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir)
+	report, err := syncTestConnectorTemplates(context.Background(), database, sourceDir)
 	if err != nil {
 		t.Fatalf("sync connector templates: %v", err)
 	}
@@ -163,7 +165,7 @@ func TestEmailConnectorRequiresEveryAuthorizationField(t *testing.T) {
 		"Baidu Netdisk connector",
 		"Use the Baidu Netdisk connector.",
 	)
-	if _, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir); err != nil {
+	if _, err := syncTestConnectorTemplates(context.Background(), database, sourceDir); err != nil {
 		t.Fatalf("sync connector templates: %v", err)
 	}
 
@@ -194,7 +196,7 @@ func TestInactiveBaiduNetdiskTemplateIsPublishedBeforeActivation(t *testing.T) {
 		"Use the Baidu Netdisk connector.",
 	)
 
-	report, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir)
+	report, err := syncTestConnectorTemplates(context.Background(), database, sourceDir)
 	if err != nil || report.Scanned != 2 || report.Created != 2 || len(report.Failures) != 0 {
 		t.Fatalf("sync report = %#v, %v", report, err)
 	}
@@ -211,7 +213,7 @@ func TestInactiveBaiduNetdiskTemplateIsPublishedBeforeActivation(t *testing.T) {
 	if err != nil || template == nil || template.CurrentRevision != 1 {
 		t.Fatalf("Baidu Netdisk template = %#v, %v", template, err)
 	}
-	secondReport, err := SyncBuiltinConnectorTemplates(context.Background(), database, sourceDir)
+	secondReport, err := syncTestConnectorTemplates(context.Background(), database, sourceDir)
 	if err != nil || secondReport.Scanned != 2 || secondReport.Unchanged != 2 ||
 		secondReport.Created != 0 || len(secondReport.Failures) != 0 {
 		t.Fatalf("second sync report = %#v, %v", secondReport, err)
@@ -250,5 +252,95 @@ func TestInactiveBaiduNetdiskTemplateIsPublishedBeforeActivation(t *testing.T) {
 	)
 	if err != nil || started == nil || started.AuthorizationURL == "" {
 		t.Fatalf("start Baidu Netdisk OAuth = %#v, %v", started, err)
+	}
+}
+
+func syncTestConnectorTemplates(ctx context.Context, database *gorm.DB, sourceDir string) (*BuiltinSkillSyncReport, error) {
+	report := &BuiltinSkillSyncReport{}
+	for _, spec := range testConnectorServiceSpecs() {
+		report.Scanned++
+		operation, syncErr := SyncSystemConnectorTemplate(ctx, database, sourceDir, spec)
+		if syncErr != nil {
+			report.Failures = append(report.Failures, BuiltinSkillSyncFailure{Code: spec.Channel, Err: syncErr})
+			continue
+		}
+		addTestBuiltinConnectorOperation(report, operation)
+	}
+	return report, nil
+}
+
+func testConnectorServiceSpecs() []types.MCPConnectorSpec {
+	return []types.MCPConnectorSpec{
+		{
+			Channel: baiduNetdiskPlatformCode, Name: "百度网盘",
+			Description: "通过百度网盘 MCP 浏览、检索、整理和分享云端文件",
+			Status:      types.MCPChannelStatusInactive, SkillCode: "connector-baidu-netdisk",
+			Transport: "sse", URL: "https://mcp-pan.baidu.com/sse", AuthType: types.MCPChannelAuthTypeOAuth,
+			AuthConfig: types.MCPChannelAuthConfig{Handler: baiduNetdiskPlatformCode,
+				OAuth: &types.MCPChannelOAuthConfig{Scopes: []string{"basic", "netdisk"}},
+				Bindings: types.MCPChannelAuthBindings{MCPHeaders: map[string]string{
+					"Authorization": "Bearer {{access_token}}",
+				}}},
+		},
+		{
+			Channel: "netease-mail", Name: "邮箱",
+			Description: "通过标准 IMAP/SMTP 收发、搜索和管理邮箱邮件及附件",
+			Status:      types.MCPChannelStatusActive, SkillCode: "connector-netease-mail",
+			AuthType: types.MCPChannelAuthTypeForm,
+			AuthConfig: types.MCPChannelAuthConfig{
+				Fields: []types.MCPChannelAuthField{{Key: "email", Label: "邮箱地址", Type: "text", Required: true},
+					{Key: "authorization_code", Label: "IMAP/SMTP 授权码", Type: "password", Required: true}},
+				Bindings: types.MCPChannelAuthBindings{SkillEnv: map[string]string{
+					"NETEASE_EMAIL_USER": "email", "NETEASE_EMAIL_PASS": "authorization_code",
+				}},
+			},
+		},
+	}
+}
+
+func TestNormalizeSystemConnectorSpecValidatesBindingTemplates(t *testing.T) {
+	base := types.MCPConnectorSpec{
+		Channel: "catapi", Name: "CatAPI", Status: types.MCPChannelStatusActive,
+		Transport: "http", URL: "https://api.insmtx.com/v6/api/mcp",
+		AuthType: types.MCPChannelAuthTypeForm,
+		AuthConfig: types.MCPChannelAuthConfig{Fields: []types.MCPChannelAuthField{{
+			Key: "api_key", Label: "API Key", Type: "password", Required: true,
+		}}},
+	}
+	cases := []struct {
+		name       string
+		expression string
+		wantError  bool
+	}{
+		{name: "header template", expression: "Bearer {{api_key}}"},
+		{name: "direct credential", expression: "api_key"},
+		{name: "unknown credential", expression: "Bearer {{missing}}", wantError: true},
+		{name: "malformed template", expression: "Bearer {{api_key}", wantError: true},
+		{name: "static value", expression: "Bearer static-secret", wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := base
+			spec.AuthConfig.Bindings = types.MCPChannelAuthBindings{MCPHeaders: map[string]string{
+				"Authorization": tc.expression,
+			}}
+			_, err := normalizeSystemConnectorSpec(spec)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("normalizeSystemConnectorSpec() error = %v", err)
+			}
+		})
+	}
+}
+
+func addTestBuiltinConnectorOperation(report *BuiltinSkillSyncReport, operation string) {
+	switch operation {
+	case "created":
+		report.Created++
+	case "updated":
+		report.Updated++
+	case "restored":
+		report.Restored++
+	default:
+		report.Unchanged++
 	}
 }

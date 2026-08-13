@@ -181,6 +181,7 @@ type MCPPlatformView struct {
 	Description          string                      `json:"description"`
 	Mode                 string                      `json:"mode"`
 	AuthType             string                      `json:"auth_type"`
+	AuthDescription      string                      `json:"auth_description,omitempty"`
 	AuthFields           []types.MCPChannelAuthField `json:"auth_fields,omitempty"`
 	AutoConnectSupported bool                        `json:"auto_connect_supported"`
 	Connected            bool                        `json:"connected"`
@@ -324,6 +325,7 @@ type PluginService interface {
 	TestMCPPlugin(ctx context.Context, req *TestMCPPluginRequest) (*TestMCPPluginResponse, error)
 	ListMCPPlatforms(ctx context.Context, orgID, uin uint) (*ListMCPPlatformsResponse, error)
 	ConnectMCPPlatform(ctx context.Context, orgID, uin uint, platformCode string, req *ConnectMCPPlatformRequest) (*ConnectMCPPlatformResponse, error)
+	TestMCPPlatform(ctx context.Context, orgID, uin uint, platformCode string) (*TestMCPPluginResponse, error)
 	StartMCPPlatformOAuth(ctx context.Context, orgID, uin uint, platformCode string) (*StartMCPPlatformOAuthResponse, error)
 	GetMCPPlatformOAuthStatus(ctx context.Context, orgID, uin uint, platformCode, attemptID string) (*MCPPlatformOAuthStatusResponse, error)
 	CompleteMCPPlatformOAuth(ctx context.Context, platformCode, state, code, providerError string) (*MCPPlatformOAuthStatusResponse, error)

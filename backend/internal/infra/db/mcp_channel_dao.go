@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -39,4 +40,39 @@ func GetActiveMCPChannelByChannel(
 		return nil, err
 	}
 	return &config, nil
+}
+
+// UpsertMCPChannel reconciles all declared channel fields within the caller's transaction.
+func UpsertMCPChannel(ctx context.Context, database *gorm.DB, channel *types.MCPChannel) error {
+	if channel == nil {
+		return errors.New("MCP channel is required")
+	}
+	var existing types.MCPChannel
+	err := database.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("channel = ?", channel.Channel).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		insert := database.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(channel)
+		if insert.Error != nil {
+			return insert.Error
+		}
+		if insert.RowsAffected > 0 {
+			return nil
+		}
+		if err := database.WithContext(ctx).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("channel = ?", channel.Channel).First(&existing).Error; err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	if err := database.WithContext(ctx).Model(&types.MCPChannel{}).
+		Where("id = ?", existing.ID).
+		Select("name", "description", "skill_code", "transport", "url", "headers", "auth_type", "auth_config", "status").
+		Updates(channel).Error; err != nil {
+		return err
+	}
+	channel.ID = existing.ID
+	return nil
 }

@@ -85,7 +85,7 @@ func (s *pluginService) StartMCPPlatformOAuth(
 		return nil, invalidMCPConfig(err.Error())
 	}
 
-	definition, sourceRevisionID, err := s.personalConnectorDefinition(ctx, channel, nil)
+	definition, sourceRevisionID, err := s.instantiateSystemConnectorTemplate(ctx, channel, nil)
 	if err != nil {
 		return nil, err
 	}

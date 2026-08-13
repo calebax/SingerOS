@@ -13,6 +13,9 @@ const (
 	MCPChannelStatusActive = "active"
 	// MCPChannelStatusInactive keeps a channel configuration without allowing new connections.
 	MCPChannelStatusInactive = "inactive"
+)
+
+const (
 	// MCPChannelAuthTypeNone requires no user authorization.
 	MCPChannelAuthTypeNone = "none"
 	// MCPChannelAuthTypeForm collects connector values from a schema-driven form.
@@ -67,13 +70,13 @@ type MCPChannelAuthField struct {
 	Description string `json:"description,omitempty"`
 }
 
-// MCPChannelAuthBindings maps stored value keys into runtime destinations.
+// MCPChannelAuthBindings maps stored credentials into runtime destinations.
+// Values support direct credential keys and {{credential}} templates.
 type MCPChannelAuthBindings struct {
-	SkillEnv       map[string]string `json:"skill_env,omitempty"`
-	MCPBearerToken string            `json:"mcp_bearer_token,omitempty"`
-	MCPHeaders     map[string]string `json:"mcp_headers,omitempty"`
-	MCPEnv         map[string]string `json:"mcp_env,omitempty"`
-	MCPQuery       map[string]string `json:"mcp_query,omitempty"`
+	SkillEnv   map[string]string `json:"skill_env,omitempty"`
+	MCPHeaders map[string]string `json:"mcp_headers,omitempty"`
+	MCPEnv     map[string]string `json:"mcp_env,omitempty"`
+	MCPQuery   map[string]string `json:"mcp_query,omitempty"`
 }
 
 // MCPChannelOAuthConfig stores operations-managed OAuth application settings.
@@ -86,14 +89,31 @@ type MCPChannelOAuthConfig struct {
 
 // MCPChannelAuthConfig defines channel-specific authorization without storing user credentials.
 type MCPChannelAuthConfig struct {
-	Fields   []MCPChannelAuthField  `json:"fields,omitempty"`
-	Bindings MCPChannelAuthBindings `json:"bindings,omitempty"`
-	Handler  string                 `json:"handler,omitempty"`
-	OAuth    *MCPChannelOAuthConfig `json:"oauth,omitempty"`
+	// Description is user-facing guidance shown while collecting authorization values.
+	Description string                 `json:"description,omitempty"`
+	Fields      []MCPChannelAuthField  `json:"fields,omitempty"`
+	Bindings    MCPChannelAuthBindings `json:"bindings,omitempty"`
+	Handler     string                 `json:"handler,omitempty"`
+	OAuth       *MCPChannelOAuthConfig `json:"oauth,omitempty"`
 }
 
 // MCPChannelAuthConfigJSON stores one typed channel authorization schema.
 type MCPChannelAuthConfigJSON MCPChannelAuthConfig
+
+// MCPConnectorSpec describes a system connector without persistence metadata.
+// It is shared by startup reconciliation and service-side template publication.
+type MCPConnectorSpec struct {
+	Channel     string
+	Name        string
+	Description string
+	Status      string
+	SkillCode   string
+	Transport   string
+	URL         string
+	Headers     MCPChannelHeaders
+	AuthType    string
+	AuthConfig  MCPChannelAuthConfig
+}
 
 // Scan implements sql.Scanner.
 func (c *MCPChannelAuthConfigJSON) Scan(value interface{}) error {

@@ -105,6 +105,7 @@ import {
 	parseProjectFileList,
 } from "./project-files";
 import { downloadProjectFolderAsZip, triggerBlobDownload } from "./project-folder-download";
+import { ProjectMCPCollaborationWarning } from "./project-mcp-collaboration-warning";
 import { TaskDeleteDialog } from "./TaskDeleteDialog";
 
 const projectTabs = [
@@ -1180,6 +1181,7 @@ function ProjectConfigSidebar({
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<div className="flex items-center gap-2">
 						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">MCP 连接器</h2>
+						<ProjectMCPCollaborationWarning members={project.members} />
 						<span className="text-xs text-[var(--leros-text-subtle)]">{projectMCPs.length}</span>
 					</div>
 					<CanGate

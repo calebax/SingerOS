@@ -73,7 +73,7 @@ func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus
 	}
 }
 
-func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller *types.Caller) string {
+func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, database *gorm.DB, caller *types.Caller) string {
 	if caller == nil || caller.Uin == 0 {
 		return ""
 	}
@@ -87,11 +87,11 @@ func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller 
 			}
 		}
 		var relation types.UserOrg
-		if err := p.db.WithContext(ctx).First(&relation, caller.Uin).Error; err != nil {
+		if err := database.WithContext(ctx).First(&relation, caller.Uin).Error; err != nil {
 			return ""
 		}
 		var user types.User
-		if err := p.db.WithContext(ctx).First(&user, relation.UserID).Error; err != nil {
+		if err := database.WithContext(ctx).First(&user, relation.UserID).Error; err != nil {
 			return ""
 		}
 		name = user.Name
@@ -103,7 +103,7 @@ func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller 
 			}
 		}
 		var user types.User
-		if err := p.db.WithContext(ctx).First(&user, caller.Uin).Error; err != nil {
+		if err := database.WithContext(ctx).First(&user, caller.Uin).Error; err != nil {
 			return ""
 		}
 		name = user.Name
@@ -172,7 +172,8 @@ func (p *MessagePoster) PostMessage(
 			if caller, _ := auth.FromContext(ctx); caller != nil && caller.Uin > 0 {
 				uid := caller.Uin
 				message.SenderUin = &uid
-				message.SenderName = p.resolveSenderNameFromCaller(ctx, caller)
+				// 中文注释：事务内回读发送者必须复用 tx，避免单连接 SQLite 和真实数据库连接池发生自锁。
+				message.SenderName = p.resolveSenderNameFromCaller(ctx, tx, caller)
 			}
 		}
 
@@ -824,7 +825,7 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 	defaultAssistantID, _ := infradb.GetDefaultAssistantIDByOrg(ctx, p.db, project.OrgID)
 	userIDs, assistantIDs := collectBindingMemberIDs(bindings)
 	userMap := make(map[uint]string)
-	if len(userIDs) > 0 {
+	if len(userIDs) > 0 && p.userRepo != nil {
 		if users, err := p.userRepo.GetUsersByUins(ctx, userIDs); err == nil {
 			for uin, user := range users {
 				if user != nil {
@@ -1005,7 +1006,9 @@ func (p *MessagePoster) buildWorkerTask(
 	})
 	executionTarget := p.buildExecutionTarget(ctx, session, effectiveAssistantID, message)
 	projectContext := p.buildProjectContext(ctx, session, effectiveAssistantID)
-	pluginSnapshots, err := p.resolveProjectPluginSnapshots(ctx, orgID, coalesceUintPtr(session.ProjectID))
+	projectID := coalesceUintPtr(session.ProjectID)
+	disableProjectMCP := p.shouldDisableProjectMCP(ctx, orgID, projectID)
+	pluginSnapshots, err := p.resolveProjectPluginSnapshots(ctx, orgID, projectID, disableProjectMCP)
 	if err != nil {
 		return "", messaging.WorkerCommand{}, fmt.Errorf("resolve project plugin snapshots: %w", err)
 	}
@@ -1068,13 +1071,62 @@ func (p *MessagePoster) buildWorkerTask(
 	return topic, cmd, nil
 }
 
-func (p *MessagePoster) resolveProjectPluginSnapshots(ctx context.Context, orgID, projectID uint) ([]messaging.PluginSnapshot, error) {
+func (p *MessagePoster) shouldDisableProjectMCP(ctx context.Context, orgID, projectID uint) bool {
+	if projectID == 0 {
+		return false
+	}
+	resource, err := infradb.GetResourceByBizID(ctx, p.db, orgID, types.ResourceTypeProject, projectID)
+	if err != nil {
+		logs.WarnContextf(
+			ctx,
+			"get project resource for MCP collaboration policy failed; MCP disabled: project_id=%d error=%v",
+			projectID,
+			err,
+		)
+		return true
+	}
+	if resource == nil {
+		logs.WarnContextf(
+			ctx,
+			"project resource for MCP collaboration policy not found; MCP disabled: project_id=%d",
+			projectID,
+		)
+		return true
+	}
+	humanCount, err := infradb.CountResourceUserBindings(ctx, p.db, resource.ID)
+	if err != nil {
+		logs.WarnContextf(
+			ctx,
+			"count project human members for MCP collaboration policy failed; MCP disabled: project_id=%d error=%v",
+			projectID,
+			err,
+		)
+		return true
+	}
+	return humanCount >= 2
+}
+
+func (p *MessagePoster) resolveProjectPluginSnapshots(
+	ctx context.Context,
+	orgID, projectID uint,
+	disableMCP bool,
+) ([]messaging.PluginSnapshot, error) {
 	if projectID == 0 {
 		return nil, nil
 	}
 	rows, err := infradb.ListProjectPluginSnapshots(ctx, p.db, orgID, projectID)
 	if err != nil {
 		return nil, err
+	}
+	if disableMCP {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if strings.EqualFold(row.Kind, "mcp") {
+				continue
+			}
+			filtered = append(filtered, row)
+		}
+		rows = filtered
 	}
 	oauthService := &pluginService{db: p.db, oauth: newConnectorOAuthManager()}
 	refreshUsable := make(map[string]bool)

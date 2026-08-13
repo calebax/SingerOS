@@ -189,6 +189,49 @@ func (s *pluginService) ListBuiltinSkills(ctx context.Context) (*contract.ListPl
 	for _, p := range plugins {
 		result = append(result, pluginView(p))
 	}
+	if s.displayTranslation == nil || len(plugins) == 0 {
+		return &contract.ListPluginsResponse{Plugins: result}, nil
+	}
+
+	pluginIDs := make([]uint, 0, len(plugins))
+	for _, plugin := range plugins {
+		pluginIDs = append(pluginIDs, plugin.ID)
+	}
+	revisions, revisionErr := infradb.ListCurrentPluginRevisionsByPluginIDs(ctx, s.db, pluginIDs)
+	if revisionErr != nil {
+		logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s use=false reason=system_revision_lookup_failed: %v",
+			types.PluginTranslationSourceSystem, revisionErr)
+		return &contract.ListPluginsResponse{Plugins: result}, nil
+	}
+
+	sources := make([]skillTranslationSource, 0, len(plugins))
+	positions := make([]int, 0, len(plugins))
+	for index, plugin := range plugins {
+		revision, exists := revisions[plugin.ID]
+		if !exists {
+			logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s source_id=%d revision_id=0 use=false reason=system_revision_unavailable",
+				types.PluginTranslationSourceSystem, plugin.ID)
+			continue
+		}
+		revisionCopy := revision
+		sources = append(sources, skillTranslationSource{
+			sourceType:  types.PluginTranslationSourceSystem,
+			sourceID:    plugin.ID,
+			revision:    &revisionCopy,
+			name:        plugin.Name,
+			description: plugin.Description,
+		})
+		positions = append(positions, index)
+	}
+	translations := s.displayTranslation.translateSystemMetadata(ctx, sources)
+	for index, source := range sources {
+		key := skillTranslationKey{
+			sourceType: source.sourceType,
+			sourceID:   source.sourceID,
+			revisionID: source.revision.ID,
+		}
+		applyTranslatedMetadata(&result[positions[index]], translations[key])
+	}
 	return &contract.ListPluginsResponse{Plugins: result}, nil
 }
 

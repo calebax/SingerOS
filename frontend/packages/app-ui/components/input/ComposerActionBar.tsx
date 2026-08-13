@@ -23,7 +23,7 @@ import {
 	Sparkles,
 	WandSparkles,
 } from "lucide-react";
-import { type ReactNode, type RefObject, useMemo, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
 import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
@@ -51,6 +51,8 @@ type ComposerActionBarProps = {
 	selectedConnectorIds?: string[];
 	onSelectConnector?: (publicId: string) => void;
 	onRemoveConnector?: (publicId: string) => void;
+	connectorDisabled?: boolean;
+	connectorDisabledReason?: string;
 };
 
 function dedupeValues(values: string[]): string[] {
@@ -90,6 +92,8 @@ export function ComposerActionBar({
 	selectedConnectorIds = [],
 	onSelectConnector,
 	onRemoveConnector,
+	connectorDisabled = false,
+	connectorDisabledReason,
 }: ComposerActionBarProps) {
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [assistantSearch, setAssistantSearch] = useState("");
@@ -99,6 +103,13 @@ export function ComposerActionBar({
 	const [connectorSearch, setConnectorSearch] = useState("");
 	const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
 	const derivedSkillsLoading = skillOpen && skillsLoading;
+
+	useEffect(() => {
+		if (connectorDisabled) {
+			setConnectorOpen(false);
+			setConnectorSearch("");
+		}
+	}, [connectorDisabled]);
 
 	const selectedAssistantNames = useMemo(
 		() => parseSelectedAssistantNames(inputValue),
@@ -157,6 +168,17 @@ export function ComposerActionBar({
 		"inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900",
 		disableAssistantAndSkill &&
 			"cursor-not-allowed opacity-45 hover:bg-transparent hover:text-slate-600",
+	);
+	const connectorTriggerContent = (
+		<>
+			<Cable className="size-4" />
+			<span>添加连接器</span>
+			{selectedConnectorIds.length > 0 && (
+				<span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-medium leading-none text-white">
+					{selectedConnectorIds.length}
+				</span>
+			)}
+		</>
 	);
 
 	return (
@@ -404,36 +426,51 @@ export function ComposerActionBar({
 				</PopoverContent>
 			</Popover>
 			<Popover
-				open={connectorOpen}
+				open={connectorDisabled ? false : connectorOpen}
 				onOpenChange={(open) => {
+					if (connectorDisabled) return;
 					setConnectorOpen(open);
 					if (!open) setConnectorSearch("");
 				}}
 			>
-				<PopoverTrigger
-					type="button"
-					disabled={disableAssistantAndSkill}
-					onClick={(event) => {
-						if (disableAssistantAndSkill) {
-							event.preventDefault();
-							return;
-						}
-						if (connectorOpen) return;
-						if (event.defaultPrevented) return;
-						if (!allowAction()) {
-							event.preventDefault();
-						}
-					}}
-					className={cn(assistantSkillButtonClassName, "order-3")}
-				>
-					<Cable className="size-4" />
-					<span>添加连接器</span>
-					{selectedConnectorIds.length > 0 && (
-						<span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-medium leading-none text-white">
-							{selectedConnectorIds.length}
-						</span>
-					)}
-				</PopoverTrigger>
+				{connectorDisabled ? (
+					<Tooltip>
+						<TooltipTrigger
+							type="button"
+							aria-disabled="true"
+							aria-label={`添加连接器：${connectorDisabledReason ?? "当前不可用"}`}
+							onClick={(event) => event.preventDefault()}
+							className={cn(
+								assistantSkillButtonClassName,
+								"order-3 cursor-not-allowed opacity-45 hover:bg-transparent hover:text-slate-600",
+							)}
+						>
+							{connectorTriggerContent}
+						</TooltipTrigger>
+						<TooltipContent side="top">
+							{connectorDisabledReason ?? "当前无法添加连接器"}
+						</TooltipContent>
+					</Tooltip>
+				) : (
+					<PopoverTrigger
+						type="button"
+						disabled={disableAssistantAndSkill}
+						onClick={(event) => {
+							if (disableAssistantAndSkill) {
+								event.preventDefault();
+								return;
+							}
+							if (connectorOpen) return;
+							if (event.defaultPrevented) return;
+							if (!allowAction()) {
+								event.preventDefault();
+							}
+						}}
+						className={cn(assistantSkillButtonClassName, "order-3")}
+					>
+						{connectorTriggerContent}
+					</PopoverTrigger>
+				)}
 				{/* 中文注释：固定在按钮上方，避免视口碰撞策略把选择弹窗动态翻到下方。 */}
 				<PopoverContent
 					align="start"

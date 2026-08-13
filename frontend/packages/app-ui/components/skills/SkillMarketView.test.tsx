@@ -13,6 +13,9 @@ const { layoutState } = vi.hoisted(() => ({
 }));
 
 vi.mock("@leros/store", () => ({
+	BRANDING_CHANGED_EVENT: "leros:branding-changed",
+	readBrandLogo: () => null,
+	readBrandName: () => "Lework",
 	useLayoutStore: (selector: (state: typeof layoutState) => unknown) => selector(layoutState),
 }));
 

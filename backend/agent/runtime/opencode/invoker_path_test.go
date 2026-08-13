@@ -1,19 +1,31 @@
 package opencode
 
 import (
-	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 )
 
-func TestOpenCodeUsesTaskRootForSharedSkills(t *testing.T) {
-	taskDir := t.TempDir()
-	root := openCodeConfigDir(cli.InvocationRequest{TaskDir: taskDir, WorkDir: t.TempDir()})
-	if root != taskDir || filepath.Join(root, "skills") != filepath.Join(taskDir, "skills") {
-		t.Fatalf("OpenCode config root = %q", root)
+func TestOpenCodeUsesConfiguredDataDirForConfig(t *testing.T) {
+	dataDir := t.TempDir()
+	env := buildOpenCodeInvocationEnv(
+		[]string{"OPENCODE_CONFIG_DIR=/inherited/config"},
+		[]string{"OPENCODE_CONFIG_DIR=/task/config"},
+		dataDir,
+	)
+
+	assertEnvContains(t, env, "OPENCODE_CONFIG_DIR="+dataDir)
+	for _, item := range env {
+		if item == "OPENCODE_CONFIG_DIR=/inherited/config" || item == "OPENCODE_CONFIG_DIR=/task/config" {
+			t.Fatalf("non-fixed OpenCode config dir remained: %q", item)
+		}
 	}
-	if filepath.Base(root) == ".opencode-runtime" {
-		t.Fatalf("OpenCode used runtime-specific Skill root %q", root)
+}
+
+func TestOpenCodeOmitsConfigDirWhenDataDirIsEmpty(t *testing.T) {
+	env := buildOpenCodeInvocationEnv(nil, nil, " ")
+	for _, item := range env {
+		if strings.HasPrefix(item, "OPENCODE_CONFIG_DIR=") {
+			t.Fatalf("unexpected empty OpenCode config dir: %q", item)
+		}
 	}
 }

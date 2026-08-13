@@ -537,6 +537,47 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 	return modelConfigFromEntity(model), nil
 }
 
+// setDefault 在事务内将指定 ID 的模型设为该用途下的默认模型，orgID 用于校验归属。
+// 仅允许将启用中的模型设为默认；同一用途下其他模型默认标记会被清除，保证唯一性。
+func (m *ManagerDb) setDefault(ctx context.Context, tx *gorm.DB, orgID uint, id uint) (*types.LLMModel, error) {
+	model, err := db.GetLLMModelByID(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, errors.New("llm model not found")
+	}
+	if model.OrgID != orgID {
+		return nil, errors.New("permission denied")
+	}
+	// 只能将启用中的模型设为默认。
+	if model.Status != string(types.LLMModelStatusActive) {
+		return nil, errors.New("只能将启用中的模型设为默认")
+	}
+	// 该用途下其他默认模型降为非默认，保证每用途有且仅有一个默认。
+	if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, model.ID, model.Purpose); err != nil {
+		return nil, err
+	}
+	model.IsDefault = true
+	if err := db.UpdateLLMModel(ctx, tx, model); err != nil {
+		return nil, err
+	}
+	return model, nil
+}
+
+// SetDefault 设指定 ID 的模型为该用途下的默认模型，orgID 用于校验归属。
+func (m *ManagerDb) SetDefault(ctx context.Context, orgID uint, id uint) (*ModelConfig, error) {
+	var model *types.LLMModel
+	if err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		model, err = m.setDefault(ctx, tx, orgID, id)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return modelConfigFromEntity(model), nil
+}
+
 // SetStatus 启用或禁用指定 ID 的模型配置，orgID 用于校验归属。
 // 仅允许合法状态：LLMModelStatusActive 与 LLMModelStatusInactive。
 // 禁用默认模型前需保证该用途仍有一个启用中的默认，否则回填或拒绝。

@@ -37,6 +37,10 @@ func TestContextBuilderBuildSystemPromptLayers(t *testing.T) {
 		"当前对用户展示和执行任务的第一身份是被召唤的 AI 队友",
 		"队友名称：合同审查专家",
 		"Assistant-specific prompt.",
+		"<identity_constraints>",
+		"原样引用“队友名称”作为你的名称",
+		"禁止改写、音译、拼写变形或自创名号",
+		"不要自行编造平台名、公司名、版本或与系统无关的身份信息",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected prompt to contain %q", expected)

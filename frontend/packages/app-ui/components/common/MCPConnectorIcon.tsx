@@ -3,12 +3,18 @@ import { Server } from "lucide-react";
 
 const BAIDU_NETDISK_ICON_SRC = new URL("../../assets/icons/baidu-netdisk.svg", import.meta.url)
 	.href;
+const CATAPI_ICON_SRC = new URL("../../assets/icons/catapi.svg", import.meta.url).href;
 const COREKG_ICON_SRC = new URL("../../assets/icons/corekg.svg", import.meta.url).href;
 const NETEASE_MAIL_ICON_SRC = new URL("../../assets/icons/netease-mail.svg", import.meta.url).href;
 
 function isBaiduNetdiskConnector(code: string) {
 	const normalizedCode = code.trim().toLocaleLowerCase();
 	return normalizedCode === "baidu-netdisk" || normalizedCode.startsWith("baidu-netdisk-");
+}
+
+function isCatAPIConnector(code: string) {
+	const normalizedCode = code.trim().toLocaleLowerCase();
+	return normalizedCode === "catapi" || normalizedCode.startsWith("catapi-");
 }
 
 function isCoreKGConnector(code: string) {
@@ -35,6 +41,16 @@ export function MCPConnectorIcon({
 			<img
 				src={BAIDU_NETDISK_ICON_SRC}
 				alt={`${name || "百度网盘"} Logo`}
+				className={cn("size-7 shrink-0 rounded-lg", className)}
+			/>
+		);
+	}
+
+	if (isCatAPIConnector(code)) {
+		return (
+			<img
+				src={CATAPI_ICON_SRC}
+				alt={`${name || "CatAPI"} Logo`}
 				className={cn("size-7 shrink-0 rounded-lg", className)}
 			/>
 		);

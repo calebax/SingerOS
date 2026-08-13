@@ -17,6 +17,8 @@ type Options struct {
 	LLMConfig *config.LLMConfig
 	// SQLScriptDir SQL 脚本目录（相对进程工作目录）；为空时跳过 SQL 种子。
 	SQLScriptDir string
+	// MCPConnectors 是由 server 配置声明的系统 MCP 连接器模板。
+	MCPConnectors []config.MCPConnectorConfig
 }
 
 // SeedCoreData 初始化核心数据：OSS 账号种子（默认组织/用户/用户组织关联/默认 worker 部署）+ 两版系统级 LLM 模型。
@@ -48,35 +50,35 @@ func Run(ctx context.Context, db *gorm.DB, edition adapter.Edition, opts Options
 		return err
 	}
 
-	// 2.5 可选：基于固定目录的 SQL 文件初始化
-	if err := RunSQLScripts(ctx, db, opts.SQLScriptDir); err != nil {
-		return err
-	}
-
-	// 3. 内置 AI 队友模板（头像系统级归属）
+	// 2. 内置 AI 队友模板（头像系统级归属）
 	if err := service.SeedAITeammateTemplates(ctx, db, ""); err != nil {
 		return err
 	}
 
-	// 4. 内置 server 技能市场（失败仅告警）
+	// 3. 内置 server 技能市场（失败仅告警）
 	if report, err := service.SyncBuiltinServerSkillMarketplace(ctx, db, ""); err != nil {
 		logs.Warnf("seed: built-in server skill sync skipped: %v", err)
 	} else {
 		logBuiltinSkillReport("seed: built-in server skill", report)
 	}
 
-	// 5. 内置连接器模板（失败仅告警）
-	if report, err := service.SyncBuiltinConnectorTemplates(ctx, db, ""); err != nil {
-		logs.Warnf("seed: built-in connector sync skipped: %v", err)
+	// 4. 配置声明的系统连接器模板（失败仅告警）
+	if report, err := SyncConfiguredMCPConnectors(ctx, db, "", configuredMCPConnectorSpecs(opts.MCPConnectors)); err != nil {
+		logs.Warnf("seed: configured connector sync skipped: %v", err)
 	} else {
-		logBuiltinSkillReport("seed: built-in connector", report)
+		logBuiltinSkillReport("seed: configured connector", report)
 	}
 
-	// 6. 内置 worker 技能（失败仅告警）
+	// 5. 内置 worker 技能（失败仅告警）
 	if report, err := service.SyncBuiltinWorkerSkills(ctx, db, ""); err != nil {
 		logs.Warnf("seed: built-in worker skill sync skipped: %v", err)
 	} else {
 		logBuiltinSkillReport("seed: built-in worker skill", report)
+	}
+
+	// 6. 固定 SQL 种子；内置 Skill 必须先同步，供系统翻译脚本按 code 关联。
+	if err := RunSQLScripts(ctx, db, opts.SQLScriptDir); err != nil {
+		return err
 	}
 
 	return nil

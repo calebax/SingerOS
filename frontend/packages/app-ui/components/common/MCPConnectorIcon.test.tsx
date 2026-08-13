@@ -15,6 +15,15 @@ describe("MCPConnectorIcon", () => {
 		expect(screen.getByRole("img", { name: "百度网盘 Logo" })).toHaveAttribute("src");
 	});
 
+	it.each([
+		"catapi",
+		"catapi-0123456789abcdef",
+	])("uses the CatAPI logo for connector identity %s", (code) => {
+		render(<MCPConnectorIcon code={code} name="CatAPI" />);
+
+		expect(screen.getByRole("img", { name: "CatAPI Logo" })).toHaveAttribute("src");
+	});
+
 	it("uses the CoreKG platform logo for CoreKG connector identities", () => {
 		render(<MCPConnectorIcon code="corekg-0123456789abcdef" name="知识库" />);
 
