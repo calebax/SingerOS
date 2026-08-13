@@ -13,6 +13,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/cli"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
+	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
@@ -172,7 +173,7 @@ func TestProcessorRestoresOnlyAfterPublishConfirmation(t *testing.T) {
 
 	publisher := &testSkillPublisher{err: errors.New("JetStream unavailable")}
 	processor := testProcessor(repository, publisher)
-	run := RunContext{RunID: "run-1", ProjectID: 3, ActorUIN: 9}
+	run := RunContext{RunID: "run-1", ProjectID: 3, ActorUIN: 9, PublishChanges: true}
 	if err := processor.Process(ctx, run); err != nil {
 		t.Fatalf("best-effort processor returned fatal error: %v", err)
 	}
@@ -221,7 +222,9 @@ func TestProcessorRestoresDeletedBaselineWithoutPublishing(t *testing.T) {
 	}
 
 	publisher := &testSkillPublisher{}
-	if err := testProcessor(repository, publisher).Process(ctx, RunContext{RunID: "run-delete"}); err != nil {
+	if err := testProcessor(repository, publisher).Process(ctx, RunContext{
+		RunID: "run-delete", PublishChanges: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "baseline", "SKILL.md")); err != nil {
@@ -229,6 +232,102 @@ func TestProcessorRestoresDeletedBaselineWithoutPublishing(t *testing.T) {
 	}
 	if len(publisher.events) != 0 {
 		t.Fatalf("deletion must not be published, got %d events", len(publisher.events))
+	}
+}
+
+func TestProcessorRestoresLocalOnlyAndPublishesOtherChanges(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeTestSkill(t, root, "connector-mail", "connector baseline")
+	writeTestSkill(t, root, "shared", "shared baseline")
+	if err := skillstate.Write(filepath.Join(root, ".seed-manifest"), map[string]skillstate.InstallRecord{
+		"connector-mail": {
+			SHA256:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Revision: 1, SyncPolicy: skillstate.SyncPolicyLocalOnly,
+		},
+		"shared": {
+			SHA256:   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			Revision: 1, SyncPolicy: skillstate.SyncPolicyPublish,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repository, err := NewRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSkill(t, root, "connector-mail", "connector changed")
+	writeTestSkill(t, root, "shared", "shared changed")
+
+	publisher := &testSkillPublisher{}
+	if err := testProcessor(repository, publisher).Process(ctx, RunContext{
+		RunID: "run-mixed", PublishChanges: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readTestSkillBody(t, root, "connector-mail"); got != "connector baseline" {
+		t.Fatalf("local-only Skill body = %q", got)
+	}
+	if len(publisher.events) != 1 || publisher.events[0].SkillCode != "shared" {
+		t.Fatalf("published events = %#v", publisher.events)
+	}
+}
+
+func TestProcessorUsesCommittedPolicyAndFailedRunFallback(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeTestSkill(t, root, "connector-mail", "connector baseline")
+	writeTestSkill(t, root, "shared", "shared baseline")
+	if err := skillstate.Write(filepath.Join(root, ".seed-manifest"), map[string]skillstate.InstallRecord{
+		"connector-mail": {
+			SHA256:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Revision: 1, SyncPolicy: skillstate.SyncPolicyLocalOnly,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repository, err := NewRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := skillstate.Write(filepath.Join(root, ".seed-manifest"), map[string]skillstate.InstallRecord{
+		"connector-mail": {
+			SHA256:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Revision: 1, SyncPolicy: skillstate.SyncPolicyPublish,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSkill(t, root, "connector-mail", "connector changed")
+	writeTestSkill(t, root, "shared", "shared changed")
+
+	publisher := &testSkillPublisher{}
+	processor := testProcessor(repository, publisher)
+	processor.storage = forbiddenSkillStorage{}
+	if err := processor.Process(ctx, RunContext{
+		RunID: "run-failed", PublishChanges: false,
+		LocalOnlySkillCodes: []string{"connector-mail"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readTestSkillBody(t, root, "connector-mail"); got != "connector baseline" {
+		t.Fatalf("local-only Skill body = %q", got)
+	}
+	changes, _, err := repository.Changes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Code != "shared" {
+		t.Fatalf("failed Run changes = %#v", changes)
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("failed Run events = %#v", publisher.events)
 	}
 }
 
@@ -269,6 +368,16 @@ func (testSkillStorage) Config(context.Context) (*cli.StorageConfig, error) {
 
 func (testSkillStorage) PresignUpload(context.Context, string, string) (string, error) {
 	return "http://upload.invalid/skill.zip", nil
+}
+
+type forbiddenSkillStorage struct{}
+
+func (forbiddenSkillStorage) Config(context.Context) (*cli.StorageConfig, error) {
+	return nil, errors.New("storage must not be called")
+}
+
+func (forbiddenSkillStorage) PresignUpload(context.Context, string, string) (string, error) {
+	return "", errors.New("storage must not be called")
 }
 
 type testRoundTripper struct{}
@@ -325,6 +434,19 @@ func writeTestSkill(t *testing.T, root, code, body string) {
 	if err := os.WriteFile(filepath.Join(directory, "SKILL.md"), document, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func readTestSkillBody(t *testing.T, root, code string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, code, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := bytes.SplitN(raw, []byte("\n\n"), 2)
+	if len(parts) != 2 {
+		t.Fatalf("invalid Skill document: %q", raw)
+	}
+	return string(bytes.TrimSpace(parts[1]))
 }
 
 func testSkillDocument(name, body string) string {

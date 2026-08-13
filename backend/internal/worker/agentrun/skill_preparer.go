@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -21,6 +20,7 @@ import (
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillarchive "github.com/insmtx/Leros/backend/internal/skill/archive"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -33,6 +33,7 @@ type SkillPreparer interface {
 // SkillBaselineCommitter records server-installed Skills as the local Git baseline.
 type SkillBaselineCommitter interface {
 	CommitInstalled(context.Context, []string) error
+	Restore(context.Context, string) error
 }
 
 // PluginSkillPreparer installs project Skill bundles into the worker workspace
@@ -44,16 +45,8 @@ type PluginSkillPreparer struct {
 	baselineCommitter SkillBaselineCommitter
 }
 
-type skillInstallRecord struct {
-	SHA256   string
-	Revision int
-}
-
-type skillInstallManifest struct {
-	Records      map[string]skillInstallRecord
-	RefreshCodes []string
-	Warnings     []string
-}
+type skillInstallRecord = skillstate.InstallRecord
+type skillInstallManifest = skillstate.Manifest
 
 type skillDownloadURLResponse struct {
 	Code        string `json:"code"`
@@ -65,6 +58,14 @@ type skillDownloadURLResponse struct {
 type connectorSkillDownloadRef struct {
 	PluginID string `json:"plugin_id"`
 	Revision int    `json:"revision"`
+}
+
+type pluginSkillDescriptor struct {
+	Code         string
+	Revision     int
+	SHA256       string
+	SyncPolicy   skillstate.SyncPolicy
+	ConnectorRef *connectorSkillDownloadRef
 }
 
 var skillInstallLocks sync.Map // map[string]*sync.Mutex, keyed by the worker skills root.
@@ -133,25 +134,53 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 	pending := make(map[string]struct{})
 	standardPending := make(map[string]struct{})
 	available := make(map[string]string)
+	descriptors := make(map[string]pluginSkillDescriptor)
 	connectorRefs := make([]connectorSkillDownloadRef, 0)
+	baselineCodes := make(map[string]struct{})
+	manifestChanged := false
 	for _, snapshot := range sortedPluginSnapshots(snapshots) {
-		code, revision, connectorRef, ok := pluginSnapshotSkill(snapshot)
-		if !ok {
+		descriptor, err := pluginSnapshotSkill(snapshot)
+		if err != nil {
+			logs.WarnContextf(
+				ctx,
+				"skip invalid project Skill snapshot: plugin_id=%s code=%s revision=%d error=%v",
+				snapshot.PluginID,
+				snapshot.Code,
+				snapshot.Revision,
+				err,
+			)
 			continue
 		}
-		code, err := organizationSkillName(code)
-		if err != nil || revision <= 0 {
+		if descriptor == nil {
+			continue
+		}
+		code, err := organizationSkillName(descriptor.Code)
+		if err != nil || descriptor.Revision <= 0 {
 			logs.WarnContextf(ctx, "skip invalid project Skill %q: code=%v revision=%d", snapshot.Code, err, snapshot.Revision)
 			continue
 		}
+		descriptor.Code = code
+		descriptors[code] = *descriptor
+		record, installedOK := installed[code]
+		if descriptor.SyncPolicy == skillstate.SyncPolicyLocalOnly ||
+			(installedOK && record.SyncPolicy == skillstate.SyncPolicyLocalOnly) {
+			p.restoreInstalledBaseline(ctx, code)
+		}
 		content := filepath.Join(skillsRoot, code)
-		if record, ok := installed[code]; ok && record.Revision == revision && hasSkillDocument(content) {
+		identityMatches := installedOK && record.Revision == descriptor.Revision &&
+			strings.EqualFold(record.SHA256, descriptor.SHA256)
+		if identityMatches && hasSkillDocument(content) {
+			if record.SyncPolicy != descriptor.SyncPolicy {
+				record.SyncPolicy = descriptor.SyncPolicy
+				installed[code] = record
+				manifestChanged = true
+			}
 			available[code] = content
 			continue
 		}
 		pending[code] = struct{}{}
-		if connectorRef != nil {
-			connectorRefs = append(connectorRefs, *connectorRef)
+		if descriptor.ConnectorRef != nil {
+			connectorRefs = append(connectorRefs, *descriptor.ConnectorRef)
 		} else {
 			standardPending[code] = struct{}{}
 		}
@@ -171,11 +200,16 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 		if err != nil {
 			logs.WarnContextf(ctx, "resolve project Skill download URLs failed: %v", err)
 		} else {
-			installedCodes := make([]string, 0, len(codes))
 			for _, code := range codes {
 				download, ok := downloads[code]
 				if !ok {
 					logs.WarnContextf(ctx, "skip project Skill %q: server returned no download URL", code)
+					continue
+				}
+				descriptor := descriptors[code]
+				if download.Revision != descriptor.Revision ||
+					!strings.EqualFold(download.SHA256, descriptor.SHA256) {
+					logs.WarnContextf(ctx, "skip project Skill %q: server returned mismatched artifact identity", code)
 					continue
 				}
 				content, err := installSkillFromURL(ctx, skillsRoot, code, download)
@@ -183,16 +217,26 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 					logs.WarnContextf(ctx, "skip project Skill %q: %v", code, err)
 					continue
 				}
-				installed[code] = skillInstallRecord{SHA256: download.SHA256, Revision: download.Revision}
+				installed[code] = skillInstallRecord{
+					SHA256: download.SHA256, Revision: download.Revision, SyncPolicy: descriptor.SyncPolicy,
+				}
 				available[code] = content
-				installedCodes = append(installedCodes, code)
+				manifestChanged = true
+				baselineCodes[code] = struct{}{}
 				logs.InfoContextf(ctx, "installed project Skill %q revision=%d", code, download.Revision)
 			}
-			if err := writeSkillInstallManifest(manifestPath, installed); err != nil {
-				logs.WarnContextf(ctx, "write worker Skill install manifest failed: %v", err)
-			} else {
-				p.commitInstalledBaseline(ctx, installedCodes)
+		}
+	}
+	if manifestChanged {
+		if err := writeSkillInstallManifest(manifestPath, installed); err != nil {
+			logs.WarnContextf(ctx, "write worker Skill install manifest failed: %v", err)
+		} else {
+			codes := make([]string, 0, len(baselineCodes))
+			for code := range baselineCodes {
+				codes = append(codes, code)
 			}
+			sort.Strings(codes)
+			p.commitInstalledBaseline(ctx, codes)
 		}
 	}
 	for code, content := range available {
@@ -278,7 +322,9 @@ func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []s
 			installErrors = append(installErrors, fmt.Errorf("Skill %q: %w", code, err))
 			continue
 		}
-		installed[code] = skillInstallRecord{SHA256: download.SHA256, Revision: download.Revision}
+		installed[code] = skillInstallRecord{
+			SHA256: download.SHA256, Revision: download.Revision, SyncPolicy: skillstate.SyncPolicyPublish,
+		}
 		if err := replaceRunSkillLink(content, filepath.Join(viewRoot, code)); err != nil {
 			logs.WarnContextf(ctx, "skip invoked Skill %q link: %v", code, err)
 			installErrors = append(installErrors, fmt.Errorf("Skill %q link: %w", code, err))
@@ -304,6 +350,15 @@ func (p *PluginSkillPreparer) commitInstalledBaseline(ctx context.Context, codes
 	}
 	if err := p.baselineCommitter.CommitInstalled(ctx, codes); err != nil {
 		logs.WarnContextf(ctx, "commit Worker Skill baseline failed: %v", err)
+	}
+}
+
+func (p *PluginSkillPreparer) restoreInstalledBaseline(ctx context.Context, code string) {
+	if p == nil || p.baselineCommitter == nil {
+		return
+	}
+	if err := p.baselineCommitter.Restore(ctx, code); err != nil {
+		logs.WarnContextf(ctx, "restore local-only Worker Skill %q baseline failed: %v", code, err)
 	}
 }
 
@@ -367,22 +422,75 @@ func (p *PluginSkillPreparer) resolveDownloadURLs(
 	return result, nil
 }
 
-func pluginSnapshotSkill(
-	snapshot agentrundomain.PluginSnapshot,
-) (string, int, *connectorSkillDownloadRef, bool) {
+// pluginSnapshotSkill returns a descriptor only when the snapshot contains an
+// immutable, downloadable artifact identity. A revision alone cannot identify
+// Skill content and must never authorize cache reuse.
+func pluginSnapshotSkill(snapshot agentrundomain.PluginSnapshot) (*pluginSkillDescriptor, error) {
 	if strings.EqualFold(snapshot.Kind, "skill") {
-		return snapshot.Code, snapshot.Revision, nil, true
+		if snapshot.Revision <= 0 {
+			return nil, fmt.Errorf("Skill revision must be positive")
+		}
+		artifact, err := service.ArtifactFromDefinition("skill", snapshot.Definition)
+		if err != nil {
+			return nil, fmt.Errorf("parse Skill artifact definition: %w", err)
+		}
+		if artifact == nil {
+			return nil, fmt.Errorf("Skill snapshot is not backed by a downloadable artifact")
+		}
+		sha, err := normalizedSHA256(artifact.SHA256)
+		if err != nil {
+			return nil, fmt.Errorf("normalize Skill artifact sha256: %w", err)
+		}
+		return &pluginSkillDescriptor{
+			Code: snapshot.Code, Revision: snapshot.Revision, SHA256: sha,
+			SyncPolicy: skillstate.SyncPolicyPublish,
+		}, nil
 	}
 	if !strings.EqualFold(snapshot.Kind, "mcp") {
-		return "", 0, nil, false
+		return nil, nil
 	}
 	definition, err := service.ConnectorFromDefinition(snapshot.Definition)
-	if err != nil || definition == nil || definition.Skill == nil {
-		return "", 0, nil, false
+	if err != nil {
+		return nil, fmt.Errorf("parse Connector definition: %w", err)
 	}
-	return definition.Skill.Code, definition.Skill.Revision, &connectorSkillDownloadRef{
-		PluginID: snapshot.PluginID, Revision: snapshot.Revision,
-	}, true
+	if definition == nil || definition.Skill == nil {
+		return nil, nil
+	}
+	if definition.Skill.Artifact == nil {
+		return nil, fmt.Errorf("Connector Skill artifact is required")
+	}
+	sha, err := normalizedSHA256(definition.Skill.Artifact.SHA256)
+	if err != nil {
+		return nil, fmt.Errorf("normalize Connector Skill artifact sha256: %w", err)
+	}
+	return &pluginSkillDescriptor{
+		Code: definition.Skill.Code, Revision: definition.Skill.Revision, SHA256: sha,
+		SyncPolicy: skillstate.SyncPolicyLocalOnly,
+		ConnectorRef: &connectorSkillDownloadRef{
+			PluginID: snapshot.PluginID, Revision: snapshot.Revision,
+		},
+	}, nil
+}
+
+// ConnectorSkillCodes returns the immutable local-only Skill codes selected for a Run.
+func ConnectorSkillCodes(snapshots []agentrundomain.PluginSnapshot) []string {
+	codes := make(map[string]struct{})
+	for _, snapshot := range snapshots {
+		descriptor, err := pluginSnapshotSkill(snapshot)
+		if err != nil || descriptor == nil || descriptor.SyncPolicy != skillstate.SyncPolicyLocalOnly {
+			continue
+		}
+		code, err := organizationSkillName(descriptor.Code)
+		if err == nil {
+			codes[code] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(codes))
+	for code := range codes {
+		result = append(result, code)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func installSkillFromURL(ctx context.Context, skillsRoot, code string, download skillDownloadURLResponse) (string, error) {
@@ -552,90 +660,11 @@ func (p *PluginSkillPreparer) readAndRepairSkillInstallManifest(
 }
 
 func readSkillInstallManifest(path string) (*skillInstallManifest, error) {
-	raw, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return &skillInstallManifest{Records: make(map[string]skillInstallRecord)}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	manifest := &skillInstallManifest{Records: make(map[string]skillInstallRecord)}
-	occurrences := make(map[string]int)
-	untrustedCodes := make(map[string]struct{})
-	refreshCodes := make(map[string]struct{})
-	for lineNumber, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, ":")
-		name, err := organizationSkillName(parts[0])
-		if err != nil {
-			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d has invalid skill name", lineNumber+1))
-			continue
-		}
-		occurrences[name]++
-		if len(parts) != 2 && len(parts) != 3 {
-			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d has invalid field count", lineNumber+1))
-			untrustedCodes[name] = struct{}{}
-			continue
-		}
-		hash, err := normalizedSHA256(parts[1])
-		if err != nil {
-			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d has invalid sha256", lineNumber+1))
-			untrustedCodes[name] = struct{}{}
-			continue
-		}
-		if len(parts) == 2 {
-			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d uses legacy format", lineNumber+1))
-			untrustedCodes[name] = struct{}{}
-			refreshCodes[name] = struct{}{}
-			continue
-		}
-		revision, err := strconv.Atoi(strings.TrimSpace(parts[2]))
-		if err != nil || revision <= 0 {
-			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("line %d has invalid revision", lineNumber+1))
-			untrustedCodes[name] = struct{}{}
-			continue
-		}
-		manifest.Records[name] = skillInstallRecord{SHA256: hash, Revision: revision}
-	}
-	for name, count := range occurrences {
-		if count <= 1 {
-			continue
-		}
-		delete(manifest.Records, name)
-		untrustedCodes[name] = struct{}{}
-		refreshCodes[name] = struct{}{}
-		manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("skill %q has duplicate records", name))
-	}
-	for name := range untrustedCodes {
-		delete(manifest.Records, name)
-	}
-	manifest.RefreshCodes = make([]string, 0, len(refreshCodes))
-	for name := range refreshCodes {
-		manifest.RefreshCodes = append(manifest.RefreshCodes, name)
-	}
-	sort.Strings(manifest.RefreshCodes)
-	return manifest, nil
+	return skillstate.Read(path)
 }
 
 func writeSkillInstallManifest(path string, entries map[string]skillInstallRecord) error {
-	names := make([]string, 0, len(entries))
-	for name := range entries {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	var builder strings.Builder
-	for _, name := range names {
-		entry := entries[name]
-		fmt.Fprintf(&builder, "%s:%s:%d\n", name, strings.ToLower(entry.SHA256), entry.Revision)
-	}
-	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, []byte(builder.String()), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(temporary, path)
+	return skillstate.Write(path, entries)
 }
 
 func replaceInstalledSkill(temp, destination string) error {

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
+	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
@@ -175,6 +176,25 @@ func (r *Repository) Restore(ctx context.Context, code string) error {
 		return err
 	}
 	return nil
+}
+
+// CommittedInstallManifest reads sync policy only from the trusted Git baseline.
+func (r *Repository) CommittedInstallManifest(ctx context.Context) (*skillstate.Manifest, error) {
+	if err := r.Ensure(ctx); err != nil {
+		return nil, err
+	}
+	paths, err := r.git(ctx, "ls-tree", "--name-only", "HEAD", "--", ".seed-manifest")
+	if err != nil {
+		return nil, fmt.Errorf("inspect committed Skill manifest: %w", err)
+	}
+	if strings.TrimSpace(string(paths)) == "" {
+		return skillstate.Parse(nil), nil
+	}
+	raw, err := r.git(ctx, "show", "HEAD:.seed-manifest")
+	if err != nil {
+		return nil, fmt.Errorf("read committed Skill manifest: %w", err)
+	}
+	return skillstate.Parse(raw), nil
 }
 
 func (r *Repository) commitPaths(ctx context.Context, paths []string, message string) error {

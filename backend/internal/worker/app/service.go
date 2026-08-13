@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
 	clauderuntime "github.com/insmtx/Leros/backend/agent/runtime/claude"
@@ -225,15 +226,23 @@ type skillPostRunAdapter struct {
 func (a *skillPostRunAdapter) Process(
 	ctx context.Context,
 	run *agentrun.PreparedRun,
-	_ *agentrundomain.RunResult,
+	result *agentrundomain.RunResult,
 ) error {
-	if a == nil || a.processor == nil || run == nil || run.Request == nil {
+	if a == nil || a.processor == nil || run == nil || run.Request == nil || result == nil {
 		return fmt.Errorf("Skill post-run adapter context is required")
 	}
-	return a.processor.Process(ctx, skillsync.RunContext{
-		RunID:     run.Request.RunID,
-		ProjectID: run.Request.BusinessKeys.ProjectPKID,
-		ActorUIN:  run.Request.BusinessKeys.UinPK,
+	processCtx := ctx
+	cancel := func() {}
+	if result.Status != agentrundomain.RunStatusCompleted {
+		processCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	}
+	defer cancel()
+	return a.processor.Process(processCtx, skillsync.RunContext{
+		RunID:               run.Request.RunID,
+		ProjectID:           run.Request.BusinessKeys.ProjectPKID,
+		ActorUIN:            run.Request.BusinessKeys.UinPK,
+		PublishChanges:      result.Status == agentrundomain.RunStatusCompleted,
+		LocalOnlySkillCodes: agentrun.ConnectorSkillCodes(run.Request.Plugins),
 	})
 }
 
