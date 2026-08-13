@@ -172,6 +172,7 @@ describe("ChatInput", () => {
 			"project-1",
 			[],
 			undefined,
+			{ connectorIds: [] },
 		);
 		expect(mockGoToTaskDetail).toHaveBeenCalledWith("project-1", "task-9", "session-7");
 	});

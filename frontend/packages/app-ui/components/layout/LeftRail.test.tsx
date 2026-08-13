@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LeftRail } from "./LeftRail";
 
@@ -118,6 +118,8 @@ vi.mock("sonner", () => ({
 	},
 }));
 
+afterEach(cleanup);
+
 describe("LeftRail avatar download", () => {
 	beforeEach(() => {
 		mockIsAuthenticated = true;
@@ -151,13 +153,14 @@ describe("LeftRail avatar download", () => {
 		const { rerender } = render(<LeftRail />);
 
 		await waitFor(() => {
-			expect(mockAuthenticatedFetch).toHaveBeenCalledTimes(1);
+			expect(mockFetchFilePreviewByPublicId).toHaveBeenCalledTimes(1);
 		});
+		expect(mockAuthenticatedFetch).not.toHaveBeenCalled();
 
 		rerender(<LeftRail />);
 
 		await waitFor(() => {
-			expect(mockAuthenticatedFetch).toHaveBeenCalledTimes(1);
+			expect(mockFetchFilePreviewByPublicId).toHaveBeenCalledTimes(1);
 		});
 	});
 });

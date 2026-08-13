@@ -34,14 +34,6 @@ func TestIsPathAllowed(t *testing.T) {
 	}
 }
 
-func TestBuildFileTreeFromProjectFiles(t *testing.T) {
-	t.Skip("buildFileTreeFromProjectFiles 现在依赖 db 查询 FileUpload 表，需要在集成测试中覆盖")
-}
-
-func TestBuildFileTreeFromProjectFiles_Empty(t *testing.T) {
-	t.Skip("buildFileTreeFromProjectFiles 现在依赖 db 查询 FileUpload 表，需要在集成测试中覆盖")
-}
-
 func TestMimeTypeByExt(t *testing.T) {
 	tests := []struct {
 		filename string

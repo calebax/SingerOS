@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/insmtx/Leros/backend/internal/api/auth"
@@ -123,7 +124,7 @@ func TestCreateDigitalAssistant_AllowsAllPresetRoles(t *testing.T) {
 	service := NewDigitalAssistantService(db, nil)
 	for i := 0; i < 7; i++ {
 		_, err := service.CreateDigitalAssistant(ctx, &contract.CreateDigitalAssistantRequest{
-			Name: "Preset Role",
+			Name: fmt.Sprintf("Preset Role %d", i+1),
 		})
 		if err != nil {
 			t.Fatalf("CreateDigitalAssistant #%d failed: %v", i+1, err)

@@ -73,7 +73,7 @@ func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus
 	}
 }
 
-func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller *types.Caller) string {
+func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, database *gorm.DB, caller *types.Caller) string {
 	if caller == nil || caller.Uin == 0 {
 		return ""
 	}
@@ -87,11 +87,11 @@ func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller 
 			}
 		}
 		var relation types.UserOrg
-		if err := p.db.WithContext(ctx).First(&relation, caller.Uin).Error; err != nil {
+		if err := database.WithContext(ctx).First(&relation, caller.Uin).Error; err != nil {
 			return ""
 		}
 		var user types.User
-		if err := p.db.WithContext(ctx).First(&user, relation.UserID).Error; err != nil {
+		if err := database.WithContext(ctx).First(&user, relation.UserID).Error; err != nil {
 			return ""
 		}
 		name = user.Name
@@ -103,7 +103,7 @@ func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller 
 			}
 		}
 		var user types.User
-		if err := p.db.WithContext(ctx).First(&user, caller.Uin).Error; err != nil {
+		if err := database.WithContext(ctx).First(&user, caller.Uin).Error; err != nil {
 			return ""
 		}
 		name = user.Name
@@ -172,7 +172,8 @@ func (p *MessagePoster) PostMessage(
 			if caller, _ := auth.FromContext(ctx); caller != nil && caller.Uin > 0 {
 				uid := caller.Uin
 				message.SenderUin = &uid
-				message.SenderName = p.resolveSenderNameFromCaller(ctx, caller)
+				// 中文注释：事务内回读发送者必须复用 tx，避免单连接 SQLite 和真实数据库连接池发生自锁。
+				message.SenderName = p.resolveSenderNameFromCaller(ctx, tx, caller)
 			}
 		}
 
@@ -818,7 +819,7 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 	defaultAssistantID, _ := infradb.GetDefaultAssistantIDByOrg(ctx, p.db, project.OrgID)
 	userIDs, assistantIDs := collectBindingMemberIDs(bindings)
 	userMap := make(map[uint]string)
-	if len(userIDs) > 0 {
+	if len(userIDs) > 0 && p.userRepo != nil {
 		if users, err := p.userRepo.GetUsersByUins(ctx, userIDs); err == nil {
 			for uin, user := range users {
 				if user != nil {

@@ -1,18 +1,41 @@
 package service
 
 import (
+	"context"
 	"testing"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/types"
 )
+
+type memberDepartmentTestRepo struct {
+	department *account.Department
+}
+
+func (r *memberDepartmentTestRepo) CreateDepartment(context.Context, *account.CreateDepartmentInput) (*account.Department, error) {
+	return nil, nil
+}
+
+func (r *memberDepartmentTestRepo) GetDepartment(context.Context, uint) (*account.Department, error) {
+	return r.department, nil
+}
+
+func (r *memberDepartmentTestRepo) UpdateDepartment(context.Context, uint, *account.UpdateDepartmentInput) (*account.Department, error) {
+	return nil, nil
+}
+
+func (r *memberDepartmentTestRepo) DeleteDepartment(context.Context, uint) error { return nil }
+
+func (r *memberDepartmentTestRepo) ListDepartment(context.Context, *account.ListDepartmentInput) (*account.DepartmentList, error) {
+	return nil, nil
+}
 
 func TestMemberDepartmentServiceCRUDAndList(t *testing.T) {
 	database := setupAccountServiceTestDB(t)
 	if err := database.AutoMigrate(&types.UserOrg{}); err != nil {
 		t.Fatalf("failed to migrate user org: %v", err)
 	}
-	service := NewMemberDepartmentService(database, nil, nil)
 	ctx := accountServiceTestContext()
 
 	userOrg := &types.UserOrg{UserID: 30, OrgID: 1, IsDefault: true}
@@ -23,6 +46,9 @@ func TestMemberDepartmentServiceCRUDAndList(t *testing.T) {
 	if err := database.Create(department).Error; err != nil {
 		t.Fatalf("Create department failed: %v", err)
 	}
+	service := NewMemberDepartmentService(database, newTestOrgRepoForSender("Test User"), &memberDepartmentTestRepo{
+		department: &account.Department{ID: department.ID, OrgID: department.OrgID, Name: department.Name},
+	})
 
 	created, err := service.CreateMemberDepartment(ctx, &contract.CreateMemberDepartmentRequest{
 		Uin:          userOrg.ID,

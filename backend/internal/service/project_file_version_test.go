@@ -56,6 +56,7 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 		&types.ProjectFile{},
 		&types.Session{},
 		&types.WorkerDeployment{},
+		&types.DigitalAssistant{},
 		&types.Resource{},
 		&types.ResourceBinding{},
 	); err != nil {
@@ -73,6 +74,25 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 	project := &types.Project{PublicID: "prj_versions", OrgID: 1, OwnerID: 1, Name: "versions", Status: "active"}
 	if err := database.Create(project).Error; err != nil {
 		t.Fatalf("create project: %v", err)
+	}
+	if err := database.Create(&types.DigitalAssistant{
+		PublicID: "assistant-default",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Default Assistant",
+		Status:   string(types.DigitalAssistantStatusActive),
+	}).Error; err != nil {
+		t.Fatalf("create default assistant: %v", err)
+	}
+	if err := database.Create(&types.WorkerDeployment{
+		PublicID:           "deployment-default",
+		OrgID:              1,
+		DigitalAssistantID: 1,
+		WorkerID:           1,
+		DeploymentName:     "worker-default",
+		Status:             string(types.WorkerDeploymentStatusReady),
+	}).Error; err != nil {
+		t.Fatalf("create default worker deployment: %v", err)
 	}
 	projectResource := &types.Resource{OrgID: 1, Uin: 1, Type: types.ResourceTypeProject, BizID: project.ID}
 	if err := infradb.CreateResource(context.Background(), database, projectResource); err != nil {
