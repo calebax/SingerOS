@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/comp
 import { cn } from "@leros/ui/lib/utils";
 import { Eye, FileText, FolderOpen, LoaderCircle, Search, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BID_COMPARISON_ICON_SRC } from "../../assets";
+import { BidComparisonIcon } from "../../assets";
 import { filePreviewActions } from "../layout/file-preview-store";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import {
@@ -201,8 +201,8 @@ export function BidComparisonConfigDialog({
 			<DialogContent className="flex max-h-[min(92dvh,880px)] max-w-[min(92vw,560px)] flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
 				<DialogHeader className="shrink-0 border-b border-slate-100 px-7 py-5">
 					<div className="flex items-center gap-3">
-						<div className="flex size-9 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
-							<img src={BID_COMPARISON_ICON_SRC} alt="" className="size-5" />
+						<div className="flex size-9 items-center justify-center rounded-xl bg-[var(--leros-primary-soft)] text-[var(--leros-primary)]">
+							<BidComparisonIcon className="size-5" />
 						</div>
 						<div>
 							<DialogTitle className="text-base">
@@ -269,8 +269,8 @@ export function BidComparisonConfigDialog({
 									className={cn(
 										"rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors",
 										reportFormat === format
-											? "border-violet-400 bg-violet-50 text-violet-700"
-											: "border-slate-200 text-slate-500 hover:border-violet-200 hover:bg-violet-50/50",
+											? "border-[var(--leros-primary)] bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]"
+											: "border-slate-200 text-slate-500 hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/50",
 									)}
 								>
 									{format}
@@ -290,7 +290,7 @@ export function BidComparisonConfigDialog({
 							value={comparisonRequirements}
 							onChange={(event) => setComparisonRequirements(event.target.value)}
 							placeholder="例如：重点关注技术方案、商务条款和评分标准的差异"
-							className="min-h-24 w-full resize-y rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none transition-colors placeholder:text-slate-300 focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+							className="min-h-24 w-full resize-y rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none transition-colors placeholder:text-slate-300 focus:border-[var(--leros-primary)] focus:ring-2 focus:ring-[var(--leros-primary-softer)]"
 						/>
 					</div>
 				</div>
@@ -303,7 +303,7 @@ export function BidComparisonConfigDialog({
 						type="button"
 						disabled={saving || !mainFile || compareFiles.length === 0}
 						onClick={() => void save()}
-						className="bg-violet-600 text-white hover:bg-violet-700"
+						className="bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90"
 					>
 						{saving ? "启动中..." : "开始对比"}
 					</Button>
@@ -388,7 +388,7 @@ function FilePickerSection({
 		<div>
 			<div className="mb-2 flex items-end justify-between">
 				<div className="text-sm font-semibold text-slate-800">
-					{title} {required ? <span className="text-violet-500">*</span> : null}
+					{title} {required ? <span className="text-[var(--leros-primary)]">*</span> : null}
 				</div>
 				<span className="text-xs text-slate-400">{limitText}</span>
 			</div>
@@ -400,13 +400,13 @@ function FilePickerSection({
 								key={fileSelectionKey(file)}
 								className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm shadow-sm"
 							>
-								<FileText className="size-4 shrink-0 text-violet-500" />
+								<FileText className="size-4 shrink-0 text-[var(--leros-primary)]" />
 								<span className="min-w-0 flex-1 truncate text-slate-700">{file.name}</span>
 								{canPreview(file) ? (
 									<button
 										type="button"
 										onClick={() => onPreview(file)}
-										className="rounded-md p-1 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
+										className="rounded-md p-1 text-slate-400 hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 										title="预览文件"
 									>
 										<Eye className="size-4" />
@@ -634,7 +634,7 @@ function ProjectFilePicker({
 							onChange={(event) => setSearchKeyword(event.target.value)}
 							placeholder="搜索项目文件"
 							disabled={projects.length === 0 || !selectedProjectId}
-							className="h-10 w-full rounded-xl border border-slate-200 bg-white pr-3 pl-9 text-sm outline-none transition-colors placeholder:text-slate-300 focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+							className="h-10 w-full rounded-xl border border-slate-200 bg-white pr-3 pl-9 text-sm outline-none transition-colors placeholder:text-slate-300 focus:border-[var(--leros-primary)] focus:ring-2 focus:ring-[var(--leros-primary-softer)] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
 						/>
 					</div>
 				</div>
@@ -678,13 +678,13 @@ function ProjectFilePicker({
 										}}
 										className={cn(
 											"flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
-											checked ? "bg-violet-50" : "hover:bg-slate-50",
+											checked ? "bg-[var(--leros-primary-softer)]" : "hover:bg-slate-50",
 										)}
 									>
 										<Checkbox
 											checked={checked}
 											tabIndex={-1}
-											className="pointer-events-none data-checked:border-violet-600 data-checked:bg-violet-600"
+											className="pointer-events-none data-checked:border-[var(--leros-primary)] data-checked:bg-[var(--leros-primary)]"
 										/>
 										<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200/70">
 											<ProjectFileTypeIcon fileName={file.name} className="size-5 object-contain" />
@@ -706,7 +706,7 @@ function ProjectFilePicker({
 												event.stopPropagation();
 												previewFile(file);
 											}}
-											className="relative z-10 rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-violet-600"
+											className="relative z-10 rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-[var(--leros-primary)]"
 											title="预览文件"
 										>
 											<Eye className="size-4" />
@@ -735,7 +735,7 @@ function ProjectFilePicker({
 							type="button"
 							disabled={selectedFiles.length === 0}
 							onClick={confirm}
-							className="bg-violet-600 text-white hover:bg-violet-700"
+							className="bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90"
 						>
 							确定
 						</Button>

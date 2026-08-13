@@ -810,7 +810,8 @@ export function ChatInput({
 											}
 											className={cn(
 												"inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:text-slate-600 hover:bg-slate-100",
-												executionMode === "plan" && "bg-blue-50 text-blue-600 hover:bg-blue-100",
+												executionMode === "plan" &&
+													"bg-[var(--leros-primary-softer)] !text-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)]",
 											)}
 										>
 											<ClipboardPenLine className="size-4" />
