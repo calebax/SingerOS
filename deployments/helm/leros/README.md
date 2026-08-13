@@ -142,6 +142,7 @@ dataHostPath: /opt/leros-data
 | `imagePullSecrets` | `[]` | 引用已存在的 ImagePullSecret |
 | `server.image` | `registry.yygu.cn/insmtx/leros:latest` | Server 镜像 |
 | `worker.image` | `registry.yygu.cn/insmtx/leros-worker:latest` | Worker 镜像 |
+| `worker.imagePullPolicy` | `IfNotPresent` | Worker 容器镜像拉取策略 |
 | `web.image` | `registry.yygu.cn/insmtx/leros-web:latest` | Web 镜像（默认关闭） |
 | `mysql.image` | `registry.yygu.cn/library/mysql:8.4` | MySQL 镜像（默认关闭） |
 | `redis.image` | `registry.yygu.cn/library/redis:7.4` | Redis 镜像（默认关闭） |
