@@ -33,13 +33,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 import { AttachmentPreview } from "../input/AttachmentPreview";
 import {
-	BidComparisonConfigDialog,
 	type BidComparisonConfig,
+	BidComparisonConfigDialog,
 } from "../input/BidComparisonConfigDialog";
 import {
 	bidComparisonConfigToAttachments,
@@ -66,11 +65,8 @@ import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
+import { formatProjectTaskPickerLabel, ProjectTaskPickerContent } from "./ProjectTaskPicker";
 import { ProjectIcon } from "./project-icon";
-import {
-	formatProjectTaskPickerLabel,
-	ProjectTaskPickerContent,
-} from "./ProjectTaskPicker";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
 	// 中文注释：选择已有项目后不再支持临时召唤队友，需要同步移除输入框中已插入的 @ 指令 token，但保留 /skill 指令。
@@ -142,30 +138,35 @@ function resolveMentionedAssistant(
 }
 
 const WORKBENCH_FEATURE_CARDS: Array<{
+	step: string;
 	title: string;
 	description: string;
 	icon: LucideIcon;
 	iconClassName: string;
 }> = [
 	{
+		step: "01",
 		title: "任务规划与拆解",
 		description: "对齐目标背景，拆解执行路径。",
 		icon: ListTodo,
 		iconClassName: "bg-violet-100 text-violet-600",
 	},
 	{
+		step: "02",
 		title: "任务指派",
 		description: "明确任务要求，指派角色执行。",
 		icon: FileText,
 		iconClassName: "bg-blue-100 text-blue-600",
 	},
 	{
+		step: "03",
 		title: "执行与审批",
 		description: "AI 自动推进，人工确认关键节点。",
 		icon: TrendingUp,
 		iconClassName: "bg-emerald-100 text-emerald-600",
 	},
 	{
+		step: "04",
 		title: "知识沉淀",
 		description: "沉淀过程成果，形成项目资产。",
 		icon: BookOpenText,
@@ -787,84 +788,71 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			data-slot="workbench-panel"
 			className="min-h-0 flex-1 overflow-y-auto bg-[var(--leros-app-bg)]"
 		>
-			{/* Top Header */}
-			<header className="z-10 flex h-16 shrink-0 items-center justify-end px-10">
-				<div className="flex items-center gap-4 text-[var(--leros-text)]">
-					{/* <button
-						type="button"
-						className="relative rounded-full p-2 transition-colors hover:bg-[var(--leros-primary-softer)]"
-					>
-						<Bell className="size-5" />
-						<span className="absolute right-2 top-2 size-2 rounded-full border-2 border-[var(--leros-app-bg)] bg-destructive" />
-					</button> */}
-					{/* <button
-						type="button"
-							if (!isAuthenticated) openAuthDialog("phone");
-						}}
-						className="rounded-full bg-[#070d1c] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#182033]"
-						disabled={!isHydrated}
-					>
-						{!isHydrated ? "" : isAuthenticated ? (user?.name ?? "已登录") : "登录"}
-					</button> */}
-				</div>
-			</header>
-
 			{/* Main Content Canvas */}
-			<div className="z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[1200px] flex-col px-10 pb-10 justify-center">
+			<div className="z-10 mx-auto flex min-h-full w-full max-w-[1080px] flex-col justify-center px-10 py-10">
 				{/* Welcome/Hero Section */}
 				<section>
-					<div className="mb-4 flex items-center gap-5 text-left md:gap-6">
-						<div className="leros-workbench-hero-icon shrink-0">
-							<img src={PROJECT_NEW_TASK_HERO_OCTOPUS_SRC} alt="" className="size-50 object-contain" />
-						</div>
-						<div className="flex min-w-0 flex-col gap-8">
-							<h2 className="text-4xl  tracking-tight text-[var(--leros-primary)] md:text-5xl">
-								你好，今天我们从哪里开始？
-							</h2>
-							<p className="text-lg  text-[var(--leros-text-muted)]">
-								告诉{brandName}你的目标，我们会帮你拆解任务、分配执行，并交付结果
-							</p>
-						</div>
+					<div className="mb-10 text-center">
+						<h2 className="text-4xl font-semibold tracking-tight text-[var(--leros-primary)] md:text-5xl">
+							你好，今天我们从哪里开始？
+						</h2>
+						<p className="mt-4 text-base text-[var(--leros-text-muted)] md:text-lg">
+							告诉{brandName}你的目标，我们会帮你拆解任务、分配执行，并交付结果
+						</p>
 					</div>
 
-					<div
-						className={cn(
-							"mb-15 grid gap-3",
-							isDesktopApp ? "grid-cols-4" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4",
-						)}
-					>
-						{WORKBENCH_FEATURE_CARDS.map((card) => {
-							const Icon = card.icon;
-							return (
-								<div
-									key={card.title}
-									className="flex items-start gap-3 rounded-2xl bg-white px-4 py-4 shadow-sm ring-1 ring-slate-200/70"
-								>
+					{/* 中文注释：四步流程说明单独成卡，快捷提示仍放在卡片外并与输入区保持间距。 */}
+					<div className="mb-10 overflow-hidden rounded-[28px] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
+						<div
+							className={cn(
+								"grid",
+								isDesktopApp ? "grid-cols-4" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4",
+							)}
+						>
+							{WORKBENCH_FEATURE_CARDS.map((card, index) => {
+								const Icon = card.icon;
+								return (
 									<div
+										key={card.title}
 										className={cn(
-											"flex size-10 shrink-0 items-center justify-center rounded-xl",
-											card.iconClassName,
+											"relative flex flex-col gap-2.5 px-5 py-4",
+											!isDesktopApp && index > 0 && "border-t border-slate-100 sm:border-t-0",
+											!isDesktopApp && index % 2 === 1 && "sm:border-l sm:border-slate-100",
+											!isDesktopApp &&
+												index >= 2 &&
+												"sm:border-t sm:border-slate-100 xl:border-t-0",
+											index > 0 && "xl:border-l xl:border-slate-100",
+											isDesktopApp && index > 0 && "border-l border-slate-100",
 										)}
 									>
-										<Icon className="size-5" />
-									</div>
-									<div className="min-w-0">
-										<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
-											{card.title}
+										<span className="absolute right-4 top-3.5 text-xs font-medium tabular-nums text-slate-300">
+											{card.step}
+										</span>
+										<div
+											className={cn(
+												"flex size-10 shrink-0 items-center justify-center rounded-xl",
+												card.iconClassName,
+											)}
+										>
+											<Icon className="size-5" />
 										</div>
-										<p className="mt-1 text-xs leading-relaxed text-[var(--leros-text-muted)]">
-											{card.description}
-										</p>
+										<div className="min-w-0 pr-6">
+											<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+												{card.title}
+											</div>
+											<p className="mt-1 text-xs leading-relaxed text-[var(--leros-text-muted)]">
+												{card.description}
+											</p>
+										</div>
 									</div>
-								</div>
-							);
-						})}
+								);
+							})}
+						</div>
 					</div>
 
 					<ComposerUsageTipsPanel
 						tips={workbenchUsageTips}
 						onApply={applyUsageTip}
-						variant="workbench"
 						onBidComparisonClick={() => setBidComparisonOpen(true)}
 					/>
 					<BidComparisonConfigDialog
