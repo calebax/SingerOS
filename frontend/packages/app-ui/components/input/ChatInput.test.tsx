@@ -12,6 +12,15 @@ const mockSetInputText = vi.fn();
 const mockSetInputFocused = vi.fn();
 const mockSetExecutionMode = vi.fn();
 const mockGoToTaskDetail = vi.fn();
+let mockProjectMembers: Array<Record<string, unknown>> = [];
+
+class ResizeObserverStub {
+	observe = vi.fn();
+	unobserve = vi.fn();
+	disconnect = vi.fn();
+}
+
+vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 
 vi.mock("@leros/store", () => ({
 	useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -75,6 +84,7 @@ vi.mock("@leros/store", () => ({
 					files: [],
 					messages: [],
 					skills: [],
+					members: mockProjectMembers,
 				},
 			],
 		}),
@@ -140,6 +150,7 @@ describe("ChatInput", () => {
 		mockSetInputFocused.mockReset();
 		mockSetExecutionMode.mockReset();
 		mockGoToTaskDetail.mockReset();
+		mockProjectMembers = [];
 	});
 
 	it("在项目首页发送消息后跳转到新任务详情页", async () => {
@@ -184,5 +195,41 @@ describe("ChatInput", () => {
 		await user.click(screen.getByRole("button", { name: "Plan Mode" }));
 
 		expect(mockSetExecutionMode).toHaveBeenCalledWith("plan");
+	});
+
+	it("多人真人项目禁用添加连接器并显示隐私提示", async () => {
+		mockProjectMembers = [
+			{ id: "user-1", memberId: 1, publicId: "user-1", type: "user", role: "owner" },
+			{ id: "user-2", memberId: 2, publicId: "user-2", type: "user", role: "member" },
+		];
+		const user = userEvent.setup();
+		render(<ChatInput variant="project" />);
+
+		const connectorButton = screen.getByRole("button", { name: /添加连接器/ });
+		expect(connectorButton).toHaveAttribute("aria-disabled", "true");
+
+		await user.hover(connectorButton);
+		expect(
+			await screen.findByText(
+				"项目包含多名真人队友，为保护个人连接器数据，任务执行时不会使用 MCP 连接器。",
+			),
+		).toBeInTheDocument();
+
+		await user.click(connectorButton);
+		expect(screen.queryByText("选择连接器")).not.toBeInTheDocument();
+	});
+
+	it("单真人项目仍可打开连接器选择器", async () => {
+		mockProjectMembers = [
+			{ id: "user-1", memberId: 1, publicId: "user-1", type: "user", role: "owner" },
+		];
+		const user = userEvent.setup();
+		render(<ChatInput variant="project" />);
+
+		const connectorButton = screen.getByRole("button", { name: "添加连接器" });
+		expect(connectorButton).not.toHaveAttribute("aria-disabled");
+
+		await user.click(connectorButton);
+		expect(await screen.findByText("选择连接器")).toBeInTheDocument();
 	});
 });
