@@ -209,7 +209,9 @@ func cloneSystemLLMModelsByClass(ctx context.Context, d *gorm.DB, fromOrgID, toO
 			IsSystem:        s.IsSystem,
 			Config:          s.Config,
 		}
-		if err := d.WithContext(ctx).Create(&clone).Error; err != nil {
+		// 复用 CreateLLMModel 落库，以继承其 BaseURLHasV1=false 的零值兜底
+		// （bool 零值会被 GORM 跳过写入，需补一次 UpdateColumn 防止被列默认值 true 覆盖）。
+		if err := CreateLLMModel(ctx, d, &clone); err != nil {
 			return err
 		}
 	}

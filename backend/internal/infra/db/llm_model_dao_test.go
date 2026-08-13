@@ -390,6 +390,63 @@ func TestDeleteLLMModel(t *testing.T) {
 	}
 }
 
+// TestCloneSystemLLMModelsPreservesBaseURLHasV1False 验证系统模型 BaseURLHasV1=false
+// 克隆到新组织后落库仍为 false，不被列默认值 true 覆盖。
+func TestCloneSystemLLMModelsPreservesBaseURLHasV1False(t *testing.T) {
+	database := setupLLMModelTestDB(t)
+	ctx := context.Background()
+
+	src := newTestLLMModel(1, "conv-no-v1")
+	src.IsSystem = true
+	src.BaseURL = "https://api.example.com"
+	src.BaseURLHasV1 = false
+	if err := CreateLLMModel(ctx, database, src); err != nil {
+		t.Fatalf("create source model: %v", err)
+	}
+
+	if err := CloneSystemLLMModelsByOrg(ctx, database, 1, 2); err != nil {
+		t.Fatalf("CloneSystemLLMModelsByOrg failed: %v", err)
+	}
+
+	clone, err := GetLLMModelByCode(ctx, database, 2, "conv-no-v1")
+	if err != nil {
+		t.Fatalf("GetLLMModelByCode failed: %v", err)
+	}
+	if clone == nil {
+		t.Fatal("expected cloned model in target org")
+	}
+	if clone.BaseURLHasV1 {
+		t.Fatalf("expected BaseURLHasV1=false preserved after clone, got true")
+	}
+}
+
+// TestCloneSystemLLMModelsIdempotent 验证重复克隆不会产生重复模型。
+func TestCloneSystemLLMModelsIdempotent(t *testing.T) {
+	database := setupLLMModelTestDB(t)
+	ctx := context.Background()
+
+	src := newTestLLMModel(1, "conv")
+	src.IsSystem = true
+	if err := CreateLLMModel(ctx, database, src); err != nil {
+		t.Fatalf("create source model: %v", err)
+	}
+
+	if err := CloneSystemLLMModelsByOrg(ctx, database, 1, 2); err != nil {
+		t.Fatalf("first clone failed: %v", err)
+	}
+	if err := CloneSystemLLMModelsByOrg(ctx, database, 1, 2); err != nil {
+		t.Fatalf("second clone failed: %v", err)
+	}
+
+	var count int64
+	if err := database.Model(&types.LLMModel{}).Where("org_id = ? AND code = ?", 2, "conv").Count(&count).Error; err != nil {
+		t.Fatalf("count target models: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one cloned model, got %d", count)
+	}
+}
+
 func TestLLMModelCodeExists(t *testing.T) {
 	database := setupLLMModelTestDB(t)
 	ctx := context.Background()
