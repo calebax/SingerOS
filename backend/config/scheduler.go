@@ -20,6 +20,7 @@ type SchedulerConfig struct {
 	KubeconfigContext     string               `yaml:"kubeconfig_context,omitempty" json:"kubeconfig_context,omitempty"`
 	Namespace             string               `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 	WorkerImage           string               `yaml:"worker_image,omitempty" json:"worker_image,omitempty"`
+	WorkerImagePullPolicy string               `yaml:"worker_image_pull_policy,omitempty" json:"worker_image_pull_policy,omitempty"` // worker 容器镜像拉取策略，默认 IfNotPresent
 	WorkspaceInitImage    string               `yaml:"workspace_init_image,omitempty" json:"workspace_init_image,omitempty"`
 	ConfigMap             string               `yaml:"config_map,omitempty" json:"config_map,omitempty"`
 	Secret                string               `yaml:"secret,omitempty" json:"secret,omitempty"`

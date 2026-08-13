@@ -35,6 +35,7 @@ data:
       # worker 回连 server 的 Service 地址
       server_addr: {{ printf "%s:%s" (include "leros.serverServiceName" .) (.Values.server.service.port | toString) | quote }}
       worker_image: {{ .Values.worker.image | quote }}
+      worker_image_pull_policy: {{ .Values.worker.imagePullPolicy | default "IfNotPresent" | quote }}
       workspace_init_image: {{ .Values.worker.workspaceInitImage | quote }}
       config_map: {{ include "leros.workerConfigMapName" . | quote }}
       secret: {{ include "leros.workerSecretName" . | quote }}

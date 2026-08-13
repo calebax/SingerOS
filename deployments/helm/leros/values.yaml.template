@@ -224,6 +224,7 @@ server:
 # =============================================================================
 worker:
   image: registry.yygu.cn/insmtx/leros-worker:latest
+  imagePullPolicy: IfNotPresent
   workspaceInitImage: registry.cn-beijing.aliyuncs.com/yygu/corekg:busybox_1.36.1
 
   configMapNameOverride: ""

@@ -303,7 +303,7 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 			{
 				Name:            name,
 				Image:           s.workerImage(spec),
-				ImagePullPolicy: corev1.PullAlways,
+				ImagePullPolicy: s.workerImagePullPolicy(),
 				Command:         []string{"/leros"},
 				Args:            args,
 				Env:             env,
@@ -462,6 +462,17 @@ func (s *KubernetesScheduler) workerImage(spec *worker.WorkerSpec) string {
 		return value
 	}
 	return defaultWorkerImage
+}
+
+func (s *KubernetesScheduler) workerImagePullPolicy() corev1.PullPolicy {
+	switch strings.ToLower(strings.TrimSpace(s.config.WorkerImagePullPolicy)) {
+	case "always", "pullalways":
+		return corev1.PullAlways
+	case "never", "pullnever":
+		return corev1.PullNever
+	default:
+		return corev1.PullIfNotPresent
+	}
 }
 
 func (s *KubernetesScheduler) workspaceInitImage() string {

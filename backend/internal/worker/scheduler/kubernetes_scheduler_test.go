@@ -116,6 +116,22 @@ func TestKubernetesWorkspaceSpecDriftDetectsLegacyWorkspacePath(t *testing.T) {
 	}
 }
 
+func TestBuildDeploymentDefaultImagePullPolicy(t *testing.T) {
+	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{}}
+	deployment := scheduler.buildDeployment(&worker.WorkerSpec{OrgID: 1, WorkerID: 1})
+	if got := deployment.Spec.Template.Spec.Containers[0].ImagePullPolicy; got != corev1.PullIfNotPresent {
+		t.Fatalf("default imagePullPolicy = %q, want PullIfNotPresent, was PullAlways before", got)
+	}
+}
+
+func TestBuildDeploymentCustomImagePullPolicy(t *testing.T) {
+	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{WorkerImagePullPolicy: "Always"}}
+	deployment := scheduler.buildDeployment(&worker.WorkerSpec{OrgID: 1, WorkerID: 1})
+	if got := deployment.Spec.Template.Spec.Containers[0].ImagePullPolicy; got != corev1.PullAlways {
+		t.Fatalf("custom imagePullPolicy = %q, want PullAlways", got)
+	}
+}
+
 func TestBuildDeploymentAppliesWorkerResources(t *testing.T) {
 	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{
 		WorkerResources: config.ResourceRequirements{
