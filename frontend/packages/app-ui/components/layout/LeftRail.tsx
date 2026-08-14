@@ -1715,6 +1715,7 @@ function getRouteActive(path: string, view: ViewMode) {
 	if (view === "skills") return path.startsWith("/skills");
 	if (view === "knowledge") return path.startsWith("/knowledge");
 	if (view === "tasks") return path.startsWith("/tasks");
+	if (view === "automation") return path === "/automation" || path.startsWith("/automation/");
 	return false;
 }
 
