@@ -42,6 +42,9 @@ describe("private deployment build marker", () => {
 		expect(desktopPackage.scripts?.["dist:private:linux:x64"]).toBe(
 			"node scripts/dist-private-target.mjs --linux --x64",
 		);
+		expect(desktopPackage.scripts?.["dist:private:linux:arm64"]).toBe(
+			"node scripts/dist-private-target.mjs --linux --arm64",
+		);
 		expect(privateBuildScript).toContain('VITE_LEROS_DEPLOYMENT_MODE = "private"');
 		expect(privateBuildScript).toContain('import("./dist-local.mjs")');
 		expect(privateTargetScript).toContain('VITE_LEROS_DEPLOYMENT_MODE = "private"');
