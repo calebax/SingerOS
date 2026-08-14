@@ -28,6 +28,7 @@ import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 import type { ComposerAssistantOption, StructuredComposerHandle } from "./StructuredComposer";
+import { getSkillSourceLabel } from "./skillSourceLabel";
 
 type ComposerActionBarProps = {
 	inputValue: string;
@@ -410,11 +411,9 @@ export function ComposerActionBar({
 												<span className="truncate">
 													{renderHighlightedText(skill.label, skillSearch)}
 												</span>
-												{(skill.source === "builtin" || skill.origin === "builtin_worker") && (
-													<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
-														系统
-													</span>
-												)}
+												<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+													{getSkillSourceLabel(skill)}
+												</span>
 											</div>
 											<div className="truncate text-xs text-slate-400">{skill.description}</div>
 										</div>

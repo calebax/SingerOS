@@ -269,6 +269,19 @@ func (p *MessagePoster) RunNewMessage(
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
 		return nil, err
 	}
+	if len(skilltoken.ParseTokensOnly(req.Content)) > 0 {
+		result := bindInvokedSkillsToProject(
+			ctx,
+			p.db,
+			o.project,
+			o.caller,
+			req.Content,
+			func(c context.Context, tx *gorm.DB, caller *types.Caller, projectPublicID string, action types.ProjectActivityAction, payload types.ProjectActivityPayload) error {
+				return recordUserRepoActivity(c, tx, p.userRepo, caller.Uin, projectPublicID, action, payload)
+			},
+		)
+		logInvokedSkillBindingResult(ctx, o.project, result)
+	}
 	// 中文注释：先将请求携带的连接器关联到项目，再创建 Session/Task，保证 Worker 发布前绑定已落地。
 	if len(o.req.ConnectorIDs) > 0 {
 		if _, err := bindConnectorsToProject(

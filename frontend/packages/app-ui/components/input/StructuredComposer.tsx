@@ -31,6 +31,7 @@ import { createDiceBearAvatarDataUri } from "../avatar/DiceBearAvatar";
 import { loadProtectedImageDisplayURL } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
+import { getSkillSourceLabel } from "./skillSourceLabel";
 
 type DirectiveKind = "assistant" | "command" | "project";
 type TokenKind = "assistant" | "skill" | "reference";
@@ -1900,12 +1901,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 																	<span className="truncate">
 																		{renderHighlightedText(skill.label, commandSearch)}
 																	</span>
-																	{(skill.source === "builtin" ||
-																		skill.origin === "builtin_worker") && (
-																		<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
-																			系统
-																		</span>
-																	)}
+																	<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+																		{getSkillSourceLabel(skill)}
+																	</span>
 																</div>
 																<div className="truncate text-xs text-slate-400">
 																	{skill.description}
