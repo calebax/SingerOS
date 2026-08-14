@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"gorm.io/gorm"
@@ -79,7 +80,7 @@ func TestBindInvokedSkillsToProject(t *testing.T) {
 		database,
 		project,
 		caller,
-		"/org-skill /system-skill /missing-skill /org-skill /inactive-skill write notes",
+		invokedSkillContent("org-skill", "system-skill", "missing-skill", "org-skill", "inactive-skill"),
 		record,
 	)
 
@@ -107,7 +108,7 @@ func TestBindInvokedSkillsToProject(t *testing.T) {
 	}
 
 	repeated := bindInvokedSkillsToProject(
-		context.Background(), database, project, caller, "/org-skill", record,
+		context.Background(), database, project, caller, invokedSkillContent("org-skill"), record,
 	)
 	if len(repeated.AlreadyBound) != 1 || repeated.AlreadyBound[0] != "org-skill" {
 		t.Fatalf("repeated = %#v", repeated)
@@ -117,9 +118,17 @@ func TestBindInvokedSkillsToProject(t *testing.T) {
 	}
 
 	nonLeading := bindInvokedSkillsToProject(
-		context.Background(), database, project, caller, "请处理 /missing-skill", nil,
+		context.Background(), database, project, caller, "请使用 /org-skill 但不点选芯片", nil,
 	)
 	if len(nonLeading.Added) != 0 || len(nonLeading.Failures) != 0 {
-		t.Fatalf("non-leading directive result = %#v", nonLeading)
+		t.Fatalf("slash-only content result = %#v", nonLeading)
 	}
+}
+
+func invokedSkillContent(ids ...string) string {
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, `<skill-chip data-code="`+id+`">`+id+`</skill-chip>`)
+	}
+	return strings.Join(parts, " ")
 }

@@ -365,7 +365,7 @@ describe("StructuredComposer", () => {
 		});
 	});
 
-	it("技能展示名称与 code 不同时仍插入 /code", async () => {
+	it("技能展示名称与 code 不同时插入展示名，并把 code 放进 token id", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();
 
@@ -391,7 +391,16 @@ describe("StructuredComposer", () => {
 		await user.keyboard("{Enter}");
 
 		await waitFor(() => {
-			expect(handleValueChange).toHaveBeenLastCalledWith("/doc-coauthoring ");
+			expect(handleValueChange).toHaveBeenLastCalledWith("/文档协作 ");
+		});
+		await waitFor(() => {
+			const mention = textbox.querySelector(
+				'[data-mention-node="true"][data-mention-kind="skill"]',
+			);
+			expect(mention).toBeInTheDocument();
+			expect(mention).toHaveAttribute("data-mention-label", "/文档协作");
+			expect(mention).toHaveAttribute("data-mention-id", "doc-coauthoring");
+			expect(mention).toHaveTextContent("文档协作");
 		});
 	});
 
@@ -449,7 +458,20 @@ describe("StructuredComposer", () => {
 		await user.click(screen.getByText("市场展示名称"));
 
 		await waitFor(() => {
-			expect(handleValueChange).toHaveBeenLastCalledWith("/market-code ");
+			expect(handleValueChange).toHaveBeenLastCalledWith("/市场展示名称 ");
+		});
+		await waitFor(() => {
+			const mention = screen
+				.getByRole("textbox", { name: "请输入" })
+				.querySelector('[data-mention-node="true"][data-mention-kind="skill"]');
+			expect(mention).toHaveAttribute("data-mention-label", "/市场展示名称");
+			expect(mention).toHaveAttribute("data-mention-id", "market-code");
+			expect(mention).toHaveTextContent("市场展示名称");
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("内置展示名称")).toBeInTheDocument();
+			expect(screen.getAllByText("市场展示名称")).toHaveLength(1);
 		});
 	});
 
@@ -485,6 +507,7 @@ describe("StructuredComposer", () => {
 			expect(handleValueChange).toHaveBeenLastCalledWith("/doc-coauthoring ");
 		});
 
+		await user.click(textbox);
 		await user.keyboard("/");
 		await user.click((await screen.findAllByText("weather"))[0] as HTMLElement);
 
@@ -623,7 +646,9 @@ describe("StructuredComposer", () => {
 		});
 		expect(screen.queryByText("已选技能")).not.toBeInTheDocument();
 
-		await user.click((await screen.findAllByText("docx"))[0] as HTMLElement);
+		const remainingSkill = (await screen.findAllByText("docx"))[0] as HTMLElement;
+		expect(screen.queryAllByText("anysearch")).toHaveLength(1);
+		await user.click(remainingSkill);
 		await waitFor(() => {
 			const mentions = textbox.querySelectorAll(
 				'[data-mention-node="true"][data-mention-kind="skill"]',

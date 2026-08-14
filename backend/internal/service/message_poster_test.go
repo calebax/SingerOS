@@ -371,7 +371,7 @@ func TestWriteSkillInvokeResourcesDoesNotMutateProjectMetadata(t *testing.T) {
 	message := &types.SessionMessage{
 		SessionID:   session.ID,
 		Role:        string(types.MessageRoleUser),
-		Content:     "/review 请检查",
+		Content:     `<skill-chip data-code="review">review</skill-chip> 请检查`,
 		MessageType: string(types.MessageTypeText),
 		Status:      string(types.MessageStatusPending),
 	}
