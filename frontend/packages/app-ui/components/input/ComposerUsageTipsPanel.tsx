@@ -3,7 +3,7 @@
 import { cn } from "@leros/ui/lib/utils";
 import { ChevronRight, Lightbulb, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import { BID_COMPARISON_ICON_SRC } from "../../assets";
+import { BidComparisonIcon } from "../../assets";
 
 type ComposerUsageTipsPanelProps = {
 	tips: Array<{ id: string; label: string; prompt: string }>;
@@ -41,14 +41,14 @@ export function BidComparisonEntryButton({
 			disabled={disabled}
 			aria-disabled={disabled}
 			className={cn(
-				// 中文注释：! 避免 ChatInput 全局 [data-slot=chat-input] button 覆盖紫色字色。
-				"inline-flex max-w-full items-center gap-2 rounded-full border border-violet-400 px-3.5 py-2 text-left text-sm font-semibold !text-violet-600 transition hover:bg-violet-50",
+				// 中文注释：! 避免 ChatInput 全局 [data-slot=chat-input] button 覆盖主题字色。
+				"inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--leros-primary)] px-3.5 py-2 text-left text-sm font-semibold !text-[var(--leros-primary)] transition hover:bg-[var(--leros-primary-softer)]",
 				enableRotate && !disabled && "hover:rotate-5",
 				disabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
 				className,
 			)}
 		>
-			<img src={BID_COMPARISON_ICON_SRC} alt="" className="size-3.5" />
+			<BidComparisonIcon className="size-3.5" />
 			<span>标书对比</span>
 		</button>
 	);

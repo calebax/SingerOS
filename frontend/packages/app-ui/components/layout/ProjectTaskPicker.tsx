@@ -404,7 +404,7 @@ export function ProjectTaskPickerField({
 		<div className={className}>
 			<div className="mb-2 text-sm font-semibold text-slate-800">
 				{allowSelectTask ? "选择项目 / 任务" : "选择项目 / 新建任务"}{" "}
-				<span className="text-violet-500">*</span>
+				<span className="text-[var(--leros-primary)]">*</span>
 			</div>
 			<Popover
 				open={open}
@@ -416,7 +416,7 @@ export function ProjectTaskPickerField({
 				<PopoverTrigger
 					type="button"
 					disabled={disabled}
-					className="flex h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 shadow-none transition-colors hover:border-violet-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+					className="flex h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 shadow-none transition-colors hover:border-[var(--leros-primary)]/40 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
 				>
 					<ProjectIcon className="size-4 shrink-0" />
 					<span className="min-w-0 flex-1 truncate">{label}</span>

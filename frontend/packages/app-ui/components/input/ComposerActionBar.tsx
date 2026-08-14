@@ -196,7 +196,7 @@ export function ComposerActionBar({
 						className={cn(
 							"order-1 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900",
 							executionMode === "plan" &&
-								"bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700",
+								"bg-[var(--leros-primary-softer)] !text-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)] hover:!text-[var(--leros-primary)]",
 						)}
 					>
 						<ClipboardPenLine className="size-4" />
