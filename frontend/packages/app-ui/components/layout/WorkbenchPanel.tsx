@@ -206,7 +206,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const uploadAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
-	const { skillOptions, skillsLoading } = useComposerSkillOptions(
+	const { skillOptions, skillsLoading, reloadSkillOptions } = useComposerSkillOptions(
 		activeWorkbenchProjectId ?? null,
 		isAuthenticated,
 	);
@@ -342,6 +342,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				mentionedAssistantIds,
 				selectedConnectorIds,
 			);
+			const hasInvokedSkill =
+				composerTokens.some((token) => token.kind === "skill") ||
+				/^\s*\/[A-Za-z][A-Za-z0-9_-]*(?:\s|$)/.test(content);
+			if (data && activeWorkbenchProjectId && hasInvokedSkill) {
+				void reloadSkillOptions();
+			}
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
 			}

@@ -1304,7 +1304,7 @@ function pluginToProjectSkill(plugin: PluginListItem): ProjectSkill {
 	return {
 		publicId: plugin.public_id,
 		code: plugin.code,
-		name: plugin.name,
+		name: plugin.display_name || plugin.name || plugin.code,
 		description: plugin.description,
 		category: plugin.kind,
 		source: "organization",

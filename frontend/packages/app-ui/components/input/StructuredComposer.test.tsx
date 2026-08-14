@@ -395,7 +395,7 @@ describe("StructuredComposer", () => {
 		});
 	});
 
-	it("完整列表中只有内置技能显示系统文案", async () => {
+	it("完整列表中的技能显示对应来源标签", async () => {
 		const user = userEvent.setup();
 
 		render(
@@ -432,11 +432,11 @@ describe("StructuredComposer", () => {
 
 		expect(await screen.findByText("内置技能")).toBeInTheDocument();
 		expect(screen.getAllByText("系统")).toHaveLength(1);
-		expect(screen.queryByText("组织")).not.toBeInTheDocument();
-		expect(screen.queryByText("技能市场")).not.toBeInTheDocument();
+		expect(screen.getAllByText("市场")).toHaveLength(1);
+		expect(screen.getAllByText("组织")).toHaveLength(1);
 	});
 
-	it("添加技能按钮使用 code 插入市场技能且只标记内置技能", async () => {
+	it("添加技能按钮使用 code 插入市场技能并显示来源标签", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();
 
@@ -445,6 +445,7 @@ describe("StructuredComposer", () => {
 		await user.click(screen.getByRole("button", { name: "添加技能" }));
 		expect(await screen.findByText("市场展示名称")).toBeInTheDocument();
 		expect(screen.getAllByText("系统")).toHaveLength(1);
+		expect(screen.getAllByText("市场")).toHaveLength(1);
 		await user.click(screen.getByText("市场展示名称"));
 
 		await waitFor(() => {

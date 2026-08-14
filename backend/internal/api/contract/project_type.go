@@ -148,6 +148,7 @@ type ProjectPlugin struct {
 	DisplayName     string `json:"display_name,omitempty"`
 	Description     string `json:"description,omitempty"`
 	Status          string `json:"status"`
+	Origin          string `json:"origin"`
 	CurrentRevision int    `json:"current_revision"`
 }
 

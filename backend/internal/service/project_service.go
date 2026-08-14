@@ -350,7 +350,7 @@ func (s *projectService) ListProjectPlugins(ctx context.Context, req *contract.L
 	}
 	result := make([]contract.ProjectPlugin, 0, len(plugins))
 	for _, plugin := range plugins {
-		result = append(result, contract.ProjectPlugin{PublicID: plugin.PublicID, Code: plugin.Code, Kind: plugin.Kind, Name: plugin.Name, Description: plugin.Description, Status: plugin.Status, CurrentRevision: plugin.CurrentRevision})
+		result = append(result, contract.ProjectPlugin{PublicID: plugin.PublicID, Code: plugin.Code, Kind: plugin.Kind, Name: plugin.Name, Description: plugin.Description, Status: plugin.Status, Origin: plugin.Origin, CurrentRevision: plugin.CurrentRevision})
 	}
 	if s.displayTranslation == nil {
 		logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s project=%s use=false reason=service_unavailable",

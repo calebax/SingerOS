@@ -25,6 +25,7 @@ import (
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
+	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
@@ -354,6 +355,30 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 			},
 		); err != nil {
 			return nil, fmt.Errorf("bind connectors to project: %w", err)
+		}
+	}
+	if caller != nil &&
+		req.Role == string(types.MessageRoleUser) &&
+		session.ProjectID != nil &&
+		*session.ProjectID != 0 &&
+		len(skilltoken.ParseTokensOnly(req.Content)) > 0 {
+		project, err := db.GetProjectByID(ctx, s.db, *session.ProjectID)
+		if err != nil {
+			logs.WarnContextf(ctx, "get project for invoked Skill association failed: %v", err)
+		} else if project == nil {
+			logs.WarnContextf(ctx, "project %d not found for invoked Skill association", *session.ProjectID)
+		} else {
+			result := bindInvokedSkillsToProject(
+				ctx,
+				s.db,
+				project,
+				caller,
+				req.Content,
+				func(c context.Context, tx *gorm.DB, act *types.Caller, projectPublicID string, action types.ProjectActivityAction, payload types.ProjectActivityPayload) error {
+					return recordUserRepoActivity(c, tx, s.userRepo, act.Uin, projectPublicID, action, payload)
+				},
+			)
+			logInvokedSkillBindingResult(ctx, project, result)
 		}
 	}
 

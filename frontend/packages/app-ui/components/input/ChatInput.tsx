@@ -72,10 +72,7 @@ import {
 	ensureBidComparisonFilesUploaded,
 } from "./bidComparisonAttachments";
 import { ComposerActionBar } from "./ComposerActionBar";
-import {
-	BidComparisonEntryButton,
-	ComposerUsageTipsPanel,
-} from "./ComposerUsageTipsPanel";
+import { BidComparisonEntryButton, ComposerUsageTipsPanel } from "./ComposerUsageTipsPanel";
 import { buildComposerUsageTips } from "./composerUsageTips";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
@@ -179,8 +176,10 @@ export function ChatInput({
 	const currentProject = projects.find((project) => project.id === currentProjectId);
 	const projectConnectorsDisabled =
 		isProjectVariant && hasMultipleHumanProjectMembers(currentProject?.members ?? []);
-	const { skillOptions, skillsLoading } = useComposerSkillOptions(
+	const { skillOptions, skillsLoading, reloadSkillOptions } = useComposerSkillOptions(
 		isProjectVariant ? currentProjectId : null,
+		true,
+		isProjectVariant ? "project" : "all",
 	);
 	const { connectorOptions, connectorsLoading } = useComposerConnectorOptions({
 		projectId: isProjectVariant ? currentProjectId : null,
@@ -501,6 +500,12 @@ export function ChatInput({
 			}
 
 			if (!submitted) return;
+			const hasInvokedSkill =
+				composerTokens.some((token) => token.kind === "skill") ||
+				/^\s*\/[A-Za-z][A-Za-z0-9_-]*(?:\s|$)/.test(outgoingContent);
+			if (isProjectVariant && currentProjectId && hasInvokedSkill) {
+				void reloadSkillOptions();
+			}
 			// 中文注释：发送成功后清空已选连接器；失败时不进入这里，保留以便重试。
 			setSelectedConnectorIds([]);
 			if (docxSelectionDraft && activeSelectionReference) {
@@ -517,6 +522,7 @@ export function ChatInput({
 		inputText,
 		inputAttachments,
 		isProjectVariant,
+		currentProjectId,
 		currentView,
 		activeProjectId,
 		activeTaskDetailProjectId,
@@ -527,6 +533,7 @@ export function ChatInput({
 		navigation,
 		sendProjectMessage,
 		sendTaskRoomMessage,
+		reloadSkillOptions,
 		selectedConnectorIds,
 		projectConnectorsDisabled,
 	]);
