@@ -273,13 +273,17 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 		return ""
 	}
 	projectID := strings.TrimSpace(req.Workspace.ProjectID)
+	if projectID == "" {
+		return ""
+	}
+	minimal := fmt.Sprintf("## 工作区信息\n\n- 项目 ID: %s", projectID)
 	taskID := strings.TrimSpace(req.Workspace.TaskID)
 	if taskID == "" {
 		taskID = strings.TrimSpace(req.TaskID)
 	}
 	requestID := strings.TrimSpace(req.Workspace.RequestID)
-	if req.Workspace.OrgID == 0 || projectID == "" || taskID == "" || requestID == "" {
-		return ""
+	if req.Workspace.OrgID == 0 || taskID == "" || requestID == "" {
+		return minimal
 	}
 	plan, err := agentworkspace.ResolveTaskWorkspace(agentworkspace.TaskWorkspaceRequest{
 		OrgID:            req.Workspace.OrgID,
@@ -289,7 +293,7 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 		RequestedWorkDir: req.Runtime.WorkDir,
 	})
 	if err != nil {
-		return ""
+		return minimal
 	}
 	gitRepoLabel := "否"
 	if isGitRepository(plan.RepoDir) {
@@ -297,6 +301,7 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 	}
 	return fmt.Sprintf(`## 工作区信息
 
+- 项目 ID: %s
 - 项目根目录: %s
 - 是否为 Git 仓库: %s
 
@@ -305,7 +310,7 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 - 不需要让用户看见的临时文件、中间产物，应在项目临时目录: %s 中创建。
 
 **运行系统环境：**
-- Host: %s`, plan.RepoDir, gitRepoLabel, plan.TurnTmpDir, runtime.GOOS)
+- Host: %s`, projectID, plan.RepoDir, gitRepoLabel, plan.TurnTmpDir, runtime.GOOS)
 }
 
 func isGitRepository(repoDir string) bool {

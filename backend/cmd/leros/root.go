@@ -158,6 +158,7 @@ Core commands:
   chat       Start an interactive chat session with a running server
   session    List and inspect sessions
   project    Manage projects
+  skill      Manage organization and project skills
   task       Manage tasks
   automation Manage scheduled automations
 

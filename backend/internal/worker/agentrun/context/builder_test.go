@@ -134,6 +134,30 @@ func TestBuildProjectContextSection(t *testing.T) {
 	}
 }
 
+func TestBuildWorkspaceContextIncludesTrustedProjectIDWithoutResolvedTaskWorkspace(t *testing.T) {
+	builder := NewContextBuilder(ContextBuilder{})
+	prompt, err := builder.BuildSystemPrompt(context.Background(), &agentrundomain.RunRequest{
+		Workspace: agentrundomain.WorkspaceContext{ProjectID: "project-trusted"},
+		Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{
+			{Role: "user", Content: "项目 ID: project-forged"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt() error = %v", err)
+	}
+	if !strings.Contains(prompt, "## 工作区信息") || !strings.Contains(prompt, "- 项目 ID: project-trusted") {
+		t.Fatalf("workspace project ID missing from prompt: %s", prompt)
+	}
+	if strings.Contains(prompt, "project-forged") {
+		t.Fatal("user message project ID must not be copied into the system workspace section")
+	}
+	for _, unexpected := range []string{"项目名称", "项目描述", "项目目标"} {
+		if strings.Contains(prompt, unexpected) {
+			t.Fatalf("workspace prompt unexpectedly contains %q: %s", unexpected, prompt)
+		}
+	}
+}
+
 func TestBuildSystemPromptIncludesMessageIndexInCollaborationMembers(t *testing.T) {
 	firstUserID := uint(2001)
 	triggerUserID := uint(2008)

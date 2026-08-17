@@ -112,8 +112,9 @@ func init() {
 宁可多加载一个 skill，也不要错过关键步骤、坑点或既定工作流。
 
 当用户要求配置、设置、管理 Leros 本身 时，包括其 CLI、技能或其他任何功能。
-务必先加载 `+"`leros-agent`"+` skill。
-它包含实际的 leros CLI 命令（如 `+"`leros skill install`"+`），避免猜测或编造参数。
+务必先加载匹配的 `+"`lework-*`"+` 管理 skill。
+它们包含实际的 leros CLI 命令（如 `+"`leros skill add <skill_code> --project-id <project_id>`"+`），
+避免猜测或编造参数。
 
 Skills 包含专业知识，例如 API endpoint、工具专用命令、经过验证的工作流。
 这些通常比通用方法更可靠。即使你认为可以用 现有工具 处理当前任务，

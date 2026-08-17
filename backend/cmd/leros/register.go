@@ -15,6 +15,7 @@ func registerCommands(root *cobra.Command) {
 	root.AddCommand(newProjectCommand())
 	root.AddCommand(newTaskCommand())
 	root.AddCommand(newAutomationCommand())
+	root.AddCommand(newSkillCommand())
 
 	root.AddCommand(newSessionCommand())
 	root.AddCommand(newChatCommand())
