@@ -47,10 +47,10 @@ const (
 	invokedSkillOutcomeSystem
 )
 
-// bindInvokedSkillsToProject associates leading /skill directives with a
-// project before its Worker snapshot is built. Each code is isolated in its
-// own transaction so an unavailable Skill does not block message delivery or
-// the association of other valid Skills.
+// bindInvokedSkillsToProject associates invoked Skills with a project before
+// its Worker snapshot is built. Codes come from <skill-chip data-code> in content.
+// Each code is isolated in its own transaction so an unavailable Skill does
+// not block message delivery or the association of other valid Skills.
 func bindInvokedSkillsToProject(
 	ctx context.Context,
 	database *gorm.DB,

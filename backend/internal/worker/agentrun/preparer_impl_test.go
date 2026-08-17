@@ -130,7 +130,7 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 		},
 		Input: agentrundomain.InputContext{
 			Type:     agentrundomain.InputTypeMessage,
-			Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/review inspect the change"}},
+			Messages: []agentrundomain.InputMessage{{Role: "user", Content: `<skill-chip data-code="review">review</skill-chip> inspect the change`}},
 		},
 		Model: agentrundomain.ModelOptions{
 			Provider: "openai",
@@ -143,7 +143,7 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}
-	if request.Runtime.WorkDir != "" || request.Input.Messages[0].Content != "/review inspect the change" {
+	if request.Runtime.WorkDir != "" || request.Input.Messages[0].Content != `<skill-chip data-code="review">review</skill-chip> inspect the change` {
 		t.Fatalf("original request mutated: %#v", request)
 	}
 	if workspaceManager.seen.ProjectID != request.Workspace.ProjectID {

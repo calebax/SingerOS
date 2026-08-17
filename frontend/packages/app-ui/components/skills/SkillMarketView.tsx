@@ -49,8 +49,8 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	}, [keyword]);
 
 	const goUseSkill = useCallback(
-		(skillCode: string): boolean => {
-			const prefill = buildSkillWorkbenchPrefill(skillCode);
+		(skillCode: string, displayName?: string): boolean => {
+			const prefill = buildSkillWorkbenchPrefill(skillCode, undefined, displayName);
 			selectWorkbenchProject(null);
 			selectWorkbenchTask(null);
 			setWorkbenchComposerPrefill(prefill);
@@ -73,7 +73,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 
 	const handleCardUse = useCallback(
 		(skill: SkillMarketplaceItem) => {
-			goUseSkill(skill.name);
+			goUseSkill(skill.name, skill.display_name);
 		},
 		[goUseSkill],
 	);
@@ -83,8 +83,8 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	}, []);
 
 	const handleDetailUse = useCallback(
-		(skillCode: string) => {
-			goUseSkill(skillCode);
+		(skillCode: string, displayLabel?: string) => {
+			goUseSkill(skillCode, displayLabel);
 		},
 		[goUseSkill],
 	);

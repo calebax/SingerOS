@@ -5,6 +5,16 @@
 
 export type { BootstrapNewTaskOptions } from "./bootstrap";
 export { bootstrapNewTaskSession } from "./bootstrap";
+export {
+	formatTaskDisplayTitle,
+	hasComposerSkillTokens,
+	parseSkillChips,
+	prepareOutgoingComposer,
+	skillChipMarkup,
+	skillChipsToPlainText,
+	skillCodeFromToken,
+} from "./composerSkills";
+export type { ParsedSkillChip } from "./composerSkills";
 export type { SendPipelineDeps } from "./deps";
 export {
 	buildBackendMessageMetadata,

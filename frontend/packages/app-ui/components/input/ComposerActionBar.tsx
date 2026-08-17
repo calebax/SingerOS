@@ -1,6 +1,6 @@
 "use client";
 
-import type { PluginComposerOption } from "@leros/store";
+import { type PluginComposerOption, skillCodeFromToken } from "@leros/store";
 import {
 	Command,
 	CommandEmpty,
@@ -66,9 +66,22 @@ function parseSelectedAssistantNames(value: string): string[] {
 	);
 }
 
-function parseSelectedSlashLabels(value: string): string[] {
+function selectedSkillCodesFromComposer(
+	composerRef: RefObject<StructuredComposerHandle | null>,
+	skillOptions: PluginComposerOption[],
+): string[] {
+	const tokens = composerRef.current?.getComposerTokens() ?? [];
 	return dedupeValues(
-		Array.from(value.matchAll(/(?:^|\s)\/([^\s@/]+)/g)).map((match) => match[1] ?? ""),
+		tokens
+			.filter((token) => token.kind === "skill")
+			.map((token) => {
+				const id = skillCodeFromToken(token);
+				if (id) return id;
+				const raw = token.label.replace(/^\/+/, "").trim();
+				return (
+					skillOptions.find((skill) => skill.label === raw || skill.code === raw)?.code ?? ""
+				);
+			}),
 	);
 }
 
@@ -116,10 +129,13 @@ export function ComposerActionBar({
 		() => parseSelectedAssistantNames(inputValue),
 		[inputValue],
 	);
-	const selectedSlashLabels = useMemo(() => parseSelectedSlashLabels(inputValue), [inputValue]);
 	const selectedSkillCodes = useMemo(
-		() => selectedSlashLabels.filter((code) => skillOptions.some((option) => option.code === code)),
-		[selectedSlashLabels, skillOptions],
+		() => selectedSkillCodesFromComposer(composerRef, skillOptions),
+		[composerRef, inputValue, skillOptions],
+	);
+	const selectedSkillCodeSet = useMemo(
+		() => new Set(selectedSkillCodes.map((code) => code.toLowerCase())),
+		[selectedSkillCodes],
 	);
 	const filteredAssistants = useMemo(() => {
 		const query = assistantSearch.trim().toLowerCase();
@@ -140,11 +156,11 @@ export function ComposerActionBar({
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
 		return skillOptions.filter((skill) => {
-			if (selectedSkillCodes.includes(skill.code)) return false;
+			if (selectedSkillCodeSet.has(skill.code.toLowerCase())) return false;
 			if (!query) return true;
 			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
-	}, [selectedSkillCodes, skillOptions, skillSearch]);
+	}, [selectedSkillCodeSet, skillOptions, skillSearch]);
 	const filteredConnectors = useMemo(() => {
 		const query = connectorSearch.trim().toLowerCase();
 		return connectorOptions.filter((connector) => {
