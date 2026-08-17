@@ -525,7 +525,7 @@ func TestPluginSkillPreparerFetchesMissingInvokedSkill(t *testing.T) {
 	defer server.Close()
 	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
 		context.Background(),
-		&agentrundomain.RunRequest{RunID: "run-invoked", Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/docx create a report"}}}},
+		&agentrundomain.RunRequest{RunID: "run-invoked", Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: `<skill-chip data-code="docx">docx</skill-chip> create a report`}}}},
 		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
@@ -583,7 +583,7 @@ func TestPluginSkillPreparerRetriesInvokedProjectSkillAfterProjectPreparationFai
 			},
 			Input: agentrundomain.InputContext{
 				Messages: []agentrundomain.InputMessage{{
-					Role: "user", Content: "/car-selection choose a family car",
+					Role: "user", Content: `<skill-chip data-code="car-selection">car-selection</skill-chip> choose a family car`,
 				}},
 			},
 		},
@@ -624,7 +624,7 @@ func TestPluginSkillPreparerReturnsInvokedSkillPreparationError(t *testing.T) {
 		&agentrundomain.RunRequest{
 			RunID: "run-missing-invoked",
 			Input: agentrundomain.InputContext{
-				Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/missing do work"}},
+				Messages: []agentrundomain.InputMessage{{Role: "user", Content: `<skill-chip data-code="missing">missing</skill-chip> do work`}},
 			},
 		},
 		WorkspacePreparation{TaskDir: t.TempDir()},

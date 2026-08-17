@@ -269,7 +269,7 @@ func (p *MessagePoster) RunNewMessage(
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
 		return nil, err
 	}
-	if len(skilltoken.ParseTokensOnly(req.Content)) > 0 {
+	if skilltoken.HasInvokedSkills(req.Content) {
 		result := bindInvokedSkillsToProject(
 			ctx,
 			p.db,
@@ -409,7 +409,7 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 	}
 
 	title := o.defaultTitle("新的队友对话")
-	runes := []rune(strings.TrimSpace(o.req.Content))
+	runes := []rune(skilltoken.DisplayText(strings.TrimSpace(o.req.Content)))
 	if len(runes) > 0 && len(runes) <= 50 {
 		title = string(runes)
 	} else if len(runes) > 50 {
@@ -588,7 +588,7 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 	}
 
 	taskTitle := o.defaultTitle("新的队友任务")
-	runes := []rune(strings.TrimSpace(o.req.Content))
+	runes := []rune(skilltoken.DisplayText(strings.TrimSpace(o.req.Content)))
 	if len(runes) > 0 && len(runes) <= 50 {
 		taskTitle = string(runes)
 	} else if len(runes) > 50 {
@@ -684,7 +684,7 @@ func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types
 	}
 	systemPrompt := da.SystemPrompt
 	if message != nil {
-		evolution, err := p.buildAssistantEvolutionContext(ctx, assistantID, message.Content)
+		evolution, err := p.buildAssistantEvolutionContext(ctx, assistantID, skilltoken.DisplayText(message.Content))
 		if err != nil {
 			logs.WarnContextf(ctx, "buildExecutionTarget: assistant %d evolution context skipped: %v", assistantID, err)
 		} else if evolution.promptExtension != "" {
@@ -1434,9 +1434,7 @@ func (p *MessagePoster) buildRepoName(orgID uint, projectPublicID string) string
 	return fmt.Sprintf("%s-%d-%s", p.env, orgID, projectPublicID)
 }
 
-// writeSkillInvokeResources parses /skill tokens from message content and writes
-// message_resource records so that skill invocations are tracked at the service layer
-// before the worker task is published.
+// writeSkillInvokeResources writes message_resource records from skill chips in content.
 func (p *MessagePoster) writeSkillInvokeResources(ctx context.Context, session *types.Session, message *types.SessionMessage) {
 	if p.db == nil || message == nil || session == nil {
 		return

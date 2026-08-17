@@ -361,7 +361,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		req.Role == string(types.MessageRoleUser) &&
 		session.ProjectID != nil &&
 		*session.ProjectID != 0 &&
-		len(skilltoken.ParseTokensOnly(req.Content)) > 0 {
+		skilltoken.HasInvokedSkills(req.Content) {
 		project, err := db.GetProjectByID(ctx, s.db, *session.ProjectID)
 		if err != nil {
 			logs.WarnContextf(ctx, "get project for invoked Skill association failed: %v", err)
@@ -530,7 +530,7 @@ func (s *sessionService) firstUserMessage(ctx context.Context, sessionID uint) (
 }
 
 func fallbackWorkTitle(content string) string {
-	runes := []rune(strings.TrimSpace(content))
+	runes := []rune(strings.TrimSpace(skilltoken.DisplayText(content)))
 	if len(runes) > workTitleMaxRunes {
 		return string(runes[:workTitleMaxRunes])
 	}

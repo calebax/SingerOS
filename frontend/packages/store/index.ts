@@ -182,6 +182,17 @@ export {
 	useTopicStore,
 } from "./appStore";
 export {
+	formatTaskDisplayTitle,
+	hasComposerSkillTokens,
+	parseSkillChips,
+	prepareOutgoingComposer,
+	skillChipMarkup,
+	skillChipsToComposerState,
+	skillChipsToPlainText,
+	skillCodeFromToken,
+} from "./chat/send/composerSkills";
+export type { ParsedSkillChip } from "./chat/send/composerSkills";
+export {
 	buildComposerFolderUploadSummaryMessage,
 	COMPOSER_UPLOAD_ACCEPT,
 	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,

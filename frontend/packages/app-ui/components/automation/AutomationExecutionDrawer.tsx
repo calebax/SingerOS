@@ -1,7 +1,7 @@
 "use client";
 
 import type { AutomationExecutionItem, AutomationItem } from "@leros/store";
-import { useAutomationStore } from "@leros/store";
+import { skillChipsToPlainText, useAutomationStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@leros/ui/components/ui/sheet";
 import { cn } from "@leros/ui/lib/utils";
@@ -202,7 +202,7 @@ export function AutomationExecutionDrawer({
 							<div>
 								<div className="text-xs font-medium text-slate-400 mb-1.5">任务指令</div>
 								<div className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap rounded-lg bg-slate-50/70 p-3.5 border border-slate-100/80 font-normal">
-									{currentAutomation?.instruction || "暂无指令"}
+									{skillChipsToPlainText(currentAutomation?.instruction || "") || "暂无指令"}
 								</div>
 							</div>
 						</div>
