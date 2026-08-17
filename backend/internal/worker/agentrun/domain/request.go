@@ -139,9 +139,11 @@ type InputContext struct {
 
 // InputMessage is a simple role/content message snapshot.
 type InputMessage struct {
-	Role       string `json:"role"`
-	Content    string `json:"content"`
-	SenderName string `json:"sender_name,omitempty"`
+	ID           string `json:"message_id,omitempty"`
+	Role         string `json:"role"`
+	Content      string `json:"content"`
+	SenderUserID *uint  `json:"sender_user_id,omitempty"`
+	SenderName   string `json:"sender_name,omitempty"`
 }
 
 // Attachment describes an input attachment made available to the run.
@@ -288,10 +290,14 @@ func BuildUserInput(req *RunRequest) string {
 					name = "user"
 				}
 			}
+			messageRef := fmt.Sprintf("message_id=%s", message.ID)
+			if strings.TrimSpace(message.ID) == "" {
+				messageRef = fmt.Sprintf("message_index=%d", i+1)
+			}
 			if message.Role == "assistant" {
-				lines = append(lines, fmt.Sprintf("【AI 队友回复】\n[%d] AI 队友 「%s」发送：「%s」", i+1, name, message.Content))
+				lines = append(lines, fmt.Sprintf("【AI 队友回复】\n[%s] AI 队友「%s」发送：「%s」", messageRef, name, message.Content))
 			} else {
-				lines = append(lines, fmt.Sprintf("【用户问题】\n[%d] 用户 「%s」发送：「%s」", i+1, name, message.Content))
+				lines = append(lines, fmt.Sprintf("【用户问题】\n[%s] 用户「%s」发送：「%s」", messageRef, name, message.Content))
 			}
 		}
 		return strings.Join(lines, "\n")

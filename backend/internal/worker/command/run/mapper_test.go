@@ -85,12 +85,16 @@ func TestReplyToMessageIDsDeduplicatesInputMessageIDs(t *testing.T) {
 }
 
 func TestInputMessagesFromTaskPreservesSenderName(t *testing.T) {
+	firstUserID := uint(1001)
 	got := inputMessagesFromTask([]messaging.ChatMessage{
-		{ID: "1", Role: messaging.MessageRoleUser, Content: "hi", SenderName: "Alice"},
+		{ID: "1", Role: messaging.MessageRoleUser, Content: "hi", SenderUserID: &firstUserID, SenderName: "Alice"},
 		{ID: "2", Role: messaging.MessageRoleAssistant, Content: "hello", SenderName: "Alpha"},
 	})
-	if len(got) != 2 || got[0].SenderName != "Alice" || got[1].SenderName != "Alpha" {
-		t.Fatalf("sender names not preserved: %+v", got)
+	if len(got) != 2 || got[0].ID != "1" || got[0].SenderName != "Alice" || got[1].SenderName != "Alpha" {
+		t.Fatalf("message metadata not preserved: %+v", got)
+	}
+	if got[0].SenderUserID == nil || *got[0].SenderUserID != firstUserID {
+		t.Fatalf("sender user ID not preserved: %+v", got[0].SenderUserID)
 	}
 }
 

@@ -111,12 +111,22 @@ func inputMessagesFromTask(messages []messaging.ChatMessage) []agentrundomain.In
 	result := make([]agentrundomain.InputMessage, 0, len(messages))
 	for _, message := range messages {
 		result = append(result, agentrundomain.InputMessage{
-			Role:       string(message.Role),
-			Content:    message.Content,
-			SenderName: message.SenderName,
+			ID:           message.ID,
+			Role:         string(message.Role),
+			Content:      message.Content,
+			SenderUserID: cloneUserID(message.SenderUserID),
+			SenderName:   message.SenderName,
 		})
 	}
 	return result
+}
+
+func cloneUserID(value *uint) *uint {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func attachmentsFromTask(attachments []messaging.Attachment) []agentrundomain.Attachment {

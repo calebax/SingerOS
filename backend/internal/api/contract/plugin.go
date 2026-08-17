@@ -28,6 +28,7 @@ type ListPluginsRequest struct {
 	Status                  string `form:"status" json:"status,omitempty"`
 	Category                string `form:"category" json:"category,omitempty"`
 	Keyword                 string `form:"keyword" json:"keyword,omitempty"`
+	Offset                  int    `form:"offset" json:"offset,omitempty"`
 	Limit                   int    `form:"limit" json:"limit,omitempty"`
 	ExcludeMarketplaceBased bool   `form:"exclude_marketplace_based" json:"exclude_marketplace_based,omitempty"`
 }

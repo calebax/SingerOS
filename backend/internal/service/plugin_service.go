@@ -114,6 +114,7 @@ func (s *pluginService) ListPlugins(
 		Kind:                    req.Kind,
 		Status:                  req.Status,
 		Keyword:                 req.Keyword,
+		Offset:                  max(req.Offset, 0),
 		Limit:                   limit,
 		ExcludeMarketplaceBased: req.ExcludeMarketplaceBased,
 		ViewerUin:               uin,
