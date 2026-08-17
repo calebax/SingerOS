@@ -3,6 +3,7 @@ import {
 	hasComposerSkillTokens,
 	prepareOutgoingComposer,
 	skillChipMarkup,
+	skillChipsToComposerState,
 } from "@leros/store";
 import { describe, expect, it } from "vitest";
 
@@ -100,5 +101,30 @@ describe("formatTaskDisplayTitle", () => {
 		expect(
 			formatTaskDisplayTitle(`<skill-chip data-code="bid-backfill">投标文件回填</skill-chip>`),
 		).toBe("投标文件回填");
+	});
+});
+
+describe("skillChipsToComposerState", () => {
+	it("restores slash mentions and skill tokens from stored chips", () => {
+		const chip = skillChipMarkup("daily-report", "日报 Skill");
+		expect(skillChipsToComposerState(`${chip} 生成日报`)).toEqual({
+			value: "/日报 Skill 生成日报",
+			tokens: [
+				{
+					kind: "skill",
+					id: "daily-report",
+					label: "/日报 Skill",
+					start: 0,
+					end: "/日报 Skill".length,
+				},
+			],
+		});
+	});
+
+	it("leaves legacy slash instructions unchanged", () => {
+		expect(skillChipsToComposerState("请使用 /daily-report 生成日报")).toEqual({
+			value: "请使用 /daily-report 生成日报",
+			tokens: [],
+		});
 	});
 });

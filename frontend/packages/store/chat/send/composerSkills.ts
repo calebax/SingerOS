@@ -65,6 +65,36 @@ export function skillChipMarkup(code: string, label: string): string {
 	return `<skill-chip data-code="${trimmedCode}">${escapeHtml(text)}</skill-chip>`;
 }
 
+/** 把存库的 skill-chip 还原成输入框可见的 /展示名 + token，供编辑回填。 */
+export function skillChipsToComposerState(content: string): {
+	value: string;
+	tokens: ComposerToken[];
+} {
+	const chips = parseSkillChips(content);
+	if (chips.length === 0) {
+		return { value: content, tokens: [] };
+	}
+	let value = "";
+	let cursor = 0;
+	const tokens: ComposerToken[] = [];
+	for (const chip of chips) {
+		value += content.slice(cursor, chip.start);
+		const label = `/${stripSkillSlash(chip.label || chip.code)}`;
+		const start = value.length;
+		value += label;
+		tokens.push({
+			kind: "skill",
+			id: chip.code,
+			label,
+			start,
+			end: start + label.length,
+		});
+		cursor = chip.end;
+	}
+	value += content.slice(cursor);
+	return { value, tokens };
+}
+
 export function prepareOutgoingComposer(
 	content: string,
 	tokens: ComposerToken[],
