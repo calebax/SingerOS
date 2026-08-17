@@ -2,6 +2,7 @@
 
 export { type AppNavigation, LeftRail } from "./LeftRail";
 export { ProjectPage } from "./ProjectPage";
+export { PayrollWorkbench } from "./PayrollWorkbench";
 export { Shell } from "./Shell";
 export { TaskDetailPage } from "./TaskDetailPage";
 export { WorkbenchPanel } from "./WorkbenchPanel";

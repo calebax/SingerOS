@@ -136,6 +136,7 @@ const iconMap: Record<string, React.ReactNode> = {
 };
 
 const navIdToView: Record<string, ViewMode> = {
+	chat: "chat",
 	workbench: "workbench",
 	"projects-hub": "projectsHub",
 	knowledge: "knowledge",
@@ -412,10 +413,10 @@ export function LeftRail({
 		// 中文注释：非创建者不应停留在组织管理页（含直达路由），自动回到新建任务首页。
 		if (isOrgCreator || !inOrgAdminMode) return;
 		if (navigation) {
-			navigation.goToRoute("workbench");
+			navigation.goToRoute("chat");
 			return;
 		}
-		switchView("workbench");
+		switchView("chat");
 	}, [inOrgAdminMode, isOrgCreator, navigation, switchView]);
 
 	const handleNavClick = (item: NavItem) => {
@@ -443,10 +444,10 @@ export function LeftRail({
 
 	const handleBackToWorkbench = () => {
 		if (navigation) {
-			navigation.goToRoute("workbench");
+			navigation.goToRoute("chat");
 			return;
 		}
-		switchView("workbench");
+		switchView("chat");
 	};
 
 	const handleProjectClick = (projectId: string) => {
@@ -562,10 +563,10 @@ export function LeftRail({
 
 		if (leavingActiveProject) {
 			if (navigation) {
-				navigation.goToRoute("workbench");
+				navigation.goToRoute("chat");
 				return;
 			}
-			switchView("workbench");
+			switchView("chat");
 		}
 	};
 
@@ -585,10 +586,10 @@ export function LeftRail({
 
 		if (deletingActiveProject) {
 			if (navigation) {
-				navigation.goToRoute("workbench");
+				navigation.goToRoute("chat");
 				return;
 			}
-			switchView("workbench");
+			switchView("chat");
 		}
 	};
 
@@ -628,10 +629,10 @@ export function LeftRail({
 	const handleLogout = () => {
 		logout();
 		if (navigation) {
-			navigation.goToRoute("workbench");
+			navigation.goToRoute("chat");
 			return;
 		}
-		switchView("workbench");
+		switchView("chat");
 	};
 
 	const isItemActive = (item: NavItem) => {
@@ -1706,7 +1707,8 @@ function DesktopUpdateMenuSection() {
 }
 
 function getRouteActive(path: string, view: ViewMode) {
-	if (view === "workbench") return path === "/" || path.startsWith("/workbench");
+	if (view === "chat") return path === "/" || path.startsWith("/chat");
+	if (view === "workbench") return path.startsWith("/workbench");
 	if (view === "orgAssistants") return path.startsWith("/org/assistants");
 	if (view === "orgProfile") return path.startsWith("/org/profile") || path === "/org";
 	if (view === "orgDepartments") return path.startsWith("/org/departments");

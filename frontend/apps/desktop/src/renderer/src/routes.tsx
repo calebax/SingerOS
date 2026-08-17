@@ -3,6 +3,7 @@ import {
 	AutomationExecutionPage,
 	AutomationListView,
 	OrgAdminPage,
+	PayrollWorkbench,
 	ProjectPage,
 	ProjectsHubView,
 	Shell,
@@ -21,7 +22,9 @@ export function AppRoutes() {
 	return (
 		<Shell navigation={navigation}>
 			<Routes>
-				<Route path="/" element={<Navigate to="/workbench" replace />} />
+				<Route path="/" element={<Navigate to="/chat" replace />} />
+
+				<Route path="/chat" element={<ChatRoutePage />} />
 
 				<Route path="/workbench" element={<WorkbenchRoutePage />} />
 
@@ -55,7 +58,7 @@ export function AppRoutes() {
 				<Route path="/skills" element={<SkillMarketView navigation={navigation} />} />
 
 				{/* 中文注释：资源库路由暂时隐藏，直接访问时回退到工作台。 */}
-				<Route path="/knowledge" element={<Navigate to="/workbench" replace />} />
+				<Route path="/knowledge" element={<Navigate to="/chat" replace />} />
 
 				<Route path="/automation" element={<AutomationListView navigation={navigation} />} />
 
@@ -63,7 +66,7 @@ export function AppRoutes() {
 
 				<Route path="/settings" element={<DesktopSettingsPage />} />
 
-				<Route path="*" element={<Navigate to="/workbench" replace />} />
+				<Route path="*" element={<Navigate to="/chat" replace />} />
 			</Routes>
 		</Shell>
 	);
@@ -79,15 +82,17 @@ function useDesktopNavigation(): AppNavigation {
 
 		goToRoute(route) {
 			const routePath = {
+				chat: "/chat",
+
 				workbench: "/workbench",
 
 				tasks: "/tasks",
 
-				project: "/workbench",
+				project: "/chat",
 
 				projectsHub: "/projects",
 
-				taskDetail: "/workbench",
+				taskDetail: "/chat",
 
 				orgProfile: "/org/profile",
 
@@ -106,7 +111,7 @@ function useDesktopNavigation(): AppNavigation {
 				settings: "/settings",
 			}[route];
 
-			navigate(routePath ?? "/workbench");
+			navigate(routePath ?? "/chat");
 		},
 
 		goToProject(projectId) {
@@ -130,6 +135,12 @@ function useDesktopNavigation(): AppNavigation {
 }
 
 function WorkbenchRoutePage() {
+	const navigation = useDesktopNavigation();
+
+	return <PayrollWorkbench navigation={navigation} />;
+}
+
+function ChatRoutePage() {
 	const navigation = useDesktopNavigation();
 
 	return <WorkbenchPanel navigation={navigation} />;

@@ -22,11 +22,12 @@ export function useWebNavigation(): AppNavigation {
 		currentPath: pathname,
 		goToRoute(route) {
 			const routePath = {
+				chat: "/chat",
 				workbench: "/workbench",
 				tasks: "/tasks",
-				project: "/workbench",
+				project: "/chat",
 				projectsHub: "/projects",
-				taskDetail: "/workbench",
+				taskDetail: "/chat",
 				orgProfile: "/org/profile",
 				orgDepartments: "/org/departments",
 				orgAssistants: "/org/assistants",
@@ -37,7 +38,7 @@ export function useWebNavigation(): AppNavigation {
 				settings: "/settings",
 			}[route];
 			if (!routePath) {
-				router.push("/workbench");
+				router.push("/chat");
 				return;
 			}
 			router.push(routePath);

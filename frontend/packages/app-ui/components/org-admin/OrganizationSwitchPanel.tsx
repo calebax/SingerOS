@@ -93,7 +93,7 @@ export function OrganizationSwitchPanel({
 	}, [mode, resetValidation]);
 
 	useEffect(() => {
-		if (!waitingForNavigation || navigation?.currentPath !== "/workbench") return;
+		if (!waitingForNavigation || navigation?.currentPath !== "/chat") return;
 		setWaitingForNavigation(false);
 		onDone?.();
 	}, [navigation?.currentPath, onDone, waitingForNavigation]);
@@ -106,11 +106,11 @@ export function OrganizationSwitchPanel({
 
 		// 中文注释：组织切换成功后先完成导航，避免项目权限预加载阻塞并产生迟到跳转。
 		if (navigation) {
-			setWaitingForNavigation(navigation.currentPath !== "/workbench");
-			navigation.goToRoute("workbench");
-			if (navigation.currentPath === "/workbench") onDone?.();
+			setWaitingForNavigation(navigation.currentPath !== "/chat");
+			navigation.goToRoute("chat");
+			if (navigation.currentPath === "/chat") onDone?.();
 		} else {
-			switchView("workbench");
+			switchView("chat");
 			onDone?.();
 		}
 
