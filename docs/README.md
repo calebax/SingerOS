@@ -81,6 +81,9 @@
 | [operations/worker-status-api.md](operations/worker-status-api.md) | Worker 运维状态查询接口与响应字段 |
 | [operations/issue-labels.md](operations/issue-labels.md) | Issue 标签体系 |
 | [operations/project-structure.md](operations/project-structure.md) | 项目结构与文件索引 |
+| [operations/private-deployment-resources.md](operations/private-deployment-resources.md) | 私有化资源清单（硬件/镜像/端口/存储） |
+| [operations/private-deployment-config.md](operations/private-deployment-config.md) | 私有化配置清单（Helm values 与 config.yaml） |
+| [operations/private-deployment-guide.md](operations/private-deployment-guide.md) | 私有化部署手册（k3s + Helm） |
 
 ### API 文档
 
