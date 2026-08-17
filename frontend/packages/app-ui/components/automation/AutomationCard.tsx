@@ -1,6 +1,6 @@
 "use client";
 
-import type { AutomationItem } from "@leros/store";
+import { type AutomationItem, skillChipsToPlainText } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	DropdownMenu,
@@ -57,7 +57,7 @@ export function AutomationCard({
 
 				{/* 任务指令 */}
 				<p className="mt-2.5 line-clamp-2 min-h-9 w-full text-xs leading-relaxed text-slate-500">
-					{automation.instruction || "暂无指令"}
+					{skillChipsToPlainText(automation.instruction || "") || "暂无指令"}
 				</p>
 			</button>
 

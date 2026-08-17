@@ -11,6 +11,7 @@ export {
 	parseSkillChips,
 	prepareOutgoingComposer,
 	skillChipMarkup,
+	skillChipsToComposerState,
 	skillChipsToPlainText,
 	skillCodeFromToken,
 } from "./composerSkills";

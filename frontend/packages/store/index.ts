@@ -187,6 +187,7 @@ export {
 	parseSkillChips,
 	prepareOutgoingComposer,
 	skillChipMarkup,
+	skillChipsToComposerState,
 	skillChipsToPlainText,
 	skillCodeFromToken,
 } from "./chat/send/composerSkills";
