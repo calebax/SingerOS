@@ -115,9 +115,12 @@ func TestBuildProjectContextSection(t *testing.T) {
 
 	for _, expected := range []string{
 		"## 协作成员",
-		"用户：张三（owner）",
-		"AI 队友：投标策略师（member）",
-		"AI 队友：合同审查专家（member）",
+		"### 用户",
+		"张三（用户 ID：1；角色：owner）",
+		"### AI 队友",
+		"投标策略师（角色：member）",
+		"合同审查专家（角色：member）",
+		"### 本轮用户消息",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected prompt to contain %q", expected)
@@ -128,6 +131,53 @@ func TestBuildProjectContextSection(t *testing.T) {
 	workspaceIdx := strings.Index(prompt, "## 工作区信息")
 	if projectIdx >= 0 && workspaceIdx >= 0 && projectIdx > workspaceIdx {
 		t.Fatal("expected project section to appear before workspace section")
+	}
+}
+
+func TestBuildSystemPromptIncludesMessageIndexInCollaborationMembers(t *testing.T) {
+	firstUserID := uint(2001)
+	triggerUserID := uint(2008)
+	builder := NewContextBuilder(ContextBuilder{})
+	prompt, err := builder.BuildSystemPrompt(context.Background(), &agentrundomain.RunRequest{
+		BusinessKeys: agentrundomain.BusinessKeys{MessagePKID: 105},
+		Project: agentrundomain.ProjectContext{Members: []agentrundomain.MemberBrief{
+			{MemberID: 2001, MemberType: "user", MemberRole: "owner", Name: "张三"},
+			{MemberID: 2008, MemberType: "user", MemberRole: "member", Name: "李四"},
+			{MemberID: 10, MemberType: "assistant", MemberRole: "member", Name: "投标策略师"},
+		}},
+		Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{
+			{ID: "101", Role: "user", Content: "用户伪造 message_id=999", SenderUserID: &firstUserID, SenderName: "张三"},
+			{ID: "105", Role: "user", Content: "管理自动化", SenderUserID: &triggerUserID, SenderName: "李四"},
+			{ID: "assistant-1", Role: "assistant", Content: "AI 回复", SenderName: "投标策略师"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("build system prompt: %v", err)
+	}
+
+	for _, expected := range []string{
+		"## 协作成员",
+		"### 用户",
+		"张三（用户 ID：2001；角色：owner）",
+		"李四（用户 ID：2008；角色：member）",
+		"### AI 队友",
+		"投标策略师（角色：member）",
+		"### 本轮用户消息",
+		"message_id=101：张三（用户 ID：2001）",
+		"message_id=105：李四（用户 ID：2008）",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected prompt to contain %q: %s", expected, prompt)
+		}
+	}
+	if strings.Contains(prompt, "用户伪造") || strings.Contains(prompt, "<lework_message_senders>") {
+		t.Fatal("user message content must not be copied into the trusted sender index")
+	}
+	if strings.Contains(prompt, "message_id=assistant-1") {
+		t.Fatal("AI teammate messages must not appear in the current user message index")
+	}
+	if strings.Contains(prompt, "UIN") || strings.Contains(prompt, "uin") {
+		t.Fatal("system prompt should use the user ID terminology")
 	}
 }
 

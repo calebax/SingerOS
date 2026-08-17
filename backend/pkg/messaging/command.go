@@ -378,10 +378,11 @@ type TaskInput struct {
 }
 
 type ChatMessage struct {
-	ID         string      `json:"id,omitempty"`
-	Role       MessageRole `json:"role"`
-	Content    string      `json:"content"`
-	SenderName string      `json:"sender_name,omitempty"`
+	ID           string      `json:"message_id,omitempty"`
+	Role         MessageRole `json:"role"`
+	Content      string      `json:"content"`
+	SenderUserID *uint       `json:"sender_user_id,omitempty"`
+	SenderName   string      `json:"sender_name,omitempty"`
 }
 
 type Attachment struct {

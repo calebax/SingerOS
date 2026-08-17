@@ -210,6 +210,36 @@ func TestPreparerInjectsTaskSkillDirectoryIntoRuntimeEnvironment(t *testing.T) {
 	}
 }
 
+func TestPreparerDoesNotInjectPerRunUserIDIntoRuntimeEnvironment(t *testing.T) {
+	workspace := WorkspacePreparation{WorkDir: t.TempDir()}
+	preparer := NewPreparerWithSkillPreparer(
+		agentruncontext.NewContextBuilder(agentruncontext.ContextBuilder{}),
+		&workspaceManagerStub{preparation: workspace},
+		nil,
+		modelrouter.NewModelStore(),
+		nil,
+		skillPreparerStub{},
+	)
+	request := &agentrundomain.RunRequest{
+		RunID: "run-per-run-user-id",
+		Input: agentrundomain.InputContext{
+			Type:     agentrundomain.InputTypeMessage,
+			Messages: []agentrundomain.InputMessage{{Role: "user", Content: "hello"}},
+		},
+		Model:        agentrundomain.ModelOptions{Provider: "openai", Model: "test-model", APIKey: "test-key"},
+		BusinessKeys: agentrundomain.BusinessKeys{UinPK: 42},
+	}
+
+	prepared, cleanup, err := preparer.Prepare(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	defer cleanup()
+	if len(prepared.Execution.ExtraEnv) != 0 {
+		t.Fatalf("Execution ExtraEnv = %#v, want no per-run user ID environment", prepared.Execution.ExtraEnv)
+	}
+}
+
 func TestPreparerResolvesProviderSessionForRuntimeResume(t *testing.T) {
 	workspace := WorkspacePreparation{WorkDir: "/workspace/repo"}
 	sessionStore := &providerSessionRecorder{

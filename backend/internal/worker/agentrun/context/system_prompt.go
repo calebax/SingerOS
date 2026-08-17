@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -193,17 +194,57 @@ func buildMemoryContext(ctx context.Context, reader MemoryReader) string {
 }
 
 func buildProjectContextSection(req *agentrundomain.RunRequest) string {
-	if req == nil || len(req.Project.Members) == 0 {
+	if req == nil || (len(req.Project.Members) == 0 && len(req.Input.Messages) == 0) {
 		return ""
 	}
 	var sb strings.Builder
 	sb.WriteString("## 协作成员\n")
+	sb.WriteString("\n### 用户\n")
 	for _, m := range req.Project.Members {
-		label := "用户"
-		if m.MemberType == "assistant" {
-			label = "AI 队友"
+		if strings.TrimSpace(strings.ToLower(m.MemberType)) != "user" {
+			continue
 		}
-		sb.WriteString(fmt.Sprintf("- %s：%s（%s）\n", label, m.Name, m.MemberRole))
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			name = "未命名用户"
+		}
+		role := strings.TrimSpace(m.MemberRole)
+		if role == "" {
+			role = "member"
+		}
+		sb.WriteString(fmt.Sprintf("- %s（用户 ID：%d；角色：%s）\n", name, m.MemberID, role))
+	}
+
+	sb.WriteString("\n### AI 队友\n")
+	for _, m := range req.Project.Members {
+		if strings.TrimSpace(strings.ToLower(m.MemberType)) != "assistant" {
+			continue
+		}
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			name = "未命名队友"
+		}
+		role := strings.TrimSpace(m.MemberRole)
+		if role == "" {
+			role = "member"
+		}
+		sb.WriteString(fmt.Sprintf("- %s（角色：%s）\n", name, role))
+	}
+
+	sb.WriteString("\n### 本轮用户消息\n")
+	for _, message := range req.Input.Messages {
+		if strings.TrimSpace(strings.ToLower(message.Role)) != "user" || strings.TrimSpace(message.ID) == "" {
+			continue
+		}
+		name := strings.TrimSpace(message.SenderName)
+		if name == "" {
+			name = "未命名用户"
+		}
+		userID := "未提供"
+		if message.SenderUserID != nil {
+			userID = strconv.FormatUint(uint64(*message.SenderUserID), 10)
+		}
+		sb.WriteString(fmt.Sprintf("- message_id=%s：%s（用户 ID：%s）\n", message.ID, name, userID))
 	}
 	return strings.TrimSpace(sb.String())
 }
