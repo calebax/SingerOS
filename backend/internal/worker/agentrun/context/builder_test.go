@@ -53,6 +53,9 @@ func TestContextBuilderBuildSystemPromptLayers(t *testing.T) {
 	if !strings.Contains(prompt, "Memory 工具使用指导") {
 		t.Fatal("expected prompt to contain Layer 5 memory guidance")
 	}
+	if !strings.Contains(prompt, "## 对外输出边界") {
+		t.Fatal("expected prompt to contain the generic output boundary")
+	}
 
 	if strings.Contains(prompt, "Skill 工具使用指导") {
 		t.Fatal("expected prompt NOT to contain standalone 'Skill 工具使用指导' section (merged into skill loading)")

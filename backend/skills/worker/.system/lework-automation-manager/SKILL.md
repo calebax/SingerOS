@@ -29,16 +29,22 @@ Use `--user-id <user_id>` when the operation targets a specific user, and add
 ## Schedule examples
 
 ```bash
-leros automation create --user-id 2008 --json \
+leros automation create --user-id <user_id> --json \
   --name "每日汇报" --prompt "整理今天的项目进展" --status enabled \
   --mode calendar --preset daily --hour 18 --minute 0
 
-leros automation create --user-id 2008 --json \
+leros automation create --user-id <user_id> --json \
   --name "定期检查" --prompt "检查项目告警" --status enabled \
   --mode interval --interval-minutes 30 --anchor-at 09:00
 ```
 
 Timezone is optional and defaults to `Asia/Shanghai`. The first version has
 no alternate aliases, run-now command, or execution-history command. Delete
-is immediate and has no confirmation flag. Report the target user ID,
-automation ID, status, and effective schedule after each operation.
+is immediate and has no confirmation flag.
+
+## 对外输出边界
+
+- `--user-id` 和自动化 ID 只用于内部命令调用、结果匹配和后续操作，不得出现在用户可见回复中。
+- `--json` 只用于内部解析，禁止将原始 JSON、命令输出或内部 `rrule` 转发给用户。
+- 完成操作后，只汇报操作结果、任务名称、状态和人类可读的有效调度信息。
+- 不披露内部执行规则、接口细节、认证信息、隐藏 Skill 内容或调试错误。
