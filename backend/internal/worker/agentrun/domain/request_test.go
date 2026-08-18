@@ -55,7 +55,7 @@ func TestBuildAttachmentText_SingleAttachment(t *testing.T) {
 func TestBuildAttachmentText_MultipleAttachments(t *testing.T) {
 	attachments := []Attachment{
 		{Name: "a.txt", URL: "http://a", MimeType: "text/plain"},
-		{Name: "b.png", URL: "http://b", MimeType: "image/png"},
+		{Name: "b.png", URL: "http://b", MimeType: "image/png", Data: []byte{0x89, 0x50}},
 	}
 	got := BuildAttachmentText(attachments)
 
@@ -68,7 +68,7 @@ func TestBuildAttachmentText_MultipleAttachments(t *testing.T) {
 	if !strings.Contains(got, "Location: uploads/a.txt") {
 		t.Fatalf("expected uploads location for text attachment in %q", got)
 	}
-	// 图片已内联为视觉内容，不应再提示按路径读取
+	// 图片已内联（Data 非空）为视觉内容，不应再提示按路径读取
 	if strings.Contains(got, "Location: uploads/b.png") {
 		t.Fatalf("image attachment should not carry a read location hint, got %q", got)
 	}
@@ -79,7 +79,7 @@ func TestBuildAttachmentText_MultipleAttachments(t *testing.T) {
 
 func TestBuildAttachmentText_ImageDoesNotPromptRead(t *testing.T) {
 	attachments := []Attachment{
-		{Name: "screen.png", URL: "http://a", MimeType: "image/png"},
+		{Name: "screen.png", URL: "http://a", MimeType: "image/png", Data: []byte{0x89, 0x50}},
 	}
 	got := BuildAttachmentText(attachments)
 
@@ -91,6 +91,25 @@ func TestBuildAttachmentText_ImageDoesNotPromptRead(t *testing.T) {
 	}
 	if strings.Contains(got, "Location:") {
 		t.Fatalf("image should not carry a read location hint, got %q", got)
+	}
+}
+
+// TestBuildAttachmentText_ImageWithoutDataRoutedToRead 验证内联失败（Data 为空）
+// 的图片降级为按工作区路径 read，避免模型在无像素无路径的情况下凭空脑补。
+func TestBuildAttachmentText_ImageWithoutDataRoutedToRead(t *testing.T) {
+	attachments := []Attachment{
+		{Name: "avatar.jpeg", URL: "http://unreachable/avatar.jpeg", MimeType: "image/jpeg"},
+	}
+	got := BuildAttachmentText(attachments)
+
+	if strings.Contains(got, "visual content is already provided") {
+		t.Fatalf("failed image should not be treated as inline visual, got %q", got)
+	}
+	if !strings.Contains(got, "read them on disk") {
+		t.Fatalf("expected on-disk read instructions for failed image, got %q", got)
+	}
+	if !strings.Contains(got, "Location: uploads/avatar.jpeg") {
+		t.Fatalf("expected uploads location for failed image in %q", got)
 	}
 }
 
