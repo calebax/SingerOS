@@ -48,9 +48,11 @@ function placeCaretAtEnd(element: HTMLElement) {
 function TestHarness({
 	skillOptions,
 	onValueChange,
+	onSkillPickerOpen,
 }: {
 	skillOptions: ComposerSkillOption[];
 	onValueChange?: (value: string) => void;
+	onSkillPickerOpen?: () => void;
 }) {
 	const [value, setValue] = useState("");
 
@@ -69,6 +71,7 @@ function TestHarness({
 			placeholder="请输入"
 			isProjectVariant
 			skillOptions={skillOptions}
+			onSkillPickerOpen={onSkillPickerOpen}
 		/>
 	);
 }
@@ -223,7 +226,13 @@ function ProjectTriggerHarness({
 	);
 }
 
-function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
+function ActionBarHarness({
+	onValueChange,
+	onSkillPickerOpen,
+}: {
+	onValueChange?: (value: string) => void;
+	onSkillPickerOpen?: () => void;
+}) {
 	const [value, setValue] = useState("");
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const skillOptions: ComposerSkillOption[] = [
@@ -259,7 +268,12 @@ function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) =
 				isProjectVariant
 				skillOptions={skillOptions}
 			/>
-			<ComposerActionBar inputValue={value} composerRef={composerRef} skillOptions={skillOptions} />
+			<ComposerActionBar
+				inputValue={value}
+				composerRef={composerRef}
+				skillOptions={skillOptions}
+				onSkillPickerOpen={onSkillPickerOpen}
+			/>
 		</div>
 	);
 }
@@ -363,6 +377,49 @@ describe("StructuredComposer", () => {
 			expect(mention).toBeInTheDocument();
 			expect(mention).toHaveAttribute("data-mention-label", "/doc-coauthoring");
 		});
+	});
+
+	it("打开技能选择器时刷新一次，关闭后重开时再次刷新", async () => {
+		const user = userEvent.setup();
+		const onSkillPickerOpen = vi.fn();
+
+		render(
+			<TestHarness
+				onSkillPickerOpen={onSkillPickerOpen}
+				skillOptions={[{ code: "docx", label: "docx", description: "", keywords: [] }]}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("/");
+		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(1));
+
+		await user.keyboard("{Enter}");
+		await user.click(textbox);
+		placeCaretAtEnd(textbox);
+		await user.keyboard("/");
+		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(2));
+	});
+
+	it("技能搜索框内继续输入时不重复刷新", async () => {
+		const user = userEvent.setup();
+		const onSkillPickerOpen = vi.fn();
+
+		render(
+			<TestHarness
+				onSkillPickerOpen={onSkillPickerOpen}
+				skillOptions={[{ code: "docx", label: "docx", description: "", keywords: [] }]}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("/");
+		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(1));
+
+		await user.type(screen.getByPlaceholderText("搜索技能"), "doc");
+		expect(onSkillPickerOpen).toHaveBeenCalledTimes(1);
 	});
 
 	it("技能展示名称与 code 不同时插入展示名，并把 code 放进 token id", async () => {
@@ -473,6 +530,16 @@ describe("StructuredComposer", () => {
 			expect(screen.getByText("内置展示名称")).toBeInTheDocument();
 			expect(screen.getAllByText("市场展示名称")).toHaveLength(1);
 		});
+	});
+
+	it("工具栏打开技能弹窗时触发刷新", async () => {
+		const user = userEvent.setup();
+		const onSkillPickerOpen = vi.fn();
+
+		render(<ActionBarHarness onSkillPickerOpen={onSkillPickerOpen} />);
+
+		await user.click(screen.getByRole("button", { name: "添加技能" }));
+		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(1));
 	});
 
 	it("连续选择多个技能时第一个技能仍保持 mention 样式", async () => {

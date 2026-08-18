@@ -6,13 +6,13 @@ import {
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
 	getComposerUploadAccept,
+	hasComposerSkillTokens,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,
 	isSystemDefaultAssistant,
 	type ProjectMember,
-	projectFileApi,
-	hasComposerSkillTokens,
 	prepareOutgoingComposer,
+	projectFileApi,
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
@@ -183,6 +183,9 @@ export function ChatInput({
 		true,
 		isProjectVariant ? "project" : "all",
 	);
+	const handleSkillPickerOpen = useCallback(() => {
+		void reloadSkillOptions();
+	}, [reloadSkillOptions]);
 	const { connectorOptions, connectorsLoading } = useComposerConnectorOptions({
 		projectId: isProjectVariant ? currentProjectId : null,
 	});
@@ -773,6 +776,7 @@ export function ChatInput({
 							assistantOptions={projectAssistantOptions}
 							skillOptions={skillOptions}
 							skillsLoading={skillsLoading}
+							onSkillPickerOpen={handleSkillPickerOpen}
 							assistantSelectionMode="single"
 							prefill={activeProjectComposerPrefill}
 							onPrefillConsumed={consumeProjectComposerPrefill}
@@ -794,6 +798,7 @@ export function ChatInput({
 									assistantOptions={projectAssistantOptions}
 									skillOptions={skillOptions}
 									skillsLoading={skillsLoading}
+									onSkillPickerOpen={handleSkillPickerOpen}
 									assistantSelectionMode="single"
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
