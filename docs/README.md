@@ -86,6 +86,7 @@
 | [operations/private-deployment-resources.md](operations/private-deployment-resources.md) | 私有化资源清单（硬件/镜像/端口/存储） |
 | [operations/private-deployment-config.md](operations/private-deployment-config.md) | 私有化配置清单（Helm values 与 config.yaml） |
 | [operations/private-deployment-guide.md](operations/private-deployment-guide.md) | 私有化部署手册（k3s + Helm） |
+| [operations/private-deployment-model.md](operations/private-deployment-model.md) | 私有化模型部署（vLLM + Qwen3.6-27B） |
 
 ### API 文档
 

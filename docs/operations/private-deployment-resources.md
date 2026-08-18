@@ -4,7 +4,7 @@
 
 ## 1. 部署架构概览
 
-私有化以单节点 k3s 集群为推荐形态，通过 Helm Chart 部署以下组件：
+私有化以单节点 k3s 集群为推荐形态，通过 Helm Chart 部署以下组件，并以 vLLM 私有化承载大模型：
 
 | 组件 | 角色 | 必选/可选 |
 |------|------|:---:|
@@ -16,7 +16,10 @@
 | `mysql` | account 统一登录服务数据库 | account 启用时必选 |
 | `redis` | account 服务缓存 | account 启用时必选 |
 | `account` | IAM/统一登录服务 | 可选（企业版认证） |
-| `leros-traefik` | Ingress 控制器（可选，默认复用 k3s 自带） | 可选 |
+| `leros-traefik` | 独立 Ingress 控制器（NodePort 38081） | 可选 |
+| `vLLM` | 大模型推理服务（私有化，Qwen3.6-27B） | 必选 * |
+
+> \* 私有化部署模型不下外网，需本地推理。模型按 `Qwen3.6-27B` 承载，见 `private-deployment-model.md`。
 
 ## 2. 硬件资源
 
@@ -42,7 +45,7 @@
 | 磁盘 | 系统盘 80 GB + 数据盘 500 GB（SSD，建议 RAID1/10） |
 | 网络 | 千兆内网，对外可访问 |
 
-> `worker-base`（`private` 版）镜像约 4~5 GB；TeX Live、Playwright Chromium、FFmpeg 等重型组件主要在作业时占用内存与 CPU。需要大模型外部 API 出口，或通过 ModelRouter 代理时需具备外网/专线访问。
+> `worker-base`（`private` 版）镜像约 4~5 GB；TeX Live、Playwright Chromium、FFmpeg 等重型组件主要在作业时占用内存与 CPU。大模型由本地 vLLM 承载（见 2.5），通常无需外网；仅当业务还需要调用外部连接器时才有外网/专线需求。
 
 ### 2.3 节点约束
 
@@ -63,6 +66,23 @@
 | leros-traefik | 50m / 64Mi | 500m / 256Mi |
 
 > 上表为本交付的**建议值**，是 `values.yaml` 配置参考；与 Chart 默认（`deployments/helm/leros/values.yaml.template`）可不同，部署时按需在 `resources` 覆盖即可。小内存环境（最小配置）可将 worker limits 内存进一步下调，重任务（PDF/OCR）再上调。
+
+### 2.5 模型推理硬件（GPU，Qwen3.6-27B）
+
+模型私有化需独立 GPU 资源，可与 k3s 数据节点分离部署。详细见 `private-deployment-model.md`。
+
+该模型 **BF16 全精度**（权重加载约 51.1 GiB），**单卡 A100-80G 即可运行**（实测 `max_model_len 131072/128K` 时并发约 2.3×）。**上下文越长并发越低**，并发优先时降低上下文（KV Cache 换取并发）：
+
+| 配置 | 总显存 | 说明 |
+|------|:---:|------|
+| **1 × 80 GB**（A100/A800-80G / H100） | 80 GB | 最低基线，已实测，低并发（128K→2.3×）；降上下文可提并发 |
+| **2 × 80 GB**（A100/A800-80G / H100） | 160 GB | 推荐，双倍 KV Cache，并发与上下文兼顾 |
+| 4 × 48 GB（A6000 Ada / A40） | 192 GB | 高并发推荐 |
+| 4 × 80 GB（H100 / A100-80G） | 320 GB | 高并发 + 长上下文 |
+
+> 显卡数量须为 2 的幂（`--tensor-parallel-size`：1/2/4/8）；不做量化（BF16 保证质量）。CPU 8+/16 核，内存 32/64 GB，磁盘系统 100 GB + 权重 60 GB，网络千兆。
+>
+> 选型建议：按业务**最大输入长度 + 期望并发**先反推开 `max_model_len`，再据此定卡数；单张 80 GB 卡能跑，但并发与上下文需二选其一。
 
 ## 3. 镜像清单
 
@@ -89,9 +109,18 @@
 | `registry.cn-beijing.aliyuncs.com/yygu/corekg:busybox_1.36.1` | Worker workspace 初始化镜像 |
 | `registry.yygu.cn/rancher/mirrored-library-traefik:3.3.6` | Traefik（可选） |
 
-> 私有化通常将镜像预导入节点本地（`docker load` / `ctr -n k8s.io images import`），本地镜像无需镜像拉取凭证，相应关闭 `imagePullSecret`。若客户未预导入而走内网镜像仓库拉取，则需提前同步并配置内网仓库及凭证。
+### 3.3 模型镜像与权重
 
-### 3.3 worker-base 版次差异（`private` 相对 `saas`）
+私有化模型推理镜像与权重，见 `private-deployment-model.md`：
+
+| 项 | 说明 |
+|------|------|
+| 推理镜像 | `vllm/vllm-openai:latest`（需预导入 GPU 节点） |
+| 模型权重 | `Qwen/Qwen3.6-27B`（ModelScope，权重文件约 55.6 GB，加载占用约 51.1 GiB，必导入内网） |
+
+> 私有化通常将镜像预导入节点本地（`docker load` / `ctr -n k8s.io images import`），本地镜像无需镜像拉取凭证，相应关闭 `imagePullSecret`。若客户未预导入而走内网镜像仓库拉取，则需提前同步并配置内网仓库及凭证。`vllm-openai` 镜像与 `Qwen3.6-27B` 权重同样需预导入 GPU 节点。
+
+### 3.4 worker-base 版次差异（`private` 相对 `saas`）
 
 | 组件 | saas | private |
 |---|:---:|:---:|
@@ -119,6 +148,7 @@ NATS 默认开启认证，端口不对集群外暴露。访问方式以 Helm Ser
 |------|------|------|
 | `38081`（hostPort/NodePort） | Leros HTTP API / Web 前端 / account | `traefik`（错开 k3s 已占用的 80） |
 | `8443`（hostPort/NodePort） | HTTPS | `traefik`（错开 k3s 已占用的 443） |
+| `8080`（vLLM） | 模型推理 OpenAI 兼容 API（仅集群/内网） | `vLLM` |
 
 ## 5. 持久化存储
 
@@ -137,7 +167,7 @@ NATS 默认开启认证，端口不对集群外暴露。访问方式以 Helm Ser
 
 | 依赖 | 用途 | 必选 |
 |------|------|:---:|
-| 大模型 API（OpenAI / Anthropic / DeepSeek 等）或 ModelRouter 代理 | LLM 推理 | ✅ |
+| 大模型推理（本地 vLLM + Qwen3.6-27B 推荐） | LLM 推理（私有化模型不下外网） | ✅ |
 | 邮件/短信通道（默认需配置） | 通知、验证码 | 视产品需要 |
 | 企业微信/GitHub/GitLab 等连接器回调 | 渠道集成 | 视产品需要 |
 | IAM 服务（企业版认证时才需要） | 统一登录 | account/IAM 启用时 |
@@ -148,6 +178,8 @@ NATS 默认开启认证，端口不对集群外暴露。访问方式以 Helm Ser
 - [ ] 所有组件固定同一节点（`nodeSelector`）
 - [ ] `dataHostPath` 数据盘已挂载并纳入备份
 - [ ] JWT Secret、NATS 口令、数据库口令、存储签名密钥均已替换为随机强口令（默认由 `gen-values.sh` 生成）
-- [ ] LLM `apiKey` 已填写
+- [ ] vLLM 镜像与 `Qwen3.6-27B` 权重已预导入 GPU 节点，`--served-model-name` 与 `llm.model` 一致
+- [ ] `llm.baseUrl` 指向 vLLM `:8080/v1`，`curl :8080/v1/models` 返回预期模型
+- [ ] LLM `apiKey` 已填写（vLLM 无鉴权时可填占位串）
 - [ ] 域名与 TLS 证书已配置（`ingress` / Traefik）
 - [ ] 外网/专线到模型服务链路验证通过

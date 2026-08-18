@@ -179,14 +179,28 @@ Helm values 占位符：
 
 | 字段 | 说明 |
 |------|------|
-| `llm.apiKey` | **必填**，模型 API Key（手动填写） |
-| `llm.provider` | `openai` / `anthropic` / `deepseek` 等 |
-| `llm.model` | 模型名（如 `deepseek-chat`） |
-| `llm.baseUrl` | 模型服务地址 |
+| `llm.apiKey` | **必填**，模型 API Key（私有化 vLLM 无鉴权时可填占位串） |
+| `llm.provider` | `openai` / `anthropic` / `deepseek` 等（vLLM 用 `openai`） |
+| `llm.model` | 模型名（私有化时与 vLLM `--served-model-name` 一致，如 `Qwen3.6-27B`） |
+| `llm.baseUrl` | 模型服务地址（私有化时指向 vLLM `http://<vllm-host>:8080/v1`） |
 | `llm.vision` | 默认模型是否支持多模态输入 |
 | `llm.top_p` / `frequency_penalty` / `presence_penalty` | 采样参数（仅 opencode runtime 生效，留空走默认） |
-| `llm.limit.context` / `limit.output` | 上下文/输出 token 上限（留空默认 `context 200000 / output 16384`） |
+| `llm.limit.context` / `limit.output` | 上下文/输出 token 上限；`context` 须与 vLLM `--max-model-len` 一致，`output` 为单次生成上限（按任务规模调，越大越占 KV Cache）。如 `65536/8192` |
 | `llm.translation` | 翻译模型开关与配置 |
+
+私有化模型本地部署的完整接入见 `private-deployment-model.md`，配置示例：
+
+```yaml
+llm:
+  provider: openai
+  model: Qwen3.6-27B
+  baseUrl: "http://<vllm-host>:8080/v1"
+  apiKey: "not-needed"
+  # 上下文须与 vLLM --max-model-len 一致；并发优先时调小（KV Cache 换并发）
+  limit:
+    context: 65536
+    output: 8192             # 单次输出上限，按任务规模调整；越大越占 KV Cache
+```
 
 ## 8. Enterprise IAM（企业版认证，`-tags enterprise` 构建）
 

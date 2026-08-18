@@ -10,15 +10,14 @@
 |----|------|
 | 集群 | k3s / Kubernetes ≥ 1.24，单节点即可 |
 | 工具 | Helm 3、kubectl |
-| 镜像 | `leros` / `leros-worker` 及中间件镜像已推送至可访问的镜像仓库（内网以同步到客户仓库为佳） |
+| 镜像 | `leros` / `leros-worker` 及中间件镜像已预导入节点（内网同步/本地导入） |
 | 节点 | 所有组件通过 hostPath 共享数据，**须固定到同一节点** |
-| 镜像仓库 | 私有镜像仓库（Harbor/Registry）及拉取凭据 |
-| 外部网络 | 到模型服务（LLM API / ModelRouter）的链路 |
+| GPU | vLLM 模型推理用 GPU 节点（可与 k3s 数据节点分离） |
+| 外部网络 | 私有化模型本地部署后可无外网（仅需开机导入所需的模型权重已就位） |
 
 ### 1.1 安装 k3s（单机）
 
 ```bash
-# 推荐最小安装（本手册使用复用自带 Traefik 方案，无需禁用它）
 curl -sfL https://get.k3s.io | sh -
 
 # 查看节点名（用于后续 nodeSelector）
@@ -113,6 +112,30 @@ imagePullSecret:
 
 > `worker-base:private` 较大（约 4–5 GB），提前确认 tar 传输带宽与内网仓库容量。
 
+### 2.3 私有化模型（vLLM + Qwen3.6-27B）
+
+私有化要求模型数据不出内网，需本地部署大模型。完整方案与显卡配置见 `private-deployment-model.md`，本处以 vLLM + NVIDIA GPU 承载 `Qwen/Qwen3.6-27B`（BF16 权重加载约 51.1 GiB，**单卡 A100-80G 即可运行**）：
+
+1. **准备权重**：在可联网环境从 ModelScope / HF 下载 `Qwen/Qwen3.6-27B`（约 55.6 GB）到内网 GPU 机器，避免模型外泄。
+2. **启动 vLLM**（单卡 A100-80G 示例，与实测命令一致）：
+   ```bash
+   vllm serve /model/Qwen3.6-27B/ \
+     --tensor-parallel-size 1 \
+     --trust-remote-code \
+     --served-model-name Qwen3.6-27B \
+     --gpu-memory-utilization 0.925 \
+     --default-chat-template-kwargs '{"enable_thinking": false}' \
+     --max-model-len=65536 \
+     --enable-prefix-caching \
+     --enable-auto-tool-choice \
+     --tool-call-parser qwen3_coder \
+     --dtype bfloat16 \
+     --port 8080
+   ```
+3. **验证**：`curl http://<vllm-host>:8080/v1/models` 返回包含 `Qwen3.6-27B` 的模型列表。
+
+> **上下文 × 并发权衡**：单卡下 `--max-model-len` 越大并发越低（128K 约 2.3×）。并发优先时降低上下文（如 32K/16K）以 KV Cache 换并发；多卡（2×80/4×48）可显著提升并发与上下文。显卡数量须为 2 的幂（`--tensor-parallel-size` 1/2/4/8）、不做量化（BF16 保证质量）。GPU 可独立于 k3s 数据节点；复用 k3s 节点需装 `nvidia-container-toolkit`，不将模型与普通 worker 混部。
+
 ## 3. 生成配置
 
 基于 Chart 的 `gen-values.sh` 生成 `values.yaml`，随机密钥自动产生：
@@ -135,9 +158,15 @@ cd deployments/helm/leros
 nodeSelector:
   kubernetes.io/hostname: <节点名>
 
-# ② LLM API Key（若走 ModelRouter 代理，则填代理侧配置）
+# ② LLM 指向本地方私有化模型（见 2.3 vLLM）
 llm:
-  apiKey: <你的模型 API Key>
+  provider: openai
+  model: Qwen3.6-27B              # 与 vLLM --served-model-name 一致
+  baseUrl: "http://<vllm-host>:8080/v1"
+  apiKey: "not-needed"            # vLLM 无鉴权时填占位串即可
+  limit:
+    context: 65536                # 64K，与 --max-model-len 一致；并发优先可调小
+    output: 8192                 # 单次输出上限，按任务规模调整；越大越占 KV Cache
 
 # ③ 如需固定版本，覆盖镜像标签（默认 latest）
 server:
@@ -148,6 +177,7 @@ worker:
 
 > `postgresql/nats/server/worker` 的 `nodeSelector` 自动回退到顶层 `nodeSelector`，无需重复填。
 > 私有化预导入镜像走本地拉取，一般无需 `imagePullSecret`；仅走内网镜像仓库拉取时才需填凭证（参考 2.2 方式 2）。
+> 模型接入为 **外挂依赖**：先按 2.3 完成 vLLM 部署，再让 `llm.baseUrl` 指向其 `:8080/v1`。
 
 ### 3.2 对外访问（独立 Traefik + NodePort 38081）
 
@@ -207,8 +237,9 @@ kubectl -n leros logs deployment/leros
 ### 4.2 端到端验证
 
 1. Web/接口可访问（依 3.2 选定的访问方式）。
-2. 创建一个数字员工，发起一次任务，确认 Worker 被拉起且任务执行成功、产物落盘。
-3. 检查 `leros-storage` 与 `leros-workspace` 目录有产出。
+2. `curl <vllm-host>:8080/v1/models` 确认本地模型已就绪。
+3. 创建一个数字员工，发起一次任务，确认 Worker 被拉起、模型走本地 vLLM、任务执行成功且产物落盘。
+4. 检查 `leros-storage` 与 `leros-workspace` 目录有产出。
 
 > 生产环境终端用户使用下发的前端软件包（Web/桌面）访问后端接口；Web 镜像仅测试用途。
 
@@ -222,6 +253,7 @@ kubectl -n leros logs deployment/leros
 | `<dataHostPath>/nats` | 消息队列持久化 |
 | `<dataHostPath>/storage` | 产物/文件存储 |
 | `<dataHostPath>/workspace` | 工作空间 |
+| GPU 机器 `~/models` | 模型权重（`Qwen3.6-27B`，损坏后需重新下载，建议保留 tar 备份） |
 
 **PostgreSQL 逻辑备份**（以 leros 业务库为例）：
 
@@ -243,6 +275,8 @@ helm upgrade leros ./deployments/helm/leros -n leros -f my-values.yaml
 > `helm upgrade` 用 values 重渲 Server ConfigMap 会覆盖 `scheduler.worker_image`；如需固定 worker 镜像版本，升级前在 `values.yaml` 同步更新 `worker.image`。
 >
 > 私有化升级需先导入新版本镜像（参考 2.2 方式 1），再到 `values.yaml` 更新 `server.image` / `worker.image` 后执行 `helm upgrade`。
+>
+> 模型升级（vLLM 镜像或 Qwen 权重）为独立操作：更新 GPU 节点上的 vLLM 镜像/权重后重启容器即可，不涉及 Helm（见 `private-deployment-model.md`）。
 
 数据库 Schema 变更由启动时 AutoMigrate / 迁移逻辑自动处理（见 `AGENTS.md` 的 DB 迁移约束），升级新版本镜像后重启即自动执行。
 
