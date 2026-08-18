@@ -92,6 +92,7 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 	if req == nil {
 		return "", func() {}, fmt.Errorf("run request is required")
 	}
+	policy := applyDisabledPluginPolicy(ctx, req)
 	viewRoot, err := taskSkillViewRoot(workspace)
 	if err != nil {
 		return "", func() {}, err
@@ -100,18 +101,18 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 		return "", func() {}, fmt.Errorf("prepare task skill directory: %w", err)
 	}
 	cleanup := func() { removeSkillLinks(viewRoot) }
-	if err := linkSkillChildren(systemSkillsDir(), viewRoot); err != nil {
+	if err := linkSkillChildren(systemSkillsDir(), viewRoot, policy); err != nil {
 		cleanup()
 		return "", cleanup, fmt.Errorf("link worker system skills: %w", err)
 	}
-	p.preparePluginSkills(ctx, req.Plugins, viewRoot)
-	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot); err != nil {
+	p.preparePluginSkills(ctx, req.Plugins, viewRoot, policy)
+	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot, policy); err != nil {
 		return "", cleanup, fmt.Errorf("prepare invoked skills: %w", err)
 	}
 	return viewRoot, cleanup, nil
 }
 
-func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots []agentrundomain.PluginSnapshot, viewRoot string) {
+func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots []agentrundomain.PluginSnapshot, viewRoot string, policy disabledPluginPolicy) {
 	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
 	if err != nil {
 		logs.WarnContextf(ctx, "resolve worker Skill directory failed: %v", err)
@@ -152,6 +153,10 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 			continue
 		}
 		if descriptor == nil {
+			continue
+		}
+		if policy.skillDisabled(descriptor.Code) {
+			logs.InfoContextf(ctx, "disabled embedded Skill for run: code=%s plugin_id=%s", descriptor.Code, snapshot.PluginID)
 			continue
 		}
 		code, err := organizationSkillName(descriptor.Code)
@@ -248,7 +253,7 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 
 // prepareInvokedSkills installs the latest organization Skill when an explicit
 // invocation is not actually available in the prepared run view.
-func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages []agentrundomain.InputMessage, viewRoot string) error {
+func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages []agentrundomain.InputMessage, viewRoot string, policy disabledPluginPolicy) error {
 	missing := make(map[string]struct{})
 	for _, message := range messages {
 		if message.Role != "user" {
@@ -258,6 +263,10 @@ func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages
 			code, err := organizationSkillName(token)
 			if err != nil {
 				logs.WarnContextf(ctx, "skip invalid invoked Skill %q: %v", token, err)
+				continue
+			}
+			if policy.skillDisabled(code) {
+				logs.InfoContextf(ctx, "skip explicitly invoked disabled Skill: code=%s", code)
 				continue
 			}
 			if isSystemSkill(code) || hasSkillDocument(filepath.Join(viewRoot, code)) {
@@ -696,7 +705,7 @@ func isHex(value string) bool {
 	return true
 }
 
-func linkSkillChildren(source, destination string) error {
+func linkSkillChildren(source, destination string, policy disabledPluginPolicy) error {
 	entries, err := os.ReadDir(source)
 	if os.IsNotExist(err) {
 		return nil
@@ -710,6 +719,9 @@ func linkSkillChildren(source, destination string) error {
 		}
 		name, err := safeSkillName(entry.Name())
 		if err != nil {
+			continue
+		}
+		if policy.skillDisabled(name) {
 			continue
 		}
 		if err := replaceRunSkillLink(filepath.Join(source, name), filepath.Join(destination, name)); err != nil {

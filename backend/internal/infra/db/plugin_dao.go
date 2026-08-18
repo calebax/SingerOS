@@ -65,6 +65,7 @@ type PluginListFilter struct {
 	Kind                    string
 	Status                  string
 	Keyword                 string
+	Offset                  int
 	Limit                   int
 	ExcludeMarketplaceBased bool
 	ViewerUin               uint
@@ -184,6 +185,9 @@ func ListPlugins(ctx context.Context, database *gorm.DB, orgID uint, filter Plug
 	}
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit)
+	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
 	}
 
 	var plugins []types.Plugin

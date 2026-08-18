@@ -11,6 +11,7 @@ import (
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 func withChips(instruction string, codes ...string) string {
@@ -124,6 +125,28 @@ func TestApplyInvokedSkillsNoSkill(t *testing.T) {
 
 	if req.Input.Messages[0].Content != original {
 		t.Fatalf("expected content unchanged, got %q", req.Input.Messages[0].Content)
+	}
+}
+
+func TestApplyInvokedSkillsKeepsDisabledSkillAsPlainText(t *testing.T) {
+	setupSkillsRoot(t)
+	req := &agentrundomain.RunRequest{
+		Policy: agentrundomain.PolicyContext{DisabledPlugins: []types.DisabledPlugin{{
+			Kind: types.DisabledPluginKindSkill,
+			Code: "lework-automation-manager",
+		}}},
+		Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{
+			Role:    "user",
+			Content: withChips("执行任务", "lework-automation-manager"),
+		}}},
+	}
+
+	if err := ApplyInvokedSkills(context.Background(), req); err != nil {
+		t.Fatalf("ApplyInvokedSkills() error = %v", err)
+	}
+	content := req.Input.Messages[0].Content
+	if content != "lework-automation-manager 执行任务" {
+		t.Fatalf("disabled Skill chip should remain plain text, got %q", content)
 	}
 }
 

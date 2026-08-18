@@ -21,6 +21,7 @@ import (
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
 	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
@@ -59,6 +60,47 @@ func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
 	}
 	if _, err := os.Stat(prepared); !os.IsNotExist(err) {
 		t.Fatalf("expected cleanup to remove empty task Skill directory, err=%v", err)
+	}
+}
+
+func TestPluginSkillPreparerFiltersDisabledSystemSkill(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	for _, code := range []string{"review", "lework-automation-manager"} {
+		systemSkill := filepath.Join(workspaceRoot, ".leros", "skills", ".system", code)
+		if err := os.MkdirAll(systemSkill, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(systemSkill, "SKILL.md"), []byte("---\nname: "+code+"\ndescription: test\n---\nTest.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	taskDir := t.TempDir()
+	prepared, cleanup, err := NewPluginSkillPreparer("", "").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{
+			RunID: "run-disabled-system-skill",
+			Policy: agentrundomain.PolicyContext{DisabledPlugins: []types.DisabledPlugin{{
+				Kind: types.DisabledPluginKindSkill,
+				Code: "lework-automation-manager",
+			}}},
+			Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{
+				Role: "user", Content: "run the workflow",
+			}}},
+		},
+		WorkspacePreparation{TaskDir: taskDir},
+	)
+	if err != nil {
+		t.Fatalf("PrepareSkills() error = %v", err)
+	}
+	defer cleanup()
+
+	if _, err := os.Lstat(filepath.Join(prepared, "review")); err != nil {
+		t.Fatalf("expected review Skill link: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prepared, "lework-automation-manager")); !os.IsNotExist(err) {
+		t.Fatalf("disabled automation Skill should not be linked, err=%v", err)
 	}
 }
 

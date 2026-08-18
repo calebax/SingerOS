@@ -42,6 +42,8 @@
 | [product/prd.md](product/prd.md) | 产品需求文档 |
 | [product/planning.md](product/planning.md) | 路线图规划 |
 | [product/todo.md](product/todo.md) | 后端开发 TODO |
+| [product/lework-product-whitepaper.md](product/lework-product-whitepaper.md) | Lework 产品功能白皮书（Markdown） |
+| [product/lework-product-whitepaper.pdf](product/lework-product-whitepaper.pdf) | Lework 产品功能白皮书（PDF） |
 
 ### 技术设计
 

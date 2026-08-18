@@ -41,6 +41,7 @@ type ComposerActionBarProps = {
 	assistantOptions?: ComposerAssistantOption[];
 	skillOptions?: PluginComposerOption[];
 	skillsLoading?: boolean;
+	onSkillPickerOpen?: () => void;
 	disableAssistantAndSkill?: boolean;
 	assistantSelectionMode?: "single" | "multiple";
 	executionMode?: "default" | "plan";
@@ -78,9 +79,7 @@ function selectedSkillCodesFromComposer(
 				const id = skillCodeFromToken(token);
 				if (id) return id;
 				const raw = token.label.replace(/^\/+/, "").trim();
-				return (
-					skillOptions.find((skill) => skill.label === raw || skill.code === raw)?.code ?? ""
-				);
+				return skillOptions.find((skill) => skill.label === raw || skill.code === raw)?.code ?? "";
 			}),
 	);
 }
@@ -96,6 +95,7 @@ export function ComposerActionBar({
 	assistantOptions = [],
 	skillOptions = [],
 	skillsLoading,
+	onSkillPickerOpen,
 	disableAssistantAndSkill = false,
 	assistantSelectionMode = "multiple",
 	executionMode,
@@ -117,6 +117,11 @@ export function ComposerActionBar({
 	const [connectorSearch, setConnectorSearch] = useState("");
 	const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
 	const derivedSkillsLoading = skillOpen && skillsLoading;
+
+	useEffect(() => {
+		if (!skillOpen) return;
+		onSkillPickerOpen?.();
+	}, [onSkillPickerOpen, skillOpen]);
 
 	useEffect(() => {
 		if (connectorDisabled) {

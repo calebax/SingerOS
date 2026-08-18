@@ -17,13 +17,13 @@ import { Eye, FileText, FolderOpen, LoaderCircle, Search, Upload, X } from "luci
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BidComparisonIcon } from "../../assets";
 import { filePreviewActions } from "../layout/file-preview-store";
+import { ProjectTaskPickerField } from "../layout/ProjectTaskPicker";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import {
 	collectSelectableFiles,
 	type ProjectFileNode,
 	parseProjectFileList,
 } from "../layout/project-files";
-import { ProjectTaskPickerField } from "../layout/ProjectTaskPicker";
 
 export type BidComparisonProjectFile = {
 	name: string;
@@ -50,7 +50,13 @@ export type BidComparisonConfig = {
 
 type BidComparisonProjectOption = Pick<Project, "id" | "name" | "tasks">;
 
-const REPORT_FORMATS: BidComparisonConfig["reportFormat"][] = ["Word", "PDF", "PPT", "MD"];
+const REPORT_FORMATS: BidComparisonConfig["reportFormat"][] = [
+	"Word",
+	// 中文注释：PDF/PPT 报告效果不佳，暂时从弹窗入口隐藏。
+	// "PDF",
+	// "PPT",
+	"MD",
+];
 
 /** 中文注释：用项目路径/publicId 区分同名文件，本地上传用 upload: 前缀。 */
 function fileSelectionKey(file: BidComparisonProjectFile): string {
@@ -260,7 +266,7 @@ export function BidComparisonConfigDialog({
 						<div className="mb-2 block text-sm font-semibold text-slate-800">
 							生成的对比报告格式
 						</div>
-						<div className="grid grid-cols-4 gap-2">
+						<div className="grid grid-cols-2 gap-2">
 							{REPORT_FORMATS.map((format) => (
 								<button
 									key={format}
@@ -388,7 +394,7 @@ function FilePickerSection({
 		<div>
 			<div className="mb-2 flex items-end justify-between">
 				<div className="text-sm font-semibold text-slate-800">
-					{title} {required ? <span className="text-[var(--leros-primary)]">*</span> : null}
+					{title} {required ? <span className="text-red-500">*</span> : null}
 				</div>
 				<span className="text-xs text-slate-400">{limitText}</span>
 			</div>
@@ -667,45 +673,44 @@ function ProjectFilePicker({
 								return (
 									<div
 										key={id}
-										role="button"
-										tabIndex={0}
-										onClick={() => toggleFile(file)}
-										onKeyDown={(event) => {
-											if (event.key === "Enter" || event.key === " ") {
-												event.preventDefault();
-												toggleFile(file);
-											}
-										}}
 										className={cn(
-											"flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+											"flex w-full items-center gap-1 rounded-xl px-3 py-2.5 transition-colors",
 											checked ? "bg-[var(--leros-primary-softer)]" : "hover:bg-slate-50",
 										)}
 									>
-										<Checkbox
-											checked={checked}
-											tabIndex={-1}
-											className="pointer-events-none data-checked:border-[var(--leros-primary)] data-checked:bg-[var(--leros-primary)]"
-										/>
-										<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200/70">
-											<ProjectFileTypeIcon fileName={file.name} className="size-5 object-contain" />
-										</div>
-										<div className="min-w-0 flex-1">
-											<div className="truncate text-sm font-medium text-slate-800">{file.name}</div>
-											<div className="mt-0.5 truncate text-xs text-slate-400">
-												{[
-													file.size > 0 ? formatBytes(file.size) : "",
-													file.createdAt ? formatFileTime(file.createdAt) : "",
-												]
-													.filter(Boolean)
-													.join(" · ") || "项目文件"}
-											</div>
-										</div>
 										<button
 											type="button"
-											onClick={(event) => {
-												event.stopPropagation();
-												previewFile(file);
-											}}
+											onClick={() => toggleFile(file)}
+											className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+										>
+											<Checkbox
+												checked={checked}
+												tabIndex={-1}
+												className="pointer-events-none data-checked:border-[var(--leros-primary)] data-checked:bg-[var(--leros-primary)]"
+											/>
+											<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200/70">
+												<ProjectFileTypeIcon
+													fileName={file.name}
+													className="size-5 object-contain"
+												/>
+											</div>
+											<div className="min-w-0 flex-1">
+												<div className="truncate text-sm font-medium text-slate-800">
+													{file.name}
+												</div>
+												<div className="mt-0.5 truncate text-xs text-slate-400">
+													{[
+														file.size > 0 ? formatBytes(file.size) : "",
+														file.createdAt ? formatFileTime(file.createdAt) : "",
+													]
+														.filter(Boolean)
+														.join(" · ") || "项目文件"}
+												</div>
+											</div>
+										</button>
+										<button
+											type="button"
+											onClick={() => previewFile(file)}
 											className="relative z-10 rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-[var(--leros-primary)]"
 											title="预览文件"
 										>

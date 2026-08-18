@@ -102,6 +102,7 @@ type StructuredComposerProps = {
 	assistantOptions?: ComposerAssistantOption[];
 	skillOptions?: ComposerSkillOption[];
 	skillsLoading?: boolean;
+	onSkillPickerOpen?: () => void;
 	directivesDisabled?: boolean;
 	assistantDirectivesDisabled?: boolean;
 	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
@@ -339,7 +340,9 @@ function formatSkillTokenDisplayLabel(
 	skillCode?: string,
 ): string {
 	if (skillCode) {
-		const option = skillOptions.find((skill) => skill.code.toLowerCase() === skillCode.toLowerCase());
+		const option = skillOptions.find(
+			(skill) => skill.code.toLowerCase() === skillCode.toLowerCase(),
+		);
 		if (option?.label) return option.label;
 	}
 	const code = skillTokenCode(label);
@@ -877,6 +880,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			assistantOptions = [],
 			skillOptions,
 			skillsLoading,
+			onSkillPickerOpen,
 			directivesDisabled = false,
 			assistantDirectivesDisabled = false,
 			onProjectTrigger,
@@ -1046,6 +1050,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		useEffect(() => {
 			setActiveIndex(0);
 		}, [trigger?.kind, trigger?.query]);
+
+		useEffect(() => {
+			if (trigger?.kind !== "command") return;
+			onSkillPickerOpen?.();
+		}, [onSkillPickerOpen, trigger?.kind]);
 
 		useEffect(() => {
 			if (trigger?.kind === "command") {

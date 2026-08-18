@@ -82,7 +82,7 @@ func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, databas
 	if caller.OrgID > 0 {
 		if p.orgRepo != nil {
 			orgMember, err := p.orgRepo.GetOrgMember(ctx, 0, caller.Uin)
-			if err == nil && orgMember != nil {
+			if err == nil && orgMember != nil && strings.TrimSpace(orgMember.UserName) != "" {
 				return orgMember.UserName
 			}
 		}
@@ -122,6 +122,8 @@ type MessageRoutingOverride struct {
 type MessageExecutionOptions struct {
 	// QueueDeadline is the latest time the Worker may start this message.
 	QueueDeadline *time.Time
+	// Policy contains run-scoped execution restrictions supplied by the caller.
+	Policy messaging.TaskPolicy
 }
 
 // runCommandID 决定运行命令的稳定 ID。所有消息入口都使用相同的 session+sequence 规则。
@@ -195,6 +197,9 @@ func (p *MessagePoster) PostMessage(
 		// The transport record and Worker command must share the same start deadline:
 		// publication can succeed while the Worker inbox is still waiting for a compute slot.
 		effectiveOpts := &MessageExecutionOptions{QueueDeadline: &deadline}
+		if opts != nil {
+			effectiveOpts.Policy = opts.Policy
+		}
 		posterTx := *p
 		posterTx.db = tx
 		topic, command, err := posterTx.buildWorkerTask(ctx, session, message, executionMode, routing, effectiveOpts)
@@ -847,6 +852,17 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 			}
 		}
 	}
+	// The organization member directory is the canonical display-name source
+	// for both project members and message senders. Keep the user repository as
+	// a fallback for environments where the directory is unavailable.
+	if len(userIDs) > 0 && p.orgRepo != nil {
+		for _, uin := range userIDs {
+			member, err := p.orgRepo.GetOrgMember(ctx, 0, uin)
+			if err == nil && member != nil && strings.TrimSpace(member.UserName) != "" {
+				userMap[uin] = member.UserName
+			}
+		}
+	}
 	assistantMap := make(map[uint]string)
 	if len(assistantIDs) > 0 {
 		if assistants, err := infradb.GetAssistantsByIDs(ctx, p.db, assistantIDs); err == nil {
@@ -943,6 +959,10 @@ func (p *MessagePoster) buildWorkerTask(
 	if len(postOpts) > 0 && postOpts[0] != nil {
 		opts = postOpts[0]
 	}
+	policy := messaging.TaskPolicy{}
+	if opts != nil {
+		policy = opts.Policy
+	}
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
 	if orgID == 0 && caller != nil {
@@ -1000,10 +1020,11 @@ func (p *MessagePoster) buildWorkerTask(
 					}
 					seen[hm.ID] = true
 					inputMessages = append(inputMessages, messaging.ChatMessage{
-						ID:         fmt.Sprintf("%d", hm.ID),
-						Role:       messaging.MessageRole(hm.Role),
-						Content:    hm.Content,
-						SenderName: hm.SenderName,
+						ID:           fmt.Sprintf("%d", hm.ID),
+						Role:         messaging.MessageRole(hm.Role),
+						Content:      hm.Content,
+						SenderUserID: hm.SenderUin,
+						SenderName:   hm.SenderName,
 					})
 				}
 			}
@@ -1012,10 +1033,11 @@ func (p *MessagePoster) buildWorkerTask(
 	}
 	// 当前新消息追加末尾，携带发言者身份
 	inputMessages = append(inputMessages, messaging.ChatMessage{
-		ID:         fmt.Sprintf("%d", message.ID),
-		Role:       messaging.MessageRoleUser,
-		Content:    message.Content,
-		SenderName: message.SenderName,
+		ID:           fmt.Sprintf("%d", message.ID),
+		Role:         messaging.MessageRoleUser,
+		Content:      message.Content,
+		SenderUserID: message.SenderUin,
+		SenderName:   message.SenderName,
 	})
 	executionTarget := p.buildExecutionTarget(ctx, session, effectiveAssistantID, message)
 	projectContext := p.buildProjectContext(ctx, session, effectiveAssistantID)
@@ -1046,6 +1068,7 @@ func (p *MessagePoster) buildWorkerTask(
 		messaging.RunCommandPayload{
 			TaskType:      messaging.TaskTypeAgentRun,
 			ExecutionMode: string(normalizeExecutionMode(executionMode)),
+			Policy:        policy,
 			Actor: messaging.ActorContext{
 				UserID:      fmt.Sprintf("%d", session.Uin),
 				DisplayName: "",

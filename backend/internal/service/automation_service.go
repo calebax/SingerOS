@@ -53,7 +53,7 @@ func newAutoExecPublicID() string {
 
 // CreateAutomation 创建自动化计划
 func (s *automationService) CreateAutomation(ctx context.Context, req *contract.CreateAutomationRequest) (*contract.Automation, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func (s *automationService) CreateAutomation(ctx context.Context, req *contract.
 
 // GetAutomation 查询自动化详情
 func (s *automationService) GetAutomation(ctx context.Context, publicID string) (*contract.Automation, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (s *automationService) GetAutomation(ctx context.Context, publicID string) 
 
 // UpdateAutomation 更新自动化（部分更新）
 func (s *automationService) UpdateAutomation(ctx context.Context, publicID string, req *contract.UpdateAutomationRequest) (*contract.Automation, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func applyAutomationUpdate(automation *types.Automation, req *contract.UpdateAut
 
 // DeleteAutomation 软删除自动化
 func (s *automationService) DeleteAutomation(ctx context.Context, publicID string) error {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -320,7 +320,7 @@ func (s *automationService) DeleteAutomation(ctx context.Context, publicID strin
 
 // ListAutomations 分页查询当前用户自动化列表
 func (s *automationService) ListAutomations(ctx context.Context, req *contract.ListAutomationsRequest) (*contract.AutomationList, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -434,7 +434,7 @@ func (s *automationService) resolveLinkProject(ctx context.Context, caller *type
 //
 // 停用状态也可调用；不修改 next_run_at；有活动 execution 时返回冲突错误。
 func (s *automationService) RunAutomationNow(ctx context.Context, publicID string) (*contract.AutomationExecution, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +488,7 @@ func (s *automationService) RunAutomationNow(ctx context.Context, publicID strin
 
 // ListAutomationExecutions 分页查询某自动化的执行历史。
 func (s *automationService) ListAutomationExecutions(ctx context.Context, req *contract.ListAutomationExecutionsRequest) (*contract.AutomationExecutionList, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +528,7 @@ func (s *automationService) ListAutomationExecutions(ctx context.Context, req *c
 
 // GetAutomationExecution 查询单条执行详情
 func (s *automationService) GetAutomationExecution(ctx context.Context, publicID string) (*contract.AutomationExecution, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
