@@ -406,3 +406,51 @@ func TestDownscaleMultimodalImageScalesOversizedAndKeepsSmall(t *testing.T) {
 		t.Fatal("expected error for invalid image bytes")
 	}
 }
+
+// TestDownscaleMultimodalImageReencodesByteOversized 验证字节维度兜底：
+// 像素尺寸未超过 maxMultimodalSide 但 base64 超过 maxMultimodalBase64Bytes
+// 的图片（高熵噪声 PNG），也必须被重编码为 JPEG 压到字节阈值内。
+// 这正是缩放阈值(1600)与 opencode 字节阈值(5MiB)之间的盲区，修复前会原样内联、
+// 触发 opencode 内部重编码路径导致 SSE 不推送文本。
+func TestDownscaleMultimodalImageReencodesByteOversized(t *testing.T) {
+	// 构造 1400x1400（长边 ≤1600）的高熵随机噪声 PNG，PNG 对噪声压缩率低，
+	// base64 必然远超 5MiB，复现"尺寸小但字节超限"的盲区。
+	side := 1400
+	img := image.NewRGBA(image.Rect(0, 0, side, side))
+	for i := 0; i < side*side; i++ {
+		img.Pix[i*4] = byte(i * 7919 % 256)
+		img.Pix[i*4+1] = byte(i * 104729 % 256)
+		img.Pix[i*4+2] = byte(i * 15485863 % 256)
+		img.Pix[i*4+3] = 255
+	}
+	var buf bytes.Buffer
+	if err := (&png.Encoder{CompressionLevel: png.NoCompression}).Encode(&buf, img); err != nil {
+		t.Fatalf("encode noisy png: %v", err)
+	}
+	raw := buf.Bytes()
+	if base64Len(raw) <= maxMultimodalBase64Bytes {
+		t.Fatalf("precondition failed: noisy PNG base64 length %d should exceed %d", base64Len(raw), maxMultimodalBase64Bytes)
+	}
+
+	resized, mime, err := downscaleMultimodalImage(raw, "image/png")
+	if err != nil {
+		t.Fatalf("downscaleMultimodalImage: %v", err)
+	}
+	if resized == nil {
+		t.Fatal("expected re-encoded image for byte-oversized input, got nil (would leak into opencode reencode path)")
+	}
+	if mime != "image/jpeg" {
+		t.Fatalf("mime = %q, want image/jpeg", mime)
+	}
+	if base64Len(resized) > maxMultimodalBase64Bytes {
+		t.Fatalf("re-encoded base64 length %d should be <= %d", base64Len(resized), maxMultimodalBase64Bytes)
+	}
+	got, _, err := image.Decode(bytes.NewReader(resized))
+	if err != nil {
+		t.Fatalf("decode resized image: %v", err)
+	}
+	gb := got.Bounds()
+	if gb.Dx() != side || gb.Dy() != side {
+		t.Fatalf("byte-oversized but pixel-fine image should keep dimensions, got %dx%d want %dx%d", gb.Dx(), gb.Dy(), side, side)
+	}
+}

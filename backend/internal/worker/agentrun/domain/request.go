@@ -200,18 +200,19 @@ type PolicyContext struct {
 
 // BuildAttachmentText formats input attachments as a text block for prompt injection.
 //
-// 仅图片作为视觉内容随消息内联注入（见 preparer 的 multimodalAttachmentsForRuntime
-// 与 opencode 的 modalityConfig：vision 模型只声明 image 输入），模型可直接查看，
-// 无需再调用 read 工具；PDF/音视频不具视觉能力，由 opencode 降级为文本提示，
-// 因此归入"按路径读取"。文本块据此分流，避免模型对图片调用 read 拿到
-// "Image read successfully"后产生幻觉。
+// 图片只有在字节真正下载成功（Data 非空）时才作为视觉内容随消息内联注入
+// （见 preparer 的 multimodalAttachmentsForRuntime 与 opencode 的 modalityConfig：
+// vision 模型只声明 image 输入），模型可直接查看，无需再调用 read 工具；
+// 下载失败（Data 为空）的图片与 PDF/音视频一样归入"按路径读取"，避免模型
+// 在既无像素又无路径的情况下凭空脑补。文本块据此分流，避免模型对图片调用
+// read 拿到 "Image read successfully"后产生幻觉。
 func BuildAttachmentText(attachments []Attachment) string {
 	if len(attachments) == 0 {
 		return ""
 	}
 	var inline, external []Attachment
 	for _, a := range attachments {
-		if IsVisualMime(a.MimeType) {
+		if IsVisualMime(a.MimeType) && len(a.Data) > 0 {
 			inline = append(inline, a)
 		} else {
 			external = append(external, a)
