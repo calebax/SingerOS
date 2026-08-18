@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { getComposerUploadAccept, type Project, projectFileApi } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
@@ -448,12 +448,14 @@ function FilePickerSection({
 	);
 }
 
-function ProjectFilePicker({
+export function ProjectFilePicker({
 	open,
 	mode,
 	projects,
 	initialSelected = [],
 	reservedCount = 0,
+	maxCountOverride,
+	titleOverride,
 	onConfirm,
 	onClose,
 }: {
@@ -463,11 +465,13 @@ function ProjectFilePicker({
 	initialSelected?: BidComparisonProjectFile[];
 	/** 中文注释：已占用的本地上传名额，对比文件总上限仍为 10。 */
 	reservedCount?: number;
+	maxCountOverride?: number;
+	titleOverride?: string;
 	onConfirm: (files: BidComparisonProjectFile[]) => void;
 	onClose: () => void;
 }) {
-	const maxCount = mode === "main" ? 1 : Math.max(0, 10 - reservedCount);
-	const title = mode === "main" ? "选择投标文件" : "选择对比文件";
+	const maxCount = maxCountOverride ?? (mode === "main" ? 1 : Math.max(0, 10 - reservedCount));
+	const title = titleOverride ?? (mode === "main" ? "选择投标文件" : "选择对比文件");
 	// 中文注释：项目顺序与侧边栏一致，不做名称重排。
 	const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id ?? "");
 	const [projectTrees, setProjectTrees] = useState<Record<string, ProjectFileNode[]>>({});
@@ -481,7 +485,7 @@ function ProjectFilePicker({
 	const selectedProject = projects.find((project) => project.id === selectedProjectId);
 	const selectedFiles = useMemo(() => Object.values(selectedMap), [selectedMap]);
 	const totalSelectedCount = selectedFiles.length + (mode === "compare" ? reservedCount : 0);
-	const totalMaxCount = mode === "main" ? 1 : 10;
+	const totalMaxCount = mode === "main" ? 1 : maxCount + reservedCount;
 	const projectFiles = useMemo(() => {
 		const nodes = projectTrees[selectedProjectId] ?? [];
 		return collectSelectableFiles(nodes);
@@ -671,6 +675,7 @@ function ProjectFilePicker({
 								const id = fileKey(selectedProjectId, file);
 								const checked = Boolean(selectedMap[id]);
 								return (
+									// biome-ignore lint/a11y/useSemanticElements: 文件行内包含独立的预览按钮，不能改为嵌套 button
 									<div
 										key={id}
 										className={cn(

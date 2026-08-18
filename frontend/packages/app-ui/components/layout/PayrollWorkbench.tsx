@@ -12,20 +12,32 @@ import {
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
 import { cn } from "@leros/ui/lib/utils";
-import { Calculator, FileSpreadsheet, Upload, X } from "lucide-react";
+import { Calculator, FileSpreadsheet, FolderOpen, Upload, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
+import {
+	type BidComparisonProjectFile,
+	ProjectFilePicker,
+} from "../input/BidComparisonConfigDialog";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectTaskPickerField } from "./ProjectTaskPicker";
 
 type SelectedFile = {
 	id: string;
-	file: File;
+	file?: File;
+	name: string;
+	publicId?: string;
+	projectId?: string;
+	storageUri?: string;
+	mimeType?: string;
+	size: number;
+	role: "roster" | "historical_payroll" | "attendance";
 };
 
-const PAYROLL_STARTER_PROMPT = `请分析我上传的考勤和工资资料，梳理人员、考勤、工资基准及待核对项。
-请先说明资料完整性和无法确认的规则，不要自行推断病假、旷工、跨项目补贴或入离职的工资金额。`;
+const PAYROLL_STARTER_PROMPT = `请直接执行考勤工资核算，不要只做资料分析或生成分析报告。
+必须完成考勤人员与历史工资人员匹配，使用内置核算规则和确定性计算流程，生成工资核算 Excel 工作簿。
+病假、旷工、入离职、跨项目等未确认规则只进入待人工复核，不得阻塞已确认工资分项。`;
 
 export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation }) {
 	const { projects, fetchProjects, fetchTasks, sendWorkbenchMessage } = useLayoutStore((s) => s);
@@ -33,9 +45,13 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [projectId, setProjectId] = useState("");
 	const [taskId, setTaskId] = useState("");
+	const [restSchedule, setRestSchedule] = useState<"single" | "double" | "">("");
 	const [files, setFiles] = useState<SelectedFile[]>([]);
 	const [submitting, setSubmitting] = useState(false);
-	const inputRef = useRef<HTMLInputElement>(null);
+	const [filePickerRole, setFilePickerRole] = useState<SelectedFile["role"] | null>(null);
+	const rosterInputRef = useRef<HTMLInputElement>(null);
+	const historicalInputRef = useRef<HTMLInputElement>(null);
+	const attendanceInputRef = useRef<HTMLInputElement>(null);
 
 	const projectOptions = useMemo(
 		() => projects.map((project) => ({ id: project.id, name: project.name, tasks: project.tasks })),
@@ -52,15 +68,18 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 	const resetDialog = () => {
 		setProjectId("");
 		setTaskId("");
+		setRestSchedule("");
 		setFiles([]);
 	};
 
-	const addFiles = (selected: FileList | null) => {
+	const addFiles = (selected: FileList | null, role: SelectedFile["role"], maxCount: number) => {
 		const nextFiles = Array.from(selected ?? []);
 		if (!nextFiles.length) return;
 		setFiles((current) => {
 			const existing = new Set(
-				current.map(({ file }) => `${file.name}:${file.size}:${file.lastModified}`),
+				current
+					.filter((item) => item.file)
+					.map(({ file }) => `${file?.name}:${file?.size}:${file?.lastModified}`),
 			);
 			const additions = nextFiles
 				.filter((file) => {
@@ -69,7 +88,15 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 					existing.add(key);
 					return true;
 				})
-				.map((file) => ({ id: `payroll-${crypto.randomUUID()}`, file }));
+				.slice(0, Math.max(0, maxCount - current.filter((item) => item.role === role).length))
+				.map((file) => ({
+					id: `payroll-${crypto.randomUUID()}`,
+					file,
+					name: file.name,
+					mimeType: file.type,
+					size: file.size,
+					role,
+				}));
 			return [...current, ...additions];
 		});
 	};
@@ -77,6 +104,21 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 	const uploadFiles = async (): Promise<Attachment[]> => {
 		const attachments: Attachment[] = [];
 		for (const selected of files) {
+			if (selected.publicId) {
+				attachments.push({
+					id: selected.id,
+					type: "file",
+					name: selected.name,
+					size: selected.size,
+					fileUploadId: selected.publicId,
+					mimeType: selected.mimeType,
+					storageUri: selected.storageUri,
+					uploadStatus: "completed",
+					attachmentRole: selected.role,
+				});
+				continue;
+			}
+			if (!selected.file) throw new Error(`文件「${selected.name}」缺少内容`);
 			const response = projectId
 				? await projectFileApi.upload({
 						projectId,
@@ -90,35 +132,77 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 					});
 			const payload = response.data;
 			const fileUploadId = payload.public_id?.trim();
-			if (!fileUploadId) throw new Error(`文件「${selected.file.name}」上传失败`);
+			if (!fileUploadId) throw new Error(`文件「${selected.name}」上传失败`);
 			attachments.push({
 				id: selected.id,
 				type: selected.file.type.startsWith("image/") ? "image" : "file",
-				name: payload.original_name || payload.filename || selected.file.name,
-				size: payload.file_size ?? payload.size ?? selected.file.size,
+				name: payload.original_name || payload.filename || selected.name,
+				size: payload.file_size ?? payload.size ?? selected.size,
 				fileUploadId,
 				mimeType: payload.mime_type || selected.file.type,
 				storageUri: payload.storage_uri,
 				uploadStatus: "completed",
+				attachmentRole: selected.role,
 			});
 		}
 		return attachments;
 	};
 
+	const openProjectFilePicker = (role: SelectedFile["role"]) => {
+		if (!projects.length) {
+			toast.info("当前账号暂无项目，请先创建项目");
+			return;
+		}
+		setFilePickerRole(role);
+	};
+
+	const selectProjectFiles = (selected: BidComparisonProjectFile[]) => {
+		if (!filePickerRole) return;
+		const role = filePickerRole;
+		const maxCount = role === "roster" ? 1 : role === "historical_payroll" ? 10 : 20;
+		setFiles((current) => {
+			const uploads = current.filter((file) => file.role === role && !file.publicId);
+			const projectFiles = selected
+				.slice(0, Math.max(0, maxCount - uploads.length))
+				.map((file) => ({
+					id: `payroll-project-${file.publicId}`,
+					name: file.name,
+					publicId: file.publicId,
+					projectId: file.projectId,
+					storageUri: file.storageUri,
+					mimeType: file.mimeType,
+					size: file.size ?? 0,
+					role,
+				}));
+			return [...current.filter((file) => file.role !== role), ...uploads, ...projectFiles];
+		});
+		setFilePickerRole(null);
+	};
+
 	const startAnalysis = async () => {
-		if (!files.length || submitting) return;
+		if (
+			!files.some((file) => file.role === "roster") ||
+			!files.some((file) => file.role === "historical_payroll") ||
+			!files.some((file) => file.role === "attendance") ||
+			!restSchedule ||
+			submitting
+		)
+			return;
 		setSubmitting(true);
 		try {
 			const attachments = await uploadFiles();
+			const scheduleLabel = restSchedule === "single" ? "单休" : "双休";
 			const result = await sendWorkbenchMessage(
-				PAYROLL_STARTER_PROMPT,
+				`${PAYROLL_STARTER_PROMPT}
+本项目工休制度：${scheduleLabel}。
+请根据考勤月份的实际天数推导基础工作日和计划加班上限：单休按每周一个休息日，双休按每周两个休息日；休息日出勤计入加班，休息日未出勤不计工资。`,
 				projectId || undefined,
 				"default",
 				attachments,
 				undefined,
 				undefined,
 				undefined,
-				undefined,
+				"salary_accounting",
 				undefined,
 				taskId || null,
 			);
@@ -141,7 +225,7 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 			<header className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-5">
 				<h1 className="text-xl font-semibold text-[var(--leros-text-strong)]">工作台</h1>
 				<p className="mt-2 text-sm text-[var(--leros-text-muted)]">
-					选择固定业务功能，快速开始处理工作资料。
+					选择业务功能，快速开始处理工作资料。
 				</p>
 			</header>
 			<main className="flex min-h-0 flex-1 flex-col px-6 py-6">
@@ -177,102 +261,235 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 					if (!open) resetDialog();
 				}}
 			>
-				<DialogContent className="max-w-[560px]">
-					<DialogHeader>
-						<div className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-							<Calculator className="size-5" />
+				<DialogContent className="flex max-h-[min(92dvh,880px)] max-w-[min(92vw,560px)] flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
+					<DialogHeader className="shrink-0 border-b border-slate-100 px-7 py-5">
+						<div className="flex items-center gap-3">
+							<div className="flex size-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+								<Calculator className="size-5" />
+							</div>
+							<div>
+								<DialogTitle className="text-base">新建考勤工资核算</DialogTitle>
+								<DialogDescription className="mt-1 text-xs">
+									选择项目/任务、人员底表/历史工资表/当月考勤表后，开始工资核算
+								</DialogDescription>
+							</div>
 						</div>
-						<DialogTitle className="mt-3">考勤工资核算</DialogTitle>
-						<DialogDescription>
-							上传人员底表、历史工资表和当月考勤资料，开始一个资料分析任务。
-						</DialogDescription>
 					</DialogHeader>
 
-					<ProjectTaskPickerField
-						projects={projectOptions}
-						projectId={projectId}
-						taskId={taskId}
-						allowNewProject
-						allowSelectTask
-						onLoadProjectTasks={fetchTasks}
-						onSelect={(nextProjectId, nextTaskId) => {
-							setProjectId(nextProjectId);
-							setTaskId(nextTaskId);
-							if (nextProjectId) fetchTasks(nextProjectId);
-						}}
-					/>
+					<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-7 py-5">
+						<ProjectTaskPickerField
+							projects={projectOptions}
+							projectId={projectId}
+							taskId={taskId}
+							allowNewProject
+							allowSelectTask
+							onLoadProjectTasks={fetchTasks}
+							onSelect={(nextProjectId, nextTaskId) => {
+								setProjectId(nextProjectId);
+								setTaskId(nextTaskId);
+								if (nextProjectId) fetchTasks(nextProjectId);
+							}}
+						/>
 
-					<div>
-						<div className="mb-2 flex items-center justify-between">
-							<div className="text-sm font-semibold text-slate-800">核算资料</div>
-							<span className="text-xs text-slate-400">至少上传 1 份文件</span>
-						</div>
-						<div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-3">
-							{files.length ? (
-								<div className="space-y-2">
-									{files.map((selected) => (
-										<div
-											key={selected.id}
-											className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm shadow-sm"
-										>
-											<FileSpreadsheet className="size-4 shrink-0 text-emerald-600" />
-											<span className="min-w-0 flex-1 truncate text-slate-700">
-												{selected.file.name}
-											</span>
-											<button
-												type="button"
-												onClick={() =>
-													setFiles((current) => current.filter((file) => file.id !== selected.id))
-												}
-												className="text-slate-400 hover:text-slate-700"
-												aria-label={`移除 ${selected.file.name}`}
-											>
-												<X className="size-4" />
-											</button>
+						<section className="space-y-2">
+							<div className="text-sm font-semibold text-slate-800">
+								工休制度 <span className="text-red-500">*</span>
+							</div>
+							<div className="grid grid-cols-2 gap-3">
+								{(
+									[
+										["single", "单休", "每周 1 天休息"],
+										["double", "双休", "每周 2 天休息"],
+									] as const
+								).map(([value, title, description]) => (
+									<label
+										key={value}
+										className={cn(
+											"flex cursor-pointer items-start gap-2 rounded-xl border p-3 transition-colors",
+											restSchedule === value
+												? "border-[var(--leros-primary)] bg-[var(--leros-primary-softer)]/40"
+												: "border-slate-200 bg-white hover:border-slate-300",
+										)}
+									>
+										<input
+											type="radio"
+											name="payroll-rest-schedule"
+											value={value}
+											checked={restSchedule === value}
+											onChange={() => setRestSchedule(value)}
+											className="mt-0.5 accent-[var(--leros-primary)]"
+										/>
+										<span>
+											<span className="block text-sm font-medium text-slate-800">{title}</span>
+											<span className="mt-0.5 block text-xs text-slate-400">{description}</span>
+										</span>
+									</label>
+								))}
+							</div>
+							<p className="text-xs text-slate-400">
+								用于推导当月正常工作日和可计薪休息日加班上限，请选择后继续。
+							</p>
+						</section>
+
+						{(
+							[
+								["人员底表", "roster", rosterInputRef, 1],
+								["历史工资表", "historical_payroll", historicalInputRef, 10],
+								["当月考勤表", "attendance", attendanceInputRef, 20],
+							] as const
+						).map(([title, role, ref, maxCount]) => {
+							const roleFiles = files.filter((file) => file.role === role);
+							return (
+								<section key={role}>
+									<div className="mb-2 flex items-end justify-between gap-3">
+										<div>
+											<div className="text-sm font-semibold text-slate-800">
+												{title} <span className="text-red-500">*</span>
+											</div>
 										</div>
-									))}
-								</div>
-							) : (
-								<p className="py-4 text-center text-xs text-slate-400">
-									建议上传人员底表、历史工资表和考勤表
-								</p>
-							)}
-							<Button
-								type="button"
-								size="sm"
-								variant="outline"
-								className="mt-3"
-								onClick={() => inputRef.current?.click()}
-							>
-								<Upload className="size-3.5" />
-								选择文件
-							</Button>
-						</div>
+										<span className="shrink-0 text-xs text-slate-400">
+											{roleFiles.length}/{maxCount}
+										</span>
+									</div>
+									<div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-3">
+										{roleFiles.length ? (
+											<div className="space-y-2">
+												{roleFiles.map((selected) => (
+													<div
+														key={selected.id}
+														className="flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm shadow-sm"
+													>
+														<FileSpreadsheet className="size-4 shrink-0 text-emerald-600" />
+														<span className="min-w-0 flex-1 truncate text-slate-700">
+															{selected.name}
+														</span>
+														<button
+															type="button"
+															onClick={() =>
+																setFiles((current) =>
+																	current.filter((file) => file.id !== selected.id),
+																)
+															}
+															className="rounded-md p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+															aria-label={`移除 ${selected.name}`}
+														>
+															<X className="size-4" />
+														</button>
+													</div>
+												))}
+											</div>
+										) : (
+											<p className="py-3 text-center text-xs text-slate-400">
+												上传文件或从项目文件树中选择
+											</p>
+										)}
+										<div className="mt-3 flex gap-2">
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												onClick={() => ref.current?.click()}
+											>
+												<Upload className="size-3.5" />
+												上传文件
+											</Button>
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												onClick={() => void openProjectFilePicker(role)}
+											>
+												<FolderOpen className="size-3.5" />
+												项目文件
+											</Button>
+										</div>
+									</div>
+								</section>
+							);
+						})}
 					</div>
 
-					<DialogFooter>
+					<DialogFooter className="shrink-0 border-t border-slate-100 px-7 py-4">
 						<Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
 							取消
 						</Button>
 						<Button
 							type="button"
 							onClick={() => void startAnalysis()}
-							disabled={!isAuthenticated || submitting || files.length === 0}
+							disabled={
+								!isAuthenticated ||
+								submitting ||
+								!restSchedule ||
+								!files.some((file) => file.role === "roster") ||
+								!files.some((file) => file.role === "historical_payroll") ||
+								!files.some((file) => file.role === "attendance")
+							}
 							className="bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90"
 						>
 							{submitting ? "启动中..." : "开始分析"}
 						</Button>
 					</DialogFooter>
 					<input
-						ref={inputRef}
+						ref={rosterInputRef}
+						type="file"
+						className="hidden"
+						onChange={(event) => {
+							addFiles(event.target.files, "roster", 1);
+							event.target.value = "";
+						}}
+					/>
+					<input
+						ref={historicalInputRef}
 						type="file"
 						className="hidden"
 						multiple
 						onChange={(event) => {
-							addFiles(event.target.files);
+							addFiles(event.target.files, "historical_payroll", 10);
 							event.target.value = "";
 						}}
 					/>
+					<input
+						ref={attendanceInputRef}
+						type="file"
+						className="hidden"
+						multiple
+						onChange={(event) => {
+							addFiles(event.target.files, "attendance", 20);
+							event.target.value = "";
+						}}
+					/>
+					{filePickerRole ? (
+						<ProjectFilePicker
+							open
+							mode={filePickerRole === "roster" ? "main" : "compare"}
+							titleOverride={
+								filePickerRole === "roster"
+									? "选择人员底表"
+									: filePickerRole === "historical_payroll"
+										? "选择历史工资表"
+										: "选择当月考勤表"
+							}
+							maxCountOverride={
+								filePickerRole === "roster" ? 1 : filePickerRole === "historical_payroll" ? 10 : 20
+							}
+							projects={projectOptions}
+							initialSelected={files
+								.filter((file) => file.role === filePickerRole && file.publicId && file.projectId)
+								.map(
+									(file) =>
+										({
+											name: file.name,
+											publicId: file.publicId,
+											projectId: file.projectId,
+											storageUri: file.storageUri,
+											mimeType: file.mimeType,
+											size: file.size,
+										}) satisfies BidComparisonProjectFile,
+								)}
+							onConfirm={selectProjectFiles}
+							onClose={() => setFilePickerRole(null)}
+						/>
+					) : null}
 				</DialogContent>
 			</Dialog>
 		</div>

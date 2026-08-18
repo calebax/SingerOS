@@ -135,6 +135,18 @@ type ToolMetadata struct {
 	// SkillDir is the explicit per-run Skill catalog root. Tools must not fall
 	// back to the worker-wide directory when this is set.
 	SkillDir string
+	Model    ToolModelMetadata
+}
+
+// ToolModelMetadata contains the selected run model without exposing it in tool logs.
+type ToolModelMetadata struct {
+	Provider    string
+	Model       string
+	APIKey      string
+	BaseURL     string
+	Vision      bool
+	MaxTokens   int
+	OutputLimit int
 }
 
 type toolContextKey struct{}

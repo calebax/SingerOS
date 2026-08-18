@@ -475,7 +475,7 @@ const _initialState: LayoutState = {
 			label: "",
 			items: [
 				{ id: "chat", label: "新建任务", icon: "IconTask" },
-				{ id: "workbench", label: "工作台", icon: "IconProjectsHub" },
+				{ id: "workbench", label: "工作台", icon: "IconWorkbench" },
 				// 中文注释：AI 队友入口已迁移至组织管理侧栏，主侧栏不再展示。
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "插件", icon: "IconSkill" },
