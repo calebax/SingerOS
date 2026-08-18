@@ -8,6 +8,7 @@ import (
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -49,6 +50,10 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 		newTokens := make([]string, 0, len(dedupedTokens))
 		skippedDedup := make([]string, 0)
 		for _, name := range dedupedTokens {
+			if req.IsPluginDisabled(types.DisabledPluginKindSkill, name) {
+				logs.InfoContextf(ctx, "disabled Skill invocation kept as plain text: msg_index=%d skill=%q", i, name)
+				continue
+			}
 			if !seenSkills[strings.ToLower(name)] {
 				newTokens = append(newTokens, name)
 			} else {
@@ -57,6 +62,10 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 		}
 		if len(skippedDedup) > 0 {
 			logs.DebugContextf(ctx, "Skill invoke cross-message dedup: msg_index=%d skipped=%v", i, skippedDedup)
+		}
+		if len(newTokens) == 0 {
+			msg.Content = plain
+			continue
 		}
 
 		catalog, err := catalogForRequest(req)

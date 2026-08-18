@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/insmtx/Leros/backend/types"
 )
 
 // CommandType 表示 server 发给 worker 的命令类型。
@@ -422,6 +424,7 @@ type RuntimeOptions struct {
 }
 
 type TaskPolicy struct {
-	RequireApproval bool   `json:"require_approval,omitempty"`
-	PermissionMode  string `json:"permission_mode,omitempty"`
+	RequireApproval bool                   `json:"require_approval,omitempty"`
+	PermissionMode  string                 `json:"permission_mode,omitempty"`
+	DisabledPlugins []types.DisabledPlugin `json:"disabled_plugins,omitempty"`
 }

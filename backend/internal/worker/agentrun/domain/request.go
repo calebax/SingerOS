@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/consts"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 // InputType describes the primary shape of the run input.
@@ -194,8 +195,29 @@ type CapabilityContext struct {
 
 // PolicyContext carries policy knobs for one run.
 type PolicyContext struct {
-	RequireApproval bool   `json:"require_approval,omitempty"`
-	PermissionMode  string `json:"permission_mode,omitempty"`
+	RequireApproval bool                   `json:"require_approval,omitempty"`
+	PermissionMode  string                 `json:"permission_mode,omitempty"`
+	DisabledPlugins []types.DisabledPlugin `json:"disabled_plugins,omitempty"`
+}
+
+// IsPluginDisabled reports whether one Skill or MCP code is excluded from the
+// current run. Matching is case-insensitive because catalog and plugin codes
+// are user-facing identifiers at the transport boundary.
+func (r *RunRequest) IsPluginDisabled(kind types.DisabledPluginKind, code string) bool {
+	if r == nil {
+		return false
+	}
+	code = strings.TrimSpace(code)
+	kind = types.DisabledPluginKind(strings.ToLower(strings.TrimSpace(string(kind))))
+	if code == "" {
+		return false
+	}
+	for _, disabled := range r.Policy.DisabledPlugins {
+		if types.DisabledPluginKind(strings.ToLower(strings.TrimSpace(string(disabled.Kind)))) == kind && strings.EqualFold(strings.TrimSpace(disabled.Code), code) {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildAttachmentText formats input attachments as a text block for prompt injection.
@@ -322,6 +344,7 @@ func CloneRequest(req *RunRequest) *RunRequest {
 	clone.Input.Attachments = copyAttachments(req.Input.Attachments)
 
 	clone.Capability.AllowedTools = copyStringSlice(req.Capability.AllowedTools)
+	clone.Policy.DisabledPlugins = append([]types.DisabledPlugin(nil), req.Policy.DisabledPlugins...)
 	clone.Plugins = make([]PluginSnapshot, len(req.Plugins))
 	for i, plugin := range req.Plugins {
 		clone.Plugins[i] = plugin

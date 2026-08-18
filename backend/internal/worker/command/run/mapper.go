@@ -5,6 +5,7 @@ import (
 
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -79,6 +80,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 		Policy: agentrundomain.PolicyContext{
 			RequireApproval: task.Policy.RequireApproval,
 			PermissionMode:  task.Policy.PermissionMode,
+			DisabledPlugins: append([]types.DisabledPlugin(nil), task.Policy.DisabledPlugins...),
 		},
 		Plugins: pluginSnapshotsFromTask(task.Plugins),
 		BusinessKeys: agentrundomain.BusinessKeys{

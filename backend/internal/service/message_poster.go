@@ -122,6 +122,8 @@ type MessageRoutingOverride struct {
 type MessageExecutionOptions struct {
 	// QueueDeadline is the latest time the Worker may start this message.
 	QueueDeadline *time.Time
+	// Policy contains run-scoped execution restrictions supplied by the caller.
+	Policy messaging.TaskPolicy
 }
 
 // runCommandID 决定运行命令的稳定 ID。所有消息入口都使用相同的 session+sequence 规则。
@@ -195,6 +197,9 @@ func (p *MessagePoster) PostMessage(
 		// The transport record and Worker command must share the same start deadline:
 		// publication can succeed while the Worker inbox is still waiting for a compute slot.
 		effectiveOpts := &MessageExecutionOptions{QueueDeadline: &deadline}
+		if opts != nil {
+			effectiveOpts.Policy = opts.Policy
+		}
 		posterTx := *p
 		posterTx.db = tx
 		topic, command, err := posterTx.buildWorkerTask(ctx, session, message, executionMode, routing, effectiveOpts)
@@ -954,6 +959,10 @@ func (p *MessagePoster) buildWorkerTask(
 	if len(postOpts) > 0 && postOpts[0] != nil {
 		opts = postOpts[0]
 	}
+	policy := messaging.TaskPolicy{}
+	if opts != nil {
+		policy = opts.Policy
+	}
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
 	if orgID == 0 && caller != nil {
@@ -1059,6 +1068,7 @@ func (p *MessagePoster) buildWorkerTask(
 		messaging.RunCommandPayload{
 			TaskType:      messaging.TaskTypeAgentRun,
 			ExecutionMode: string(normalizeExecutionMode(executionMode)),
+			Policy:        policy,
 			Actor: messaging.ActorContext{
 				UserID:      fmt.Sprintf("%d", session.Uin),
 				DisplayName: "",

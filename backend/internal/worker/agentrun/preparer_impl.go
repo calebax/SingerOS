@@ -470,6 +470,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 
 	// Clone so we don't modify the original request.
 	cloned := agentrundomain.CloneRequest(req)
+	applyDisabledPluginPolicy(ctx, cloned)
 
 	// 1. Validate model config.
 	if err := validateModelConfig(cloned); err != nil {

@@ -6,6 +6,7 @@ import (
 
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
@@ -39,6 +40,10 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 				{Role: messaging.MessageRoleUser, Content: "hello"},
 			},
 		},
+		Policy: messaging.TaskPolicy{DisabledPlugins: []types.DisabledPlugin{{
+			Kind: types.DisabledPluginKindSkill,
+			Code: "lework-automation-manager",
+		}}},
 	}
 
 	req := RequestFromWorkerTask(task)
@@ -69,6 +74,9 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 	}
 	if req.Assistant.SystemPrompt != "按投标策略师身份执行" {
 		t.Fatalf("assistant system prompt = %q, want persona prompt", req.Assistant.SystemPrompt)
+	}
+	if len(req.Policy.DisabledPlugins) != 1 || req.Policy.DisabledPlugins[0].Code != "lework-automation-manager" {
+		t.Fatalf("disabled plugin policy = %#v", req.Policy.DisabledPlugins)
 	}
 }
 
