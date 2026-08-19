@@ -4,6 +4,7 @@ package vision_analyze
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,9 @@ import (
 
 	"github.com/insmtx/Leros/backend/tools"
 )
+
+//go:embed pdf_prepare.py
+var pdfPrepareScript string
 
 const (
 	// ToolName is the stable name exposed to Skills.
@@ -131,7 +135,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 	}
 	protocol := strings.ToLower(strings.TrimSpace(parsed.Protocol))
 	prompt := parsed.Prompt
-	prompt += "\nReturn compact JSON only. Do not add explanations, Markdown fences, repeated table headers, or duplicate records. Keep one concise record per person. Encode daily marks as a compact date-to-symbol object or string, omit empty/unknown fields, and preserve only required page/row evidence."
+	prompt += "\nReturn compact JSON only. Do not add explanations, Markdown fences, repeated table headers, or duplicate records. Keep one concise record per person. The field actual_work_days is mandatory and numeric; do not omit it or replace it with zero when evidence is missing. Return the page's statutory holiday_dates once at top level. Do not output normal daily marks, weekend attendance dates, or per-cell evidence."
 	if parsed.JSONOnly {
 		prompt += "\nReturn valid JSON only, without Markdown fences."
 	}
@@ -151,7 +155,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 				parts := appendVisionPage(baseParts, page)
 				parts[0] = map[string]any{
 					"type": "text",
-					"text": prompt + "\nProcess only this PDF page segment. Return only the people and evidence visible in this segment; do not wait for or describe other pages. For compactness, do not output normal daily marks for every date. Return actual_work_days, leave/absence totals, weekend_overtime_days or holiday_overtime_days, and only exceptional symbols/dates plus page/row evidence.",
+					"text": prompt + "\nProcess only this original PDF page. Return all people visible on this page in one compact records array; do not repeat the header as a person. Preserve the table's original row and date-column alignment. At top level return the month, project, and statutory holiday_dates for this page. Each person must return name, actual_work_days as a numeric value, personal_leave_days, sick_leave_days, and absent_days. Do not output normal daily marks, weekend attendance dates, per-cell evidence, or explanations.",
 				}
 				pageParts = append(pageParts, parts)
 			}
@@ -178,7 +182,22 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 	for index, parts := range pageParts {
 		text, err := t.callModel(ctx, model, protocol, parts)
 		if err != nil {
-			return "", fmt.Errorf("vision page %d: %w", index+1, err)
+			retryParts := appendVisionInstruction(parts, "\nSTRICT RETRY: return valid compact JSON for this one visible person. actual_work_days is mandatory and must be numeric; also include weekend_attendance_dates and holiday_attendance_dates as arrays. Do not return explanations or daily normal marks.")
+			text, err = t.callModel(ctx, model, protocol, retryParts)
+			if err != nil {
+				return "", fmt.Errorf("vision page %d: %w", index+1, err)
+			}
+		}
+		if visionResponseMissingAttendance(text) {
+			retryParts := appendVisionInstruction(parts, "\nSTRICT RETRY: the previous JSON omitted actual_work_days. Return it as a numeric value for the visible person; do not omit or replace it with an empty value. Keep the required date arrays.")
+			retryText, retryErr := t.callModel(ctx, model, protocol, retryParts)
+			if retryErr != nil {
+				return "", fmt.Errorf("vision page %d: missing actual_work_days: %w", index+1, retryErr)
+			}
+			if visionResponseMissingAttendance(retryText) {
+				return "", fmt.Errorf("vision page %d: missing required actual_work_days", index+1)
+			}
+			text = retryText
 		}
 		responses = append(responses, text)
 	}
@@ -201,6 +220,66 @@ func appendVisionPage(base []map[string]any, page renderedPage) []map[string]any
 	})
 	parts = append(parts, imagePart(page.name, page.data))
 	return parts
+}
+
+func appendVisionInstruction(parts []map[string]any, instruction string) []map[string]any {
+	retry := make([]map[string]any, len(parts))
+	for index, part := range parts {
+		copyPart := make(map[string]any, len(part))
+		for key, value := range part {
+			copyPart[key] = value
+		}
+		if index == 0 && copyPart["type"] == "text" {
+			copyPart["text"] = fmt.Sprint(copyPart["text"]) + instruction
+		}
+		retry[index] = copyPart
+	}
+	return retry
+}
+
+func visionResponseMissingAttendance(response string) bool {
+	var payload any
+	if json.Unmarshal([]byte(response), &payload) != nil {
+		return true
+	}
+	var records []any
+	switch value := payload.(type) {
+	case []any:
+		records = value
+	case map[string]any:
+		records, _ = visionRecordArray(value)
+	}
+	for _, value := range records {
+		record, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(fmt.Sprint(record["name"]))
+		if name == "" || name == "姓名" || name == "人员姓名" {
+			continue
+		}
+		attendance, exists := record["actual_work_days"]
+		if !exists || !visionNumber(attendance) {
+			return true
+		}
+	}
+	return false
+}
+
+func visionNumber(value any) bool {
+	switch number := value.(type) {
+	case float64:
+		return true
+	case float32:
+		return true
+	case int, int32, int64:
+		return true
+	case string:
+		_, err := strconv.ParseFloat(strings.TrimSpace(number), 64)
+		return err == nil
+	default:
+		return false
+	}
 }
 
 func (t *Tool) callModel(
@@ -275,6 +354,17 @@ func (t *Tool) callModel(
 func mergeVisionResponses(responses []string) (string, error) {
 	merged := map[string]any{"records": make([]any, 0)}
 	records := merged["records"].([]any)
+	warnings := make([]string, 0)
+	appendRecord := func(value any) {
+		record, ok := value.(map[string]any)
+		if ok {
+			name := strings.TrimSpace(fmt.Sprint(record["name"]))
+			if name == "" || name == "姓名" || name == "人员姓名" {
+				return
+			}
+		}
+		records = append(records, normalizeVisionRecord(value))
+	}
 	for index, response := range responses {
 		var payload any
 		if err := json.Unmarshal([]byte(response), &payload); err != nil {
@@ -282,7 +372,9 @@ func mergeVisionResponses(responses []string) (string, error) {
 		}
 		switch value := payload.(type) {
 		case []any:
-			records = append(records, value...)
+			for _, record := range value {
+				appendRecord(record)
+			}
 		case map[string]any:
 			for _, field := range []string{"month", "project", "holiday_dates"} {
 				if _, exists := merged[field]; !exists {
@@ -293,20 +385,102 @@ func mergeVisionResponses(responses []string) (string, error) {
 			}
 			pageRecords, ok := visionRecordArray(value)
 			if ok {
-				records = append(records, pageRecords...)
+				for _, record := range pageRecords {
+					appendRecord(record)
+				}
 			} else {
-				return "", fmt.Errorf("vision page %d JSON has no records array", index+1)
+				warnings = append(warnings, fmt.Sprintf("segment %d returned no records array", index+1))
 			}
 		default:
 			return "", fmt.Errorf("vision page %d JSON must be an object or array", index+1)
 		}
 	}
+	if len(records) == 0 {
+		return "", fmt.Errorf("vision produced no attendance records across %d segments", len(responses))
+	}
+	records = mergeVisionRecords(records)
 	merged["records"] = records
+	if len(warnings) > 0 {
+		merged["segment_warnings"] = warnings
+	}
 	data, err := json.Marshal(merged)
 	if err != nil {
 		return "", fmt.Errorf("merge vision JSON: %w", err)
 	}
 	return string(data), nil
+}
+
+func mergeVisionRecords(values []any) []any {
+	merged := make([]any, 0, len(values))
+	byName := make(map[string]map[string]any)
+	for _, value := range values {
+		record, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(fmt.Sprint(record["name"]))
+		if name == "" {
+			merged = append(merged, value)
+			continue
+		}
+		existing, exists := byName[name]
+		if !exists {
+			existing = record
+			byName[name] = existing
+			merged = append(merged, existing)
+		}
+		for _, field := range []string{
+			"weekend_attendance_dates", "holiday_attendance_dates",
+		} {
+			existing[field] = mergeVisionArrays(existing[field], record[field])
+		}
+		for field, candidate := range record {
+			if _, present := existing[field]; !present || existing[field] == nil {
+				existing[field] = candidate
+			}
+		}
+	}
+	return merged
+}
+
+func mergeVisionArrays(left, right any) []any {
+	result := make([]any, 0)
+	seen := make(map[string]struct{})
+	for _, value := range []any{left, right} {
+		values, ok := value.([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range values {
+			key := fmt.Sprint(item)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func normalizeVisionRecord(value any) any {
+	record, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	if _, exists := record["actual_work_days"]; exists {
+		return record
+	}
+	for _, alias := range []string{
+		"actual_attendance", "actualDays", "actual_days",
+		"实际出勤天数", "实际出勤", "出勤天数",
+	} {
+		if attendance, exists := record[alias]; exists {
+			record["actual_work_days"] = attendance
+			break
+		}
+	}
+	return record
 }
 
 func visionRecordArray(payload map[string]any) ([]any, bool) {
@@ -392,26 +566,7 @@ func renderPDF(ctx context.Context, path string) ([]renderedPage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("PDF rendering requires Python with PyMuPDF: %w", err)
 	}
-	script := `import os, sys
-try:
-    import fitz
-except ImportError as exc:
-    raise SystemExit("PyMuPDF is not installed in the worker Python environment") from exc
-source, target, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
-document = fitz.open(source)
-if len(document) > limit:
-    raise RuntimeError("PDF exceeds page limit")
-for index, page in enumerate(document, 1):
-    height = page.rect.height
-    width = page.rect.width
-    for part in range(2):
-        top = height * part / 2
-        bottom = height * (part + 1) / 2
-        clip = fitz.Rect(0, top, width, bottom)
-        pixmap = page.get_pixmap(dpi=144, clip=clip, alpha=False)
-        pixmap.save(os.path.join(target, f"page-{index}-part-{part + 1}.png"))
-`
-	cmd := exec.CommandContext(ctx, python, "-c", script, path, tempDir, strconv.Itoa(maxPDFPages))
+	cmd := exec.CommandContext(ctx, python, "-c", pdfPrepareScript, path, tempDir, strconv.Itoa(maxPDFPages))
 	if output, runErr := cmd.CombinedOutput(); runErr != nil {
 		return nil, fmt.Errorf("render PDF pages with PyMuPDF: %w: %s", runErr, strings.TrimSpace(string(output)))
 	}

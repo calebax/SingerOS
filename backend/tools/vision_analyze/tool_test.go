@@ -42,7 +42,7 @@ func TestExecuteRendersPDFBeforeChatCompletions(t *testing.T) {
 			t.Fatalf("rendered PDF image payload = %#v", image)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"choices":[{"message":{"content":"{\"records\":[]}"}}]}`))
+		_, _ = writer.Write([]byte(`{"choices":[{"message":{"content":"{\"records\":[{\"name\":\"测试\",\"actual_work_days\":20}]}"}}]}`))
 	}))
 	defer server.Close()
 
@@ -72,7 +72,7 @@ func TestExecuteRendersPDFBeforeChatCompletions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if output != `{"records":[]}` {
+	if output != `{"records":[{"actual_work_days":20,"holiday_attendance_dates":[],"name":"测试","weekend_attendance_dates":[]}]}` {
 		t.Fatalf("output = %q", output)
 	}
 
@@ -92,7 +92,7 @@ func TestExecuteRendersPDFBeforeChatCompletions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read output file: %v", err)
 	}
-	if string(data) != `{"records":[]}` {
+	if string(data) != `{"records":[{"actual_work_days":20,"holiday_attendance_dates":[],"name":"测试","weekend_attendance_dates":[]}]}` {
 		t.Fatalf("saved output = %q", data)
 	}
 }
@@ -121,7 +121,7 @@ func TestExecuteRejectsOutsideRepositoryFile(t *testing.T) {
 
 func TestMergeVisionResponsesAcceptsPeopleAlias(t *testing.T) {
 	output, err := mergeVisionResponses([]string{
-		`{"month":"2026-06","people":[{"name":"甲"}]}`,
+		`{"month":"2026-06","people":[{"name":"甲","actual_attendance":26}]}`,
 		`{"employees":[{"name":"乙"}]}`,
 	})
 	if err != nil {
@@ -135,5 +135,24 @@ func TestMergeVisionResponsesAcceptsPeopleAlias(t *testing.T) {
 	}
 	if len(payload.Records) != 2 {
 		t.Fatalf("records = %#v, want two records", payload.Records)
+	}
+	if payload.Records[0]["actual_work_days"] != float64(26) {
+		t.Fatalf("normalized attendance = %#v", payload.Records[0])
+	}
+}
+
+func TestMergeVisionResponsesAllowsEmptySegment(t *testing.T) {
+	output, err := mergeVisionResponses([]string{
+		`{"month":"2026-06","project":"瀚阅府","summary":"header only"}`,
+		`{"records":[{"name":"程军虎","actual_attendance":26}]}`,
+	})
+	if err != nil {
+		t.Fatalf("mergeVisionResponses() error = %v", err)
+	}
+	if !strings.Contains(output, `"segment_warnings":["segment 1 returned no records array"]`) {
+		t.Fatalf("warnings = %q", output)
+	}
+	if !strings.Contains(output, `"actual_work_days":26`) {
+		t.Fatalf("normalized output = %q", output)
 	}
 }

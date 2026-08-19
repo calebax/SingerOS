@@ -35,9 +35,19 @@ type SelectedFile = {
 	role: "roster" | "historical_payroll" | "attendance";
 };
 
-const PAYROLL_STARTER_PROMPT = `请直接执行考勤工资核算，不要只做资料分析或生成分析报告。
-必须完成考勤人员与历史工资人员匹配，使用内置核算规则和确定性计算流程，生成工资核算 Excel 工作簿。
-病假、旷工、入离职、跨项目等未确认规则只进入待人工复核，不得阻塞已确认工资分项。`;
+function payrollStarterPrompt(files: SelectedFile[]): string {
+	const names = (role: SelectedFile["role"]) =>
+		files
+			.filter((file) => file.role === role)
+			.map((file) => file.name)
+			.join("、") || "未指定";
+	return [
+		"请开展考勤工资核算。",
+		`人员底表：${names("roster")}`,
+		`历史工资表：${names("historical_payroll")}`,
+		`当月考勤表：${names("attendance")}`,
+	].join("\n");
+}
 
 export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation }) {
 	const { projects, fetchProjects, fetchTasks, sendWorkbenchMessage } = useLayoutStore((s) => s);
@@ -45,7 +55,6 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [projectId, setProjectId] = useState("");
 	const [taskId, setTaskId] = useState("");
-	const [restSchedule, setRestSchedule] = useState<"single" | "double" | "">("");
 	const [files, setFiles] = useState<SelectedFile[]>([]);
 	const [submitting, setSubmitting] = useState(false);
 	const [filePickerRole, setFilePickerRole] = useState<SelectedFile["role"] | null>(null);
@@ -68,7 +77,6 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 	const resetDialog = () => {
 		setProjectId("");
 		setTaskId("");
-		setRestSchedule("");
 		setFiles([]);
 	};
 
@@ -184,18 +192,14 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 			!files.some((file) => file.role === "roster") ||
 			!files.some((file) => file.role === "historical_payroll") ||
 			!files.some((file) => file.role === "attendance") ||
-			!restSchedule ||
 			submitting
 		)
 			return;
 		setSubmitting(true);
 		try {
 			const attachments = await uploadFiles();
-			const scheduleLabel = restSchedule === "single" ? "单休" : "双休";
 			const result = await sendWorkbenchMessage(
-				`${PAYROLL_STARTER_PROMPT}
-本项目工休制度：${scheduleLabel}。
-请根据考勤月份的实际天数推导基础工作日和计划加班上限：单休按每周一个休息日，双休按每周两个休息日；休息日出勤计入加班，休息日未出勤不计工资。`,
+				payrollStarterPrompt(files),
 				projectId || undefined,
 				"default",
 				attachments,
@@ -291,46 +295,6 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 							}}
 						/>
 
-						<section className="space-y-2">
-							<div className="text-sm font-semibold text-slate-800">
-								工休制度 <span className="text-red-500">*</span>
-							</div>
-							<div className="grid grid-cols-2 gap-3">
-								{(
-									[
-										["single", "单休", "每周 1 天休息"],
-										["double", "双休", "每周 2 天休息"],
-									] as const
-								).map(([value, title, description]) => (
-									<label
-										key={value}
-										className={cn(
-											"flex cursor-pointer items-start gap-2 rounded-xl border p-3 transition-colors",
-											restSchedule === value
-												? "border-[var(--leros-primary)] bg-[var(--leros-primary-softer)]/40"
-												: "border-slate-200 bg-white hover:border-slate-300",
-										)}
-									>
-										<input
-											type="radio"
-											name="payroll-rest-schedule"
-											value={value}
-											checked={restSchedule === value}
-											onChange={() => setRestSchedule(value)}
-											className="mt-0.5 accent-[var(--leros-primary)]"
-										/>
-										<span>
-											<span className="block text-sm font-medium text-slate-800">{title}</span>
-											<span className="mt-0.5 block text-xs text-slate-400">{description}</span>
-										</span>
-									</label>
-								))}
-							</div>
-							<p className="text-xs text-slate-400">
-								用于推导当月正常工作日和可计薪休息日加班上限，请选择后继续。
-							</p>
-						</section>
-
 						{(
 							[
 								["人员底表", "roster", rosterInputRef, 1],
@@ -419,7 +383,6 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 							disabled={
 								!isAuthenticated ||
 								submitting ||
-								!restSchedule ||
 								!files.some((file) => file.role === "roster") ||
 								!files.some((file) => file.role === "historical_payroll") ||
 								!files.some((file) => file.role === "attendance")
