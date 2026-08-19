@@ -35,11 +35,12 @@ leros automation create --user-id <user_id> --json \
 
 leros automation create --user-id <user_id> --json \
   --name "定期检查" --prompt "检查项目告警" --status enabled \
-  --mode interval --interval-minutes 30 --anchor-at 09:00
+  --mode interval --interval-minutes 30
 ```
 
-Timezone is optional and defaults to `Asia/Shanghai`. The first version has
-no alternate aliases, run-now command, or execution-history command. Delete
+Timezone is optional and defaults to `Asia/Shanghai`. Interval schedules start
+from creation time; there is no user-facing anchor argument. The first version
+has no alternate aliases, run-now command, or execution-history command. Delete
 is immediate and has no confirmation flag.
 
 ## 对外输出边界

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ygpkg/yg-go/dbtools"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
@@ -202,6 +203,9 @@ func runMigrations(db *gorm.DB) error {
 	if err := dbtools.InitModel(db, models...); err != nil {
 		return err
 	}
+	if err := backfillAutomationIntervalScheduleV2(db); err != nil {
+		return err
+	}
 
 	if err := backfillMCPChannelAuthorization(db); err != nil {
 		return err
@@ -286,6 +290,112 @@ func runMigrations(db *gorm.DB) error {
 
 	logs.Info("Database migrations completed")
 	return nil
+}
+
+// backfillAutomationIntervalScheduleV2 upgrades legacy interval schedules while
+// preserving their configured wall-clock phase and correcting the old UTC marker bug.
+func backfillAutomationIntervalScheduleV2(database *gorm.DB) error {
+	return backfillAutomationIntervalScheduleV2At(database, time.Now().UTC())
+}
+
+func backfillAutomationIntervalScheduleV2At(database *gorm.DB, now time.Time) error {
+	return database.Transaction(func(tx *gorm.DB) error {
+		var automations []types.Automation
+		if err := tx.Where("schedule_mode = ? AND deleted_at IS NULL", string(types.AutomationScheduleModeInterval)).
+			Order("id ASC").Find(&automations).Error; err != nil {
+			return fmt.Errorf("list legacy interval automations: %w", err)
+		}
+		for i := range automations {
+			automation := &automations[i]
+			if automation.ScheduleSpec.Spec.Version >= types.AutomationScheduleVersion {
+				continue
+			}
+			if automation.ScheduleSpec.Spec.Mode != string(types.AutomationScheduleModeInterval) {
+				return fmt.Errorf("automation %d has invalid schedule mode %q for interval migration", automation.ID, automation.ScheduleSpec.Spec.Mode)
+			}
+			interval := time.Duration(automation.ScheduleSpec.Spec.IntervalSeconds) * time.Second
+			if interval < 5*time.Minute {
+				return fmt.Errorf("automation %d has invalid interval_seconds=%d", automation.ID, automation.ScheduleSpec.Spec.IntervalSeconds)
+			}
+			timezone := strings.TrimSpace(automation.ScheduleSpec.Spec.Timezone)
+			if timezone == "" {
+				timezone = strings.TrimSpace(automation.Timezone)
+			}
+			loc, err := time.LoadLocation(timezone)
+			if err != nil {
+				return fmt.Errorf("automation %d has invalid timezone %q: %w", automation.ID, timezone, err)
+			}
+			anchorAt := strings.TrimSpace(automation.ScheduleSpec.Spec.AnchorAt)
+			if anchorAt == "" && automation.ScheduleSpec.FormConfig != nil && automation.ScheduleSpec.FormConfig.Interval != nil {
+				anchorAt = strings.TrimSpace(automation.ScheduleSpec.FormConfig.Interval.AnchorAt)
+			}
+			anchor, err := parseLegacyAutomationAnchor(anchorAt, loc)
+			if err != nil {
+				return fmt.Errorf("automation %d has invalid anchor_at %q: %w", automation.ID, anchorAt, err)
+			}
+			next, err := nextLegacyIntervalOccurrence(now, anchor, interval)
+			if err != nil {
+				return fmt.Errorf("automation %d calculate next interval: %w", automation.ID, err)
+			}
+			origin := next.Add(-interval).UTC().Format(time.RFC3339Nano)
+			automation.ScheduleSpec.Spec.Version = types.AutomationScheduleVersion
+			automation.ScheduleSpec.Spec.OriginAt = origin
+			automation.ScheduleSpec.Spec.AnchorAt = ""
+			if automation.ScheduleSpec.FormConfig != nil && automation.ScheduleSpec.FormConfig.Interval != nil {
+				automation.ScheduleSpec.FormConfig.Interval.AnchorAt = ""
+			}
+			updates := map[string]interface{}{"schedule_spec": automation.ScheduleSpec}
+			if automation.IsEnabled() {
+				correctedNext := next.UTC()
+				updates["next_run_at"] = &correctedNext
+			} else {
+				updates["next_run_at"] = nil
+			}
+			// UpdateColumns deliberately bypasses GORM's automatic updated_at mutation:
+			// this is a storage normalization, not a business edit.
+			if err := tx.Model(&types.Automation{}).Where("id = ?", automation.ID).UpdateColumns(updates).Error; err != nil {
+				return fmt.Errorf("update automation %d: %w", automation.ID, err)
+			}
+		}
+		return nil
+	})
+}
+
+func parseLegacyAutomationAnchor(anchorAt string, loc *time.Location) (time.Time, error) {
+	if t, err := time.ParseInLocation("15:04:05", anchorAt, loc); err == nil {
+		return t, nil
+	}
+	if t, err := time.ParseInLocation("15:04", anchorAt, loc); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse(time.RFC3339, anchorAt); err == nil {
+		year, month, day := t.Date()
+		// v1 anchor_at is a wall-clock value. Ignore a stale/incorrect offset
+		// marker and interpret its displayed fields in the task timezone.
+		return time.Date(year, month, day, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc), nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05", anchorAt, loc); err == nil {
+		return t, nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", anchorAt, loc); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid anchor")
+}
+
+func nextLegacyIntervalOccurrence(now, anchor time.Time, interval time.Duration) (time.Time, error) {
+	if interval <= 0 {
+		return time.Time{}, fmt.Errorf("invalid interval")
+	}
+	loc := anchor.Location()
+	localNow := now.In(loc)
+	base := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), anchor.Hour(), anchor.Minute(), anchor.Second(), anchor.Nanosecond(), loc).UTC()
+	elapsed := now.UTC().Sub(base)
+	if elapsed < 0 {
+		return base, nil
+	}
+	steps := elapsed/interval + 1
+	return base.Add(steps * interval), nil
 }
 
 func backfillMCPChannelAuthorization(db *gorm.DB) error {

@@ -160,6 +160,7 @@ export type {
 	BackendAutomationCalendarConfig,
 	BackendAutomationIntervalConfig,
 	BackendAutomationScheduleFormConfig,
+	BackendAutomationScheduleInput,
 	BackendAutomationScheduleSpec,
 	BackendAutomationSpec,
 	BackendProjectFileVersion,
@@ -181,6 +182,7 @@ export {
 	usePermissionStore,
 	useTopicStore,
 } from "./appStore";
+export type { ParsedSkillChip } from "./chat/send/composerSkills";
 export {
 	formatTaskDisplayTitle,
 	hasComposerSkillTokens,
@@ -191,7 +193,6 @@ export {
 	skillChipsToPlainText,
 	skillCodeFromToken,
 } from "./chat/send/composerSkills";
-export type { ParsedSkillChip } from "./chat/send/composerSkills";
 export {
 	buildComposerFolderUploadSummaryMessage,
 	COMPOSER_UPLOAD_ACCEPT,
