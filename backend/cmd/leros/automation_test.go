@@ -24,7 +24,6 @@ func TestBuildAutomationScheduleUpdatePreservesTimezone(t *testing.T) {
 	schedule, timezone, err := buildAutomationSchedule(automationScheduleOptions{
 		mode:            "interval",
 		intervalMinutes: 15,
-		anchorAt:        "09:00",
 	}, false)
 	if err != nil {
 		t.Fatalf("buildAutomationSchedule() error = %v", err)

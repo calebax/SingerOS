@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import type { AppNavigation } from "../layout";
 import { buildFormSummary, buildScheduleFormState } from "./automationForm";
+import { formatLocalDateTime } from "./automationTime";
 
 export type AutomationExecutionDrawerProps = {
 	open: boolean;
@@ -172,7 +173,7 @@ export function AutomationExecutionDrawer({
 													: "text-slate-600 hover:bg-slate-50",
 											)}
 										>
-											<span>{formatExecutionTime(exec.scheduledAt || exec.createdAt)}</span>
+											<span>{formatLocalDateTime(exec.scheduledAt || exec.createdAt)}</span>
 											<span
 												className={cn(
 													"size-2 rounded-full shrink-0 ml-2",
@@ -221,16 +222,6 @@ function getScheduleText(automation?: AutomationItem | null): string {
 		if (summary) return summary;
 	}
 	return automation.scheduleMode || "周期触发";
-}
-
-function formatExecutionTime(value?: string | number): string {
-	if (!value) return "—";
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return String(value);
-	const pad = (n: number) => String(n).padStart(2, "0");
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-		date.getHours(),
-	)}:${pad(date.getMinutes())}`;
 }
 
 function statusLabel(status: string): string {

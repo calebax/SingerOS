@@ -27,7 +27,6 @@ type automationScheduleOptions struct {
 	daysOfWeek      string
 	daysOfMonth     string
 	intervalMinutes int
-	anchorAt        string
 }
 
 type automationCreateOptions struct {
@@ -204,7 +203,6 @@ func bindAutomationScheduleFlags(cmd *cobra.Command, options *automationSchedule
 	cmd.Flags().StringVar(&options.daysOfWeek, "days-of-week", "", "Weekly days, comma-separated (0=Sunday through 6=Saturday)")
 	cmd.Flags().StringVar(&options.daysOfMonth, "days-of-month", "", "Monthly dates, comma-separated (1-31)")
 	cmd.Flags().IntVar(&options.intervalMinutes, "interval-minutes", 0, "Interval in minutes (minimum 5)")
-	cmd.Flags().StringVar(&options.anchorAt, "anchor-at", "", "Interval anchor time")
 }
 
 func runAutomationList(cmd *cobra.Command, jsonOutput bool, keyword, status, mode string, offset, limit int, targetUserID *uint) error {
@@ -348,7 +346,7 @@ func runAutomationUpdate(cmd *cobra.Command, jsonOutput bool, publicID string, o
 }
 
 func hasAutomationScheduleChange(cmd *cobra.Command) bool {
-	for _, name := range []string{"mode", "preset", "minute", "hour", "days-of-week", "days-of-month", "interval-minutes", "anchor-at"} {
+	for _, name := range []string{"mode", "preset", "minute", "hour", "days-of-week", "days-of-month", "interval-minutes"} {
 		if cmd.Flags().Changed(name) {
 			return true
 		}
@@ -367,7 +365,7 @@ func lenUpdateFields(req *contract.UpdateAutomationRequest) int {
 	return count
 }
 
-func buildAutomationSchedule(options automationScheduleOptions, create bool) (*types.AutomationScheduleFormConfig, string, error) {
+func buildAutomationSchedule(options automationScheduleOptions, create bool) (*contract.AutomationScheduleInput, string, error) {
 	mode := strings.TrimSpace(options.mode)
 	if mode != string(types.AutomationScheduleModeCalendar) && mode != string(types.AutomationScheduleModeInterval) {
 		return nil, "", fmt.Errorf("--mode must be calendar or interval")
@@ -381,7 +379,7 @@ func buildAutomationSchedule(options automationScheduleOptions, create bool) (*t
 			return nil, "", fmt.Errorf("invalid timezone %q: %w", timezone, err)
 		}
 	}
-	form := &types.AutomationScheduleFormConfig{Mode: mode, Timezone: timezone}
+	form := &contract.AutomationScheduleInput{Mode: mode, Timezone: timezone}
 
 	switch mode {
 	case string(types.AutomationScheduleModeCalendar):
@@ -428,14 +426,7 @@ func buildAutomationSchedule(options automationScheduleOptions, create bool) (*t
 		if options.intervalMinutes < 5 {
 			return nil, "", fmt.Errorf("--interval-minutes must be at least 5")
 		}
-		anchor := strings.TrimSpace(options.anchorAt)
-		if anchor == "" {
-			return nil, "", fmt.Errorf("--anchor-at is required for interval mode")
-		}
-		if err := validateAutomationAnchor(anchor, timezone); err != nil {
-			return nil, "", err
-		}
-		form.Interval = &types.AutomationIntervalConfig{IntervalMinutes: options.intervalMinutes, AnchorAt: anchor}
+		form.Interval = &contract.AutomationIntervalInput{IntervalMinutes: options.intervalMinutes}
 	}
 	return form, timezone, nil
 }
@@ -455,28 +446,6 @@ func parseAutomationDays(raw string, min, max int) ([]int, error) {
 		result = append(result, value)
 	}
 	return result, nil
-}
-
-func validateAutomationAnchor(anchor, timezone string) error {
-	if timezone == "" {
-		timezone = defaultAutomationTimezone
-	}
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		return fmt.Errorf("invalid timezone %q: %w", timezone, err)
-	}
-	for _, layout := range []string{"15:04", "15:04:05", time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05"} {
-		if layout == time.RFC3339 {
-			if _, err := time.Parse(layout, anchor); err == nil {
-				return nil
-			}
-			continue
-		}
-		if _, err := time.ParseInLocation(layout, anchor, loc); err == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("invalid --anchor-at %q", anchor)
 }
 
 func parseRequiredAutomationStatus(raw string) (bool, error) {
@@ -511,7 +480,7 @@ func printAutomationList(list *contract.AutomationList) {
 		}
 		nextRunAt := ""
 		if automation.NextRunAt != nil {
-			nextRunAt = automation.NextRunAt.Format(time.RFC3339)
+			nextRunAt = formatAutomationTime(*automation.NextRunAt, automation.Timezone)
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			automation.PublicID, automation.Name, status, automation.ScheduleMode,
@@ -538,7 +507,7 @@ func printAutomation(jsonOutput bool, automation *contract.Automation) error {
 	fmt.Fprintf(w, "Schedule:\t%s\n", automation.Summary)
 	fmt.Fprintf(w, "Timezone:\t%s\n", automation.Timezone)
 	if automation.NextRunAt != nil {
-		fmt.Fprintf(w, "NextRunAt:\t%s\n", automation.NextRunAt.Format(time.RFC3339))
+		fmt.Fprintf(w, "NextRunAt:\t%s\n", formatAutomationTime(*automation.NextRunAt, automation.Timezone))
 	}
 	if automation.ProjectPublicID != "" {
 		fmt.Fprintf(w, "ProjectID:\t%s\n", automation.ProjectPublicID)
@@ -547,6 +516,14 @@ func printAutomation(jsonOutput bool, automation *contract.Automation) error {
 	fmt.Fprintf(w, "UpdatedAt:\t%s\n", automation.UpdatedAt.Format(time.RFC3339))
 	w.Flush()
 	return nil
+}
+
+func formatAutomationTime(value time.Time, timezone string) string {
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		return value.UTC().Format(time.RFC3339)
+	}
+	return value.In(loc).Format(time.RFC3339)
 }
 
 func printJSON(value interface{}) error {

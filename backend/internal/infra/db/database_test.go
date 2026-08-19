@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -40,6 +41,156 @@ func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
 	}
 	if database.Migrator().HasTable("leros_plugin_marketplace_translation") {
 		t.Fatal("legacy marketplace translation table should be removed without data backfill")
+	}
+}
+
+func TestBackfillAutomationIntervalScheduleV2PreservesWallClockPhase(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(&types.Automation{}); err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	automation := &types.Automation{
+		PublicID:     "auto_legacy_phase",
+		OrgID:        1,
+		OwnerID:      1,
+		Name:         "legacy",
+		Instruction:  "check",
+		Enabled:      &enabled,
+		ScheduleMode: string(types.AutomationScheduleModeInterval),
+		ScheduleSpec: types.AutomationScheduleSpec{
+			FormConfig: &types.AutomationScheduleFormConfig{
+				Mode:     "interval",
+				Timezone: "Asia/Shanghai",
+				Interval: &types.AutomationIntervalConfig{AnchorAt: "2026-08-19T10:50:00Z", IntervalSeconds: 1800},
+			},
+			Spec: types.AutomationScheduleSpecItem{
+				Version:         1,
+				Mode:            "interval",
+				AnchorAt:        "2026-08-19T10:50:00Z",
+				IntervalSeconds: 1800,
+				Timezone:        "Asia/Shanghai",
+			},
+		},
+		Timezone:    "Asia/Shanghai",
+		AssistantID: 1,
+	}
+	if err := database.Create(automation).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacyUpdatedAt := time.Date(2026, 8, 18, 3, 4, 5, 0, time.UTC)
+	if err := database.Model(&types.Automation{}).Where("id = ?", automation.ID).UpdateColumn("updated_at", legacyUpdatedAt).Error; err != nil {
+		t.Fatal(err)
+	}
+	migrationNow := time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)
+	if err := backfillAutomationIntervalScheduleV2At(database, migrationNow); err != nil {
+		t.Fatal(err)
+	}
+	var migrated types.Automation
+	if err := database.First(&migrated, automation.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	wantNext := time.Date(2026, 8, 19, 2, 50, 0, 0, time.UTC)
+	if migrated.ScheduleSpec.Spec.Version != types.AutomationScheduleVersion {
+		t.Fatalf("version=%d, want %d", migrated.ScheduleSpec.Spec.Version, types.AutomationScheduleVersion)
+	}
+	if migrated.NextRunAt == nil || !migrated.NextRunAt.Equal(wantNext) {
+		t.Fatalf("next_run_at=%v, want %s", migrated.NextRunAt, wantNext)
+	}
+	wantOrigin := wantNext.Add(-30 * time.Minute).Format(time.RFC3339Nano)
+	if migrated.ScheduleSpec.Spec.OriginAt != wantOrigin {
+		t.Fatalf("origin_at=%q, want %q", migrated.ScheduleSpec.Spec.OriginAt, wantOrigin)
+	}
+	if migrated.ScheduleSpec.Spec.AnchorAt != "" || migrated.ScheduleSpec.FormConfig.Interval.AnchorAt != "" {
+		t.Fatal("legacy anchor_at should be cleared")
+	}
+	if !migrated.UpdatedAt.Equal(legacyUpdatedAt) {
+		t.Fatalf("updated_at changed during data migration: got %s, want %s", migrated.UpdatedAt, legacyUpdatedAt)
+	}
+	if err := backfillAutomationIntervalScheduleV2At(database, migrationNow.Add(time.Hour)); err != nil {
+		t.Fatalf("idempotent migration: %v", err)
+	}
+	var repeated types.Automation
+	if err := database.First(&repeated, automation.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if repeated.ScheduleSpec.Spec.OriginAt != migrated.ScheduleSpec.Spec.OriginAt || repeated.NextRunAt == nil || !repeated.NextRunAt.Equal(*migrated.NextRunAt) {
+		t.Fatal("repeated migration changed an already migrated schedule")
+	}
+}
+
+func TestBackfillAutomationIntervalScheduleV2KeepsDisabledNextEmpty(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(&types.Automation{}); err != nil {
+		t.Fatal(err)
+	}
+	disabled := false
+	automation := &types.Automation{
+		PublicID: "auto_legacy_disabled", OrgID: 1, OwnerID: 1, Name: "legacy", Enabled: &disabled,
+		ScheduleMode: "interval", Timezone: "Asia/Shanghai",
+		ScheduleSpec: types.AutomationScheduleSpec{Spec: types.AutomationScheduleSpecItem{
+			Version: 1, Mode: "interval", AnchorAt: "10:50", IntervalSeconds: 1800, Timezone: "Asia/Shanghai",
+		}},
+	}
+	if err := database.Create(automation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backfillAutomationIntervalScheduleV2At(database, time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var migrated types.Automation
+	if err := database.First(&migrated, automation.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if migrated.NextRunAt != nil {
+		t.Fatalf("disabled automation got next_run_at=%v", migrated.NextRunAt)
+	}
+	if migrated.ScheduleSpec.Spec.OriginAt == "" || migrated.ScheduleSpec.Spec.AnchorAt != "" {
+		t.Fatalf("unexpected migrated spec: %+v", migrated.ScheduleSpec.Spec)
+	}
+}
+
+func TestBackfillAutomationIntervalScheduleV2RejectsInvalidDataAtomically(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(&types.Automation{}); err != nil {
+		t.Fatal(err)
+	}
+	valid := &types.Automation{
+		PublicID: "auto_legacy_valid_before_invalid", OrgID: 1, OwnerID: 1, Name: "valid", ScheduleMode: "interval", Timezone: "Asia/Shanghai",
+		ScheduleSpec: types.AutomationScheduleSpec{Spec: types.AutomationScheduleSpecItem{
+			Version: 1, Mode: "interval", AnchorAt: "10:50", IntervalSeconds: 1800, Timezone: "Asia/Shanghai",
+		}},
+	}
+	invalid := &types.Automation{
+		PublicID: "auto_legacy_invalid", OrgID: 1, OwnerID: 1, Name: "invalid", ScheduleMode: "interval", Timezone: "Not/AZone",
+		ScheduleSpec: types.AutomationScheduleSpec{Spec: types.AutomationScheduleSpecItem{
+			Version: 1, Mode: "interval", AnchorAt: "10:50", IntervalSeconds: 1800, Timezone: "Not/AZone",
+		}},
+	}
+	if err := database.Create(valid).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Create(invalid).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backfillAutomationIntervalScheduleV2At(database, time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)); err == nil {
+		t.Fatal("expected invalid migration data to fail")
+	}
+	var unchanged types.Automation
+	if err := database.First(&unchanged, valid.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.ScheduleSpec.Spec.Version != 1 || unchanged.ScheduleSpec.Spec.OriginAt != "" {
+		t.Fatalf("transaction did not roll back valid row: %+v", unchanged.ScheduleSpec.Spec)
 	}
 }
 

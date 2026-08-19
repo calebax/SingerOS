@@ -144,6 +144,7 @@ export type {
 	BackendAutomationExecution,
 	BackendAutomationIntervalConfig,
 	BackendAutomationScheduleFormConfig,
+	BackendAutomationScheduleInput,
 	BackendAutomationScheduleSpec,
 	BackendAutomationSpec,
 	BackendBaseResponse,

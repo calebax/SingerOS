@@ -44,10 +44,7 @@ import { Switch } from "@leros/ui/components/ui/switch";
 import { Check, ChevronsUpDown, Clock, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import {
-	StructuredComposer,
-	type StructuredComposerHandle,
-} from "../input/StructuredComposer";
+import { StructuredComposer, type StructuredComposerHandle } from "../input/StructuredComposer";
 import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { ProjectIcon } from "../layout/project-icon";
 import {
@@ -62,6 +59,7 @@ import {
 	toggleCalendarArray,
 	WEEKDAY_LABELS,
 } from "./automationForm";
+import { formatLocalDateTime } from "./automationTime";
 
 const WEEKDAY_OPTIONS = [
 	{ label: "周一", value: 1 },
@@ -113,7 +111,7 @@ export function AutomationFormDialog({
 
 	const isEdit = Boolean(editTarget);
 	const { skillOptions, skillsLoading } = useComposerSkillOptions(selectedProjectId || null, open);
-	const nextRunPreview = useMemo(() => computeNextRunPreview(form), [form]);
+	const nextRunPreview = useMemo(() => computeNextRunPreview(form, timezone), [form, timezone]);
 
 	// ListProjects 已按当前用户的项目绑定过滤；关联项目的最终可用性仍由保存接口权威校验。
 	// 不在弹窗中二次权限过滤，避免首次打开时因批量权限请求未完成而隐藏完整项目列表。
@@ -709,7 +707,7 @@ export function AutomationFormDialog({
 							<p className="flex items-center gap-1.5">
 								<span className="text-slate-400">下一次执行：</span>
 								<span className="font-normal text-slate-800">
-									{nextRunPreview ? formatISO(nextRunPreview) : "—"}
+									{nextRunPreview ? formatLocalDateTime(nextRunPreview) : "—"}
 								</span>
 								<span className="text-slate-400"></span>
 							</p>
@@ -749,9 +747,4 @@ export function AutomationFormDialog({
 			</DialogContent>
 		</Dialog>
 	);
-}
-
-function formatISO(date: Date): string {
-	const pad = (n: number) => String(n).padStart(2, "0");
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
