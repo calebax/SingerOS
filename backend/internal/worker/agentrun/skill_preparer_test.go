@@ -20,6 +20,7 @@ import (
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
+	"github.com/insmtx/Leros/backend/internal/worker/skillsync"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -60,6 +61,77 @@ func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
 	}
 	if _, err := os.Stat(prepared); !os.IsNotExist(err) {
 		t.Fatalf("expected cleanup to remove empty task Skill directory, err=%v", err)
+	}
+}
+
+func TestPluginSkillPreparerCleanupPreservesSystemSkillForOverlappingRun(t *testing.T) {
+	ctx := context.Background()
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	systemSkillDir := filepath.Join(workspaceRoot, ".leros", "skills", ".system", "review")
+	if err := os.MkdirAll(systemSkillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(systemSkillDir, "SKILL.md"), []byte("---\nname: review\ndescription: review\n---\nReview.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	repository, err := skillsync.NewRepository(filepath.Join(workspaceRoot, ".leros", "skills"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preparer := NewPluginSkillPreparerWithBaseline("", "", repository)
+
+	firstView, firstCleanup, err := preparer.PrepareSkills(
+		ctx,
+		&agentrundomain.RunRequest{RunID: "run-first"},
+		WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondView, secondCleanup, err := preparer.PrepareSkills(
+		ctx,
+		&agentrundomain.RunRequest{RunID: "run-second"},
+		WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	if err != nil {
+		firstCleanup()
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(firstView, "review", "SKILL.md")); err != nil {
+		firstCleanup()
+		secondCleanup()
+		t.Fatalf("first run system Skill link is unavailable: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(secondView, "review", "SKILL.md")); err != nil {
+		firstCleanup()
+		secondCleanup()
+		t.Fatalf("second run system Skill link is unavailable: %v", err)
+	}
+
+	firstCleanup()
+	if _, err := os.Stat(filepath.Join(systemSkillDir, "SKILL.md")); err != nil {
+		secondCleanup()
+		t.Fatalf("first run cleanup removed the system Skill: %v", err)
+	}
+	catalog, err := skillcatalog.NewCatalog(secondView)
+	if err != nil {
+		secondCleanup()
+		t.Fatal(err)
+	}
+	if _, err := catalog.Get("review"); err != nil {
+		secondCleanup()
+		t.Fatalf("second run system Skill became unavailable after first cleanup: %v", err)
+	}
+
+	secondCleanup()
+	if _, err := os.Stat(filepath.Join(systemSkillDir, "SKILL.md")); err != nil {
+		t.Fatalf("second run cleanup removed the system Skill: %v", err)
 	}
 }
 

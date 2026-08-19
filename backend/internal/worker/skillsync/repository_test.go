@@ -116,6 +116,7 @@ func TestRepositoryRestoreAllRestoresTrackedAndCleansUntracked(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestSkill(t, root, "tracked", "changed")
+	writeTestSkill(t, root, ".system/anysearch", "system cache")
 	writeTestSkill(t, root, "untracked", "temporary")
 	if err := repository.RestoreAll(ctx); err != nil {
 		t.Fatal(err)
@@ -125,6 +126,9 @@ func TestRepositoryRestoreAllRestoresTrackedAndCleansUntracked(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "untracked")); !os.IsNotExist(err) {
 		t.Fatalf("untracked Skill remained: %v", err)
+	}
+	if got := readTestSkillBody(t, root, ".system/anysearch"); got != "system cache" {
+		t.Fatalf("system Skill cache body = %q, want preserved content", got)
 	}
 }
 

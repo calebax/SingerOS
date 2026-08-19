@@ -461,9 +461,10 @@ func (r *Repository) restore(ctx context.Context, code string) error {
 	return nil
 }
 
-// RestoreAll discards every uncommitted change under the managed Skill root.
-// The repository lock must cover the full post-run sync so another Run cannot
-// recreate files between restore and clean.
+// RestoreAll discards Run-owned changes under the managed Skill root while
+// preserving the Worker-synchronized .system cache. The repository lock must
+// cover the full post-run sync so another Run cannot recreate files between
+// restore and clean.
 func (r *Repository) RestoreAll(ctx context.Context) error {
 	if r == nil {
 		return fmt.Errorf("Skill repository is not initialized")
@@ -482,7 +483,7 @@ func (r *Repository) restoreAll(ctx context.Context) error {
 		restoreErr = err
 		logs.WarnContextf(ctx, "restore Worker Skill Git baseline failed: root=%s error=%v", r.root, err)
 	}
-	if _, err := r.git(ctx, "clean", "-fdx", "--", "."); err != nil {
+	if _, err := r.git(ctx, "clean", "-fdx", "-e", "/.system/", "--", "."); err != nil {
 		cleanErr = err
 		logs.WarnContextf(ctx, "clean Worker Skill Git repository failed: root=%s error=%v", r.root, err)
 	}
