@@ -122,7 +122,7 @@ func TestPluginSkillPreparerUsesWorkDirWithoutProjectTask(t *testing.T) {
 	}
 }
 
-func TestPluginSkillPreparerResetsOnlyTaskSkillSymlinks(t *testing.T) {
+func TestPluginSkillPreparerResetsTaskSkillView(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
 	taskDir := t.TempDir()
@@ -151,18 +151,23 @@ func TestPluginSkillPreparerResetsOnlyTaskSkillSymlinks(t *testing.T) {
 	}
 
 	manual := filepath.Join(viewRoot, "manual")
-	if err := os.WriteFile(manual, []byte("keep"), 0o644); err != nil {
+	if err := os.MkdirAll(manual, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := NewPluginSkillPreparer("", "").PrepareSkills(
+	if err := os.WriteFile(filepath.Join(manual, "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prepared, cleanup, err = NewPluginSkillPreparer("", "").PrepareSkills(
 		context.Background(),
-		&agentrundomain.RunRequest{RunID: "blocked-run"},
+		&agentrundomain.RunRequest{RunID: "best-effort-run"},
 		WorkspacePreparation{TaskDir: taskDir},
-	); err == nil || !strings.Contains(err.Error(), "refuse to replace non-symlink") {
+	)
+	if err != nil {
 		t.Fatalf("PrepareSkills() error = %v", err)
 	}
-	if got, err := os.ReadFile(manual); err != nil || string(got) != "keep" {
-		t.Fatalf("manual task Skill file changed: %q, %v", got, err)
+	cleanup()
+	if _, err := os.Stat(manual); !os.IsNotExist(err) {
+		t.Fatalf("stale task Skill file was not cleaned: %v", err)
 	}
 }
 
@@ -421,6 +426,9 @@ func TestPluginSnapshotSkillRequiresArtifactSHAForCacheIdentity(t *testing.T) {
 type skillBaselineCommitterStub struct {
 	commits  [][]string
 	restores []string
+	imports  []string
+	resets   int
+	importFn func(string)
 }
 
 func (s *skillBaselineCommitterStub) CommitInstalled(_ context.Context, codes []string) error {
@@ -431,6 +439,73 @@ func (s *skillBaselineCommitterStub) CommitInstalled(_ context.Context, codes []
 func (s *skillBaselineCommitterStub) Restore(_ context.Context, code string) error {
 	s.restores = append(s.restores, code)
 	return nil
+}
+
+func (s *skillBaselineCommitterStub) ImportTaskSkillDirs(_ context.Context, root string) {
+	s.imports = append(s.imports, root)
+	if s.importFn != nil {
+		s.importFn(root)
+	}
+}
+
+func (s *skillBaselineCommitterStub) RestoreAll(context.Context) error {
+	s.resets++
+	return nil
+}
+
+func TestPluginSkillPreparerImportsStaleTaskSkillBeforeReset(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	taskDir := t.TempDir()
+	viewRoot := filepath.Join(taskDir, "skills")
+	stale := filepath.Join(viewRoot, "stale")
+	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	destination := t.TempDir()
+	committer := &skillBaselineCommitterStub{
+		importFn: func(root string) {
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				return
+			}
+			for _, entry := range entries {
+				info, err := os.Lstat(filepath.Join(root, entry.Name()))
+				if err != nil || !info.IsDir() {
+					continue
+				}
+				_ = os.Rename(filepath.Join(root, entry.Name()), filepath.Join(destination, entry.Name()))
+			}
+		},
+	}
+	preparer := NewPluginSkillPreparerWithBaseline("", "", committer)
+	prepared, cleanup, err := preparer.PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{RunID: "recover-stale-task-skill"},
+		WorkspacePreparation{TaskDir: taskDir},
+	)
+	if err != nil {
+		t.Fatalf("PrepareSkills() error = %v", err)
+	}
+	if prepared != viewRoot {
+		t.Fatalf("prepared Skill directory = %q", prepared)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "stale", "SKILL.md")); err != nil {
+		t.Fatalf("stale task Skill was not imported before reset: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale task Skill remained in task view: %v", err)
+	}
+	cleanup()
+	if len(committer.imports) != 2 {
+		t.Fatalf("task Skill import calls = %d, want prepare and cleanup", len(committer.imports))
+	}
+	if committer.resets != 1 {
+		t.Fatalf("task Skill repository resets = %d, want cleanup reset", committer.resets)
+	}
 }
 
 func TestPluginSkillPreparerRepairsLegacyAndInvalidManifestEntries(t *testing.T) {
