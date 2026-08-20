@@ -102,6 +102,7 @@ type StructuredComposerProps = {
 	assistantOptions?: ComposerAssistantOption[];
 	skillOptions?: ComposerSkillOption[];
 	skillsLoading?: boolean;
+	onAssistantPickerOpen?: () => Promise<boolean> | undefined;
 	onSkillPickerOpen?: () => void;
 	directivesDisabled?: boolean;
 	assistantDirectivesDisabled?: boolean;
@@ -880,6 +881,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			assistantOptions = [],
 			skillOptions,
 			skillsLoading,
+			onAssistantPickerOpen,
 			onSkillPickerOpen,
 			directivesDisabled = false,
 			assistantDirectivesDisabled = false,
@@ -899,6 +901,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const [activeIndex, setActiveIndex] = useState(0);
 		const [commandSearch, setCommandSearch] = useState("");
 		const [assistantSearch, setAssistantSearch] = useState("");
+		const [assistantRefreshState, setAssistantRefreshState] = useState<
+			"idle" | "loading" | "ready" | "error"
+		>("idle");
 		const [tokens, setTokens] = useState<InsertedToken[]>([]);
 		const composingRef = useRef(false);
 		const pendingCaretRef = useRef<number | null>(null);
@@ -907,6 +912,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const valueRef = useRef(value);
 		const tokensRef = useRef<InsertedToken[]>([]);
 		const appliedPrefillIdsRef = useRef<Set<string>>(new Set());
+		const assistantRefreshCycleRef = useRef(0);
 
 		const availableAssistantOptions = useMemo<AssistantOption[]>(
 			() => assistantOptions,
@@ -947,6 +953,14 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					.includes(query);
 			});
 		}, [assistantSearch, availableAssistantOptions, selectedAssistantNames, trigger?.kind]);
+		const assistantPickerLoading =
+			trigger?.kind === "assistant" &&
+			assistantRefreshState !== "ready" &&
+			assistantRefreshState !== "error";
+		const assistantPickerError =
+			trigger?.kind === "assistant" && assistantRefreshState === "error"
+				? "AI 队友加载失败，请关闭后重试"
+				: null;
 
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? commandSearch : "");
@@ -1040,6 +1054,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 		const dismissTrigger = useCallback((rememberCurrent = true) => {
 			setTrigger((current) => {
+				if (current?.kind === "assistant") {
+					assistantRefreshCycleRef.current += 1;
+					setAssistantRefreshState("idle");
+				}
 				if (rememberCurrent) {
 					dismissedTriggerStartRef.current = current?.start ?? null;
 				}
@@ -1055,6 +1073,21 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			if (trigger?.kind !== "command") return;
 			onSkillPickerOpen?.();
 		}, [onSkillPickerOpen, trigger?.kind]);
+
+		useEffect(() => {
+			if (trigger?.kind !== "assistant") return;
+
+			const refreshCycle = ++assistantRefreshCycleRef.current;
+			setAssistantRefreshState("loading");
+			void Promise.resolve(onAssistantPickerOpen?.())
+				.then((succeeded) => {
+					if (refreshCycle !== assistantRefreshCycleRef.current) return;
+					setAssistantRefreshState(succeeded === false ? "error" : "ready");
+				})
+				.catch(() => {
+					if (refreshCycle === assistantRefreshCycleRef.current) setAssistantRefreshState("error");
+				});
+		}, [onAssistantPickerOpen, trigger?.kind]);
 
 		useEffect(() => {
 			if (trigger?.kind === "command") {
@@ -1848,43 +1881,54 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 										<CommandList
 											className={cn("px-1", pickerSize === "compact" ? "max-h-48" : "max-h-60")}
 										>
-											<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
+											{trigger.kind === "assistant" && assistantPickerLoading && (
+												<div className="px-2 py-3 text-xs text-slate-400">加载 AI 队友...</div>
+											)}
+											{trigger.kind === "assistant" && assistantPickerError && (
+												<div className="px-2 py-3 text-xs text-red-400">{assistantPickerError}</div>
+											)}
+											{(!assistantPickerLoading || trigger.kind !== "assistant") &&
+												!assistantPickerError && (
+													<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
+												)}
 											{trigger.kind === "assistant" ? (
 												<CommandGroup className="p-0">
-													{filteredAssistants.map((assistant, index) => (
-														<CommandItem
-															key={assistant.id}
-															value={assistantPickerValue(assistant)}
-															data-picker-item-value={assistantPickerValue(assistant)}
-															onMouseDown={(event: MouseEvent<HTMLElement>) =>
-																event.preventDefault()
-															}
-															onSelect={() => selectToken("assistant", assistant, trigger)}
-															className={cn(
-																pickerSize === "compact"
-																	? "rounded-md px-1.5 py-1"
-																	: "rounded-lg px-2 py-1.5",
-																index === activeIndex && "bg-slate-100",
-															)}
-														>
-															<AssistantAvatar
-																name={assistant.name}
-																src={assistant.avatarUrl}
-																size="sm"
-															/>
-															<div className="min-w-0 flex-1">
-																<div className="truncate font-medium text-slate-700">
-																	{renderHighlightedText(assistant.name, assistantSearch)}
-																</div>
-																{/* 中文注释：选择弹窗固定两行，名称在上、角色名称在下。 */}
-																{assistant.roleName ? (
-																	<div className="truncate text-xs text-slate-500">
-																		{renderHighlightedText(assistant.roleName, assistantSearch)}
+													{!assistantPickerLoading &&
+														!assistantPickerError &&
+														filteredAssistants.map((assistant, index) => (
+															<CommandItem
+																key={assistant.id}
+																value={assistantPickerValue(assistant)}
+																data-picker-item-value={assistantPickerValue(assistant)}
+																onMouseDown={(event: MouseEvent<HTMLElement>) =>
+																	event.preventDefault()
+																}
+																onSelect={() => selectToken("assistant", assistant, trigger)}
+																className={cn(
+																	pickerSize === "compact"
+																		? "rounded-md px-1.5 py-1"
+																		: "rounded-lg px-2 py-1.5",
+																	index === activeIndex && "bg-slate-100",
+																)}
+															>
+																<AssistantAvatar
+																	name={assistant.name}
+																	src={assistant.avatarUrl}
+																	size="sm"
+																/>
+																<div className="min-w-0 flex-1">
+																	<div className="truncate font-medium text-slate-700">
+																		{renderHighlightedText(assistant.name, assistantSearch)}
 																	</div>
-																) : null}
-															</div>
-														</CommandItem>
-													))}
+																	{/* 中文注释：选择弹窗固定两行，名称在上、角色名称在下。 */}
+																	{assistant.roleName ? (
+																		<div className="truncate text-xs text-slate-500">
+																			{renderHighlightedText(assistant.roleName, assistantSearch)}
+																		</div>
+																	) : null}
+																</div>
+															</CommandItem>
+														))}
 												</CommandGroup>
 											) : (
 												<CommandGroup className="p-0">

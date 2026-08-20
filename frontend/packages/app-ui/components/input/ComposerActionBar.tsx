@@ -23,7 +23,7 @@ import {
 	Sparkles,
 	WandSparkles,
 } from "lucide-react";
-import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
@@ -41,6 +41,7 @@ type ComposerActionBarProps = {
 	assistantOptions?: ComposerAssistantOption[];
 	skillOptions?: PluginComposerOption[];
 	skillsLoading?: boolean;
+	onAssistantPickerOpen?: () => Promise<boolean> | undefined;
 	onSkillPickerOpen?: () => void;
 	disableAssistantAndSkill?: boolean;
 	assistantSelectionMode?: "single" | "multiple";
@@ -95,6 +96,7 @@ export function ComposerActionBar({
 	assistantOptions = [],
 	skillOptions = [],
 	skillsLoading,
+	onAssistantPickerOpen,
 	onSkillPickerOpen,
 	disableAssistantAndSkill = false,
 	assistantSelectionMode = "multiple",
@@ -116,12 +118,37 @@ export function ComposerActionBar({
 	const [connectorOpen, setConnectorOpen] = useState(false);
 	const [connectorSearch, setConnectorSearch] = useState("");
 	const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
+	const [assistantRefreshState, setAssistantRefreshState] = useState<
+		"idle" | "loading" | "ready" | "error"
+	>("idle");
+	const assistantRefreshCycleRef = useRef(0);
 	const derivedSkillsLoading = skillOpen && skillsLoading;
 
 	useEffect(() => {
 		if (!skillOpen) return;
 		onSkillPickerOpen?.();
 	}, [onSkillPickerOpen, skillOpen]);
+
+	const handleAssistantOpenChange = (open: boolean) => {
+		setAssistantOpen(open);
+		if (!open) {
+			assistantRefreshCycleRef.current += 1;
+			setAssistantRefreshState("idle");
+			setAssistantSearch("");
+			return;
+		}
+
+		const refreshCycle = ++assistantRefreshCycleRef.current;
+		setAssistantRefreshState("loading");
+		void Promise.resolve(onAssistantPickerOpen?.())
+			.then((succeeded) => {
+				if (refreshCycle !== assistantRefreshCycleRef.current) return;
+				setAssistantRefreshState(succeeded === false ? "error" : "ready");
+			})
+			.catch(() => {
+				if (refreshCycle === assistantRefreshCycleRef.current) setAssistantRefreshState("error");
+			});
+	};
 
 	useEffect(() => {
 		if (connectorDisabled) {
@@ -184,6 +211,9 @@ export function ComposerActionBar({
 			.map((publicId) => connectorOptions.find((item) => item.pluginId === publicId))
 			.filter((item): item is PluginComposerOption => Boolean(item));
 	}, [connectorOptions, selectedConnectorIds]);
+	const assistantPickerLoading = assistantOpen && assistantRefreshState === "loading";
+	const assistantPickerError =
+		assistantRefreshState === "error" ? "AI 队友加载失败，请重新打开" : null;
 
 	const allowAction = () => (onBeforeAction ? onBeforeAction() : true);
 	const assistantSkillButtonClassName = cn(
@@ -289,13 +319,7 @@ export function ComposerActionBar({
 						<span>上传文件</span>
 					</button>
 				))}
-			<Popover
-				open={assistantOpen}
-				onOpenChange={(open) => {
-					setAssistantOpen(open);
-					if (!open) setAssistantSearch("");
-				}}
-			>
+			<Popover open={assistantOpen} onOpenChange={handleAssistantOpenChange}>
 				<PopoverTrigger
 					type="button"
 					disabled={disableAssistantAndSkill}
@@ -333,34 +357,46 @@ export function ComposerActionBar({
 						/>
 						<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
 						<CommandList className="max-h-64 px-1">
-							<CommandEmpty className="py-6 text-slate-400">没有可继续添加的 AI 队友</CommandEmpty>
+							{!assistantPickerLoading && !assistantPickerError && (
+								<CommandEmpty className="py-6 text-slate-400">
+									没有可继续添加的 AI 队友
+								</CommandEmpty>
+							)}
 							<CommandGroup className="p-0">
-								{filteredAssistants.map((assistant) => (
-									<CommandItem
-										// 中文注释：CommandItem 的 value 同时承担活动项标识；不能使用可能重复的名称。
-										key={assistant.id}
-										value={`assistant:${assistant.id}`}
-										onSelect={() => {
-											composerRef.current?.insertAssistant(assistant.name);
-											setAssistantOpen(false);
-											setAssistantSearch("");
-										}}
-										className="rounded-lg px-2 py-1.5"
-									>
-										<AssistantAvatar name={assistant.name} src={assistant.avatarUrl} size="sm" />
-										<div className="min-w-0 flex-1">
-											<div className="truncate font-medium text-slate-700">
-												{renderHighlightedText(assistant.name, assistantSearch)}
-											</div>
-											{/* 中文注释：选择弹窗固定两行，名称在上、角色名称在下。 */}
-											{assistant.roleName ? (
-												<div className="truncate text-xs text-slate-500">
-													{renderHighlightedText(assistant.roleName, assistantSearch)}
+								{assistantPickerLoading && (
+									<div className="px-2 py-3 text-xs text-slate-400">加载 AI 队友...</div>
+								)}
+								{assistantPickerError && (
+									<div className="px-2 py-3 text-xs text-red-400">{assistantPickerError}</div>
+								)}
+								{!assistantPickerLoading &&
+									!assistantPickerError &&
+									filteredAssistants.map((assistant) => (
+										<CommandItem
+											// 中文注释：CommandItem 的 value 同时承担活动项标识；不能使用可能重复的名称。
+											key={assistant.id}
+											value={`assistant:${assistant.id}`}
+											onSelect={() => {
+												composerRef.current?.insertAssistant(assistant.name);
+												setAssistantOpen(false);
+												setAssistantSearch("");
+											}}
+											className="rounded-lg px-2 py-1.5"
+										>
+											<AssistantAvatar name={assistant.name} src={assistant.avatarUrl} size="sm" />
+											<div className="min-w-0 flex-1">
+												<div className="truncate font-medium text-slate-700">
+													{renderHighlightedText(assistant.name, assistantSearch)}
 												</div>
-											) : null}
-										</div>
-									</CommandItem>
-								))}
+												{/* 中文注释：选择弹窗固定两行，名称在上、角色名称在下。 */}
+												{assistant.roleName ? (
+													<div className="truncate text-xs text-slate-500">
+														{renderHighlightedText(assistant.roleName, assistantSearch)}
+													</div>
+												) : null}
+											</div>
+										</CommandItem>
+									))}
 							</CommandGroup>
 						</CommandList>
 					</Command>

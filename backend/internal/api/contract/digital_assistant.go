@@ -30,4 +30,10 @@ type DigitalAssistantService interface {
 
 	// 基于模板创建数字助手（从上下文获取权限信息）
 	CreateDigitalAssistantFromTemplate(ctx context.Context, req *CreateDigitalAssistantFromTemplateRequest) (*DigitalAssistant, error)
+
+	// 读取 AI 队友共享权限配置。
+	GetDigitalAssistantPermissions(ctx context.Context, publicID string) (*DigitalAssistantPermissionSettingsView, error)
+
+	// 全量更新 AI 队友共享权限配置。
+	UpdateDigitalAssistantPermissions(ctx context.Context, req *UpdateDigitalAssistantPermissionsRequest) (*DigitalAssistantPermissionSettingsView, error)
 }

@@ -4,6 +4,8 @@ import type { SliceCreator } from "../types";
 import { flattenActions } from "../utils";
 import { readStoredAuthUser } from "../utils/authStorage";
 
+export type DigitalAssistantPermissionRole = "owner" | "admin" | "member";
+
 export type DigitalAssistantItem = {
 	id: number;
 	publicId: string;
@@ -12,6 +14,8 @@ export type DigitalAssistantItem = {
 	description: string;
 	avatar: string;
 	status: string;
+	visibility?: "public" | "private";
+	permissionRole?: DigitalAssistantPermissionRole;
 	systemPrompt: string;
 	expertise: string[];
 	templateId?: number;
@@ -53,6 +57,8 @@ function mapBackendDA(da: BackendDigitalAssistant): DigitalAssistantItem {
 		description: da.description ?? "",
 		avatar: da.avatar ?? "",
 		status: da.status,
+		visibility: da.visibility === "private" ? "private" : "public",
+		permissionRole: da.permission?.role,
 		systemPrompt: da.system_prompt ?? "",
 		expertise: da.expertise ?? [],
 		templateId: da.template_id,
@@ -82,22 +88,23 @@ export const createDASlice = (set: SetState) => new DASliceImpl(set);
 
 export class DASliceImpl {
 	readonly #set: SetState;
-	#fetchAssistantsPromise: Promise<void> | null = null;
+	#fetchAssistantsPromise: Promise<boolean> | null = null;
 	#assistantsFetchEpoch = 0;
 
 	constructor(set: SetState) {
 		this.#set = set;
 	}
 
-	fetchAssistants = async () => {
-		if (!readStoredAuthUser()?.jwtToken) return;
+	fetchAssistants = async (): Promise<boolean> => {
+		if (!readStoredAuthUser()?.jwtToken) return false;
 		if (this.#fetchAssistantsPromise) return this.#fetchAssistantsPromise;
 
 		const fetchEpoch = this.#assistantsFetchEpoch;
-		this.#fetchAssistantsPromise = (async () => {
+		const promise = (async () => {
+			let succeeded = false;
 			try {
 				const res = await digitalAssistantApi.list({ list_all: true, limit: 100 });
-				if (fetchEpoch !== this.#assistantsFetchEpoch) return;
+				if (fetchEpoch !== this.#assistantsFetchEpoch) return false;
 				const items = res.data.data?.items ?? [];
 				this.#set({
 					assistants: items
@@ -105,6 +112,7 @@ export class DASliceImpl {
 						.filter((assistant) => !isSystemDefaultAssistant(assistant.publicId)),
 					assistantsLoaded: true,
 				});
+				succeeded = true;
 			} catch (err) {
 				console.error("fetchAssistants error:", err);
 			} finally {
@@ -112,9 +120,11 @@ export class DASliceImpl {
 					this.#fetchAssistantsPromise = null;
 				}
 			}
+			return succeeded;
 		})();
 
-		return this.#fetchAssistantsPromise;
+		this.#fetchAssistantsPromise = promise;
+		return promise;
 	};
 
 	resetAuthScopedData = () => {

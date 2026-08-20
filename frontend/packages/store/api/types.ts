@@ -194,6 +194,10 @@ export type BackendDigitalAssistant = {
 	org_id: number;
 	owner_id: number;
 	status: string;
+	visibility?: "public" | "private";
+	permission?: {
+		role: "owner" | "admin" | "member";
+	};
 	system_prompt?: string;
 	expertise?: string[];
 	template_id?: number;

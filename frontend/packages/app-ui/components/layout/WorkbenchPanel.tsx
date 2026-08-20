@@ -6,15 +6,15 @@ import {
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
 	getComposerUploadAccept,
+	hasComposerSkillTokens,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,
 	type Project,
 	type ProjectTask,
 	partitionComposerFolderFiles,
+	prepareOutgoingComposer,
 	projectFileApi,
 	revokeAttachmentObjectUrls,
-	hasComposerSkillTokens,
-	prepareOutgoingComposer,
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
@@ -200,6 +200,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		enabled: isAuthenticated,
 	});
 	const [selectedConnectorIds, setSelectedConnectorIds] = useState<string[]>([]);
+	const handleAssistantPickerOpen = useCallback(() => fetchAssistants(), [fetchAssistants]);
 	const handleSelectConnector = useCallback((publicId: string) => {
 		setSelectedConnectorIds((prev) => (prev.includes(publicId) ? prev : [...prev, publicId]));
 	}, []);
@@ -310,10 +311,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			await startGlobalEvents();
 			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
 			const prepared = prepareOutgoingComposer(input, composerTokens);
-			if (
-				!prepared.content &&
-				attachments.length === 0
-			) {
+			if (!prepared.content && attachments.length === 0) {
 				return;
 			}
 			const mentionedAssistant = activeWorkbenchProjectId
@@ -913,6 +911,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								placeholder="在这里输入需求或描述目标。使用#选择项目、@召唤AI队友、/调用技能..."
 								isProjectVariant
 								assistantOptions={availableAssistantOptions}
+								onAssistantPickerOpen={handleAssistantPickerOpen}
 								assistantSelectionMode="single"
 								skillOptions={skillOptions}
 								skillsLoading={skillsLoading}
@@ -935,6 +934,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										return true;
 									}}
 									assistantOptions={availableAssistantOptions}
+									onAssistantPickerOpen={handleAssistantPickerOpen}
 									assistantSelectionMode="single"
 									skillOptions={skillOptions}
 									skillsLoading={skillsLoading}

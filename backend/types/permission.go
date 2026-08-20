@@ -54,6 +54,23 @@ const (
 	ActionPluginPermissionUpdate Action = "plugin:permission.update"
 	// ActionPluginVisibilityUpdate 修改插件公开性。
 	ActionPluginVisibilityUpdate Action = "plugin:visibility.update"
+
+	// ActionAssistantView 查看 AI 队友公开资料。
+	ActionAssistantView Action = "assistant:view"
+	// ActionAssistantUse 召唤 AI 队友执行任务。
+	ActionAssistantUse Action = "assistant:use"
+	// ActionAssistantUpdate 编辑 AI 队友配置。
+	ActionAssistantUpdate Action = "assistant:update"
+	// ActionAssistantStatusUpdate 更新 AI 队友启停状态。
+	ActionAssistantStatusUpdate Action = "assistant:status.update"
+	// ActionAssistantDelete 删除 AI 队友。
+	ActionAssistantDelete Action = "assistant:delete"
+	// ActionAssistantPermissionRead 读取 AI 队友协作权限。
+	ActionAssistantPermissionRead Action = "assistant:permission.read"
+	// ActionAssistantPermissionUpdate 更新 AI 队友协作权限。
+	ActionAssistantPermissionUpdate Action = "assistant:permission.update"
+	// ActionAssistantVisibilityUpdate 修改 AI 队友公开范围。
+	ActionAssistantVisibilityUpdate Action = "assistant:visibility.update"
 )
 
 // PermissionCaller 表示权限判断中的请求主体。

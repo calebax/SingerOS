@@ -269,6 +269,20 @@ func (p *MessagePoster) RunNewMessage(
 	o.assistantIDs = assistantIDs
 
 	logs.DebugContextf(ctx, "NewMessage: caller=%d org=%d assistant=%v", caller.Uin, caller.OrgID, assistantIDs)
+	if strings.TrimSpace(req.ProjectID) == "" {
+		for _, assistantID := range assistantIDs {
+			assistant, assistantErr := infradb.GetDigitalAssistantByID(ctx, p.db, assistantID)
+			if assistantErr != nil {
+				return nil, assistantErr
+			}
+			if assistant == nil {
+				return nil, errors.New("digital assistant not found")
+			}
+			if _, assistantErr = newDigitalAssistantAccessManager(p.db).require(ctx, caller.OrgID, caller.Uin, assistant, types.ActionAssistantUse); assistantErr != nil {
+				return nil, assistantErr
+			}
+		}
+	}
 
 	if err := o.resolveOrCreateProject(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
@@ -534,6 +548,16 @@ func (o *newMessageOrchestrator) bindProjectAssistants(resourceID uint) error {
 	for _, id := range o.assistantIDs {
 		if id == 0 || id == defaultAssistantID {
 			continue
+		}
+		assistant, err := infradb.GetDigitalAssistantByID(o.ctx, o.poster.db, id)
+		if err != nil {
+			return fmt.Errorf("get digital assistant %d: %w", id, err)
+		}
+		if assistant == nil {
+			return fmt.Errorf("digital assistant %d not found", id)
+		}
+		if _, err := newDigitalAssistantAccessManager(o.poster.db).require(o.ctx, o.caller.OrgID, o.caller.Uin, assistant, types.ActionAssistantUse); err != nil {
+			return fmt.Errorf("use digital assistant %d: %w", id, err)
 		}
 		extraID := id
 		if err := infradb.CreateResourceBinding(o.ctx, o.poster.db, &types.ResourceBinding{

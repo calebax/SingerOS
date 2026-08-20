@@ -203,6 +203,9 @@ func runMigrations(db *gorm.DB) error {
 	if err := backfillPluginVisibility(db); err != nil {
 		return err
 	}
+	if err := backfillDigitalAssistantVisibility(db); err != nil {
+		return err
+	}
 	if err := dbtools.InitModel(db, models...); err != nil {
 		return err
 	}
@@ -254,6 +257,10 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	if err := backfillPluginResources(db); err != nil {
+		return err
+	}
+
+	if err := backfillDigitalAssistantResources(db); err != nil {
 		return err
 	}
 
@@ -435,6 +442,22 @@ func backfillPluginVisibility(db *gorm.DB) error {
 	return nil
 }
 
+// backfillDigitalAssistantVisibility 为历史 AI 队友保持组织公开，新增队友仍由模型默认值设为 private。
+func backfillDigitalAssistantVisibility(db *gorm.DB) error {
+	if !db.Migrator().HasTable(types.TableNameDigitalAssistant) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&types.DigitalAssistant{}, "visibility") {
+		if err := db.Exec("ALTER TABLE " + types.TableNameDigitalAssistant + " ADD COLUMN visibility VARCHAR(16)").Error; err != nil {
+			return fmt.Errorf("add digital assistant visibility column: %w", err)
+		}
+	}
+	if err := db.Exec("UPDATE " + types.TableNameDigitalAssistant + " SET visibility = 'public' WHERE visibility IS NULL").Error; err != nil {
+		return fmt.Errorf("backfill digital assistant visibility: %w", err)
+	}
+	return nil
+}
+
 // backfillPluginResources 为存量组织插件补写 leros_resource(type=plugin) 与 owner 绑定。
 // 幂等执行：已存在活动资源或 owner 绑定不会重复创建。
 func backfillPluginResources(db *gorm.DB) error {
@@ -458,6 +481,92 @@ func backfillPluginResources(db *gorm.DB) error {
 		if err := backfillOnePluginResource(ctx, db, plugin); err != nil {
 			logs.Warnf("[migration] backfillPluginResources plugin %d: %v", plugin.ID, err)
 			continue
+		}
+	}
+	return nil
+}
+
+// backfillDigitalAssistantResources 为存量 AI 队友补写统一资源和创建者 owner 绑定。
+// 幂等执行；系统默认队友不参与个人权限管理。
+func backfillDigitalAssistantResources(db *gorm.DB) error {
+	if !db.Migrator().HasTable(types.TableNameDigitalAssistant) ||
+		!db.Migrator().HasTable(types.TableNameResource) ||
+		!db.Migrator().HasTable(types.TableNameResourceBinding) {
+		return nil
+	}
+	ctx := context.Background()
+	var assistants []types.DigitalAssistant
+	if err := db.WithContext(ctx).
+		Where("substr(public_id, 1, ?) <> ? AND deleted_at IS NULL", len(types.DefaultDigitalAssistantPublicIDPrefix), types.DefaultDigitalAssistantPublicIDPrefix).
+		Order("id ASC").Find(&assistants).Error; err != nil {
+		logs.Warnf("[migration] backfillDigitalAssistantResources list assistants: %v", err)
+		return nil
+	}
+	for i := range assistants {
+		assistant := &assistants[i]
+		if assistant.OwnerID == 0 {
+			logs.Warnf("[migration] digital assistant %d has no owner", assistant.ID)
+			continue
+		}
+		if err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			resource, err := GetResourceByBizID(ctx, tx, assistant.OrgID, types.ResourceTypeAssistant, assistant.ID)
+			if err != nil {
+				return err
+			}
+			if resource == nil {
+				resource = &types.Resource{
+					OrgID:                 assistant.OrgID,
+					Uin:                   assistant.OwnerID,
+					Type:                  types.ResourceTypeAssistant,
+					BizID:                 assistant.ID,
+					ParentResourcePathIDs: types.ResourcePathIDs{},
+				}
+				if err := CreateResource(ctx, tx, resource); err != nil {
+					return err
+				}
+			}
+			binding, err := GetResourceBindingByUin(ctx, tx, resource.ID, assistant.OwnerID)
+			if err != nil {
+				return err
+			}
+			if binding == nil {
+				uin := assistant.OwnerID
+				if err := CreateResourceBinding(ctx, tx, &types.ResourceBinding{
+					OrgID:      assistant.OrgID,
+					Uin:        &uin,
+					ResourceID: resource.ID,
+					Role:       types.ResourceRoleOwner,
+				}); err != nil {
+					return err
+				}
+			} else if binding.Role != types.ResourceRoleOwner {
+				if err := tx.WithContext(ctx).Model(&types.ResourceBinding{}).
+					Where("id = ?", binding.ID).Update("resource_role", types.ResourceRoleOwner).Error; err != nil {
+					return err
+				}
+			}
+			return demoteDuplicateDigitalAssistantOwners(ctx, tx, resource.ID, assistant.OwnerID)
+		}); err != nil {
+			logs.Warnf("[migration] backfillDigitalAssistantResources assistant %d: %v", assistant.ID, err)
+		}
+	}
+	return nil
+}
+
+func demoteDuplicateDigitalAssistantOwners(ctx context.Context, database *gorm.DB, resourceID, keepOwnerUin uint) error {
+	var owners []types.ResourceBinding
+	if err := database.WithContext(ctx).
+		Where("resource_id = ? AND resource_role = ? AND deleted_at IS NULL", resourceID, types.ResourceRoleOwner).
+		Order("id ASC").Find(&owners).Error; err != nil {
+		return err
+	}
+	for _, owner := range owners {
+		if owner.Uin != nil && *owner.Uin == keepOwnerUin {
+			continue
+		}
+		if err := database.WithContext(ctx).Model(&types.ResourceBinding{}).
+			Where("id = ?", owner.ID).Update("resource_role", types.ResourceRoleAdmin).Error; err != nil {
+			return err
 		}
 	}
 	return nil
