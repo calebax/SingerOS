@@ -1,3 +1,5 @@
+/// <reference path="./xlsx-calc.d.ts" />
+
 import JSZip from "jszip";
 import type { WorkBook } from "xlsx";
 
