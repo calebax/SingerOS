@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import calendar
+import difflib
 import json
 import math
 import re
@@ -21,6 +23,7 @@ from typing import Any
 try:
     from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils.cell import column_index_from_string
 except ImportError as exc:  # pragma: no cover - exercised by CLI environments
     raise SystemExit("需要安装 openpyxl：python -m pip install openpyxl") from exc
 
@@ -28,6 +31,28 @@ ERROR_INPUT = 2
 ERROR_BLOCKED = 3
 ERROR_OUTPUT = 4
 MONEY = "0.00"
+
+# 国务院办公厅发布的 2026 年放假调休安排。考勤识别没有返回节假日时使用；
+# 新年份应在公告发布后补充，避免把非工作日猜成工作日。
+OFFICIAL_CALENDAR = {
+    2026: {
+        "holidays": {
+            "2026-01-01", "2026-01-02", "2026-01-03",
+            "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19",
+            "2026-02-20", "2026-02-21", "2026-02-22", "2026-02-23",
+            "2026-04-04", "2026-04-05", "2026-04-06",
+            "2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05",
+            "2026-06-19", "2026-06-20", "2026-06-21",
+            "2026-09-25", "2026-09-26", "2026-09-27",
+            "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05",
+            "2026-10-06", "2026-10-07",
+        },
+        "working_weekends": {
+            "2026-01-04", "2026-02-14", "2026-02-28", "2026-05-09",
+            "2026-09-20", "2026-10-10",
+        },
+    },
+}
 
 ALIASES = {
     "name": ("姓名", "员工姓名", "人员姓名", "名字"),
@@ -45,6 +70,8 @@ ALIASES = {
     "phone": ("话费", "话费补贴"),
     "phone_1_3": ("1-3月话补", "1－3月话补"),
     "phone_4_6": ("4-6月话补", "4－6月话补"),
+    "phone_7_9": ("7-9月话补", "7－9月话补"),
+    "phone_10_12": ("10-12月话补", "10－12月话补"),
     "hot": ("降温费", "高温补贴"),
     "overtime_standard": ("双休日加班标准", "加班标准", "双休日加班（标准）"),
     "overtime_count": ("双休日加班个数", "加班个数", "双休日加班（个数）"),
@@ -59,6 +86,17 @@ def clean(value: Any) -> str:
     return re.sub(r"[\s\u3000]+", "", text).strip()
 
 
+def normalized_name(value: Any) -> str:
+    """Normalize a person name without treating trailing roster annotations as identity."""
+    return re.sub(r"[（(][^（）()]*[）)]$", "", clean(value)).strip()
+
+
+def name_annotation(value: Any) -> str:
+    """Return a trailing roster annotation for transparent fuzzy-match evidence."""
+    match = re.search(r"[（(]([^（）()]*)[）)]$", clean(value))
+    return match.group(1) if match else ""
+
+
 def number(value: Any) -> float | None:
     if value is None or str(value).strip() == "":
         return None
@@ -70,7 +108,7 @@ def number(value: Any) -> float | None:
 
 
 def key(name: Any, project: Any, category: Any) -> tuple[str, str, str]:
-    return clean(name), clean(project), clean(category)
+    return normalized_name(name), clean(project), clean(category)
 
 
 def is_unknown_name(value: Any) -> bool:
@@ -102,6 +140,8 @@ def header_map(headers: list[Any]) -> dict[str, int]:
     for field, pattern in (
         ("phone_1_3", r"1(?:月)?[-－—至]?3月话补"),
         ("phone_4_6", r"4(?:月)?[-－—至]?6月话补"),
+        ("phone_7_9", r"7(?:月)?[-－—至]?9月话补"),
+        ("phone_10_12", r"10(?:月)?[-－—至]?12月话补"),
     ):
         if field not in result:
             for index, header in enumerate(normalized):
@@ -133,14 +173,101 @@ def source_hints(path: Path) -> tuple[str, str]:
     return project, category
 
 
+def source_month(path: Path, sheet_name: str = "") -> str | None:
+    """Extract a month from a source name without inferring a payroll month."""
+    text = f"{path.name} {sheet_name}"
+    match = re.search(r"(20\d{2})\s*[年\-/\.]\s*(\d{1,2})\s*月?", text)
+    if not match:
+        return None
+    return f"{int(match.group(1)):04d}-{int(match.group(2)):02d}"
+
+
+def evaluate_excel_formula(
+    sheet: Any,
+    expression: str,
+    cache: dict[str, float | None],
+) -> float | None:
+    """Evaluate the simple arithmetic formulas used by historical payroll sheets."""
+    cell_ref_pattern = re.compile(r"(?<![A-Z0-9_])\$?([A-Z]{1,3})\$?(\d+)")
+
+    def cell_value(match: re.Match[str]) -> str:
+        coordinate = f"{match.group(1)}{match.group(2)}"
+        if coordinate not in cache:
+            cache[coordinate] = formula_cell_number(
+                sheet,
+                int(match.group(2)),
+                column_index_from_string(match.group(1)),
+                cache,
+            )
+        value = cache[coordinate]
+        return str(value) if value is not None else "0"
+
+    normalized = cell_ref_pattern.sub(cell_value, expression[1:].upper())
+    normalized = normalized.replace("^", "**").replace("ROUND(", "round(")
+    try:
+        tree = ast.parse(normalized, mode="eval")
+    except SyntaxError:
+        return None
+    allowed_nodes = (
+        ast.Expression, ast.BinOp, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult,
+        ast.Div, ast.Pow, ast.USub, ast.UAdd, ast.Constant, ast.Call, ast.Name,
+        ast.Load,
+    )
+    if any(not isinstance(node, allowed_nodes) for node in ast.walk(tree)):
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id not in {"round", "min", "max"}:
+            return None
+        if isinstance(node, ast.Call) and not isinstance(node.func, ast.Name):
+            return None
+    try:
+        value = eval(compile(tree, "<payroll-formula>", "eval"), {"__builtins__": {}}, {
+            "round": round, "min": min, "max": max,
+        })
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+    return number(value)
+
+
+def formula_cell_number(
+    sheet: Any,
+    row: int,
+    column: int,
+    cache: dict[str, float | None],
+) -> float | None:
+    """Resolve a numeric cell, including a same-sheet arithmetic formula."""
+    cell = sheet.cell(row=row, column=column)
+    value = cell.value
+    if isinstance(value, str) and value.startswith("="):
+        return evaluate_excel_formula(sheet, value, cache)
+    return number(value)
+
+
+def worksheet_values(sheet: Any) -> list[tuple[Any, ...]]:
+    """Return display values while preserving formulas without cached Excel results."""
+    cache: dict[str, float | None] = {}
+    rows = []
+    for row in sheet.iter_rows():
+        values = []
+        for cell in row:
+            value = cell.value
+            if isinstance(value, str) and value.startswith("="):
+                resolved = formula_cell_number(sheet, cell.row, cell.column, cache)
+                values.append(resolved if resolved is not None else value)
+            else:
+                values.append(value)
+        rows.append(tuple(values))
+    return rows
+
+
 def read_rows(path: Path) -> list[dict[str, Any]]:
     """读取所有工作表，允许表头前有标题行。"""
-    workbook = load_workbook(path, data_only=True, read_only=True)
+    workbook = load_workbook(path, data_only=False, read_only=False)
     rows: list[dict[str, Any]] = []
     project_hint, category_hint = source_hints(path)
     try:
         for sheet in workbook.worksheets:
-            raw = list(sheet.iter_rows(values_only=True))
+            raw = worksheet_values(sheet)
             header_index = next(
                 (i for i, row in enumerate(raw) if len(header_map(list(row))) >= 2), None
             )
@@ -153,6 +280,8 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
                        for field, index in mapping.items()}
                 row["_sheet"] = sheet.title
                 row["_row"] = row_number
+                row["_source_file"] = path.name
+                row["_source_month"] = source_month(path, sheet.title)
                 row["_project_hint"] = project_hint
                 row["_category_hint"] = category_hint
                 if not is_summary(row):
@@ -182,22 +311,9 @@ def is_employment_category(value: str) -> bool:
 
 
 def identity_matches(observed: tuple[str, str, str], candidate: tuple[str, str, str]) -> bool:
-    """Match vision/project labels without requiring identical project suffixes."""
+    """Strict identity match after name normalization and compatible project labels."""
     observed_name, candidate_name = observed[0], candidate[0]
-    # OCR commonly confuses 利/丽.  Restrict this to a single-character,
-    # otherwise-identical correction; callers still require a unique candidate.
-    ocr_confusions = {frozenset(pair) for pair in (("利", "丽"), ("翌", "罡"))}
-    differing_chars = {
-        frozenset((left, right))
-        for left, right in zip(observed_name, candidate_name)
-        if left != right
-    }
-    name_matches = observed_name == candidate_name or (
-        len(observed_name) == len(candidate_name)
-        and sum(left != right for left, right in zip(observed_name, candidate_name)) == 1
-        and differing_chars <= ocr_confusions
-    )
-    if not observed_name or not name_matches:
+    if not observed_name or observed_name != candidate_name:
         return False
     if observed[1] and candidate[1] and observed[1] not in candidate[1] and candidate[1] not in observed[1]:
         return False
@@ -208,6 +324,78 @@ def identity_matches(observed: tuple[str, str, str], candidate: tuple[str, str, 
             and observed[2] != candidate[2]):
         return False
     return True
+
+
+def compatible_identity(observed: tuple[str, str, str], candidate: tuple[str, str, str]) -> bool:
+    """Check project and employment-category constraints before fuzzy name matching."""
+    if observed[1] and candidate[1] and observed[1] not in candidate[1] and candidate[1] not in observed[1]:
+        return False
+    return not (
+        is_employment_category(observed[2])
+        and is_employment_category(candidate[2])
+        and observed[2] != candidate[2]
+    )
+
+
+def fuzzy_name_score(observed: Any, candidate: Any) -> tuple[float, str]:
+    """Return conservative name similarity and a human-readable matching reason."""
+    left, right = normalized_name(observed), normalized_name(candidate)
+    if not left or not right:
+        return 0, ""
+    if left == right:
+        return 1.0, "姓名去除末尾括号备注后一致"
+    ratio = difflib.SequenceMatcher(a=left, b=right).ratio()
+    # OCR has a small, well-known set of visually similar Chinese characters.
+    confusion_pairs = {frozenset(pair) for pair in (("利", "丽"), ("翌", "罡"))}
+    if len(left) == len(right):
+        differences = [
+            frozenset((a, b)) for a, b in zip(left, right) if a != b
+        ]
+        if len(differences) == 1 and differences[0] in confusion_pairs:
+            return 0.95, "单字 OCR 易混"
+        if len(left) >= 3 and len(differences) == 1:
+            return 0.85, "单字姓名近似"
+    if ratio >= 0.8:
+        return ratio, f"姓名编辑相似度 {ratio:.0%}"
+    return ratio, ""
+
+
+def fuzzy_candidates(
+    observed: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    required_identity: tuple[str, str, str] | None = None,
+) -> list[tuple[float, str, dict[str, Any]]]:
+    """Rank only project/category-compatible unresolved people; never guess ties."""
+    observed_identity = required_identity or row_identity(observed)
+    result = []
+    for candidate in candidates:
+        candidate_identity = row_identity(candidate)
+        if not compatible_identity(observed_identity, candidate_identity):
+            continue
+        score, reason = fuzzy_name_score(observed.get("name"), candidate.get("name"))
+        if score >= 0.8 and reason:
+            result.append((score, reason, candidate))
+    return sorted(result, key=lambda item: item[0], reverse=True)
+
+
+def uniquely_fuzzy_matched(
+    observed: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    required_identity: tuple[str, str, str] | None = None,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    """Accept a fuzzy candidate only with a high score and clear lead."""
+    ranked = fuzzy_candidates(observed, candidates, required_identity)
+    if not ranked:
+        return None, None, None
+    score, reason, winner = ranked[0]
+    next_score = ranked[1][0] if len(ranked) > 1 else 0
+    if score >= 0.9 and score - next_score >= 0.08:
+        return winner, reason, None
+    choices = "、".join(
+        f"{row.get('name')}[{row.get('_source_file', row.get('_sheet', '未知来源'))}!{row.get('_row', '')}]"
+        for _, _, row in ranked[:3]
+    )
+    return None, None, f"模糊匹配存在歧义，候选：{choices}"
 
 
 def attendance_records(path: Path) -> tuple[str | None, str | None, list[dict[str, Any]]]:
@@ -253,7 +441,15 @@ def attendance_days(record: dict[str, Any]) -> tuple[float | None, float]:
         }))
         if not marks:
             actual = None
-    leave = number(record.get("personal_leave_days", record.get("事假天数"))) or 0
+    # leave_days is a vision shorthand for personal leave. Compensatory leave
+    # is intentionally excluded: approved 调休 does not deduct performance.
+    leave = number(record.get(
+        "personal_leave_days",
+        record.get(
+            "leave_days",
+            record.get("personal_leave", record.get("事假天数")),
+        ),
+    )) or 0
     return actual, leave
 
 
@@ -330,7 +526,7 @@ def weekend_slots(month: str | None) -> int | None:
 
 
 def calendar_base_workdays(month: str | None, holiday_values: Any) -> float | None:
-    """Calculate workdays by excluding all weekends and statutory holidays."""
+    """Calculate workdays from month-specific holidays and make-up working days."""
     if not month:
         return None
     match = re.fullmatch(r"(\d{4})-(\d{1,2})", month.strip())
@@ -338,28 +534,71 @@ def calendar_base_workdays(month: str | None, holiday_values: Any) -> float | No
         return None
     year, month_value = int(match.group(1)), int(match.group(2))
     _, days_in_month = calendar.monthrange(year, month_value)
+    official = OFFICIAL_CALENDAR.get(year, {})
+    working_weekends = official.get("working_weekends", set())
     non_working = {
         datetime(year, month_value, day).date().isoformat()
         for day in range(1, days_in_month + 1)
         if datetime(year, month_value, day).weekday() in {5, 6}
+        and datetime(year, month_value, day).date().isoformat() not in working_weekends
     }
-    if isinstance(holiday_values, list):
-        for value in holiday_values:
-            date_text = clean(value)[:10]
-            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text):
-                non_working.add(date_text)
+    # Vision results are evidence, not an authority over published calendars.
+    # Always retain known statutory days; merge extra supplied dates afterwards.
+    official_holidays = official.get("holidays", set())
+    supplied_holidays = holiday_values if isinstance(holiday_values, list) else []
+    for value in set(official_holidays) | {clean(item)[:10] for item in supplied_holidays}:
+        date_text = clean(value)[:10]
+        if date_text.startswith(f"{year:04d}-{month_value:02d}-") and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text):
+            non_working.add(date_text)
     return float(days_in_month - len(non_working))
 
 
-def applicable_phone(row: dict[str, Any], month: str | None) -> float:
+def applicable_phone(
+    row: dict[str, Any],
+    historical_rows: list[dict[str, Any]],
+    month: str | None,
+) -> tuple[float, str | None]:
+    """Pay a quarterly phone allowance once, in the quarter's final month."""
     month_no = month_number(month)
     if month_no is None:
-        return number(row.get("phone")) or 0
-    if 1 <= month_no <= 3:
-        return number(row.get("phone")) or 0
-    if 4 <= month_no <= 6:
-        return number(row.get("phone")) or 0
-    return 0
+        return number(row.get("phone")) or 0, None
+    if month_no not in (3, 6, 9, 12):
+        return 0, None
+    quarter_start = month_no - 2
+    current_month = month or ""
+    current_year = current_month[:4]
+    quarter_key = {
+        3: "phone_1_3", 6: "phone_4_6",
+        9: "phone_7_9", 12: "phone_10_12",
+    }[month_no]
+    prior_paid = any(
+        source_month_value
+        and source_month_value[:4] == current_year
+        and quarter_start <= int(source_month_value[-2:]) < month_no
+        and (number(source.get(quarter_key)) is not None or number(source.get("phone")) is not None)
+        for source in historical_rows
+        for source_month_value in [source.get("_source_month")]
+    )
+    if prior_paid:
+        return 0, "本季度历史月份已发放话补，当前月份不重复计入"
+    amount = number(row.get(quarter_key))
+    if amount is not None:
+        return amount, None
+    fallback = next(
+        (
+            number(source.get(quarter_key)) or number(source.get("phone"))
+            for source in sorted(
+                historical_rows,
+                key=lambda item: item.get("_source_month") or "",
+                reverse=True,
+            )
+            if number(source.get(quarter_key)) is not None or number(source.get("phone")) is not None
+        ),
+        None,
+    )
+    if fallback is None:
+        return 0, "历史工资表没有可参考的话补金额"
+    return fallback, "话补金额沿用最近历史记录，需人工复核"
 
 
 def is_attendance_mark(mark: Any) -> bool:
@@ -420,6 +659,41 @@ def attendance_overtime_days(
     return float(weekend_overtime + holiday_count)
 
 
+def choose_history_baseline(
+    record: dict[str, Any],
+    identity: tuple[str, str, str],
+    historical_rows: list[dict[str, Any]],
+    month: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[str]]:
+    """Select an auditable baseline without silently discarding duplicate history."""
+    issues: list[str] = []
+    matches = [row for row in historical_rows if identity_matches(identity, row_identity(row))]
+    if not matches:
+        fuzzy, reason, ambiguity = uniquely_fuzzy_matched(record, historical_rows, identity)
+        if ambiguity:
+            return {}, [], [ambiguity]
+        if fuzzy is None:
+            return {}, [], []
+        matches = [
+            row for row in historical_rows
+            if identity_matches(row_identity(fuzzy), row_identity(row))
+        ]
+        issues.append(f"姓名{reason}，已模糊匹配，需人工复核")
+    same_month = [row for row in matches if row.get("_source_month") == month]
+    candidates = same_month or matches
+    dated = [row for row in candidates if row.get("_source_month")]
+    if dated:
+        newest = max(row["_source_month"] for row in dated)
+        candidates = [row for row in candidates if row.get("_source_month") == newest]
+    if len(candidates) != 1:
+        sources = "、".join(
+            f"{row.get('_source_file', row.get('_sheet', '未知来源'))}!{row.get('_row', '')}"
+            for row in candidates[:3]
+        )
+        return {}, matches, [f"历史工资存在多个同月候选，无法唯一匹配：{sources}"]
+    return candidates[0], matches, issues
+
+
 def calculate(
     roster_rows: list[dict[str, Any]],
     historical_rows: list[dict[str, Any]],
@@ -445,11 +719,7 @@ def calculate(
             roster[identity] = row
     ignored_keys = {row_identity(row) for row in ignored}
 
-    historical: dict[tuple[str, str, str], dict[str, Any]] = {}
-    for row in historical_rows:
-        identity = row_identity(row)
-        if identity[0] and identity not in historical:
-            historical[identity] = row
+    historical_rows = [row for row in historical_rows if row_identity(row)[0]]
 
     month_no = month_number(month)
 
@@ -469,18 +739,6 @@ def calculate(
         if ignored_match is not None:
             continue
         issues: list[str] = []
-        base = historical.get(identity, {})
-        if not base:
-            candidates = [
-                row for row_identity_key, row in historical.items()
-                if identity_matches(identity, row_identity_key)
-            ]
-            if len(candidates) == 1:
-                base = candidates[0]
-                if clean(base.get("name")) != name:
-                    issues.append("姓名按 OCR 近似候选匹配，需人工复核")
-            elif len(candidates) > 1:
-                issues.append("历史工资表存在多个同名候选，无法唯一匹配")
         roster_row = roster.get(identity, {})
         if not roster_row:
             roster_candidates = [
@@ -489,11 +747,21 @@ def calculate(
             ]
             if len(roster_candidates) == 1:
                 roster_row = roster_candidates[0]
-                if clean(roster_row.get("name")) != name:
-                    issues.append("姓名按 OCR 近似候选匹配，需人工复核")
+            elif not roster_candidates:
+                roster_row, reason, ambiguity = uniquely_fuzzy_matched(observed=records[0], candidates=list(roster.values()))
+                if roster_row is not None:
+                    issues.append(f"姓名{reason}，已模糊匹配，需人工复核")
+                elif ambiguity:
+                    issues.append(ambiguity)
+                roster_row = roster_row or {}
         if not roster_row:
             issues.append("考勤人员未在外聘人员底表唯一匹配")
         record = records[0]
+        baseline_identity = row_identity(roster_row) if roster_row else identity
+        base, matched_history, history_issues = choose_history_baseline(
+            record, baseline_identity, historical_rows, month,
+        )
+        issues.extend(history_issues)
         resolved_project = (
             clean(roster_row.get("project")) or clean(base.get("project")) or project
             or clean(roster_row.get("_project_hint")) or clean(base.get("_project_hint"))
@@ -538,15 +806,17 @@ def calculate(
         if (construction_day is None and construction_raw is not None
                 and historical_workdays and historical_workdays > 0):
             construction_day = construction_raw / historical_workdays
-        phone = applicable_phone(base, month)
-        if number(base.get("phone_1_3")) is not None or number(base.get("phone_4_6")) is not None:
-            issues.append("季度话补发放月份待人工确认，当前未自动计入")
+        phone, phone_issue = applicable_phone(base, matched_history, month)
+        if phone_issue:
+            issues.append(phone_issue)
         # 高温补贴既受月份限制，也必须以该人员的历史发放记录为准。
         hot = (number(base.get("hot")) or 0) if month_no in (6, 7, 8, 9) else 0
         if position is None:
             issues.append("缺少岗位工资/基本工资")
         if performance is None:
             issues.append("缺少绩效工资标准")
+        if not base or number(base.get("seniority")) is None:
+            issues.append("缺少工龄工资基准")
         if construction_day is None:
             issues.append("缺少施工补贴日标准")
         if construction_raw is not None and number(base.get("construction_day")) is None and not historical_workdays:
@@ -567,8 +837,6 @@ def calculate(
         calendar_overtime_cap = weekend_slots(month)
         if calendar_overtime_cap is not None:
             effective_overtime_cap = float(calendar_overtime_cap)
-        if month == "2026-06" and "瀚阅府" in resolved_project:
-            effective_base_workdays = 21
         if effective_base_workdays is None or effective_overtime_cap is None:
             issues.append("缺少当月基础工作日或计划加班上限，加班费未计算")
         elif overtime_standard is not None and actual is not None:
@@ -604,12 +872,24 @@ def calculate(
                         "加班费": overtime_amount, "应发工资": total,
                         "计算状态": "需复核" if issues else "已计算",
                         "复核说明": "；".join(issues)})
-        historical_gross = number(base.get("historical_gross"))
+        # The comparison sheet is for the historical payroll files supplied in
+        # this run. They are often the preceding month, so do not reject them
+        # simply because their filename month differs from the calculation month.
+        comparable_history = matched_history
+        historical_gross = (
+            number(comparable_history[0].get("historical_gross"))
+            if len(comparable_history) == 1 else None
+        )
+        comparison_status = (
+            "未匹配历史应发" if not comparable_history else
+            "历史应发不唯一" if len(comparable_history) > 1 else
+            "未匹配历史应发" if historical_gross is None else
+            "一致" if abs(total - historical_gross) <= 0.01 else "有差异"
+        )
         reconciliation.append({"姓名": name, "项目": resolved_project, "人员类别": resolved_category,
                                "计算应发": total, "历史应发": historical_gross,
                                "差异": total - historical_gross if historical_gross is not None else None,
-                               "状态": ("未匹配历史应发" if historical_gross is None else
-                                      ("一致" if abs(total - historical_gross) <= 0.01 else "有差异"))})
+                               "状态": comparison_status})
     for row in ignored:
         exceptions.append({"姓名": row.get("name"), "项目": row.get("project"),
                            "人员类别": "在册", "类型": "可忽略",
@@ -631,6 +911,7 @@ def write_workbook(result: dict[str, list[dict[str, Any]]], output: Path) -> Non
     }
     for sheet_name, title in sheet_titles.items():
         sheet = workbook.create_sheet(title)
+        sheet.freeze_panes = "A2"
         rows = result[sheet_name]
         headers = list(rows[0]) if rows else ["说明"]
         sheet.append(headers)
