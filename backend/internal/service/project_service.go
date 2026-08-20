@@ -436,8 +436,10 @@ func (s *projectService) AddProjectPlugin(ctx context.Context, req *contract.Upd
 		if err != nil {
 			return err
 		}
-		if plugin.Kind == "mcp" && plugin.CreatedBy != caller.Uin {
-			return errors.New("plugin not found")
+		if caller.Kind != types.CallerKindWorker {
+			if err := newPluginAccessManager(tx).RequireUse(ctx, caller.OrgID, caller.Uin, plugin); err != nil {
+				return err
+			}
 		}
 		result = newProjectPluginMutationResult(project, plugin, true, false)
 		bound, err := db.ListProjectPlugins(ctx, tx, caller.OrgID, project.ID, plugin.Kind)

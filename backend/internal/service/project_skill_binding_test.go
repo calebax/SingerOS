@@ -26,6 +26,7 @@ func TestProjectSkillBindingUsesCodeAndIsIdempotent(t *testing.T) {
 	if err := database.Create(plugin).Error; err != nil {
 		t.Fatalf("create plugin: %v", err)
 	}
+	seedPluginResourceOwner(t, database, 1, plugin.ID, 1)
 
 	service := NewProjectService(
 		database,
