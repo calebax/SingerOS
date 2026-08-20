@@ -45,6 +45,7 @@ func TestProjectMCPBindingUsesOrganizationPluginAndMCPActivity(t *testing.T) {
 	if err := database.Create(plugin).Error; err != nil {
 		t.Fatalf("create plugin: %v", err)
 	}
+	seedPluginResourceOwner(t, database, 1, plugin.ID, 1)
 	if err := database.Create(&types.PluginRevision{
 		PluginID:        plugin.ID,
 		Revision:        1,

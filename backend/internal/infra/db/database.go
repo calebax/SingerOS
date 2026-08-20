@@ -200,6 +200,9 @@ func runMigrations(db *gorm.DB) error {
 	if err := dropLegacyIndexes(db); err != nil {
 		return err
 	}
+	if err := backfillPluginVisibility(db); err != nil {
+		return err
+	}
 	if err := dbtools.InitModel(db, models...); err != nil {
 		return err
 	}
@@ -247,6 +250,10 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	if err := backfillFileArtifactResources(db); err != nil {
+		return err
+	}
+
+	if err := backfillPluginResources(db); err != nil {
 		return err
 	}
 
@@ -409,6 +416,136 @@ func backfillMCPChannelAuthorization(db *gorm.DB) error {
 		}).Error
 }
 
+// backfillPluginVisibility 安全回填插件 visibility 字段：
+// 先以可空列形式新增 visibility，再只回填 NULL 历史行（skill→public、mcp→private），
+// 之后 AutoMigrate 将列收紧为 NOT NULL DEFAULT 'private'。幂等执行，
+// 后续启动只会处理异常 NULL，不会覆盖已有明确值的插件。
+func backfillPluginVisibility(db *gorm.DB) error {
+	if !db.Migrator().HasTable(types.TableNamePlugin) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&types.Plugin{}, "visibility") {
+		if err := db.Exec("ALTER TABLE " + types.TableNamePlugin + " ADD COLUMN visibility VARCHAR(16)").Error; err != nil {
+			return fmt.Errorf("add plugin visibility column: %w", err)
+		}
+	}
+	if err := db.Exec("UPDATE " + types.TableNamePlugin + " SET visibility = CASE WHEN kind = 'mcp' THEN 'private' ELSE 'public' END WHERE visibility IS NULL").Error; err != nil {
+		return fmt.Errorf("backfill plugin visibility: %w", err)
+	}
+	return nil
+}
+
+// backfillPluginResources 为存量组织插件补写 leros_resource(type=plugin) 与 owner 绑定。
+// 幂等执行：已存在活动资源或 owner 绑定不会重复创建。
+func backfillPluginResources(db *gorm.DB) error {
+	if !db.Migrator().HasTable(types.TableNamePlugin) ||
+		!db.Migrator().HasTable(types.TableNameResource) ||
+		!db.Migrator().HasTable(types.TableNameResourceBinding) {
+		return nil
+	}
+	ctx := context.Background()
+
+	var plugins []types.Plugin
+	if err := db.WithContext(ctx).
+		Where("owner_scope = ? AND origin <> ? AND deleted_at IS NULL", types.OwnerScopeOrganization, "marketplace").
+		Order("id ASC").
+		Find(&plugins).Error; err != nil {
+		logs.Warnf("[migration] backfillPluginResources list plugins: %v", err)
+		return nil
+	}
+	for i := range plugins {
+		plugin := &plugins[i]
+		if err := backfillOnePluginResource(ctx, db, plugin); err != nil {
+			logs.Warnf("[migration] backfillPluginResources plugin %d: %v", plugin.ID, err)
+			continue
+		}
+	}
+	return nil
+}
+
+// backfillOnePluginResource 为单个组织插件幂等创建活动资源与 owner 绑定。
+func backfillOnePluginResource(ctx context.Context, db *gorm.DB, plugin *types.Plugin) error {
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		resource, err := GetResourceByBizID(ctx, tx, plugin.OrgID, types.ResourceTypePlugin, plugin.ID)
+		if err != nil {
+			return err
+		}
+		if resource == nil {
+			resource = &types.Resource{
+				OrgID:                 plugin.OrgID,
+				Uin:                   plugin.CreatedBy,
+				Type:                  types.ResourceTypePlugin,
+				BizID:                 plugin.ID,
+				ParentResourcePathIDs: types.ResourcePathIDs{},
+			}
+			if err := CreateResource(ctx, tx, resource); err != nil {
+				return err
+			}
+		}
+
+		ownerUin := resolvePluginOwnerUin(ctx, tx, plugin)
+		if ownerUin == 0 {
+			logs.Warnf("[migration] backfillPluginResources plugin %d has no valid owner candidate", plugin.ID)
+			return nil
+		}
+		if existing, err := GetResourceBindingByUin(ctx, tx, resource.ID, ownerUin); err != nil {
+			return err
+		} else if existing == nil {
+			uin := ownerUin
+			binding := &types.ResourceBinding{
+				OrgID:      plugin.OrgID,
+				Uin:        &uin,
+				ResourceID: resource.ID,
+				Role:       types.ResourceRoleOwner,
+			}
+			if err := CreateResourceBinding(ctx, tx, binding); err != nil {
+				return err
+			}
+		}
+		return demoteDuplicatePluginOwners(ctx, tx, resource.ID, ownerUin)
+	})
+}
+
+// resolvePluginOwnerUin 确定迁移时的 owner：优先 CreatedBy（OSS 为 user_org.id，企业版为 IAM UIN），
+// CreatedBy 为 0 时依次回退组织创建者、组织最早成员。
+func resolvePluginOwnerUin(ctx context.Context, db *gorm.DB, plugin *types.Plugin) uint {
+	if plugin.CreatedBy > 0 {
+		return plugin.CreatedBy
+	}
+	var org types.Organization
+	if err := db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", plugin.OrgID).First(&org).Error; err == nil && org.CreatedByUin > 0 {
+		return org.CreatedByUin
+	}
+	var uo types.UserOrg
+	if err := db.WithContext(ctx).Where("org_id = ? AND deleted_at IS NULL", plugin.OrgID).Order("id ASC").First(&uo).Error; err == nil && uo.ID > 0 {
+		return uo.ID
+	}
+	return 0
+}
+
+// demoteDuplicatePluginOwners 将迁移产生的重复 owner 降级为 admin，保留确定迁移 owner。
+func demoteDuplicatePluginOwners(ctx context.Context, db *gorm.DB, resourceID, keepOwnerUin uint) error {
+	var owners []types.ResourceBinding
+	if err := db.WithContext(ctx).
+		Where("resource_id = ? AND resource_role = ? AND deleted_at IS NULL", resourceID, types.ResourceRoleOwner).
+		Order("id ASC").
+		Find(&owners).Error; err != nil {
+		return err
+	}
+	for _, owner := range owners {
+		if owner.Uin != nil && *owner.Uin == keepOwnerUin {
+			continue
+		}
+		if err := db.WithContext(ctx).Model(&types.ResourceBinding{}).
+			Where("id = ?", owner.ID).
+			Update("resource_role", types.ResourceRoleAdmin).Error; err != nil {
+			return err
+		}
+		logs.Warnf("[migration] backfillPluginResources demoted duplicate owner binding %d to admin", owner.ID)
+	}
+	return nil
+}
+
 func createPluginIndexes(db *gorm.DB) error {
 	if err := db.Exec("DROP INDEX IF EXISTS ux_plugin_org_code").Error; err != nil {
 		return fmt.Errorf("drop legacy plugin organization code index: %w", err)
@@ -427,6 +564,7 @@ func createPluginIndexes(db *gorm.DB) error {
 		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_public_id ON leros_plugin_marketplace_item (public_id)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_source ON leros_plugin_marketplace_item (source_type, source_ref) WHERE deleted_at IS NULL",
 		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_plugin ON leros_plugin_marketplace_item (plugin_id) WHERE plugin_id > 0 AND deleted_at IS NULL",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_org_kind_visibility_status ON leros_plugin (org_id, kind, visibility, status) WHERE deleted_at IS NULL",
 		"CREATE UNIQUE INDEX IF NOT EXISTS ux_file_upload_system_artifact_sha ON leros_file_upload (sha256) WHERE owner_scope = 'system' AND purpose = 'artifact' AND deleted_at IS NULL",
 	}
 	for _, statement := range statements {

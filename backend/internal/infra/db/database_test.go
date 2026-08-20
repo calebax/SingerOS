@@ -395,3 +395,60 @@ func TestBackfillProjectFileVersionsGroupsExistingPaths(t *testing.T) {
 		t.Fatal("project file path version index was not created")
 	}
 }
+
+func TestBackfillPluginResourcesIsIdempotent(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(
+		&types.Plugin{},
+		&types.Resource{},
+		&types.ResourceBinding{},
+		&types.User{},
+		&types.UserOrg{},
+		&types.Organization{},
+	); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+
+	user := &types.User{PublicID: "usr_backfill_owner", Name: "Owner"}
+	if err := database.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	uo := &types.UserOrg{UserID: user.ID, OrgID: 7}
+	if err := database.Create(uo).Error; err != nil {
+		t.Fatalf("create user org: %v", err)
+	}
+	plugin := &types.Plugin{
+		PublicID: "plugin_backfill", OwnerScope: types.OwnerScopeOrganization,
+		OrgID: 7, Code: "backfill", Kind: "skill", Name: "Backfill",
+		Status: types.PluginStatusActive, Origin: "org", CreatedBy: uo.ID, UpdatedBy: uo.ID,
+	}
+	if err := database.Create(plugin).Error; err != nil {
+		t.Fatalf("create plugin: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := backfillPluginResources(database); err != nil {
+			t.Fatalf("backfillPluginResources run %d: %v", i, err)
+		}
+	}
+
+	var resources []types.Resource
+	if err := database.Where("org_id = ? AND type = ? AND biz_id = ?",
+		7, types.ResourceTypePlugin, plugin.ID).Find(&resources).Error; err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("plugin resources = %d, want 1", len(resources))
+	}
+	var bindings []types.ResourceBinding
+	if err := database.Where("resource_id = ?", resources[0].ID).Find(&bindings).Error; err != nil {
+		t.Fatalf("list bindings: %v", err)
+	}
+	if len(bindings) != 1 || bindings[0].Role != types.ResourceRoleOwner ||
+		bindings[0].Uin == nil || *bindings[0].Uin != uo.ID {
+		t.Fatalf("plugin owner bindings = %#v", bindings)
+	}
+}
