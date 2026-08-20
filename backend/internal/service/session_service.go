@@ -181,6 +181,18 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 	if err != nil {
 		return nil, err
 	}
+	if assistantID > 0 {
+		assistant, assistantErr := db.GetDigitalAssistantByID(ctx, s.db, assistantID)
+		if assistantErr != nil {
+			return nil, assistantErr
+		}
+		if assistant == nil {
+			return nil, errors.New("digital assistant not found")
+		}
+		if _, assistantErr = newDigitalAssistantAccessManager(s.db).require(ctx, caller.OrgID, caller.Uin, assistant, types.ActionAssistantUse); assistantErr != nil {
+			return nil, assistantErr
+		}
+	}
 	_, _, err = resolveRuntimeWorker(ctx, s.db, caller.OrgID, assistantID, s.inferrer)
 	if err != nil {
 		return nil, err
@@ -408,6 +420,23 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 			var projectID uint
 			if session.ProjectID != nil {
 				projectID = *session.ProjectID
+			}
+			if projectID == 0 {
+				if caller == nil || caller.Uin == 0 {
+					return nil, errors.New("permission denied")
+				}
+				for _, assistantID := range assistantIDs {
+					assistant, assistantErr := db.GetDigitalAssistantByID(ctx, s.db, assistantID)
+					if assistantErr != nil {
+						return nil, assistantErr
+					}
+					if assistant == nil {
+						return nil, errors.New("digital assistant not found")
+					}
+					if _, assistantErr = newDigitalAssistantAccessManager(s.db).require(ctx, session.OrgID, caller.Uin, assistant, types.ActionAssistantUse); assistantErr != nil {
+						return nil, assistantErr
+					}
+				}
 			}
 			assistantID, workerID, err := resolveProjectAssistantWorker(ctx, s.db, session.OrgID, projectID, assistantIDs, s.inferrer)
 			if err != nil {

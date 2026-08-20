@@ -126,6 +126,21 @@ func ListDigitalAssistant(ctx context.Context, db *gorm.DB, opt *types.PageQuery
 			if len(filter.Value) > 0 {
 				query = query.Where("source = ?", filter.Value[0])
 			}
+		case "viewer_uin":
+			if len(filter.Value) > 0 {
+				query = query.Where(
+					"(visibility = ? AND status = ?) OR EXISTS ("+
+						"SELECT 1 FROM "+types.TableNameResource+" AS r "+
+						"JOIN "+types.TableNameResourceBinding+" AS b ON b.resource_id = r.id AND b.deleted_at IS NULL "+
+						"WHERE r.type = ? AND r.biz_id = "+types.TableNameDigitalAssistant+".id "+
+						"AND r.org_id = "+types.TableNameDigitalAssistant+".org_id AND r.deleted_at IS NULL "+
+						"AND b.uin = ?)",
+					types.DigitalAssistantVisibilityPublic,
+					"active",
+					types.ResourceTypeAssistant,
+					filter.Value[0],
+				)
+			}
 		default:
 			logs.WarnContextf(ctx, "[digital_assistant][ListDigitalAssistant] invalid filter field: %s", filter.Field)
 		}

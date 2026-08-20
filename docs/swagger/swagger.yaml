@@ -301,6 +301,8 @@ definitions:
         type: integer
       owner_id:
         type: integer
+      permission:
+        $ref: '#/definitions/contract.DigitalAssistantPermission'
       public_id:
         type: string
       role_name:
@@ -317,6 +319,23 @@ definitions:
         type: string
       version:
         type: integer
+      visibility:
+        $ref: '#/definitions/types.DigitalAssistantVisibility'
+    type: object
+  contract.DigitalAssistantPermission:
+    properties:
+      role:
+        $ref: '#/definitions/types.ResourceRole'
+    type: object
+  contract.DigitalAssistantPermissionMemberInput:
+    properties:
+      role:
+        $ref: '#/definitions/types.ResourceRole'
+      user:
+        properties:
+          public_id:
+            type: string
+        type: object
     type: object
   contract.GetAutomationExecutionRequest:
     properties:
@@ -326,6 +345,13 @@ definitions:
     - public_id
     type: object
   contract.GetAutomationRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
+  contract.GetDigitalAssistantPermissionsRequest:
     properties:
       public_id:
         type: string
@@ -656,6 +682,19 @@ definitions:
         type: string
       name:
         type: string
+    type: object
+  contract.UpdateDigitalAssistantPermissionsRequest:
+    properties:
+      members:
+        items:
+          $ref: '#/definitions/contract.DigitalAssistantPermissionMemberInput'
+        type: array
+      public_id:
+        type: string
+      visibility:
+        $ref: '#/definitions/types.DigitalAssistantVisibility'
+    required:
+    - public_id
     type: object
   contract.WorkerDeploymentStatus:
     properties:
@@ -1211,6 +1250,14 @@ definitions:
         description: Preset 预设类型：daily/weekly/monthly/hourly
         type: string
     type: object
+  types.DigitalAssistantVisibility:
+    enum:
+    - public
+    - private
+    type: string
+    x-enum-varnames:
+    - DigitalAssistantVisibilityPublic
+    - DigitalAssistantVisibilityPrivate
   types.ExecutionMode:
     enum:
     - default
@@ -1292,6 +1339,18 @@ definitions:
         description: 元数据 - 项目类型/模板标识
         type: string
     type: object
+  types.ResourceRole:
+    enum:
+    - owner
+    - admin
+    - member
+    - viewer
+    type: string
+    x-enum-varnames:
+    - ResourceRoleOwner
+    - ResourceRoleAdmin
+    - ResourceRoleMember
+    - ResourceRoleViewer
 host: localhost:8080
 info:
   contact: {}
@@ -2404,6 +2463,40 @@ paths:
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
       summary: 获取数字助手详情
+      tags:
+      - DigitalAssistant
+  /GetDigitalAssistantPermissions:
+    post:
+      consumes:
+      - application/json
+      description: 获取 AI 队友的公开范围和协作成员角色
+      parameters:
+      - description: 共享权限请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.GetDigitalAssistantPermissionsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取数字助手共享权限
       tags:
       - DigitalAssistant
   /GetLLMModel:
@@ -3650,6 +3743,40 @@ paths:
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
       summary: 更新数字助手
+      tags:
+      - DigitalAssistant
+  /UpdateDigitalAssistantPermissions:
+    post:
+      consumes:
+      - application/json
+      description: 全量更新 AI 队友的公开范围和协作成员角色
+      parameters:
+      - description: 共享权限更新请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.UpdateDigitalAssistantPermissionsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新数字助手共享权限
       tags:
       - DigitalAssistant
   /UpdateDigitalAssistantStatus:

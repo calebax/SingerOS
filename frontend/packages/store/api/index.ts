@@ -44,10 +44,18 @@ export {
 } from "./config";
 export type {
 	CreateDAParams,
+	DigitalAssistantPermission,
+	DigitalAssistantPermissionMember,
+	DigitalAssistantPermissionMemberInput,
+	DigitalAssistantPermissionRole,
+	DigitalAssistantPermissionSettings,
+	DigitalAssistantPermissionUser,
+	DigitalAssistantVisibility,
 	GetDAParams,
 	ListDAParams,
 	UpdateDAParams,
 	UpdateDAStatusParams,
+	UpdateDigitalAssistantPermissionsParams,
 } from "./digitalAssistantApi";
 export { digitalAssistantApi } from "./digitalAssistantApi";
 export type {

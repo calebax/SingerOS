@@ -6,6 +6,35 @@ import type {
 	BackendPaginatedResponse,
 } from "./types";
 
+export type DigitalAssistantVisibility = "public" | "private";
+export type DigitalAssistantPermissionRole = "owner" | "admin" | "member";
+
+export type DigitalAssistantPermission = {
+	role: DigitalAssistantPermissionRole;
+};
+
+export type DigitalAssistantPermissionUser = {
+	public_id: string;
+	name: string;
+	email?: string;
+	avatar_url?: string;
+};
+
+export type DigitalAssistantPermissionMember = {
+	user: DigitalAssistantPermissionUser;
+	role: DigitalAssistantPermissionRole;
+};
+
+export type DigitalAssistantPermissionSettings = {
+	visibility: DigitalAssistantVisibility;
+	members: DigitalAssistantPermissionMember[];
+};
+
+export type DigitalAssistantPermissionMemberInput = {
+	user: { public_id: string };
+	role: DigitalAssistantPermissionRole;
+};
+
 export type CreateDAParams = {
 	public_id?: string;
 	name: string;
@@ -83,6 +112,12 @@ export type IncrementAITeammateTemplateCountParams = {
 	code?: string;
 };
 
+export type UpdateDigitalAssistantPermissionsParams = {
+	public_id: string;
+	visibility: DigitalAssistantVisibility;
+	members: DigitalAssistantPermissionMemberInput[];
+};
+
 const DA_ENDPOINTS = {
 	create: "/CreateDigitalAssistant",
 	createFromTemplate: "/CreateDigitalAssistantFromTemplate",
@@ -92,6 +127,8 @@ const DA_ENDPOINTS = {
 	update: "/UpdateDigitalAssistant",
 	updateStatus: "/UpdateDigitalAssistantStatus",
 	delete: "/DeleteDigitalAssistant",
+	getPermissions: "/GetDigitalAssistantPermissions",
+	updatePermissions: "/UpdateDigitalAssistantPermissions",
 	listTemplates: "/ListAITeammateTemplates",
 	getTemplate: "/GetAITeammateTemplate",
 	incrementTemplateUseCount: "/IncrementAITeammateTemplateUseCount",
@@ -124,6 +161,18 @@ export const digitalAssistantApi = {
 		apiClient.post<BackendDataResponse<null>>(DA_ENDPOINTS.updateStatus, params),
 
 	delete: (id: number) => apiClient.post<BackendDataResponse<null>>(DA_ENDPOINTS.delete, { id }),
+
+	getPermissions: (publicID: string) =>
+		apiClient.post<BackendDataResponse<DigitalAssistantPermissionSettings>>(
+			DA_ENDPOINTS.getPermissions,
+			{ public_id: publicID },
+		),
+
+	updatePermissions: (params: UpdateDigitalAssistantPermissionsParams) =>
+		apiClient.post<BackendDataResponse<DigitalAssistantPermissionSettings>>(
+			DA_ENDPOINTS.updatePermissions,
+			params,
+		),
 
 	listTemplates: (params: ListAITeammateTemplateParams) =>
 		apiClient.post<BackendPaginatedResponse<BackendAITeammateTemplate>>(

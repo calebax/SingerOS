@@ -1102,6 +1102,18 @@ func (s *projectService) bindProjectAssistantMembers(ctx context.Context, tx *go
 			continue
 		}
 		seen[id] = true
+		if id != defaultAssistantID {
+			assistant, err := db.GetDigitalAssistantByID(ctx, tx, id)
+			if err != nil {
+				return fmt.Errorf("get digital assistant %d: %w", id, err)
+			}
+			if assistant == nil {
+				return fmt.Errorf("digital assistant %d not found", id)
+			}
+			if _, err := newDigitalAssistantAccessManager(tx).require(ctx, orgID, caller.Uin, assistant, types.ActionAssistantUse); err != nil {
+				return fmt.Errorf("use digital assistant %d: %w", id, err)
+			}
+		}
 		if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberCreate, &MemberInput{
 			TargetAssistantID: &id,
 			RequestedRole:     types.ResourceRoleMember,
@@ -1264,6 +1276,16 @@ func (s *projectService) syncProjectAssistantMembers(ctx context.Context, tx *go
 	for _, id := range assistantIDs {
 		if _, ok := existingAssistantBindings[id]; !ok {
 			targetID := id
+			assistant, assistantErr := db.GetDigitalAssistantByID(ctx, tx, id)
+			if assistantErr != nil {
+				return nil, nil, fmt.Errorf("get digital assistant %d: %w", id, assistantErr)
+			}
+			if assistant == nil {
+				return nil, nil, fmt.Errorf("digital assistant %d not found", id)
+			}
+			if _, assistantErr = newDigitalAssistantAccessManager(tx).require(ctx, orgID, caller.Uin, assistant, types.ActionAssistantUse); assistantErr != nil {
+				return nil, nil, fmt.Errorf("use digital assistant %d: %w", id, assistantErr)
+			}
 			if err := s.permWithDB(tx).RequireProjectMember(ctx, FromTypeCaller(caller), projectID, ActionProjectMemberCreate, &MemberInput{
 				TargetAssistantID: &targetID,
 				RequestedRole:     types.ResourceRoleMember,

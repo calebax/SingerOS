@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,6 +29,8 @@ func (h *DigitalAssistantHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/CheckDigitalAssistantName", h.CheckDigitalAssistantName)
 	r.POST("/UpdateDigitalAssistantStatus", h.UpdateDigitalAssistantStatus)
 	r.POST("/CreateDigitalAssistantFromTemplate", h.CreateDigitalAssistantFromTemplate)
+	r.POST("/GetDigitalAssistantPermissions", h.GetDigitalAssistantPermissions)
+	r.POST("/UpdateDigitalAssistantPermissions", h.UpdateDigitalAssistantPermissions)
 }
 
 func RegisterDigitalAssistantRoutes(r gin.IRouter, service contract.DigitalAssistantService) {
@@ -297,6 +300,56 @@ func (h *DigitalAssistantHandler) CreateDigitalAssistantFromTemplate(ctx *gin.Co
 	ctx.JSON(http.StatusOK, dto.NewCreateDigitalAssistantResponse(result))
 }
 
+// @Summary 获取数字助手共享权限
+// @Description 获取 AI 队友的公开范围和协作成员角色
+// @Tags DigitalAssistant
+// @Accept json
+// @Produce json
+// @Param body body contract.GetDigitalAssistantPermissionsRequest true "共享权限请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 403 {object} dto.ErrorResponse "权限不足"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Router /GetDigitalAssistantPermissions [post]
+func (h *DigitalAssistantHandler) GetDigitalAssistantPermissions(ctx *gin.Context) {
+	var req contract.GetDigitalAssistantPermissionsRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.GetDigitalAssistantPermissions(ctx, req.PublicID)
+	if err != nil {
+		handleServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 更新数字助手共享权限
+// @Description 全量更新 AI 队友的公开范围和协作成员角色
+// @Tags DigitalAssistant
+// @Accept json
+// @Produce json
+// @Param body body contract.UpdateDigitalAssistantPermissionsRequest true "共享权限更新请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 403 {object} dto.ErrorResponse "权限不足"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Router /UpdateDigitalAssistantPermissions [post]
+func (h *DigitalAssistantHandler) UpdateDigitalAssistantPermissions(ctx *gin.Context) {
+	var req contract.UpdateDigitalAssistantPermissionsRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.UpdateDigitalAssistantPermissions(ctx, &req)
+	if err != nil {
+		handleServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 func handleServiceError(ctx *gin.Context, err error) {
 	if err.Error() == "user not authenticated or org not set" {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
@@ -315,6 +368,15 @@ func handleServiceError(ctx *gin.Context, err error) {
 		return
 	}
 	if err.Error() == "digital assistant name already exists" || err.Error() == "name is required" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	if strings.HasPrefix(err.Error(), "visibility must be ") ||
+		strings.HasPrefix(err.Error(), "member ") ||
+		strings.HasPrefix(err.Error(), "duplicate member ") ||
+		strings.HasPrefix(err.Error(), "owner ") ||
+		strings.HasPrefix(err.Error(), "only the current owner") ||
+		strings.HasPrefix(err.Error(), "invalid member ") {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}

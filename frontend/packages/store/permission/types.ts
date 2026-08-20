@@ -16,6 +16,14 @@ export const Action = {
 	TaskView: "task:view",
 	TaskUpdate: "task:update",
 	TaskDelete: "task:delete",
+	AssistantView: "assistant:view",
+	AssistantUse: "assistant:use",
+	AssistantUpdate: "assistant:update",
+	AssistantStatusUpdate: "assistant:status.update",
+	AssistantDelete: "assistant:delete",
+	AssistantPermissionRead: "assistant:permission.read",
+	AssistantPermissionUpdate: "assistant:permission.update",
+	AssistantVisibilityUpdate: "assistant:visibility.update",
 } as const;
 
 export type Action = (typeof Action)[keyof typeof Action];
@@ -24,7 +32,7 @@ export const CODE_FORBIDDEN = 40301;
 
 export const PERMISSION_DENIED_EVENT = "leros-permission-denied";
 
-export type ResourceType = "project" | "task" | "file" | "artifact";
+export type ResourceType = "project" | "task" | "file" | "artifact" | "assistant";
 
 export type ResourceRef = {
 	type: ResourceType;

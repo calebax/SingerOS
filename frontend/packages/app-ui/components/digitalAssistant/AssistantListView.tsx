@@ -25,6 +25,7 @@ import { AssistantCreateDialog } from "./AssistantCreateDialog";
 import { AssistantDeleteDialog } from "./AssistantDeleteDialog";
 import { AssistantDetailDialog } from "./AssistantDetailDialog";
 import { AssistantEditDialog } from "./AssistantEditDialog";
+import { AssistantPermissionDialog } from "./AssistantPermissionDialog";
 import { isAssistantAvailable } from "./assistantStatus";
 import { buildDefaultSummonPrompt } from "./promptSuggestions";
 
@@ -40,6 +41,7 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 	const [detailTarget, setDetailTarget] = useState<DigitalAssistantItem | null>(null);
 	const [editTarget, setEditTarget] = useState<DigitalAssistantItem | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<DigitalAssistantItem | null>(null);
+	const [permissionTarget, setPermissionTarget] = useState<DigitalAssistantItem | null>(null);
 	const [createdAssistantIds, setCreatedAssistantIds] = useState<number[]>([]);
 	const [createdAssistantReady, setCreatedAssistantReady] = useState<DigitalAssistantItem | null>(
 		null,
@@ -59,6 +61,7 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 		setDetailTarget(null);
 		setEditTarget(null);
 		setDeleteTarget(null);
+		setPermissionTarget(null);
 		setCreatedAssistantIds([]);
 		setCreatedAssistantReady(null);
 	}, [isAuthenticated]);
@@ -185,6 +188,7 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 							onSelect={handleSelectAssistant}
 							onSummon={handleSummonAssistant}
 							onEdit={(assistant) => requireAuth(() => setEditTarget(assistant))}
+							onPermission={(assistant) => requireAuth(() => setPermissionTarget(assistant))}
 							onDelete={(assistant) => requireAuth(() => setDeleteTarget(assistant))}
 						/>
 					))}
@@ -225,6 +229,16 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 					onOpenChange={(open) => {
 						if (!open) setDeleteTarget(null);
 					}}
+				/>
+			)}
+			{permissionTarget && (
+				<AssistantPermissionDialog
+					assistant={permissionTarget}
+					open={!!permissionTarget}
+					onOpenChange={(open) => {
+						if (!open) setPermissionTarget(null);
+					}}
+					onSaved={() => fetchAssistants()}
 				/>
 			)}
 			<Dialog

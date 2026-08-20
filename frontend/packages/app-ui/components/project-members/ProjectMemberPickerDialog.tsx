@@ -44,6 +44,7 @@ export const projectMemberListClassName = "flex flex-wrap items-start gap-2";
 export const projectMemberChipClassName = "min-w-[180px] flex-1";
 
 type MemberTab = "assistant" | "human";
+type AssistantRefreshState = "idle" | "loading" | "ready" | "error";
 
 type MemberListItem = ProjectMember & {
 	disabled?: boolean;
@@ -164,7 +165,7 @@ export function ProjectMemberPickerDialog({
 	onConfirm,
 }: ProjectMemberPickerDialogProps) {
 	const { user } = useAuth();
-	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
+	const { assistants, fetchAssistants } = useDAStore((s) => s);
 	const [activeTab, setActiveTab] = useState<MemberTab>("assistant");
 	const [draftMembers, setDraftMembers] = useState<ProjectMember[]>([]);
 	const [assistantSearch, setAssistantSearch] = useState("");
@@ -172,14 +173,21 @@ export function ProjectMemberPickerDialog({
 	const [humanOptions, setHumanOptions] = useState<ProjectMember[]>([]);
 	const [humansLoading, setHumansLoading] = useState(false);
 	const [humansError, setHumansError] = useState<string | null>(null);
+	const [assistantRefreshState, setAssistantRefreshState] = useState<AssistantRefreshState>("idle");
 	// 中文注释：左侧角色选择只修改草稿，不应触发行选择成员。
 	const [humanRoleDrafts, setHumanRoleDrafts] = useState<Record<string, string>>({});
 	const wasOpenRef = useRef(false);
+	const assistantRefreshCycleRef = useRef(0);
 
 	useEffect(() => {
 		const wasOpen = wasOpenRef.current;
 		wasOpenRef.current = open;
-		if (!open || wasOpen) return;
+		if (!open) {
+			assistantRefreshCycleRef.current += 1;
+			setAssistantRefreshState("idle");
+			return;
+		}
+		if (wasOpen) return;
 
 		// 中文注释：弹窗草稿只在打开瞬间初始化，避免 AI/成员列表异步刷新把用户刚删除的成员重置回来。
 		// 中文注释：该弹窗是项目成员的完整编辑入口，打开时回显当前成员，支持后续增删改。
@@ -194,10 +202,13 @@ export function ProjectMemberPickerDialog({
 					.map((member) => [memberKey(member), member.role]),
 			),
 		);
-		if (!assistantsLoaded) {
-			void fetchAssistants();
-		}
-	}, [assistantsLoaded, fetchAssistants, open, selectedMembers]);
+		const refreshCycle = ++assistantRefreshCycleRef.current;
+		setAssistantRefreshState("loading");
+		void fetchAssistants().then((succeeded) => {
+			if (refreshCycle !== assistantRefreshCycleRef.current) return;
+			setAssistantRefreshState(succeeded ? "ready" : "error");
+		});
+	}, [fetchAssistants, open, selectedMembers]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -273,6 +284,9 @@ export function ProjectMemberPickerDialog({
 				memberMatchesQuery(member, query),
 		);
 	}, [assistantOptions, assistantSearch, draftMembers, selectedKeys]);
+	const assistantListLoading = open && (assistantRefreshState === "loading" || !wasOpenRef.current);
+	const assistantListError =
+		assistantRefreshState === "error" ? "AI 队友加载失败，请关闭后重试" : null;
 	const filteredHumans = useMemo((): MemberListItem[] => {
 		const query = humanSearch.trim().toLowerCase();
 		return humanOptions
@@ -373,7 +387,8 @@ export function ProjectMemberPickerDialog({
 									emptyText="没有可添加的 AI 队友"
 									members={filteredAssistants}
 									onSelect={addMember}
-									loading={!assistantsLoaded}
+									loading={assistantListLoading}
+									error={assistantListError}
 								/>
 							) : (
 								<MemberCommandList

@@ -102,6 +102,12 @@ export function getAssistantEditability(assistant: DigitalAssistantItem): {
 	canEdit: boolean;
 	reason?: string;
 } {
+	if (assistant.permissionRole !== "owner" && assistant.permissionRole !== "admin") {
+		return {
+			canEdit: false,
+			reason: "只有所有者或管理员可以编辑 AI 队友",
+		};
+	}
 	if (!isAssistantAvailable(assistant)) {
 		return {
 			canEdit: false,

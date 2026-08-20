@@ -62,6 +62,21 @@ export {
 	saveServerBaseURL,
 	testServerConnection,
 } from "./api/config";
+export type {
+	CreateDAParams,
+	DigitalAssistantPermission,
+	DigitalAssistantPermissionMember,
+	DigitalAssistantPermissionMemberInput,
+	DigitalAssistantPermissionRole,
+	DigitalAssistantPermissionSettings,
+	DigitalAssistantPermissionUser,
+	DigitalAssistantVisibility,
+	GetDAParams,
+	ListDAParams,
+	UpdateDAParams,
+	UpdateDAStatusParams,
+	UpdateDigitalAssistantPermissionsParams,
+} from "./api/digitalAssistantApi";
 export { digitalAssistantApi } from "./api/digitalAssistantApi";
 export type { FeedbackType, SubmitFeedbackParams, SubmitFeedbackResponse } from "./api/feedbackApi";
 export { feedbackApi } from "./api/feedbackApi";

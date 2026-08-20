@@ -43,6 +43,16 @@ const (
 	ActionPluginPermissionRead   = types.ActionPluginPermissionRead
 	ActionPluginPermissionUpdate = types.ActionPluginPermissionUpdate
 	ActionPluginVisibilityUpdate = types.ActionPluginVisibilityUpdate
+
+	// AI 队友相关动作
+	ActionAssistantView             = types.ActionAssistantView
+	ActionAssistantUse              = types.ActionAssistantUse
+	ActionAssistantUpdate           = types.ActionAssistantUpdate
+	ActionAssistantStatusUpdate     = types.ActionAssistantStatusUpdate
+	ActionAssistantDelete           = types.ActionAssistantDelete
+	ActionAssistantPermissionRead   = types.ActionAssistantPermissionRead
+	ActionAssistantPermissionUpdate = types.ActionAssistantPermissionUpdate
+	ActionAssistantVisibilityUpdate = types.ActionAssistantVisibilityUpdate
 )
 
 // ActionSet 是动作集合，用于 O(1) 查找。
@@ -130,6 +140,30 @@ var SystemPolicy = PermissionPolicy{
 		types.ResourceRoleViewer: actionSet(
 			ActionPluginView,
 			ActionPluginUse,
+		),
+	},
+	types.ResourceTypeAssistant: {
+		types.ResourceRoleOwner: actionSet(
+			ActionAssistantView,
+			ActionAssistantUse,
+			ActionAssistantUpdate,
+			ActionAssistantStatusUpdate,
+			ActionAssistantDelete,
+			ActionAssistantPermissionRead,
+			ActionAssistantPermissionUpdate,
+			ActionAssistantVisibilityUpdate,
+		),
+		types.ResourceRoleAdmin: actionSet(
+			ActionAssistantView,
+			ActionAssistantUse,
+			ActionAssistantUpdate,
+			ActionAssistantStatusUpdate,
+			ActionAssistantPermissionRead,
+			ActionAssistantPermissionUpdate,
+		),
+		types.ResourceRoleMember: actionSet(
+			ActionAssistantView,
+			ActionAssistantUse,
 		),
 	},
 }

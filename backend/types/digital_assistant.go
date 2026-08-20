@@ -4,6 +4,21 @@ import (
 	"gorm.io/gorm"
 )
 
+// DigitalAssistantVisibility 表示 AI 队友在组织内的可见范围。
+type DigitalAssistantVisibility string
+
+const (
+	// DigitalAssistantVisibilityPublic 表示组织成员可查看和使用。
+	DigitalAssistantVisibilityPublic DigitalAssistantVisibility = "public"
+	// DigitalAssistantVisibilityPrivate 表示仅直接授权成员可查看和使用。
+	DigitalAssistantVisibilityPrivate DigitalAssistantVisibility = "private"
+)
+
+// ValidDigitalAssistantVisibility 判断 visibility 是否为合法值。
+func ValidDigitalAssistantVisibility(v DigitalAssistantVisibility) bool {
+	return v == DigitalAssistantVisibilityPublic || v == DigitalAssistantVisibilityPrivate
+}
+
 // DefaultDigitalAssistantPublicIDPrefix identifies organization-level system assistants.
 const DefaultDigitalAssistantPublicIDPrefix = "assistant_default_"
 
@@ -15,6 +30,8 @@ type DigitalAssistant struct {
 
 	// digital_assistant - 所属组织ID，INTEGER，NOT NULL
 	OrgID uint `gorm:"column:org_id;type:integer;not null;index"`
+	// digital_assistant - 组织内可见范围，VARCHAR(16)，NOT NULL
+	Visibility DigitalAssistantVisibility `gorm:"column:visibility;type:varchar(16);not null;default:'private';check:chk_digital_assistant_visibility,visibility IN ('public','private')"`
 	// digital_assistant - 拥有者ID，INTEGER，NOT NULL
 	OwnerID uint `gorm:"column:owner_id;type:integer;not null;index"`
 
