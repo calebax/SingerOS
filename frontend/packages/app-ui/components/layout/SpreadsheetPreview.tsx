@@ -40,7 +40,15 @@ export function SpreadsheetPreview({
 			try {
 				// 按需加载 xlsx，避免 Next dev 启动时把重型表格解析库编进常驻依赖图。
 				const xlsx = await import("xlsx");
-				const sheets = parseWorkbook(buffer, xlsx);
+				const { hydrateXlsxFormulaCache } = await import("./xlsx-formula-preview");
+				let previewBuffer = buffer;
+				try {
+					previewBuffer = await hydrateXlsxFormulaCache(buffer);
+				} catch {
+					previewBuffer = buffer;
+				}
+				const workbook = xlsx.read(previewBuffer, { type: "array" });
+				const sheets = workbook.SheetNames.map((name) => parseSheet(workbook, name, xlsx.utils));
 				if (!cancelled) setResult({ status: "ready", sheets });
 			} catch (err) {
 				if (cancelled) return;
@@ -173,11 +181,6 @@ function columnName(columnIndex: number): string {
 		value = Math.floor(value / 26);
 	}
 	return name;
-}
-
-function parseWorkbook(buffer: ArrayBuffer, xlsx: XlsxModule): SheetPreview[] {
-	const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
-	return workbook.SheetNames.map((name) => parseSheet(workbook, name, xlsx.utils));
 }
 
 function parseSheet(workbook: WorkBook, name: string, utils: XlsxModule["utils"]): SheetPreview {

@@ -292,6 +292,9 @@ importers:
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
+      xlsx-calc:
+        specifier: ^0.9.2
+        version: 0.9.2
     devDependencies:
       '@leros/tsconfig':
         specifier: workspace:*
@@ -4901,6 +4904,9 @@ packages:
   wsl-utils@0.3.1:
     resolution: {integrity: sha512-g/eziiSUNBSsdDJtCLB8bdYEUMj4jR7AGeUo96p/3dTafgjHhpF4RiCFPiRILwjQoDXx5MqkBr4fwWtR3Ky4Wg==}
     engines: {node: '>=20'}
+
+  xlsx-calc@0.9.2:
+    resolution: {integrity: sha512-tp6ASfuqFP1QIcNgsB6fjeFMNCWii8jbqhcg/7w6XVRQb5H24RB8HOHA3SbJD+rUqmIqhnd7v0h4XE+LvullnA==}
 
   xlsx@0.18.5:
     resolution: {integrity: sha512-dmg3LCjBPHZnQp5/F/+nnTa+miPJxUXB6vtk42YjBBKayDNagxGEeIdWApkYPOf3Z3pm3k62Knjzp7lMeTEtFQ==}
@@ -9639,6 +9645,8 @@ snapshots:
     dependencies:
       is-wsl: 3.1.1
       powershell-utils: 0.1.0
+
+  xlsx-calc@0.9.2: {}
 
   xlsx@0.18.5:
     dependencies:
