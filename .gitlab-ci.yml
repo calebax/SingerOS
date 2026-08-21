@@ -292,6 +292,16 @@ deploy:
         printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$MACOS_CERTIFICATE_PATH"
         chmod 600 "$CI_PROJECT_DIR/AuthKey.p8" "$MACOS_CERTIFICATE_PATH"
 
+        # 在耗时的签名与打包前验证 App Store Connect API 凭据，避免最后才因 401 失败。
+        if ! xcrun notarytool history \
+          --key "$CI_PROJECT_DIR/AuthKey.p8" \
+          --key-id "$APPLE_API_KEY_ID" \
+          --issuer "$APPLE_API_ISSUER" \
+          --output-format json >/dev/null; then
+          echo "Apple notarization authentication failed. Verify APPLE_API_KEY_BASE64, APPLE_API_KEY_ID and APPLE_API_ISSUER."
+          exit 1
+        fi
+
         # electron-builder 26.15.2 在当前 Darwin 25.6 runner 上会用证书密码解锁其随机密码
         # 创建的临时 keychain。这里显式管理 keychain，确保创建、导入和授权使用同一密码。
         security delete-keychain "$MACOS_KEYCHAIN_PATH" 2>/dev/null || true
@@ -332,6 +342,30 @@ deploy:
         libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1
         libasound2 libpangocairo-1.0-0 libpango-1.0-0 libcairo2
         libgdk-pixbuf-2.0-0 libgtk-3-0 libxshmfence1 libsecret-1-0
+    - export PATH="$CI_PROJECT_DIR/.pnpm-bin/bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
+    - mkdir -p "$CI_PROJECT_DIR/.pnpm-bin"
+    - |
+      retry_before_script() {
+        local attempt=1
+        local max_attempts=5
+
+        until "$@"; do
+          if [ "$attempt" -ge "$max_attempts" ]; then
+            return 1
+          fi
+
+          echo "Command failed, retrying (${attempt}/${max_attempts}): $*"
+          attempt=$((attempt + 1))
+          sleep 15
+        done
+      }
+    - retry_before_script npm install -g --prefix "$CI_PROJECT_DIR/.pnpm-bin" pnpm@10.28.2
+
+# Windows 交叉打包专用 before_script：无需安装 Linux Electron/GTK 运行时依赖
+.desktop-before-windows:
+  before_script:
+    - apt-get -o Acquire::Retries=3 update && apt-get install -y --no-install-recommends
+        python3-venv ca-certificates
     - export PATH="$CI_PROJECT_DIR/.pnpm-bin/bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
     - mkdir -p "$CI_PROJECT_DIR/.pnpm-bin"
     - |
@@ -586,7 +620,7 @@ desktop-build-win-x64:
   variables:
     DESKTOP_TARGET: win-x64
   before_script:
-    - !reference [".desktop-before-linux", before_script]
+    - !reference [".desktop-before-windows", before_script]
     - !reference [".desktop-before-base", before_script]
 
 desktop-build-linux-x64:
