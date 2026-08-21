@@ -394,7 +394,7 @@ export function ProjectMemberPickerDialog({
 								<MemberCommandList
 									search={humanSearch}
 									onSearchChange={setHumanSearch}
-									placeholder="搜索姓名或手机号"
+									placeholder="搜索成员名称"
 									emptyText="没有可添加的真人队友"
 									members={filteredHumans}
 									onSelect={(member) => {
