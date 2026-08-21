@@ -60,6 +60,7 @@ import {
 	WEEKDAY_LABELS,
 } from "./automationForm";
 import { formatLocalDateTime } from "./automationTime";
+import { TimePickerField } from "./TimePickerField";
 
 const WEEKDAY_OPTIONS = [
 	{ label: "周一", value: 1 },
@@ -569,14 +570,8 @@ export function AutomationFormDialog({
 								{combinedPreset === "daily" && (
 									<>
 										<span className="shrink-0 text-sm font-normal text-slate-700">每天</span>
-										<div className="relative flex min-w-0 flex-1 items-center">
-											<input
-												type="time"
-												value={timeString}
-												onChange={(e) => handleTimeChange(e.target.value)}
-												className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-sm font-normal text-slate-800 shadow-none transition-colors hover:border-slate-300 focus:border-[#4f46e5] focus:outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
-											/>
-											<Clock className="pointer-events-none absolute right-2.5 size-4 text-slate-400" />
+										<div className="min-w-0 flex-1">
+											<TimePickerField value={timeString} onChange={handleTimeChange} />
 										</div>
 										<span className="shrink-0 text-sm font-normal text-slate-700">执行</span>
 									</>
@@ -619,14 +614,8 @@ export function AutomationFormDialog({
 												))}
 											</DropdownMenuContent>
 										</DropdownMenu>
-										<div className="relative flex min-w-0 flex-1 items-center">
-											<input
-												type="time"
-												value={timeString}
-												onChange={(e) => handleTimeChange(e.target.value)}
-												className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-sm font-normal text-slate-800 shadow-none transition-colors hover:border-slate-300 focus:border-[#4f46e5] focus:outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
-											/>
-											<Clock className="pointer-events-none absolute right-2.5 size-4 text-slate-400" />
+										<div className="min-w-0 flex-1">
+											<TimePickerField value={timeString} onChange={handleTimeChange} />
 										</div>
 										<span className="shrink-0 text-sm font-normal text-slate-700">执行</span>
 									</>
@@ -669,14 +658,8 @@ export function AutomationFormDialog({
 												))}
 											</DropdownMenuContent>
 										</DropdownMenu>
-										<div className="relative flex min-w-0 flex-1 items-center">
-											<input
-												type="time"
-												value={timeString}
-												onChange={(e) => handleTimeChange(e.target.value)}
-												className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-sm font-normal text-slate-800 shadow-none transition-colors hover:border-slate-300 focus:border-[#4f46e5] focus:outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
-											/>
-											<Clock className="pointer-events-none absolute right-2.5 size-4 text-slate-400" />
+										<div className="min-w-0 flex-1">
+											<TimePickerField value={timeString} onChange={handleTimeChange} />
 										</div>
 										<span className="shrink-0 text-sm font-normal text-slate-700">执行</span>
 									</>
