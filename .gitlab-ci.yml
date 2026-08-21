@@ -71,7 +71,6 @@ frontend-typecheck:
       when: on_success
     - when: never
   variables:
-    COREPACK_NPM_REGISTRY: "https://registry.npmmirror.com"
     npm_config_registry: "https://registry.npmmirror.com"
   cache:
     key:
@@ -80,8 +79,8 @@ frontend-typecheck:
     paths:
       - frontend/.pnpm-store
   before_script:
-    - corepack enable
-    - corepack prepare pnpm@10.28.2 --activate
+    - npm install -g --prefix "$CI_PROJECT_DIR/.pnpm-bin" pnpm@10.28.2
+    - export PATH="$CI_PROJECT_DIR/.pnpm-bin/bin:$PATH"
   script:
     - cd frontend
     - pnpm config set store-dir .pnpm-store
@@ -250,18 +249,17 @@ deploy:
     - python3 -m venv "$CI_PROJECT_DIR/.coscmd-venv"
     - $CI_PROJECT_DIR/.coscmd-venv/bin/pip install coscmd
 
-# macOS 专用 before_script：homebrew 的 node/pnpm、Apple 签名变量校验与 AuthKey 解码
+# macOS 专用 before_script：homebrew 的 node、npm 安装 pnpm、Apple 签名变量校验与 AuthKey 解码
 .desktop-before-mac:
   before_script:
-    - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
-    - export PATH="/opt/homebrew/bin:/usr/local/bin:$CI_PROJECT_DIR/.corepack-bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
+    - mkdir -p "$CI_PROJECT_DIR/.pnpm-bin"
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$CI_PROJECT_DIR/.pnpm-bin/bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
     - |
       if ! command -v node >/dev/null 2>&1; then
         echo "Node.js is required on the macOS runner. Install Node 22 and make sure /opt/homebrew/bin or /usr/local/bin is visible to gitlab-runner."
         exit 1
       fi
     - node --version
-    - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
     - |
       retry_before_script() {
         local attempt=1
@@ -277,8 +275,7 @@ deploy:
           sleep 15
         done
       }
-    - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
-    - retry_before_script corepack prepare pnpm@10.28.2 --activate
+    - retry_before_script npm install -g --prefix "$CI_PROJECT_DIR/.pnpm-bin" pnpm@10.28.2
     - |
       if [ "$DESKTOP_TARGET" = "mac-arm64" ] || [ "$DESKTOP_TARGET" = "mac-x64" ]; then
         for variable in APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD; do
@@ -292,7 +289,7 @@ deploy:
         chmod 600 "$CI_PROJECT_DIR/AuthKey.p8"
       fi
 
-# Linux 专用 before_script：electron-builder 系统依赖、python3-venv、corepack pnpm
+# Linux 专用 before_script：electron-builder 系统依赖、python3-venv、npm 安装 pnpm
 .desktop-before-linux:
   before_script:
     - apt-get update -y && apt-get install -y --no-install-recommends
@@ -301,9 +298,8 @@ deploy:
         libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1
         libasound2 libpangocairo-1.0-0 libpango-1.0-0 libcairo2
         libgdk-pixbuf-2.0-0 libgtk-3-0 libxshmfence1 libsecret-1-0
-    - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
-    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
-    - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
+    - export PATH="$CI_PROJECT_DIR/.pnpm-bin/bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
+    - mkdir -p "$CI_PROJECT_DIR/.pnpm-bin"
     - |
       retry_before_script() {
         local attempt=1
@@ -319,15 +315,14 @@ deploy:
           sleep 15
         done
       }
-    - retry_before_script corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
-    - retry_before_script corepack prepare pnpm@10.28.2 --activate
+    - retry_before_script npm install -g --prefix "$CI_PROJECT_DIR/.pnpm-bin" pnpm@10.28.2
 
 # 通用 script：retry 工具、版本号、pnpm install、COS 配置、上传工具函数、
 # 按 DESKTOP_TARGET 分发构建参数、构建、mac 签名校验、产物拷贝与上传
 .desktop-script-build:
   script:
     - mkdir -p "$CI_PROJECT_DIR/.ci-home"
-    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
+    - export PATH="$CI_PROJECT_DIR/.pnpm-bin/bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
     - |
       retry() {
         local attempt=1
@@ -519,7 +514,6 @@ deploy:
     ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/"
     npm_config_electron_mirror: "https://npmmirror.com/mirrors/electron/"
     npm_config_electron_builder_binaries_mirror: "https://npmmirror.com/mirrors/electron-builder-binaries/"
-    COREPACK_NPM_REGISTRY: "https://registry.npmmirror.com"
     npm_config_registry: "https://registry.npmmirror.com"
   before_script:
     - !reference [".desktop-before-base", before_script]
