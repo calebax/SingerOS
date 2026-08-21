@@ -1,7 +1,8 @@
 "use client";
 
-import type { DigitalAssistantItem, ProjectArtifact, ProjectTask } from "@leros/store";
+import type { BackendProjectFileVersion, DigitalAssistantItem, ProjectTask } from "@leros/store";
 import {
+	Action,
 	formatArtifactTime,
 	formatTokenCount,
 	projectFileApi,
@@ -10,6 +11,7 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
+	useTaskCapabilities,
 } from "@leros/store";
 import { taskApi } from "@leros/store/api/taskApi";
 import { Button } from "@leros/ui/components/ui/button";
@@ -31,6 +33,7 @@ import {
 	ChevronRight,
 	ChevronsLeft,
 	ChevronsRight,
+	LoaderCircle,
 	Pencil,
 	Zap,
 } from "lucide-react";
@@ -39,10 +42,16 @@ import { SHOW_TASK_TOKEN_USAGE_CARD } from "../../constants/temporaryUiFlags";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { buildPromptSuggestions } from "../digitalAssistant/promptSuggestions";
 import { ChatInput } from "../input/ChatInput";
-import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
+import { CanGate } from "../permission/CanGate";
+import { openProjectFilePreview } from "./file-preview-store";
+import { PROJECT_FILE_VERSION_CHANGED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
-import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
+import { ProjectFileTypeIcon } from "./project-file-type-icon";
+import {
+	buildProjectFileVersionEntries,
+	getCurrentProjectFileVersionEntry,
+} from "./project-file-version-sync";
 import {
 	collectSelectableFiles,
 	normalizeProjectFileTree,
@@ -56,6 +65,9 @@ const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-task-detail-right-sid
 const TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
 const TASK_DETAIL_RIGHT_SIDEBAR_MIN_WIDTH = 300;
 const TASK_DETAIL_RIGHT_SIDEBAR_MAX_WIDTH = 440;
+// 中文注释：任务详情页文件列表填充右侧栏剩余空间，文件较多时只在该区域内滚动。
+const TASK_DETAIL_FILE_LIST_CLASS =
+	"min-h-0 flex flex-1 flex-col space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
 
 function truncateBreadcrumbText(text?: string | null, maxLength = 10) {
 	if (!text) {
@@ -72,16 +84,18 @@ export function TaskDetailPage({
 }: {
 	projectId?: string;
 	taskId?: string;
-	sessionId?: string | null;
+	/** 路径强制携带的任务会话 ID；缺失时由路由层拦截，不在此页兜底。 */
+	sessionId: string;
 	navigation?: AppNavigation;
 }) {
 	const {
 		activeTaskDetailProjectId,
 		activeTaskDetailTaskId,
-		activeTaskDetailSessionId,
 		projects,
 		fetchProjects,
+		fetchProjectDetail,
 		setTaskDetailRoute,
+		setProjectRoute,
 		switchProject,
 		updateTask,
 	} = useLayoutStore((s) => s);
@@ -94,10 +108,12 @@ export function TaskDetailPage({
 		streamingMessageId,
 		setActiveSession,
 		clearLocalMessages,
+		closeSseConnection,
 		clearPendingBootstrapSession,
 		hasSessionMessages,
+		allMessagesBelongToSession,
 		loadConversationMessages,
-		sendMessage,
+		sendTaskRoomMessage,
 	} = useChatStore((s) => s);
 	const { assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 
@@ -106,7 +122,6 @@ export function TaskDetailPage({
 	const [renameDialogOpen, setRenameDialogOpen] = useState(false);
 	const [renameValue, setRenameValue] = useState("");
 	const [taskFiles, setTaskFiles] = useState<ProjectFileNode[]>([]);
-	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
 	const [rightSidebarWidth, setRightSidebarWidth] = useState(
 		TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH,
 	);
@@ -115,7 +130,8 @@ export function TaskDetailPage({
 
 	const resolvedProjectId = projectId ?? activeTaskDetailProjectId;
 	const resolvedTaskId = taskId ?? activeTaskDetailTaskId;
-	const resolvedSessionId = sessionId ?? activeTaskDetailSessionId;
+	const resolvedSessionId = sessionId;
+	useTaskCapabilities(resolvedTaskId);
 	const project = projects.find((p) => p.id === resolvedProjectId);
 	const storeTask = useMemo(
 		() => project?.tasks.find((item) => item.id === resolvedTaskId) ?? null,
@@ -129,6 +145,11 @@ export function TaskDetailPage({
 		() => getLatestAssistantTodos(messagesMap, messageIds, resolvedSessionId, streamingMessageId),
 		[messagesMap, messageIds, resolvedSessionId, streamingMessageId],
 	);
+	const isTaskRunActive = useMemo(() => {
+		if (!isGenerating || !resolvedSessionId) return false;
+		if (!streamingMessageId) return true;
+		return messagesMap[streamingMessageId]?.conversationId === resolvedSessionId;
+	}, [isGenerating, messagesMap, resolvedSessionId, streamingMessageId]);
 
 	const tokenSummary = useMemo(() => {
 		const emptySummary = {
@@ -194,12 +215,30 @@ export function TaskDetailPage({
 	}, [resolvedProjectId, resolvedTaskId]);
 
 	useEffect(() => {
+		if (!resolvedProjectId || !resolvedTaskId) return;
+		const handleRestored = (event: Event) => {
+			const detail = (event as CustomEvent<{ projectId?: string; taskId?: string }>).detail;
+			if (detail?.projectId && detail.projectId !== resolvedProjectId) return;
+			if (detail?.taskId && detail.taskId !== resolvedTaskId) return;
+			void fetchTaskFiles();
+		};
+		window.addEventListener(PROJECT_FILE_VERSION_CHANGED_EVENT, handleRestored);
+		return () => window.removeEventListener(PROJECT_FILE_VERSION_CHANGED_EVENT, handleRestored);
+	}, [resolvedProjectId, resolvedTaskId, fetchTaskFiles]);
+
+	useEffect(() => {
 		fetchProjects();
 	}, [fetchProjects]);
 
 	useEffect(() => {
-		if (!projectId || !taskId) return;
-		setTaskDetailRoute(projectId, taskId, sessionId ?? null);
+		// 中文注释：群聊展示真人队友头像依赖详情接口返回的 members.avatar_url，列表接口不含成员。
+		if (!resolvedProjectId) return;
+		void fetchProjectDetail(resolvedProjectId);
+	}, [resolvedProjectId, fetchProjectDetail]);
+
+	useEffect(() => {
+		if (!projectId || !taskId || !sessionId) return;
+		setTaskDetailRoute(projectId, taskId, sessionId);
 	}, [projectId, taskId, sessionId, setTaskDetailRoute]);
 
 	useEffect(() => {
@@ -208,38 +247,52 @@ export function TaskDetailPage({
 		setActiveSession(resolvedSessionId);
 		const bootstrapPending = pendingBootstrapSessionId === resolvedSessionId;
 		const sessionHasMessages = hasSessionMessages(resolvedSessionId);
-		// 中文注释：bootstrap 已完成且本地仍有等待态消息时，交给 GlobalEvents 接管，不抢先拉历史。
+		// 中文注释：新建跳转同一次 bootstrap、本地已有乐观等待态时，交给 GlobalEvents，不抢先拉历史。
 		if (bootstrapPending && sessionHasMessages) return;
-		if (isGenerating && sessionHasMessages) return;
-		// bootstrap 标记还在但消息已被卸载清理掉，清除标记并回退为正常加载。
-		if (bootstrapPending && !sessionHasMessages) {
-			clearPendingBootstrapSession();
-		}
+		// 中文注释：发送中（含第二轮 AddMessage 后等待 GlobalEvents）禁止再 load，避免冲掉乐观 waiting / 误开 resume。
+		// 离开后再进由 closeSseConnection 清掉 isGenerating，不会误伤场景 2 hydration。
+		if (isGenerating && sessionHasMessages && allMessagesBelongToSession(resolvedSessionId)) return;
+		// 中文注释：bootstrap 标记存在但消息被误清时，等待 GlobalEvents 回填，避免 loadConversationMessages 与 SSE resume 重复开流。
+		if (bootstrapPending && !sessionHasMessages) return;
 		if (!sessionHasMessages) {
 			clearLocalMessages();
 		}
+		// 中文注释：本地已有该会话消息时仍后台刷新/按需 resume，但首屏可直接复用，避免每次冷进空等网络。
 		loadConversationMessages(resolvedSessionId, {
 			resumeStream: !(bootstrapPending && sessionHasMessages),
 		});
+		// 中文注释：这里不要依赖 messageIds.length，否则群聊中新消息回推会重复触发恢复流，与 GlobalEvents 的 assistant 流式回复并行显示。
 	}, [
 		resolvedSessionId,
 		pendingBootstrapSessionId,
-		messageIds.length,
 		isGenerating,
 		setActiveSession,
 		hasSessionMessages,
-		clearPendingBootstrapSession,
+		allMessagesBelongToSession,
 		clearLocalMessages,
 		loadConversationMessages,
 	]);
 
-	// 离开任务详情页时清理消息并关闭 SSE；bootstrap 跳转期间保留等待态，避免 remount 后空屏。
+	// 真正离开任务详情时关掉 SSE、清 bootstrap，但保留本地消息作同会话再进的首屏缓存。
+	// 同 session remount（Strict Mode / 路由重挂）时不动：否则会冲掉场景 1 的 waiting，
+	// 被误判成冷进页并对 responding 直接 resume 开 SessionEvents（问答路径应等 GlobalEvents assistant）。
 	useEffect(() => {
+		const sessionIdOnEffect = resolvedSessionId;
 		return () => {
-			if (useAppStore.getState().pendingBootstrapSessionId) return;
-			clearLocalMessages();
+			queueMicrotask(() => {
+				const layout = useAppStore.getState();
+				if (
+					layout.currentView === "taskDetail" &&
+					sessionIdOnEffect &&
+					layout.activeTaskDetailSessionId === sessionIdOnEffect
+				) {
+					return;
+				}
+				closeSseConnection();
+				clearPendingBootstrapSession();
+			});
 		};
-	}, [clearLocalMessages]);
+	}, [resolvedSessionId, closeSseConnection, clearPendingBootstrapSession]);
 
 	useEffect(() => {
 		if (!resolvedTaskId) return;
@@ -254,9 +307,11 @@ export function TaskDetailPage({
 						title: bt.title,
 						meta: bt.description ?? bt.task_type ?? "",
 						status: (bt.status as ProjectTask["status"]) ?? "todo",
+						sessionId: bt.session?.session_id,
 						taskType: bt.task_type,
 						deadline: bt.deadline,
 						description: bt.description,
+						assistantId: bt.session?.assistant_id,
 					});
 				}
 			})
@@ -297,21 +352,27 @@ export function TaskDetailPage({
 		let cancelled = false;
 		const resolveTeammate = async () => {
 			try {
-				let assistantId = storeTask?.assistantId;
-				if (!assistantId) {
-					const res = await sessionApi.get({ session_id: resolvedSessionId });
-					assistantId = res.data.data?.assistant_id;
-				}
-				if (cancelled || !assistantId) {
-					setTeammate(null);
-					return;
-				}
 				if (!assistantsLoaded) {
 					await fetchAssistants();
 				}
 				if (cancelled) return;
 				const latest = useAppStore.getState().assistants;
-				const found = latest.find((a) => a.id === assistantId) ?? null;
+
+				// 中文注释：store 任务和 session 接口均使用 publicId 字符串匹配。
+				if (storeTask?.assistantId) {
+					const fromStore =
+						latest.find((assistant) => assistant.publicId === storeTask.assistantId) ?? null;
+					setTeammate(fromStore);
+					return;
+				}
+
+				const res = await sessionApi.get({ session_id: resolvedSessionId });
+				const assistantId = res.data.data?.assistant_id;
+				if (cancelled || !assistantId) {
+					setTeammate(null);
+					return;
+				}
+				const found = latest.find((assistant) => assistant.publicId === assistantId) ?? null;
 				setTeammate(found);
 			} catch (err) {
 				console.error("TaskDetailPage resolve teammate error:", err);
@@ -456,20 +517,23 @@ export function TaskDetailPage({
 						type="button"
 						onClick={() => {
 							if (navigation && resolvedProjectId) {
-								navigation.goToProject(resolvedProjectId);
+								navigation.goToProjectTasks(resolvedProjectId);
 								return;
 							}
-							resolvedProjectId && switchProject(resolvedProjectId);
+							if (resolvedProjectId) {
+								switchProject(resolvedProjectId);
+								setProjectRoute(resolvedProjectId, "tasks");
+							}
 						}}
 						className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 					>
 						<ArrowLeft className="size-3.5" />
-						返回新建任务
+						任务列表
 					</button>
 				</div>
 			</header>
 
-			<div className="relative min-h-0 min-w-0 flex flex-1">
+			<div className="min-h-0 min-w-0 flex flex-1">
 				<main className="min-w-0 flex min-h-0 flex-1 flex-col">
 					{/* 中文注释：任务详情页作为壳层里的 flex item 以及中间主列本身都必须允许收缩，避免小窗口下被聊天内容宽度和右侧栏共同撑出可视区域。 */}
 					<MessageTimeline
@@ -478,7 +542,14 @@ export function TaskDetailPage({
 								layout={taskChatLayout}
 								teammate={teammate}
 								onPickPrompt={(prompt) => {
-									sendMessage(prompt, [], undefined);
+									if (!resolvedProjectId || !resolvedTaskId || !resolvedSessionId) {
+										return;
+									}
+									void sendTaskRoomMessage(prompt, {
+										projectId: resolvedProjectId,
+										taskId: resolvedTaskId,
+										sessionId: resolvedSessionId,
+									});
 								}}
 							/>
 						}
@@ -486,37 +557,37 @@ export function TaskDetailPage({
 						contentClassName={taskChatLayout.timelineInner}
 						projectId={resolvedProjectId}
 					/>
-					<ChatInput variant="project" projectLayoutMode={taskChatLayoutMode} />
+					<ChatInput
+						variant="project"
+						projectLayoutMode={taskChatLayoutMode}
+						navigation={navigation}
+						bidComparisonEntry="button"
+					/>
 				</main>
 
-				{rightSidebarCollapsed && (
+				<div className="flex w-14 shrink-0 items-start justify-center pt-6">
 					<button
 						type="button"
-						className="absolute right-8 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-						aria-label="展开右侧栏"
-						title="展开右侧栏"
-						onClick={() => setRightSidebarCollapsed(false)}
+						className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						aria-label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+						aria-expanded={!rightSidebarCollapsed}
+						title={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+						onClick={() => setRightSidebarCollapsed((collapsed) => !collapsed)}
 					>
-						<ChevronsLeft className="size-4" />
+						{rightSidebarCollapsed ? (
+							<ChevronsLeft className="size-4" />
+						) : (
+							<ChevronsRight className="size-4" />
+						)}
 					</button>
-				)}
+				</div>
 
 				{!rightSidebarCollapsed && (
 					<aside
-						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6 transition-[width] duration-200 ease-out"
+						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 pt-6 pb-[6px] transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
-						{/* 中文注释：收起按钮移到侧栏外部，和收起态展开按钮保持同一行高度。 */}
-						<button
-							type="button"
-							className="absolute -left-14 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-							aria-label="收起右侧栏"
-							title="收起右侧栏"
-							onClick={() => setRightSidebarCollapsed(true)}
-						>
-							<ChevronsRight className="size-4" />
-						</button>
-						<div className="no-scrollbar min-h-0 flex-1 space-y-8 overflow-y-auto pr-1">
+						<div className="no-scrollbar min-h-0 flex flex-1 flex-col space-y-8 overflow-y-auto pr-1">
 							<div>
 								<div>
 									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">任务侧栏</p>
@@ -541,14 +612,19 @@ export function TaskDetailPage({
 										<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">
 											任务名称
 										</h3>
-										<button
-											type="button"
-											onClick={handleOpenRenameDialog}
-											className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
-											title="重命名任务"
+										<CanGate
+											action={Action.TaskUpdate}
+											resource={resolvedTaskId ? { type: "task", publicId: resolvedTaskId } : null}
 										>
-											<Pencil className="size-3.5" />
-										</button>
+											<button
+												type="button"
+												onClick={handleOpenRenameDialog}
+												className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
+												title="重命名任务"
+											>
+												<Pencil className="size-3.5" />
+											</button>
+										</CanGate>
 									</div>
 									<p className="text-sm leading-relaxed text-[var(--leros-text)]">{task.title}</p>
 								</section>
@@ -558,29 +634,20 @@ export function TaskDetailPage({
 									<h3 className="mb-3 text-xs font-semibold text-[var(--leros-text-muted)]">
 										任务进度
 									</h3>
-									<TaskTodoProgressPanel todos={latestTodos} />
+									<TaskTodoProgressPanel todos={latestTodos} isRunActive={isTaskRunActive} />
 								</section>
 							)}
-							<section>
+							<section className="flex min-h-0 flex-1 flex-col">
 								<div className="mb-3 flex items-center justify-between">
 									<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务文件</h3>
-									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
-										{flatTaskFiles.length} 个
-									</span>
 								</div>
 								<TaskFileList
 									files={flatTaskFiles}
-									onPreview={(file) =>
-										setPreviewArtifact({
-											id: file.path,
-											name: file.name,
-											title: file.name,
-											type: "document",
-											artifactType: "file",
-											mimeType: file.mimeType,
-											size: formatBytes(file.size),
-											downloadUrl: "",
-											storageUri: file.storageUri,
+									projectId={resolvedProjectId}
+									onPreview={(file, version) =>
+										openProjectFilePreview(resolvedProjectId, file, {
+											...(resolvedTaskId ? { taskId: resolvedTaskId } : {}),
+											...(version ? { version } : {}),
 										})
 									}
 								/>
@@ -642,14 +709,6 @@ export function TaskDetailPage({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-			<ArtifactPreviewDialog
-				artifact={previewArtifact}
-				open={previewArtifact !== null}
-				onOpenChange={(open) => {
-					if (!open) setPreviewArtifact(null);
-				}}
-				projectId={resolvedProjectId}
-			/>
 		</div>
 	);
 }
@@ -828,54 +887,185 @@ function TaskChatEmptyState({
 
 function TaskFileList({
 	files,
+	projectId,
 	onPreview,
 }: {
 	files: ProjectFileNode[];
-	onPreview: (file: ProjectFileNode) => void;
+	projectId: string;
+	onPreview: (file: ProjectFileNode, version?: BackendProjectFileVersion) => void;
 }) {
+	type VersionLoadState = {
+		items: BackendProjectFileVersion[];
+		currentPublicId: string;
+		loading: boolean;
+		error: string | null;
+	};
+
+	const [versionStates, setVersionStates] = useState<Record<string, VersionLoadState>>({});
+
+	const loadVersions = useCallback(
+		async (file: ProjectFileNode) => {
+			if (!projectId || !file.publicId) return;
+			const key = file.publicId;
+			setVersionStates((current) => ({
+				...current,
+				[key]: {
+					items: current[key]?.items ?? [],
+					currentPublicId: current[key]?.currentPublicId ?? file.publicId,
+					loading: true,
+					error: null,
+				},
+			}));
+
+			try {
+				const response = await projectFileApi.versions(projectId, file.publicId);
+				if (response.data.code !== 0) {
+					throw new Error(response.data.message || "版本历史加载失败");
+				}
+				setVersionStates((current) => ({
+					...current,
+					[key]: {
+						items: response.data.data?.items ?? [],
+						currentPublicId: response.data.data?.current_file_public_id || file.publicId,
+						loading: false,
+						error: null,
+					},
+				}));
+			} catch (error) {
+				setVersionStates((current) => ({
+					...current,
+					[key]: {
+						items: current[key]?.items ?? [],
+						currentPublicId: current[key]?.currentPublicId ?? file.publicId,
+						loading: false,
+						error: error instanceof Error ? error.message : "版本历史加载失败",
+					},
+				}));
+			}
+		},
+		[projectId],
+	);
+
+	useEffect(() => {
+		for (const file of files) {
+			const hasHistory = Boolean(file.publicId) && Math.max(file.versionCount, file.versionNo) > 1;
+			if (hasHistory && !versionStates[file.publicId]) {
+				void loadVersions(file);
+			}
+		}
+	}, [files, loadVersions, versionStates]);
+
 	if (files.length === 0) {
 		return (
-			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
+			<div
+				className={cn(
+					TASK_DETAIL_FILE_LIST_CLASS,
+					"items-center justify-center rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]",
+				)}
+			>
 				暂无文件
 			</div>
 		);
 	}
 
 	return (
-		<div className={SIDEBAR_COMPACT_LIST_CLASS}>
-			{files.map((file) => (
-				<button
-					type="button"
-					key={file.path}
-					data-file-preview-trigger
-					onClick={() => onPreview(file)}
-					className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
-					title="预览文件"
-				>
-					<div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-						<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
-							点击预览
-						</span>
+		<div className={TASK_DETAIL_FILE_LIST_CLASS}>
+			{files.map((file) => {
+				const availableVersionCount = Math.max(file.versionCount, file.versionNo);
+				const hasHistory = Boolean(file.publicId) && availableVersionCount > 1;
+				const versionState = versionStates[file.publicId];
+				const versions = versionState?.items ?? [];
+				const versionEntries = buildProjectFileVersionEntries(versions);
+				const currentVersionEntry = getCurrentProjectFileVersionEntry(
+					versionEntries,
+					versionState?.currentPublicId ?? file.publicId,
+				);
+
+				return (
+					<div key={file.path} className="space-y-2">
+						{versionEntries.length > 0 ? (
+							versionEntries.map((entry) => (
+								<TaskFileCard
+									key={entry.key}
+									file={file}
+									version={entry.version}
+									isCurrent={entry.key === currentVersionEntry?.key}
+									onPreview={onPreview}
+								/>
+							))
+						) : (
+							<TaskFileCard file={file} isCurrent={!hasHistory} onPreview={onPreview} />
+						)}
+						{versionState?.loading ? (
+							<div className="flex items-center justify-center gap-2 py-1 text-[11px] text-[var(--leros-text-muted)]">
+								<LoaderCircle className="size-3 animate-spin" />
+								正在加载历史版本
+							</div>
+						) : versionState?.error ? (
+							<button
+								type="button"
+								onClick={() => void loadVersions(file)}
+								className="w-full rounded-md px-2 py-1.5 text-[11px] text-[var(--leros-danger)] hover:bg-[var(--leros-danger)]/5"
+							>
+								历史版本加载失败，点击重试
+							</button>
+						) : null}
 					</div>
-					<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
-						<ProjectFileTypeIcon fileName={file.name} />
-					</div>
-					<div className="min-w-0">
-						<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
-							{file.name}
-						</div>
-						<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
-							{[
-								file.size > 0 ? formatBytes(file.size) : "",
-								file.createdAt ? formatArtifactTime(file.createdAt) : "",
-							]
-								.filter(Boolean)
-								.join(" · ")}
-						</div>
-					</div>
-				</button>
-			))}
+				);
+			})}
 		</div>
+	);
+}
+
+function TaskFileCard({
+	file,
+	version,
+	isCurrent,
+	onPreview,
+}: {
+	file: ProjectFileNode;
+	version?: BackendProjectFileVersion;
+	isCurrent: boolean;
+	onPreview: (file: ProjectFileNode, version?: BackendProjectFileVersion) => void;
+}) {
+	const name = version?.name || file.name;
+	const size = version?.size ?? file.size;
+	const createdAt = version?.created_at ? version.created_at * 1000 : file.createdAt;
+	const versionNo = version?.version_no ?? file.versionNo;
+
+	return (
+		<button
+			type="button"
+			data-file-preview-trigger
+			onClick={() => onPreview(file, version)}
+			className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
+			title={versionNo > 0 ? `预览 V${versionNo}` : "预览文件"}
+		>
+			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
+				<ProjectFileTypeIcon fileName={name} />
+			</div>
+			<div className="min-w-0 flex-1">
+				<div className="min-w-0 truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
+					<span className="truncate">{name}</span>
+				</div>
+				<div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs leading-4 text-[var(--leros-text-muted)]">
+					{versionNo > 0 ? (
+						<span className="shrink-0 rounded bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--leros-primary)]">
+							V{versionNo}
+						</span>
+					) : null}
+					<span className="min-w-0 truncate">
+						{[
+							size > 0 ? formatBytes(size) : "",
+							createdAt ? formatArtifactTime(createdAt) : "",
+							version ? (isCurrent ? "最新" : "历史版本") : "",
+						]
+							.filter(Boolean)
+							.join(" · ")}
+					</span>
+				</div>
+			</div>
+		</button>
 	);
 }
 

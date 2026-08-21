@@ -1,7 +1,12 @@
 import { join } from "node:path";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
-import { type DesktopPolicyDocument, desktopOpenPolicyPdfChannel } from "../shared/auto-update";
+import {
+	type DesktopPolicyDocument,
+	desktopOpenExternalChannel,
+	desktopOpenPolicyPdfChannel,
+	desktopOpenServerChannel,
+} from "../shared/auto-update";
 import {
 	isAppQuitPrepared,
 	isAppQuitting,
@@ -10,10 +15,22 @@ import {
 	prepareWindowForHide,
 } from "./app-lifecycle";
 import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
+import { desktopDeepLinkScheme, extractDesktopServerURL } from "./deep-link";
+import { isProductionDevToolsShortcut } from "./devtools-shortcut";
+import { shouldOpenExternalUrl } from "./external-navigation";
+import { configureTrayInteractions } from "./tray-interactions";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let mainWindowHideInProgress = false;
+let pendingServerURL = extractDesktopServerURL(process.argv);
+
+// 中文注释：银河麒麟/UKUI 主要通过 X11 WM_CLASS 将运行窗口关联到 .desktop 启动器。
+// 显式固定 class，避免不同 Electron/Chromium 版本使用产品名或可执行文件名导致匹配失败。
+if (process.platform === "linux") {
+	app.commandLine.appendSwitch("class", "leros-desktop");
+}
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
@@ -71,6 +88,23 @@ function createWindow(): void {
 		return { action: "deny" };
 	});
 
+	mainWindow.webContents.on("will-navigate", (event, url) => {
+		const devRendererUrl = is.dev ? process.env.ELECTRON_RENDERER_URL : undefined;
+		if (!shouldOpenExternalUrl(url, devRendererUrl)) {
+			return;
+		}
+
+		event.preventDefault();
+		void shell.openExternal(url);
+	});
+
+	mainWindow.webContents.on("before-input-event", (event, input) => {
+		if (!app.isPackaged || !isProductionDevToolsShortcut(input, process.platform)) return;
+
+		event.preventDefault();
+		openMainWindowDevTools();
+	});
+
 	mainWindow.on("close", (event) => {
 		if (isAppQuitting()) return;
 
@@ -82,10 +116,33 @@ function createWindow(): void {
 		mainWindow = null;
 	});
 
+	mainWindow.webContents.on("did-finish-load", sendPendingServerURL);
+
 	if (is.dev && process.env.ELECTRON_RENDERER_URL) {
 		mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
 	} else {
 		mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+	}
+}
+
+function setServerURLFromDeepLink(deepLink: string): void {
+	const serverURL = extractDesktopServerURL([deepLink]);
+	if (!serverURL) return;
+
+	pendingServerURL = serverURL;
+	sendPendingServerURL();
+}
+
+function sendPendingServerURL(): void {
+	if (!pendingServerURL || !mainWindow || mainWindow.isDestroyed()) return;
+
+	mainWindow.webContents.send(desktopOpenServerChannel, pendingServerURL);
+	pendingServerURL = null;
+}
+
+function openMainWindowDevTools(): void {
+	if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDevToolsOpened()) {
+		mainWindow.webContents.openDevTools({ mode: "detach" });
 	}
 }
 
@@ -137,14 +194,7 @@ function createTray(): void {
 
 	tray = new Tray(trayIcon);
 	tray.setToolTip("Lework");
-	tray.on("click", handleTrayClick);
-	tray.on("right-click", () => {
-		tray?.popUpContextMenu(buildTrayMenu());
-	});
-}
-
-function handleTrayClick(): void {
-	tray?.popUpContextMenu(buildTrayMenu());
+	configureTrayInteractions(tray, process.platform, buildTrayMenu, showMainWindow);
 }
 
 function buildTrayMenu(): Menu {
@@ -194,8 +244,22 @@ ipcMain.handle(desktopOpenPolicyPdfChannel, async (_event, document: DesktopPoli
 	return result === "";
 });
 
+ipcMain.handle(desktopOpenExternalChannel, async (_event, url: unknown) => {
+	if (typeof url !== "string" || !shouldOpenExternalUrl(url)) {
+		return false;
+	}
+
+	await shell.openExternal(url);
+	return true;
+});
+
 app.whenReady().then(() => {
 	electronApp.setAppUserModelId("com.leros.desktop");
+	if (process.defaultApp && process.argv[1]) {
+		app.setAsDefaultProtocolClient(desktopDeepLinkScheme, process.execPath, [process.argv[1]]);
+	} else {
+		app.setAsDefaultProtocolClient(desktopDeepLinkScheme);
+	}
 
 	app.on("browser-window-created", (_, window) => {
 		optimizer.watchWindowShortcuts(window);
@@ -215,8 +279,18 @@ app.whenReady().then(() => {
 	});
 });
 
-app.on("second-instance", () => {
+app.on("open-url", (event, url) => {
+	event.preventDefault();
+	setServerURLFromDeepLink(url);
+});
+
+app.on("second-instance", (_event, commandLine) => {
+	const serverURL = extractDesktopServerURL(commandLine);
+	if (serverURL) {
+		pendingServerURL = serverURL;
+	}
 	focusMainWindow();
+	sendPendingServerURL();
 });
 
 app.on("window-all-closed", () => {

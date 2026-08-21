@@ -73,18 +73,21 @@ func (r *Driver) RunInvocation(
 		Resume:          resumeSession,
 		WorkDir:         workDir,
 		TaskDir:         request.Filesystem.TaskDir,
+		SkillDir:        request.Filesystem.SkillDir,
+		UploadRelDir:    request.Filesystem.UploadRelDir,
 		SystemPrompt:    strings.TrimSpace(request.SystemPrompt),
 		Prompt:          request.Prompt,
 		Messages:        append([]agent.Message(nil), request.Messages...),
+		Attachments:     append([]agent.Attachment(nil), request.Attachments...),
 		Tools:           append([]agent.Tool(nil), request.Tools...),
 		AllowedTools:    append([]string(nil), request.Policy.AllowedTools...),
 		TraceID:         request.TraceID,
 		SessionKey:      request.SessionKey,
 		Model:           request.Model,
-		ExtraEnv:        nil,
+		ExtraEnv:        append([]string(nil), request.ExtraEnv...),
 		PermissionMode:  request.Policy.PermissionMode,
 		ApprovalHandler: r.interactionHandler,
-		MCPServers:      r.mcpServers,
+		MCPServers:      mergeMCPServers(r.mcpServers, request.MCPServers),
 	})
 	if err != nil {
 		return agent.ExecutionResult{}, err
@@ -112,6 +115,47 @@ func (r *Driver) RunInvocation(
 		Usage:                  agent.EnsureUsage(invocationResult.Usage),
 		ProviderConversationID: firstNonEmptyString(providerSessionID, invocationResult.ProviderSessionID),
 	}, nil
+}
+
+func mergeMCPServers(
+	baseline []agent.MCPServerConfig,
+	request []agent.MCPServerConfig,
+) []agent.MCPServerConfig {
+	result := make([]agent.MCPServerConfig, 0, len(baseline)+len(request))
+	names := make(map[string]struct{}, len(baseline)+len(request))
+	appendConfig := func(config agent.MCPServerConfig) {
+		name := strings.ToLower(strings.TrimSpace(config.Name))
+		if name == "" {
+			return
+		}
+		if _, exists := names[name]; exists {
+			return
+		}
+		config.Name = strings.TrimSpace(config.Name)
+		config.Args = append([]string(nil), config.Args...)
+		config.Env = cloneMCPMap(config.Env)
+		config.Headers = cloneMCPMap(config.Headers)
+		result = append(result, config)
+		names[name] = struct{}{}
+	}
+	for _, config := range baseline {
+		appendConfig(config)
+	}
+	for _, config := range request {
+		appendConfig(config)
+	}
+	return result
+}
+
+func cloneMCPMap(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }
 
 // ConsumeEvents reads NodeEvents from the invocation, processes approvals/questions,
@@ -209,8 +253,10 @@ func ConsumeEvents(
 					Runtime:     metadataString(p.Metadata, "engine"),
 				})
 				if decErr != nil {
-					logs.WarnContextf(ctx, "approval handler error: %v", decErr)
-					continue
+					// 交互等待失败（容量满/超时/取消）：必须以错误终止当前执行，
+					// 否则 Runtime 仍在等待决策，任务会卡成不可恢复状态。
+					logs.WarnContextf(ctx, "approval handler error, terminating run: %v", decErr)
+					return InvocationResult{}, decErr
 				}
 				if wErr := handle.Responder.WriteDecision(p.RequestID, decision.Action); wErr != nil {
 					logs.WarnContextf(ctx, "write approval decision to stdin: %v", wErr)
@@ -266,8 +312,10 @@ func ConsumeEvents(
 					Runtime:     metadataString(p.Metadata, "engine"),
 				})
 				if decErr != nil {
-					logs.WarnContextf(ctx, "question handler error: %v", decErr)
-					continue
+					// 交互等待失败（容量满/超时/取消）：必须以错误终止当前执行，
+					// 否则 Runtime 仍在等待答案，任务会卡成不可恢复状态。
+					logs.WarnContextf(ctx, "question handler error, terminating run: %v", decErr)
+					return InvocationResult{}, decErr
 				}
 				if wErr := handle.Questions.WriteAnswer(p.RequestID, answer.Answers); wErr != nil {
 					logs.WarnContextf(ctx, "write question answer: %v", wErr)

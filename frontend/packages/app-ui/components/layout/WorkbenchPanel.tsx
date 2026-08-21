@@ -1,81 +1,94 @@
 "use client";
 
 import {
-	type DigitalAssistantItem,
+	buildComposerFolderUploadSummaryMessage,
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
+	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	getComposerUploadAccept,
+	hasComposerSkillTokens,
+	isComposerUploadAllowedFile,
+	isEmptyUploadFile,
 	type Project,
 	type ProjectTask,
+	partitionComposerFolderFiles,
+	prepareOutgoingComposer,
 	projectFileApi,
+	revokeAttachmentObjectUrls,
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
 } from "@leros/store";
 import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
-import { Command, CommandInput } from "@leros/ui/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
+import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
 import {
-	Check,
+	BookOpenText,
 	ChevronDown,
-	ChevronRight,
-	Files,
 	FileText,
-	Folder,
-	FolderOpen,
 	ListTodo,
-	Paperclip,
-	Plus,
+	type LucideIcon,
 	SendHorizonal,
-	Sparkles,
-	Target,
-	X,
+	TrendingUp,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
-import { renderHighlightedText } from "../common/searchText";
-import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
+import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
+import { AttachmentPreview } from "../input/AttachmentPreview";
+import {
+	type BidComparisonConfig,
+	BidComparisonConfigDialog,
+} from "../input/BidComparisonConfigDialog";
+import {
+	bidComparisonConfigToAttachments,
+	bidComparisonOutputFormat,
+	bidComparisonPrompt,
+	ensureBidComparisonFilesUploaded,
+} from "../input/bidComparisonAttachments";
 import { ComposerActionBar } from "../input/ComposerActionBar";
+import { ComposerUsageTipsPanel } from "../input/ComposerUsageTipsPanel";
+import { buildComposerUsageTips } from "../input/composerUsageTips";
 import {
 	type ComposerAssistantOption,
 	StructuredComposer,
 	type StructuredComposerHandle,
 } from "../input/StructuredComposer";
+import {
+	FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE,
+	getFileRelativePath,
+	getFolderNameFromFiles,
+	isFolderUploadSizeExceeded,
+} from "../input/upload-folder";
+import { useComposerConnectorOptions } from "../input/useComposerConnectorOptions";
+import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
+import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
+import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
+import { formatProjectTaskPickerLabel, ProjectTaskPickerContent } from "./ProjectTaskPicker";
+import { ProjectIcon } from "./project-icon";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
-	// 中文注释：选择已有项目后不再支持临时召唤队友/技能，需要同步移除输入框中已插入的指令 token。
+	// 中文注释：选择已有项目后不再支持临时召唤队友，需要同步移除输入框中已插入的 @ 指令 token；技能 mention 保留。
 	return value
-		.replace(/(^|\s)(?:@[^\s@/]+|\/[^\s@/]+)(?=\s|$)/g, " ")
+		.replace(/(^|\s)@[^\s@/]+(?=\s|$)/g, " ")
 		.replace(/[ \t]{2,}/g, " ")
 		.trimStart();
 }
 
-function buildComposerMetadata(
-	content: string,
-	tokens: ComposerToken[],
-): MessageMetadata | undefined {
-	const trimmed = content.trim();
-	if (!trimmed || tokens.length === 0) return undefined;
-	const leadingOffset = content.length - content.trimStart().length;
-	const composerTokens = tokens
-		.map((token) => ({
-			...token,
-			start: token.start - leadingOffset,
-			end: token.end - leadingOffset,
-		}))
-		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
-	return composerTokens.length > 0 ? { composerTokens } : undefined;
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function isSummonableAssistant(assistant: DigitalAssistantItem): boolean {
-	if (assistant.status !== "active") return false;
-	const deploymentStatus = assistant.deploymentStatus?.trim();
-	return !deploymentStatus || deploymentStatus === "ready";
+function buildInvokedAssistantMetadata(
+	baseMetadata: MessageMetadata | undefined,
+	assistant: ComposerAssistantOption,
+): MessageMetadata {
+	// 中文注释：@ 队友保留在 content 中，与 AddMessage / 技能指令一致；metadata 仅补充路由与头像展示信息。
+	const invokedAssistant: NonNullable<MessageMetadata["invokedAssistant"]> = {
+		id: assistant.id,
+		name: assistant.name,
+	};
+	if (assistant.avatarUrl) invokedAssistant.avatarUrl = assistant.avatarUrl;
+	return { ...baseMetadata, invokedAssistant };
 }
 
 function resolveMentionedAssistant(
@@ -93,6 +106,14 @@ function resolveMentionedAssistant(
 		if (assistant) return assistant;
 	}
 
+	const matchedByText = assistantOptions.find((option) => {
+		const mention = `@${option.name}`;
+		return (
+			content === mention || content.includes(`${mention} `) || content.includes(` ${mention}`)
+		);
+	});
+	if (matchedByText) return matchedByText;
+
 	for (const match of content.matchAll(/(?:^|\s)@([^\s@/#]+)(?=\s|$)/g)) {
 		const name = match[1] ?? "";
 		const assistant = assistantOptions.find((option) => option.name === name);
@@ -101,99 +122,54 @@ function resolveMentionedAssistant(
 	return null;
 }
 
-function removeAssistantMentionText(
-	content: string,
-	tokens: ComposerToken[],
-	assistant?: ComposerAssistantOption | null,
-): string {
-	const tokenNames = tokens
-		.filter((token) => token.kind === "assistant")
-		.map((token) => token.label.replace(/^@/, ""))
-		.filter(Boolean);
-	const mentionedNames = Array.from(
-		new Set([...tokenNames, assistant?.name ?? ""].filter(Boolean)),
-	);
+const WORKBENCH_FEATURE_CARDS: Array<{
+	step: string;
+	title: string;
+	description: string;
+	icon: LucideIcon;
+	iconClassName: string;
+}> = [
+	{
+		step: "01",
+		title: "任务规划与拆解",
+		description: "对齐目标背景，拆解执行路径。",
+		icon: ListTodo,
+		iconClassName: "bg-violet-100 text-violet-600",
+	},
+	{
+		step: "02",
+		title: "任务指派",
+		description: "明确任务要求，指派角色执行。",
+		icon: FileText,
+		iconClassName: "bg-blue-100 text-blue-600",
+	},
+	{
+		step: "03",
+		title: "执行与审批",
+		description: "AI 自动推进，人工确认关键节点。",
+		icon: TrendingUp,
+		iconClassName: "bg-emerald-100 text-emerald-600",
+	},
+	{
+		step: "04",
+		title: "知识沉淀",
+		description: "沉淀过程成果，形成项目资产。",
+		icon: BookOpenText,
+		iconClassName: "bg-orange-100 text-orange-600",
+	},
+];
 
-	return mentionedNames
-		.reduce((next, name) => {
-			const pattern = new RegExp(`(^|\\s)@${escapeRegExp(name)}(?=\\s|$)`, "g");
-			return next.replace(pattern, " ");
-		}, content)
-		.replace(/[ \t]{2,}/g, " ")
-		.trim();
-}
-
-function getFilteredProjects(projects: Project[], query: string) {
-	const keyword = query.trim().toLowerCase();
-	if (!keyword) return projects;
-	return projects.filter((project) => project.name.toLowerCase().includes(keyword));
-}
-
-const PROJECT_PICKER_MAX_HEIGHT = "max-h-[min(420px,70vh)]";
-
-const PROJECT_PICKER_PANEL_CLASS = cn(
-	"w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur",
-	PROJECT_PICKER_MAX_HEIGHT,
-);
-
-const PROJECT_PICKER_LIST_CLASS = "no-scrollbar mt-1 max-h-60 space-y-1 overflow-y-auto";
-
-// 子菜单固定最大高度
-const PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX = 250;
-const PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX = 16;
-const PROJECT_PICKER_ROW_HEIGHT_PX = 40;
-const PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX = 12;
-
-// 与右侧子菜单 p-1.5 一致，定位时扣除以使首条记录与左侧 hover 行顶边对齐。
-const PROJECT_PICKER_SUBMENU_PADDING_TOP_PX = 6;
-
-function estimateSubmenuHeightForFlip(
-	submenu: string,
-	project: Project | undefined,
-	isLoadingTasks: boolean,
-): number {
-	let contentHeight = PROJECT_PICKER_ROW_HEIGHT_PX;
-	if (submenu.startsWith("project:")) {
-		if (!isLoadingTasks && project && project.tasks.length > 0) {
-			contentHeight = project.tasks.length * PROJECT_PICKER_ROW_HEIGHT_PX;
-		}
-	}
-	return Math.min(
-		PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX,
-		contentHeight + PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX,
-	);
-}
-
-// 中文注释：碰撞检测针对页面视口（window.innerHeight），不是左侧主面板高度。
-function resolveSubmenuTop(rootRect: DOMRect, rowTop: number, submenuHeight: number): number {
-	const alignedTop = rowTop - PROJECT_PICKER_SUBMENU_PADDING_TOP_PX;
-	const submenuScreenTop = rootRect.top + alignedTop;
-	const viewportTop = PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX;
-	const viewportBottom = window.innerHeight - PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX;
-	const submenuScreenBottom = submenuScreenTop + submenuHeight;
-
-	if (submenuScreenBottom <= viewportBottom) {
-		return alignedTop;
-	}
-
-	const flippedTop = alignedTop - (submenuScreenBottom - viewportBottom);
-	const minTop = viewportTop - rootRect.top;
-	return Math.max(minTop, flippedTop);
-}
-
-const PROJECT_PICKER_SUBMENU_PANEL_CLASS =
-	"no-scrollbar absolute left-[calc(100%+4px)] z-50 w-[260px] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur";
-
-function projectPickerRowClass(selected: boolean) {
-	return cn(
-		"flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium transition-colors",
-		selected
-			? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
-			: "text-slate-700 hover:bg-slate-100",
-	);
+function detectDesktopApp(): boolean {
+	if (typeof window === "undefined") return false;
+	const win = window as Window & { electron?: unknown; lerosDesktop?: unknown };
+	return Boolean(win.electron ?? win.lerosDesktop);
 }
 
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
+	const { name: brandName } = useBrandIdentity();
+	const composerUploadAccept = getComposerUploadAccept(
+		typeof navigator === "undefined" ? undefined : navigator.platform,
+	);
 	const {
 		projects,
 		activeWorkbenchProjectId,
@@ -203,40 +179,53 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		sendWorkbenchMessage,
 		fetchProjects,
 		fetchTasks,
-		saveWorkbenchRecentContext,
 		clearTaskDetailRoute,
+		workbenchComposerPrefill,
+		consumeWorkbenchComposerPrefill,
 	} = useLayoutStore((s) => s);
-	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
-	const { addUploadedAttachment, isGenerating, startGlobalEvents } = useChatStore((s) => s);
+	const { assistants, fetchAssistants } = useDAStore((s) => s);
+	const { startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const folderInputRef = useRef<HTMLInputElement>(null);
+	const uploadAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
+	const { skillOptions, skillsLoading, reloadSkillOptions } = useComposerSkillOptions(
+		activeWorkbenchProjectId ?? null,
+		isAuthenticated,
+	);
+	const { connectorOptions, connectorsLoading } = useComposerConnectorOptions({
+		projectId: activeWorkbenchProjectId ?? null,
+		enabled: isAuthenticated,
+	});
+	const [selectedConnectorIds, setSelectedConnectorIds] = useState<string[]>([]);
+	const handleAssistantPickerOpen = useCallback(() => fetchAssistants(), [fetchAssistants]);
+	const handleSelectConnector = useCallback((publicId: string) => {
+		setSelectedConnectorIds((prev) => (prev.includes(publicId) ? prev : [...prev, publicId]));
+	}, []);
+	const handleRemoveConnector = useCallback((publicId: string) => {
+		setSelectedConnectorIds((prev) => prev.filter((id) => id !== publicId));
+	}, []);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
 	const projectTriggerDismissRef = useRef<(() => void) | null>(null);
-	const pickerRootRef = useRef<HTMLDivElement>(null);
-	const submenuRowRef = useRef<HTMLElement | null>(null);
 	const sendingRef = useRef(false);
 	const [input, setInput] = useState("");
 	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	const hasUploadingAttachments = attachments.some(
+		(attachment) => attachment.uploadStatus === "uploading",
+	);
+	const [isSending, setIsSending] = useState(false);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
-	const [hoveredSubmenu, setHoveredSubmenu] = useState<"new-project" | string | null>(null);
-	const [submenuTop, setSubmenuTop] = useState(0);
-	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
-	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
-
-	const revokeAttachmentURLs = (items: Attachment[]) => {
-		for (const attachment of items) {
-			if (attachment.url?.startsWith("blob:")) {
-				URL.revokeObjectURL(attachment.url);
-			}
-		}
-	};
+	const [isDesktopApp, setIsDesktopApp] = useState(false);
+	const [bidComparisonOpen, setBidComparisonOpen] = useState(false);
+	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
+	const wasAuthenticatedRef = useRef(isAuthenticated);
 
 	const clearAttachments = () => {
-		revokeAttachmentURLs(attachmentsRef.current);
+		revokeAttachmentObjectUrls(attachmentsRef.current);
 		setAttachments([]);
 	};
 
@@ -245,13 +234,18 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [attachments]);
 
 	useEffect(() => {
-		void fetchProjects();
-	}, [fetchProjects]);
+		setIsDesktopApp(detectDesktopApp());
+	}, []);
 
 	useEffect(() => {
-		if (assistantsLoaded) return;
+		if (!isAuthenticated) return;
+		void fetchProjects();
+	}, [fetchProjects, isAuthenticated]);
+
+	useEffect(() => {
+		if (!isAuthenticated) return;
 		void fetchAssistants();
-	}, [assistantsLoaded, fetchAssistants]);
+	}, [fetchAssistants, isAuthenticated]);
 
 	useEffect(() => {
 		if (!isAuthenticated) return;
@@ -263,6 +257,38 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		selectWorkbenchProject(null);
 	}, [clearTaskDetailRoute, selectWorkbenchProject]);
 
+	useLayoutEffect(() => {
+		if (!workbenchComposerPrefill) return;
+		applyingWorkbenchPrefillIdRef.current = workbenchComposerPrefill.id;
+		setInput(workbenchComposerPrefill.value);
+	}, [workbenchComposerPrefill]);
+
+	useEffect(() => {
+		if (!workbenchComposerPrefill) return;
+		if (applyingWorkbenchPrefillIdRef.current !== workbenchComposerPrefill.id) return;
+
+		let cancelled = false;
+		const applyPrefill = () => {
+			if (cancelled) return;
+			if (!composerRef.current) {
+				requestAnimationFrame(applyPrefill);
+				return;
+			}
+
+			composerRef.current.setContent(
+				workbenchComposerPrefill.value,
+				workbenchComposerPrefill.tokens,
+			);
+			consumeWorkbenchComposerPrefill(workbenchComposerPrefill.id);
+			applyingWorkbenchPrefillIdRef.current = null;
+		};
+
+		applyPrefill();
+		return () => {
+			cancelled = true;
+		};
+	}, [consumeWorkbenchComposerPrefill, workbenchComposerPrefill]);
+
 	useEffect(() => {
 		if (!activeWorkbenchProjectId) return;
 		setInput((current) => {
@@ -271,92 +297,279 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	}, [activeWorkbenchProjectId]);
 
-	const performSend = async (content: string) => {
-		if (isGenerating || sendingRef.current) return;
+	// 中文注释：连接器关联是项目级配置，切换项目后清空已选连接器，避免跨项目残留。
+	useEffect(() => {
+		setSelectedConnectorIds([]);
+	}, [activeWorkbenchProjectId]);
+
+	const performSend = async () => {
+		// 中文注释：首页新建任务不应被其他任务的全局生成态锁住，只拦截本输入框的重复提交。
+		if (sendingRef.current) return;
 		sendingRef.current = true;
+		setIsSending(true);
 		try {
 			await startGlobalEvents();
 			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
-			const composerMetadata = buildComposerMetadata(input, composerTokens);
+			const prepared = prepareOutgoingComposer(input, composerTokens);
+			if (!prepared.content && attachments.length === 0) {
+				return;
+			}
 			const mentionedAssistant = activeWorkbenchProjectId
 				? null
-				: resolveMentionedAssistant(content, composerTokens, availableAssistantOptions);
-			const messageContent = mentionedAssistant
-				? removeAssistantMentionText(content, composerTokens, mentionedAssistant)
-				: content;
-			const messageMetadata = mentionedAssistant ? undefined : composerMetadata;
+				: resolveMentionedAssistant(
+						prepared.content || input,
+						prepared.metadata?.composerTokens ?? composerTokens,
+						availableAssistantOptions,
+					);
+			const messageMetadata = mentionedAssistant
+				? buildInvokedAssistantMetadata(prepared.metadata, mentionedAssistant)
+				: prepared.metadata;
+			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids。
+			const mentionedAssistantIds = mentionedAssistant ? [mentionedAssistant.id] : undefined;
 			const data = await sendWorkbenchMessage(
-				messageContent,
+				prepared.content,
 				activeWorkbenchProjectId,
 				executionMode,
 				attachments,
 				messageMetadata,
-				mentionedAssistant?.id,
+				mentionedAssistantIds,
+				selectedConnectorIds,
 			);
+			const hasInvokedSkill = hasComposerSkillTokens(prepared.content);
+			if (data && activeWorkbenchProjectId && hasInvokedSkill) {
+				void reloadSkillOptions();
+			}
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
 			}
-			setInput("");
-			clearAttachments();
+			if (data) {
+				setInput("");
+				clearAttachments();
+				// 中文注释：发送成功后清空已选连接器；失败时不进入这里，保留以便重试。
+				setSelectedConnectorIds([]);
+			}
+		} catch (err) {
+			console.error("WorkbenchPanel createInitialMessage error:", err);
+			toast.error(`创建任务失败：${getRequestErrorMessage(err) ?? "请稍后重试"}`);
 		} finally {
 			sendingRef.current = false;
+			setIsSending(false);
 		}
 	};
 
 	const handleSend = async () => {
 		const content = input.trim();
-		if (!content || isGenerating || sendingRef.current) return;
+		if (!content || sendingRef.current) return;
 		if (!isAuthenticated) {
 			requireAuth(() => {
-				void performSend(content);
+				void performSend();
 			});
 			return;
 		}
-		await performSend(content);
+		await performSend();
 	};
 
-	const uploadWorkbenchAttachment = useCallback(async (file: File) => {
-		// 中文注释：未选项目时先走通用上传，后续再随 NewMessage 关联到新建任务上下文。
-		const response = await projectFileApi.uploadLoose({
-			file,
-			purpose: "attachment",
-		});
-		const payload = response.data;
-		const attachment: Attachment = {
-			id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-			type: file.type.startsWith("image/") ? "image" : "file",
-			name: payload.original_name || payload.filename || file.name,
-			size: payload.file_size ?? payload.size ?? file.size,
-			url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
-			file,
-			path: payload.public_id || payload.storage_uri || payload.path,
-			fileUploadId: payload.public_id,
-			mimeType: payload.mime_type || file.type,
-		};
-		return { attachment, message: response.message };
-	}, []);
+	const uploadWorkbenchAttachment = useCallback(
+		async (
+			file: File,
+			attachmentId: string,
+			previewUrl: string | undefined,
+			signal: AbortSignal,
+		) => {
+			if (isEmptyUploadFile(file)) {
+				throw new Error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
+			}
+			if (!isComposerUploadAllowedFile(file)) {
+				throw new Error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
+			}
+
+			const response = activeWorkbenchProjectId
+				? await projectFileApi.upload({
+						projectId: activeWorkbenchProjectId,
+						projectPublicId: activeWorkbenchProjectId,
+						file,
+						signal,
+					})
+				: await projectFileApi.uploadLoose({
+						file,
+						purpose: "attachment",
+						withLocalPath: true,
+						signal,
+					});
+			const payload = response.data;
+			const attachment: Attachment = {
+				id: attachmentId,
+				type: file.type.startsWith("image/") ? "image" : "file",
+				name: payload.original_name || payload.filename || file.name,
+				size: payload.file_size ?? payload.size ?? file.size,
+				url: previewUrl,
+				file,
+				path: payload.public_id || payload.storage_uri || payload.path,
+				fileUploadId: payload.public_id,
+				mimeType: payload.mime_type || file.type,
+				storageUri: payload.storage_uri,
+				uploadStatus: "completed",
+			};
+			return { attachment, message: response.message };
+		},
+		[activeWorkbenchProjectId],
+	);
 
 	const uploadAttachments = useCallback(
 		async (files: File[]) => {
 			if (!files.length) return;
 
 			for (const file of files) {
+				const attachmentId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+				const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+				const abortController = new AbortController();
+				uploadAbortControllersRef.current.set(attachmentId, abortController);
+				const placeholder: Attachment = {
+					id: attachmentId,
+					type: file.type.startsWith("image/") ? "image" : "file",
+					name: file.name,
+					size: file.size,
+					url: previewUrl,
+					file,
+					mimeType: file.type,
+					uploadStatus: "uploading",
+				};
+				setAttachments((prev) => [...prev, placeholder]);
+
 				try {
-					const uploaded = activeWorkbenchProjectId
-						? await addUploadedAttachment(activeWorkbenchProjectId, file)
-						: await uploadWorkbenchAttachment(file);
-					const { attachment, message } = uploaded;
-					setAttachments((prev) => [...prev, attachment]);
-					toast.success(message || "文件上传成功");
+					const { attachment } = await uploadWorkbenchAttachment(
+						file,
+						attachmentId,
+						previewUrl,
+						abortController.signal,
+					);
+					setAttachments((prev) =>
+						prev.map((item) => (item.id === attachmentId ? attachment : item)),
+					);
+					toast.success(COMPOSER_UPLOAD_SUCCESS_MESSAGE);
 				} catch (err) {
+					if (abortController.signal.aborted) {
+						continue;
+					}
+					setAttachments((prev) => prev.filter((item) => item.id !== attachmentId));
+					if (previewUrl) {
+						URL.revokeObjectURL(previewUrl);
+					}
 					const message = err instanceof Error ? err.message : "文件上传失败";
 					console.error("Workbench upload attachment error:", err);
 					toast.error(message);
+				} finally {
+					uploadAbortControllersRef.current.delete(attachmentId);
 				}
 			}
 		},
-		[activeWorkbenchProjectId, addUploadedAttachment, uploadWorkbenchAttachment],
+		[uploadWorkbenchAttachment],
 	);
+
+	const handleFolderSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(event.target.files ?? []);
+		event.target.value = "";
+		if (!files.length) return;
+
+		if (isFolderUploadSizeExceeded(files)) {
+			toast.error(FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE, { position: "bottom-right" });
+			return;
+		}
+
+		const { uploadable, skippedEmpty, skippedType } = partitionComposerFolderFiles(files);
+		if (uploadable.length === 0) {
+			toast.error(
+				buildComposerFolderUploadSummaryMessage(0, skippedEmpty.length, skippedType.length),
+				{ position: "bottom-right" },
+			);
+			return;
+		}
+
+		const folderName = getFolderNameFromFiles(files);
+		const attachmentId = `att-folder-${Date.now()}`;
+		const estimatedSize = uploadable.reduce((sum, file) => sum + file.size, 0);
+		const abortController = new AbortController();
+		uploadAbortControllersRef.current.set(attachmentId, abortController);
+
+		const placeholder: Attachment = {
+			id: attachmentId,
+			type: "folder",
+			name: folderName,
+			size: estimatedSize,
+			uploadStatus: "uploading",
+		};
+		setAttachments((prev) => [...prev, placeholder]);
+
+		const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
+		let totalSize = 0;
+
+		try {
+			for (const file of uploadable) {
+				if (abortController.signal.aborted) {
+					return;
+				}
+
+				const response = activeWorkbenchProjectId
+					? await projectFileApi.upload({
+							projectId: activeWorkbenchProjectId,
+							projectPublicId: activeWorkbenchProjectId,
+							file,
+							signal: abortController.signal,
+						})
+					: await projectFileApi.uploadLoose({
+							file,
+							purpose: "attachment",
+							withLocalPath: true,
+							signal: abortController.signal,
+						});
+				const payload = response.data;
+				if (!payload?.public_id) {
+					throw new Error("上传接口未返回 public_id");
+				}
+				const relativePath = getFileRelativePath(file);
+				const displayName = payload.original_name || payload.filename || file.name;
+				const fileSize = payload.file_size ?? payload.size ?? file.size;
+				folderFiles.push({
+					fileUploadId: payload.public_id,
+					name: displayName,
+					relativePath,
+					mimeType: payload.mime_type || file.type || "application/octet-stream",
+					size: fileSize,
+				});
+				totalSize += fileSize;
+			}
+
+			const attachment: Attachment = {
+				id: attachmentId,
+				type: "folder",
+				name: folderName,
+				size: totalSize,
+				folderFiles,
+				uploadStatus: "completed",
+			};
+			setAttachments((prev) => prev.map((item) => (item.id === attachmentId ? attachment : item)));
+			const summaryMessage = buildComposerFolderUploadSummaryMessage(
+				uploadable.length,
+				skippedEmpty.length,
+				skippedType.length,
+			);
+			if (summaryMessage.includes("已跳过")) {
+				toast.info(summaryMessage, { position: "bottom-right" });
+			} else {
+				toast.success(summaryMessage, { position: "bottom-right" });
+			}
+		} catch (err) {
+			if (abortController.signal.aborted) {
+				return;
+			}
+			handleRemoveAttachment(attachmentId);
+			const message = err instanceof Error ? err.message : "文件夹上传失败";
+			console.error("Workbench upload folder error:", err);
+			toast.error(message, { position: "bottom-right" });
+		} finally {
+			uploadAbortControllersRef.current.delete(attachmentId);
+		}
+	};
 
 	const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
 		const files = Array.from(event.target.files ?? []);
@@ -372,7 +585,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			if (!files.length) return;
 
 			if (!isAuthenticated) {
-				openAuthDialog("login");
+				openAuthDialog("phone");
 				return;
 			}
 			void uploadAttachments(files);
@@ -381,72 +594,88 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	);
 
 	const handleRemoveAttachment = (attachmentId: string) => {
+		const abortController = uploadAbortControllersRef.current.get(attachmentId);
+		if (abortController) {
+			abortController.abort();
+			uploadAbortControllersRef.current.delete(attachmentId);
+		}
+
 		setAttachments((prev) => {
 			const target = prev.find((attachment) => attachment.id === attachmentId);
-			if (target?.url?.startsWith("blob:")) {
-				URL.revokeObjectURL(target.url);
-			}
+			revokeAttachmentObjectUrls(target ? [target] : undefined);
 			return prev.filter((attachment) => attachment.id !== attachmentId);
 		});
 	};
-	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
+	const activeProject = isAuthenticated
+		? projects.find((project) => project.id === activeWorkbenchProjectId)
+		: undefined;
 	const availableAssistantOptions = useMemo<ComposerAssistantOption[]>(
 		() =>
-			assistants.filter(isSummonableAssistant).map((assistant) => ({
-				id: assistant.id,
-				code: String(assistant.id),
+			assistants.filter(isAssistantAvailable).map((assistant) => ({
+				id: assistant.publicId,
+				code: assistant.publicId,
 				name: assistant.name,
+				roleName: assistant.roleName,
 				description:
 					assistant.description ||
 					(assistant.expertise.length > 0 ? assistant.expertise.join("、") : "AI 队友"),
+				avatarUrl: assistant.avatar,
 			})),
 		[assistants],
 	);
-	const filteredProjects = useMemo(
-		() => getFilteredProjects(projects, projectSearch),
-		[projectSearch, projects],
-	);
-	const recentProjects = useMemo(() => projects.slice(0, 3), [projects]);
-
-	// 中文注释：项目列表接口不含任务，hover 展示任务子菜单时按需拉取。
-	const loadProjectTasksIfNeeded = useCallback(
-		(projectId: string) => {
-			const project = projects.find((item) => item.id === projectId);
-			if (!project || project.tasks.length > 0 || taskLoadedProjectIds.has(projectId)) {
-				return;
-			}
-			setLoadingTaskProjectIds((current) => new Set(current).add(projectId));
-			void fetchTasks(projectId).finally(() => {
-				setTaskLoadedProjectIds((current) => new Set(current).add(projectId));
-				setLoadingTaskProjectIds((current) => {
-					const next = new Set(current);
-					next.delete(projectId);
-					return next;
-				});
-			});
-		},
-		[fetchTasks, projects, taskLoadedProjectIds],
-	);
-
 	const activeTask = activeProject?.tasks.find((t) => t.id === activeWorkbenchTaskId);
-	const projectTaskSelectorLabel = activeProject
-		? activeTask
-			? `${activeProject.name} / ${activeTask.title}`
-			: `${activeProject.name} / 新建任务`
-		: "新建项目/任务";
-	const hoveredProject =
-		hoveredSubmenu?.startsWith("project:") === true
-			? projects.find((project) => project.id === hoveredSubmenu.slice("project:".length))
-			: undefined;
-	const suggestedPrompts = useMemo(
-		() => [
-			"帮我拆解当前项目的下一步执行计划",
-			"总结这个项目的当前进展和风险",
-			activeProject
-				? `基于 ${activeProject.name} 生成今天的工作清单`
-				: "帮我创建一个新项目并给出启动方案",
-		],
-		[activeProject],
+	const projectTaskSelectorLabel = formatProjectTaskPickerLabel(
+		projects,
+		activeWorkbenchProjectId,
+		activeWorkbenchTaskId,
+	);
+	const workbenchUsageTips = useMemo(
+		() => buildComposerUsageTips(activeProject, activeTask),
+		[activeProject, activeTask],
+	);
+
+	const applyUsageTip = useCallback((prompt: string) => {
+		if (composerRef.current) {
+			composerRef.current.setContent(prompt);
+			return;
+		}
+		setInput(prompt);
+	}, []);
+
+	const startBidComparison = useCallback(
+		async (config: BidComparisonConfig) => {
+			try {
+				const resolved = await ensureBidComparisonFilesUploaded(config, config.projectId);
+				// 中文注释：与问答一致——有任务则续聊，无任务则新建；显式传 taskId（可为空）避免回落到工作台条旧选中。
+				const data = await sendWorkbenchMessage(
+					bidComparisonPrompt(resolved),
+					resolved.projectId,
+					executionMode,
+					bidComparisonConfigToAttachments(resolved),
+					undefined,
+					undefined,
+					undefined,
+					"bid_comparison",
+					bidComparisonOutputFormat(resolved),
+					resolved.taskId ?? null,
+				);
+				if (!data?.project_id || !data.task_id || !data.session_id) {
+					toast.error("启动标书对比失败，请确认所选任务未在回复中后重试");
+					throw new Error("启动标书对比失败，请确认所选任务未在回复中后重试");
+				}
+				if (navigation) {
+					navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
+				}
+			} catch (err) {
+				console.error("WorkbenchPanel bid comparison upload error:", err);
+				const message = err instanceof Error ? err.message.trim() : "";
+				if (message !== "启动标书对比失败，请确认所选任务未在回复中后重试") {
+					toast.error(getRequestErrorMessage(err) ?? "启动标书对比失败");
+				}
+				throw err;
+			}
+		},
+		[executionMode, navigation, sendWorkbenchMessage],
 	);
 
 	const clearProjectTriggerText = useCallback(() => {
@@ -462,44 +691,40 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		projectTriggerDismissRef.current = null;
 	}, []);
 
-	const closeSubmenu = useCallback(() => {
-		setHoveredSubmenu(null);
-		setSubmenuTop(0);
-		submenuRowRef.current = null;
-	}, []);
-
 	const closeProjectMenu = useCallback(() => {
 		dismissProjectTriggerText();
 		setProjectMenuOpen(false);
 		setProjectSearch("");
-		closeSubmenu();
-	}, [closeSubmenu, dismissProjectTriggerText]);
+	}, [dismissProjectTriggerText]);
 
-	const handleProjectSearchChange = useCallback(
-		(value: string) => {
-			setProjectSearch(value);
-			closeSubmenu();
-		},
-		[closeSubmenu],
-	);
+	const resetWorkbenchOnLogout = useCallback(() => {
+		clearTaskDetailRoute();
+		selectWorkbenchProject(null);
+		setInput("");
+		composerRef.current?.setContent("");
+		revokeAttachmentObjectUrls(attachmentsRef.current);
+		setAttachments([]);
+		setExecutionMode("default");
+		closeProjectMenu();
+	}, [clearTaskDetailRoute, closeProjectMenu, selectWorkbenchProject]);
+
+	useEffect(() => {
+		if (wasAuthenticatedRef.current && !isAuthenticated) {
+			resetWorkbenchOnLogout();
+		}
+		wasAuthenticatedRef.current = isAuthenticated;
+	}, [isAuthenticated, resetWorkbenchOnLogout]);
 
 	const handleSelectProject = useCallback(
 		(project: Project) => {
 			requireAuth(() => {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
-				void saveWorkbenchRecentContext(project.id, null);
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
 				closeProjectMenu();
 			});
 		},
-		[
-			clearProjectTriggerText,
-			closeProjectMenu,
-			requireAuth,
-			saveWorkbenchRecentContext,
-			selectWorkbenchProject,
-		],
+		[clearProjectTriggerText, closeProjectMenu, requireAuth, selectWorkbenchProject],
 	);
 
 	const handleSelectTask = useCallback(
@@ -508,7 +733,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
 				selectWorkbenchTask(task.id);
-				void saveWorkbenchRecentContext(project.id, task.id);
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
 				closeProjectMenu();
 			});
@@ -517,7 +741,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			clearProjectTriggerText,
 			closeProjectMenu,
 			requireAuth,
-			saveWorkbenchRecentContext,
 			selectWorkbenchProject,
 			selectWorkbenchTask,
 		],
@@ -531,60 +754,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	}, [clearProjectTriggerText, closeProjectMenu, requireAuth, selectWorkbenchProject]);
 
-	const showSubmenuAtRow = useCallback(
-		(row: HTMLElement, submenu: "new-project" | `project:${string}`) => {
-			const root = pickerRootRef.current;
-			submenuRowRef.current = row;
-			setHoveredSubmenu(submenu);
-			if (root) {
-				const projectId = submenu.startsWith("project:") ? submenu.slice("project:".length) : null;
-				const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
-				const isLoadingTasks = projectId ? loadingTaskProjectIds.has(projectId) : false;
-				const rootRect = root.getBoundingClientRect();
-				const rowTop = row.getBoundingClientRect().top - rootRect.top;
-				const submenuHeight = estimateSubmenuHeightForFlip(submenu, project, isLoadingTasks);
-				setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
-			}
-			if (submenu.startsWith("project:")) {
-				loadProjectTasksIfNeeded(submenu.slice("project:".length));
-			}
-		},
-		[loadProjectTasksIfNeeded, loadingTaskProjectIds, projects],
-	);
-
-	useEffect(() => {
-		const row = submenuRowRef.current;
-		const root = pickerRootRef.current;
-		if (!row || !root || !hoveredSubmenu) return;
-
-		const projectId = hoveredSubmenu.startsWith("project:")
-			? hoveredSubmenu.slice("project:".length)
-			: null;
-		const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
-		const isLoadingTasks = projectId ? loadingTaskProjectIds.has(projectId) : false;
-		const rootRect = root.getBoundingClientRect();
-		const rowTop = row.getBoundingClientRect().top - rootRect.top;
-		const submenuHeight = estimateSubmenuHeightForFlip(hoveredSubmenu, project, isLoadingTasks);
-		setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
-	}, [hoveredSubmenu, loadingTaskProjectIds, projects]);
-
-	const projectListRefCallback = useCallback(
-		(node: HTMLDivElement | null) => {
-			if (!node || !projectMenuOpen || !activeWorkbenchProjectId) return;
-			const item = node.querySelector<HTMLElement>(
-				`[data-project-picker-item="${CSS.escape(activeWorkbenchProjectId)}"]`,
-			);
-			item?.scrollIntoView({ block: "center", behavior: "instant" });
-		},
-		[activeWorkbenchProjectId, projectMenuOpen],
-	);
-
 	const handleProjectTrigger = useCallback(
 		(query: string, clearTrigger: () => void, dismissTrigger: () => void) => {
 			projectTriggerClearRef.current = clearTrigger;
 			projectTriggerDismissRef.current = dismissTrigger;
 			if (!isAuthenticated) {
-				openAuthDialog("login");
+				openAuthDialog("phone");
 				return;
 			}
 			setProjectSearch(query);
@@ -603,62 +778,94 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	};
 
-	const applyPrompt = (prompt: string) => {
-		setInput(prompt);
-	};
-
-	const openProject = (projectId: string) => {
-		requireAuth(() => {
-			if (navigation) {
-				navigation.goToProject(projectId);
-				return;
-			}
-			selectWorkbenchProject(projectId);
-		});
-	};
-
-	useEffect(() => () => revokeAttachmentURLs(attachmentsRef.current), []);
+	useEffect(() => () => revokeAttachmentObjectUrls(attachmentsRef.current), []);
 
 	return (
 		<div
 			data-slot="workbench-panel"
 			className="min-h-0 flex-1 overflow-y-auto bg-[var(--leros-app-bg)]"
 		>
-			{/* Top Header */}
-			<header className="z-10 flex h-16 shrink-0 items-center justify-end px-10">
-				<div className="flex items-center gap-4 text-[var(--leros-text)]">
-					{/* <button
-						type="button"
-						className="relative rounded-full p-2 transition-colors hover:bg-[var(--leros-primary-softer)]"
-					>
-						<Bell className="size-5" />
-						<span className="absolute right-2 top-2 size-2 rounded-full border-2 border-[var(--leros-app-bg)] bg-destructive" />
-					</button> */}
-					{/* <button
-						type="button"
-						onClick={() => {
-							if (!isAuthenticated) openAuthDialog("login");
-						}}
-						className="rounded-full bg-[#070d1c] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#182033]"
-						disabled={!isHydrated}
-					>
-						{!isHydrated ? "" : isAuthenticated ? (user?.name ?? "已登录") : "登录"}
-					</button> */}
-				</div>
-			</header>
-
 			{/* Main Content Canvas */}
-			<div className="z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[1100px] flex-col justify-center px-10 py-16">
+			<div className="z-10 mx-auto flex min-h-full w-full max-w-[1080px] flex-col justify-center px-10 py-10">
 				{/* Welcome/Hero Section */}
-				<section className="mb-8">
-					<div className="mb-6 flex flex-col items-start gap-4 text-left">
-						<h2 className="text-4xl font-semibold tracking-tight text-[var(--leros-text-strong)] md:text-5xl">
-							你好, <span className="text-[var(--leros-primary)]">我能帮助你什么？</span>
+				<section>
+					<div className="mb-10 text-center">
+						<h2 className="text-4xl font-semibold tracking-tight text-[var(--leros-primary)] md:text-5xl">
+							你好，今天我们从哪里开始？
 						</h2>
-						<p className="text-lg font-medium italic uppercase tracking-widest text-[var(--leros-text-subtle)]">
-							你的AI队友，已上线。
+						<p className="mt-4 text-base text-[var(--leros-text-muted)] md:text-lg">
+							告诉{brandName}你的目标，我们会帮你拆解任务、分配执行，并交付结果
 						</p>
 					</div>
+
+					{/* 中文注释：四步流程说明单独成卡，快捷提示仍放在卡片外并与输入区保持间距。 */}
+					<div className="mb-10 overflow-hidden rounded-[28px] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/70">
+						<div
+							className={cn(
+								"grid",
+								isDesktopApp ? "grid-cols-4" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4",
+							)}
+						>
+							{WORKBENCH_FEATURE_CARDS.map((card, index) => {
+								const Icon = card.icon;
+								return (
+									<div
+										key={card.title}
+										className={cn(
+											"relative flex flex-col gap-2.5 px-5 py-4",
+											!isDesktopApp && index > 0 && "border-t border-slate-100 sm:border-t-0",
+											!isDesktopApp && index % 2 === 1 && "sm:border-l sm:border-slate-100",
+											!isDesktopApp &&
+												index >= 2 &&
+												"sm:border-t sm:border-slate-100 xl:border-t-0",
+											index > 0 && "xl:border-l xl:border-slate-100",
+											isDesktopApp && index > 0 && "border-l border-slate-100",
+										)}
+									>
+										<span className="absolute right-4 top-3.5 text-xs font-medium tabular-nums text-slate-300">
+											{card.step}
+										</span>
+										<div
+											className={cn(
+												"flex size-10 shrink-0 items-center justify-center rounded-xl",
+												card.iconClassName,
+											)}
+										>
+											<Icon className="size-5" />
+										</div>
+										<div className="min-w-0 pr-6">
+											<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+												{card.title}
+											</div>
+											<p className="mt-1 text-xs leading-relaxed text-[var(--leros-text-muted)]">
+												{card.description}
+											</p>
+										</div>
+									</div>
+								);
+							})}
+						</div>
+					</div>
+
+					<ComposerUsageTipsPanel
+						tips={workbenchUsageTips}
+						onApply={applyUsageTip}
+						onBidComparisonClick={() => setBidComparisonOpen(true)}
+					/>
+					<BidComparisonConfigDialog
+						open={bidComparisonOpen}
+						onOpenChange={setBidComparisonOpen}
+						onSave={startBidComparison}
+						initialProjectId={activeWorkbenchProjectId}
+						initialTaskId={activeWorkbenchTaskId}
+						allowSelectTask
+						onProjectChange={fetchTasks}
+						projects={projects.map((project) => ({
+							id: project.id,
+							name: project.name,
+							tasks: project.tasks,
+						}))}
+					/>
 
 					{/* 中文注释：工作台输入卡片与 ChatInput 的 project 变体保持同一套边框、阴影与内边距规范。 */}
 					{/* 中文注释：输入框保持完整圆角，和 Codex 一样作为上层卡片悬浮在项目选择条之上。 */}
@@ -667,37 +874,28 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							ref={fileInputRef}
 							type="file"
 							className="hidden"
-							accept={PROJECT_ATTACHMENT_ACCEPT}
+							accept={composerUploadAccept}
 							multiple
 							onChange={handleAttachmentSelect}
 						/>
+						<input
+							ref={folderInputRef}
+							type="file"
+							className="hidden"
+							multiple
+							onChange={handleFolderSelect}
+							{...({
+								webkitdirectory: "",
+								directory: "",
+							} as React.InputHTMLAttributes<HTMLInputElement>)}
+						/>
+
 						{attachments.length > 0 && (
-							<div className="mb-3 flex flex-wrap gap-2">
-								{attachments.map((attachment) => (
-									<div
-										key={attachment.id}
-										className="flex items-center gap-2 rounded-lg bg-white/90 px-3 py-2 text-sm shadow-sm ring-1 ring-slate-200/70"
-									>
-										{attachment.type === "image" && attachment.url ? (
-											<img
-												src={attachment.url}
-												alt={attachment.name}
-												className="size-8 rounded object-cover"
-											/>
-										) : (
-											<Paperclip className="size-3.5 text-slate-400" />
-										)}
-										<span className="max-w-[160px] truncate text-slate-600">{attachment.name}</span>
-										<button
-											type="button"
-											onClick={() => handleRemoveAttachment(attachment.id)}
-											className="text-slate-400 transition-colors hover:text-slate-600"
-										>
-											<X className="size-3.5" />
-										</button>
-									</div>
-								))}
-							</div>
+							<AttachmentPreview
+								attachments={attachments}
+								onPreview={openPendingAttachmentPreview}
+								onRemove={handleRemoveAttachment}
+							/>
 						)}
 						<div className="min-w-0">
 							<StructuredComposer
@@ -710,10 +908,14 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								onPasteFiles={handlePasteFiles}
 								onFocus={() => undefined}
 								onBlur={() => undefined}
-								placeholder="在这里开始新任务，或输入指令以同步您的项目进度..."
+								placeholder="在这里输入需求或描述目标。使用#选择项目、@召唤AI队友、/调用技能..."
 								isProjectVariant
 								assistantOptions={availableAssistantOptions}
-								directivesDisabled={Boolean(activeProject)}
+								onAssistantPickerOpen={handleAssistantPickerOpen}
+								assistantSelectionMode="single"
+								skillOptions={skillOptions}
+								skillsLoading={skillsLoading}
+								assistantDirectivesDisabled={Boolean(activeProject)}
 								onProjectTrigger={handleProjectTrigger}
 							/>
 						</div>
@@ -723,32 +925,41 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									inputValue={input}
 									composerRef={composerRef}
 									onUpload={() => fileInputRef.current?.click()}
+									onUploadFolder={() => folderInputRef.current?.click()}
 									onBeforeAction={() => {
 										if (!isAuthenticated) {
-											openAuthDialog("login");
+											openAuthDialog("phone");
 											return false;
 										}
 										return true;
 									}}
 									assistantOptions={availableAssistantOptions}
-									disableAssistantAndSkill={Boolean(activeProject)}
+									onAssistantPickerOpen={handleAssistantPickerOpen}
+									assistantSelectionMode="single"
+									skillOptions={skillOptions}
+									skillsLoading={skillsLoading}
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
-									isGenerating={isGenerating}
+									isGenerating={isSending}
+									connectorOptions={connectorOptions}
+									connectorsLoading={connectorsLoading}
+									selectedConnectorIds={selectedConnectorIds}
+									onSelectConnector={handleSelectConnector}
+									onRemoveConnector={handleRemoveConnector}
 								/>
 							</div>
 							<div className="flex items-center gap-2">
 								<Button
 									size="icon"
 									onClick={handleSend}
-									disabled={isGenerating || !input.trim()}
+									disabled={isSending || !input.trim() || hasUploadingAttachments}
 									// 中文注释：工作台发送按钮与项目/任务页保持同一视觉规格。
 									className="size-9 min-w-0 rounded-xl bg-black !text-white shadow-sm hover:bg-blue-700 disabled:bg-[#f3f3f4] disabled:!text-slate-400"
 								>
 									<SendHorizonal
 										className={cn(
 											"size-3.5",
-											input.trim() && !isGenerating
+											input.trim() && !isSending
 												? "fill-white stroke-white text-white"
 												: "fill-none stroke-current text-current",
 										)}
@@ -766,221 +977,35 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								aria-label="选择项目任务"
 								title={projectTaskSelectorLabel}
 							>
-								<Folder className="size-4 shrink-0" />
+								<ProjectIcon className="size-4 shrink-0" />
 								<span className="truncate">{projectTaskSelectorLabel}</span>
 								<ChevronDown className="size-3.5 shrink-0 text-slate-400" />
 							</PopoverTrigger>
 						</div>
 						<PopoverContent
 							align="start"
-							side="bottom"
-							sideOffset={8}
+							side="top"
+							sideOffset={10}
 							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
 							className="!flex-none w-auto overflow-visible rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
 						>
-							<div ref={pickerRootRef} className="relative">
-								<div className={PROJECT_PICKER_PANEL_CLASS}>
-									<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
-										<CommandInput
-											value={projectSearch}
-											onValueChange={handleProjectSearchChange}
-											placeholder="搜索项目"
-										/>
-									</Command>
-									<div ref={projectListRefCallback} className={PROJECT_PICKER_LIST_CLASS}>
-										{filteredProjects.map((project) => {
-											const projectSelected = activeWorkbenchProjectId === project.id;
-
-											return (
-												<button
-													key={project.id}
-													type="button"
-													data-project-picker-item={project.id}
-													onMouseEnter={(event) =>
-														showSubmenuAtRow(event.currentTarget, `project:${project.id}`)
-													}
-													onClick={() => handleSelectProject(project)}
-													className={projectPickerRowClass(projectSelected)}
-												>
-													<Folder className="size-4 shrink-0" />
-													<span className="min-w-0 flex-1 truncate">
-														{renderHighlightedText(project.name, projectSearch)}
-													</span>
-													{projectSelected && <Check className="size-4 shrink-0" />}
-													<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
-												</button>
-											);
-										})}
-										{filteredProjects.length === 0 && (
-											<div className="px-3 py-8 text-center text-sm text-slate-400">
-												没有匹配的项目
-											</div>
-										)}
-									</div>
-									<div className="mt-1 border-t border-slate-100 pt-1">
-										<button
-											type="button"
-											onMouseEnter={(event) => showSubmenuAtRow(event.currentTarget, "new-project")}
-											className={projectPickerRowClass(false)}
-										>
-											<Plus className="size-4 shrink-0" />
-											<span className="min-w-0 flex-1 truncate">新建项目</span>
-											<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
-										</button>
-									</div>
-								</div>
-
-								{hoveredSubmenu === "new-project" && (
-									<div
-										className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
-										style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
-									>
-										<button
-											type="button"
-											onClick={handleSelectNewProjectTask}
-											className={projectPickerRowClass(!activeWorkbenchProjectId)}
-										>
-											<Plus className="size-4 shrink-0" />
-											<span className="min-w-0 flex-1 truncate">新建空白项目</span>
-											{!activeWorkbenchProjectId && <Check className="size-4 shrink-0" />}
-										</button>
-									</div>
-								)}
-
-								{hoveredProject && (
-									<div
-										className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
-										style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
-									>
-										<div className="space-y-1">
-											{loadingTaskProjectIds.has(hoveredProject.id) ? (
-												<div className="px-3 py-2 text-xs text-slate-400">任务加载中...</div>
-											) : hoveredProject.tasks.length > 0 ? (
-												hoveredProject.tasks.map((task) => {
-													const selected =
-														activeWorkbenchProjectId === hoveredProject.id &&
-														activeWorkbenchTaskId === task.id;
-													return (
-														<button
-															key={task.id}
-															type="button"
-															onClick={() => handleSelectTask(hoveredProject, task)}
-															className={projectPickerRowClass(selected)}
-														>
-															<ListTodo className="size-4 shrink-0 opacity-75" />
-															<span className="min-w-0 flex-1 truncate">{task.title}</span>
-															{selected && <Check className="size-4 shrink-0" />}
-														</button>
-													);
-												})
-											) : (
-												<div className="px-3 py-2 text-xs text-slate-400">
-													暂无任务，选择项目后将新建任务
-												</div>
-											)}
-										</div>
-									</div>
-								)}
-							</div>
+							<ProjectTaskPickerContent
+								projects={isAuthenticated ? projects : []}
+								selectedProjectId={activeWorkbenchProjectId}
+								selectedTaskId={activeWorkbenchTaskId}
+								searchQuery={projectSearch}
+								onSearchQueryChange={setProjectSearch}
+								allowNewProject
+								scrollSelectedIntoView={projectMenuOpen}
+								onLoadProjectTasks={fetchTasks}
+								onSelectProject={(project) => handleSelectProject(project as Project)}
+								onSelectTask={(project, task) =>
+									handleSelectTask(project as Project, task as ProjectTask)
+								}
+								onSelectNewProject={handleSelectNewProjectTask}
+							/>
 						</PopoverContent>
 					</Popover>
-				</section>
-
-				<section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-					<div className="h-full min-w-0">
-						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
-							<div className="mb-5">
-								<div className="flex items-center gap-2">
-									<div className="shrink-0 rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
-										<Sparkles className="size-4" />
-									</div>
-									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">
-										开始建议
-									</h3>
-								</div>
-								<p className="mt-1 pl-10 text-sm text-[var(--leros-text-muted)]">
-									点一下即可填入输入框，适合用来启动工作台对话。
-								</p>
-							</div>
-
-							<div className="grid gap-3 md:grid-cols-3">
-								{suggestedPrompts.map((prompt) => (
-									<button
-										key={prompt}
-										type="button"
-										onClick={() => applyPrompt(prompt)}
-										title={prompt}
-										className="flex min-w-0 flex-col gap-3 rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
-									>
-										<div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)]">
-											<FileText className="size-5" />
-										</div>
-										<p className="line-clamp-2 text-sm font-medium leading-6 text-[var(--leros-text)]">
-											{prompt}
-										</p>
-									</button>
-								))}
-							</div>
-						</div>
-					</div>
-
-					<div className="h-full min-w-0">
-						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
-							<div className="mb-5">
-								<div className="flex items-center gap-2">
-									<div className="shrink-0 rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
-										<FolderOpen className="size-4" />
-									</div>
-									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">
-										最近项目
-									</h3>
-								</div>
-								<p className="mt-1 pl-10 text-sm text-[var(--leros-text-muted)]">
-									从最近同步的项目里快速恢复上下文。
-								</p>
-							</div>
-
-							{recentProjects.length > 0 ? (
-								<div className="space-y-3">
-									{recentProjects.slice(0, 1).map((project) => (
-										<button
-											key={project.id}
-											type="button"
-											onClick={() => openProject(project.id)}
-											title={project.name}
-											className="flex w-full min-w-0 items-start gap-3 rounded-2xl border border-[var(--leros-control-border)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
-										>
-											<div className="shrink-0 rounded-xl bg-[var(--leros-surface-soft)] p-2 text-[var(--leros-text-muted)]">
-												<Folder className="size-4" />
-											</div>
-											<div className="min-w-0 flex-1">
-												<p className="line-clamp-2 text-sm font-semibold text-[var(--leros-text-strong)]">
-													{project.name}
-												</p>
-												<p className="mt-1 line-clamp-2 text-sm text-[var(--leros-text-muted)]">
-													{project.description || "暂无项目描述"}
-												</p>
-												<div className="mt-3 flex items-center gap-4 text-xs text-[var(--leros-text-subtle)]">
-													<span className="inline-flex items-center gap-1">
-														<Target className="size-3.5" />
-														{project.tasks.length} 个任务
-													</span>
-													<span className="inline-flex items-center gap-1">
-														<Files className="size-3.5" />
-														{project.files.length} 个文件
-													</span>
-												</div>
-											</div>
-										</button>
-									))}
-								</div>
-							) : (
-								<div className="rounded-2xl border border-dashed border-[var(--leros-control-border)] px-4 py-5 text-sm text-[var(--leros-text-muted)]">
-									还没有项目数据。先发起一个任务，系统会自动为你沉淀项目上下文。
-								</div>
-							)}
-						</div>
-					</div>
 				</section>
 			</div>
 		</div>

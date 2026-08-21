@@ -4,13 +4,19 @@ import type {
 	BackendPaginatedResponse,
 	BackendProject,
 	BackendProjectDetail,
-	BackendWorkbenchRecentContext,
 } from "./types";
+
+export type ProjectMemberInput = {
+	type: "assistant" | "user";
+	id: string;
+	role?: string;
+};
 
 export type CreateProjectParams = {
 	name: string;
 	description?: string;
 	objective?: string;
+	members?: ProjectMemberInput[];
 	metadata?: Record<string, unknown>;
 };
 
@@ -33,6 +39,7 @@ export type UpdateProjectParams = {
 	objective?: string;
 	status?: string;
 	owner_id?: number;
+	members?: ProjectMemberInput[];
 	metadata?: Record<string, unknown>;
 };
 
@@ -40,9 +47,8 @@ export type DeleteProjectParams = {
 	public_id: string;
 };
 
-export type SaveWorkbenchRecentContextParams = {
-	project_id: string;
-	task_id?: string | null;
+export type LeaveProjectParams = {
+	public_id: string;
 };
 
 const PROJECT_ENDPOINTS = {
@@ -51,9 +57,8 @@ const PROJECT_ENDPOINTS = {
 	get: "/GetProject",
 	detail: "/DetailProject",
 	update: "/UpdateProject",
+	leave: "/LeaveProject",
 	delete: "/DeleteProject",
-	getWorkbenchRecentContext: "/GetWorkbenchRecentContext",
-	saveWorkbenchRecentContext: "/SaveWorkbenchRecentContext",
 };
 
 export const projectApi = {
@@ -75,15 +80,6 @@ export const projectApi = {
 	delete: (params: DeleteProjectParams) =>
 		apiClient.post<BackendDataResponse<null>>(PROJECT_ENDPOINTS.delete, params),
 
-	getWorkbenchRecentContext: () =>
-		apiClient.post<BackendDataResponse<BackendWorkbenchRecentContext | null>>(
-			PROJECT_ENDPOINTS.getWorkbenchRecentContext,
-			{},
-		),
-
-	saveWorkbenchRecentContext: (params: SaveWorkbenchRecentContextParams) =>
-		apiClient.post<BackendDataResponse<BackendWorkbenchRecentContext>>(
-			PROJECT_ENDPOINTS.saveWorkbenchRecentContext,
-			params,
-		),
+	leave: (params: LeaveProjectParams) =>
+		apiClient.post<BackendDataResponse<null>>(PROJECT_ENDPOINTS.leave, params),
 };

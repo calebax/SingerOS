@@ -153,6 +153,7 @@ func (ps *ProcessScheduler) startProcess(instance *ProcessInstance, spec *worker
 	if spec.BootstrapToken != "" {
 		env = append(env, "LEROS_WORKER_BOOTSTRAP_TOKEN="+spec.BootstrapToken)
 	}
+	env = append(env, fmt.Sprintf("LEROS_PARENT_PID=%d", os.Getpid()))
 
 	workDir := cfg.WorkingDir
 	if workDir == "" {
@@ -160,6 +161,9 @@ func (ps *ProcessScheduler) startProcess(instance *ProcessInstance, spec *worker
 	}
 
 	args := []string{cmdPath, "worker"}
+	if strings.TrimSpace(cfg.WorkerConfig) != "" {
+		args = append(args, "--config", cfg.WorkerConfig)
+	}
 	if spec.OrgID != 0 {
 		args = append(args, "--org-id", strconv.FormatUint(uint64(spec.OrgID), 10))
 	}
@@ -185,6 +189,7 @@ func (ps *ProcessScheduler) startProcess(instance *ProcessInstance, spec *worker
 	cmd.Env = env
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	configureProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
@@ -212,14 +217,11 @@ func (ps *ProcessScheduler) stopProcess(instance *ProcessInstance) error {
 		return nil
 	}
 
-	if err := instance.Process.Signal(os.Interrupt); err != nil {
-		logs.Warnf("Failed to send interrupt signal to %s: %v", instance.WorkerID, err)
-		if err := instance.Process.Kill(); err != nil {
-			return fmt.Errorf("failed to kill process: %w", err)
-		}
+	if err := stopProcessGroup(instance.Cmd); err != nil {
+		return fmt.Errorf("failed to stop process group: %w", err)
 	}
 
-	logs.Infof("Sent interrupt signal to worker %s", instance.WorkerID)
+	logs.Infof("Worker process group for %s stopped", instance.WorkerID)
 	return nil
 }
 
@@ -271,7 +273,14 @@ func processWorkerEndpoint(spec *worker.WorkerSpec, cfg *config.SchedulerConfig)
 		if spec != nil && spec.WorkerID != 0 {
 			workerID = spec.WorkerID
 		}
-		listenAddr = "127.0.0.1:" + strconv.FormatUint(uint64(18080+workerID), 10)
+		orgID := uint(0)
+		if spec != nil && spec.OrgID != 0 {
+			orgID = spec.OrgID
+		}
+		// Assign a unique port block per org to avoid collisions when multiple
+		// organizations have the same worker_id (e.g. every org's first worker).
+		port := 18080 + uint64(orgID)*100 + uint64(workerID)
+		listenAddr = "127.0.0.1:" + strconv.FormatUint(port, 10)
 	}
 	if strings.HasPrefix(listenAddr, "http://") || strings.HasPrefix(listenAddr, "https://") {
 		return strings.TrimRight(listenAddr, "/")
@@ -311,4 +320,37 @@ func (ps *ProcessScheduler) removeInstance(workerID string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	delete(ps.instances, workerID)
+}
+
+func (ps *ProcessScheduler) Shutdown(ctx context.Context) error {
+	ps.mu.Lock()
+	instanceIDs := make([]string, 0, len(ps.instances))
+	for id := range ps.instances {
+		instanceIDs = append(instanceIDs, id)
+	}
+	ps.mu.Unlock()
+
+	if len(instanceIDs) == 0 {
+		return nil
+	}
+
+	logs.Infof("Shutting down %d worker process(es)", len(instanceIDs))
+
+	var errs []error
+	for _, id := range instanceIDs {
+		ps.mu.RLock()
+		instance, ok := ps.instances[id]
+		ps.mu.RUnlock()
+		if !ok {
+			continue
+		}
+		if err := ps.stopProcess(instance); err != nil {
+			errs = append(errs, fmt.Errorf("stop %s: %w", id, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("shutdown errors: %v", errs)
+	}
+	return nil
 }

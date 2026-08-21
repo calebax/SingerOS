@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -164,6 +166,10 @@ func (s *KubernetesScheduler) List(ctx context.Context) ([]*worker.WorkerInstanc
 	return result, nil
 }
 
+func (s *KubernetesScheduler) Shutdown(ctx context.Context) error {
+	return nil
+}
+
 func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
 	if spec == nil {
 		return false, fmt.Errorf("worker spec is required")
@@ -186,6 +192,9 @@ func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.W
 		return true, nil
 	}
 	if currentImage != s.workerImage(spec) {
+		return true, nil
+	}
+	if s.resourcesDrifted(deployment, spec) {
 		return true, nil
 	}
 	return s.workspaceSpecDrifted(deployment, spec), nil
@@ -293,13 +302,14 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 		},
 		Containers: []corev1.Container{
 			{
-				Name:            defaultWorkerContainerName,
+				Name:            name,
 				Image:           s.workerImage(spec),
-				ImagePullPolicy: corev1.PullAlways,
+				ImagePullPolicy: s.workerImagePullPolicy(),
 				Command:         []string{"/leros"},
 				Args:            args,
 				Env:             env,
 				VolumeMounts:    volumeMounts,
+				Resources:       s.workerResources(),
 			},
 		},
 		Volumes: volumes,
@@ -326,6 +336,13 @@ func workerContainerImage(deployment *appsv1.Deployment) string {
 		return ""
 	}
 	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if container.Name == deployment.Name {
+			return strings.TrimSpace(container.Image)
+		}
+	}
+	// Keep recognizing deployments created before worker container names were
+	// aligned with their deployment names.
+	for _, container := range deployment.Spec.Template.Spec.Containers {
 		if container.Name == defaultWorkerContainerName {
 			return strings.TrimSpace(container.Image)
 		}
@@ -346,7 +363,7 @@ func (s *KubernetesScheduler) workspaceSpecDrifted(deployment *appsv1.Deployment
 	if hostPathForVolume(podSpec.Volumes, "workspace") != desiredHostPath {
 		return true
 	}
-	workerContainer := containerByName(podSpec.Containers, defaultWorkerContainerName)
+	workerContainer := containerByName(podSpec.Containers, deploymentName(spec.OrgID, spec.WorkerID))
 	if workerContainer == nil {
 		return true
 	}
@@ -448,6 +465,17 @@ func (s *KubernetesScheduler) workerImage(spec *worker.WorkerSpec) string {
 	return defaultWorkerImage
 }
 
+func (s *KubernetesScheduler) workerImagePullPolicy() corev1.PullPolicy {
+	switch strings.ToLower(strings.TrimSpace(s.config.WorkerImagePullPolicy)) {
+	case "always", "pullalways":
+		return corev1.PullAlways
+	case "never", "pullnever":
+		return corev1.PullNever
+	default:
+		return corev1.PullIfNotPresent
+	}
+}
+
 func (s *KubernetesScheduler) workspaceInitImage() string {
 	if value := strings.TrimSpace(s.config.WorkspaceInitImage); value != "" {
 		return value
@@ -462,12 +490,12 @@ func (s *KubernetesScheduler) serverAddr(spec *worker.WorkerSpec) string {
 	return strings.TrimSpace(s.config.ServerAddr)
 }
 
-func (s *KubernetesScheduler) workspacePath(_, _ uint) string {
+func (s *KubernetesScheduler) workspacePath(orgID, workerID uint) string {
 	root := strings.TrimSpace(s.config.WorkspaceHostPathRoot)
 	if root == "" {
 		root = defaultWorkspaceHostPathRoot
 	}
-	return root
+	return joinHostPath(root, orgID, workerID)
 }
 
 func (s *KubernetesScheduler) workspaceMountPath(_, _ uint) string {
@@ -496,6 +524,70 @@ func deploymentName(orgID, workerID uint) string {
 	return fmt.Sprintf("leros-worker-o%d-w%d", orgID, workerID)
 }
 
+// joinHostPath 在宿主根路径下追加 Deployment 名称二级目录，使每个 worker
+// 使用独立的 workspace 宿主目录（如 /data/workspace/leros-worker-o1001-w3），
+// 目录名与 Deployment 名称一一对应，实现物理隔离。
+// workerID 为 0 时返回根路径本身，避免拼出无意义的目录。
+func joinHostPath(root string, orgID, workerID uint) string {
+	if workerID == 0 {
+		return root
+	}
+	return filepath.Join(root, deploymentName(orgID, workerID))
+}
+
 func boolPtr(value bool) *bool                                       { return &value }
 func int64Ptr(value int64) *int64                                    { return &value }
 func hostPathTypePtr(value corev1.HostPathType) *corev1.HostPathType { return &value }
+
+// workerResources 将配置层 ResourceRequirements 转为 corev1.ResourceRequirements，
+// 忽略无法解析的 quantity 字符串。
+func (s *KubernetesScheduler) workerResources() corev1.ResourceRequirements {
+	return toCoreV1Resources(s.config.WorkerResources)
+}
+
+func toCoreV1Resources(r config.ResourceRequirements) corev1.ResourceRequirements {
+	req := corev1.ResourceRequirements{}
+	for k, v := range r.Limits {
+		if q, err := resource.ParseQuantity(strings.TrimSpace(v)); err == nil {
+			if req.Limits == nil {
+				req.Limits = corev1.ResourceList{}
+			}
+			req.Limits[corev1.ResourceName(k)] = q
+		}
+	}
+	for k, v := range r.Requests {
+		if q, err := resource.ParseQuantity(strings.TrimSpace(v)); err == nil {
+			if req.Requests == nil {
+				req.Requests = corev1.ResourceList{}
+			}
+			req.Requests[corev1.ResourceName(k)] = q
+		}
+	}
+	return req
+}
+
+// resourcesDrifted 判断现有 worker 容器的资源限制是否与期望配置不一致。
+func (s *KubernetesScheduler) resourcesDrifted(deployment *appsv1.Deployment, spec *worker.WorkerSpec) bool {
+	container := containerByName(deployment.Spec.Template.Spec.Containers, deploymentName(spec.OrgID, spec.WorkerID))
+	if container == nil {
+		return true
+	}
+	return !resourceRequirementsEqual(s.workerResources(), container.Resources)
+}
+
+func resourceRequirementsEqual(a, b corev1.ResourceRequirements) bool {
+	return resourceListEqual(a.Limits, b.Limits) && resourceListEqual(a.Requests, b.Requests)
+}
+
+func resourceListEqual(a, b corev1.ResourceList) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		bv, ok := b[k]
+		if !ok || v.Cmp(bv) != 0 {
+			return false
+		}
+	}
+	return true
+}

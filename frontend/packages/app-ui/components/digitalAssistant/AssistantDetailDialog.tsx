@@ -12,7 +12,13 @@ import {
 import { ChevronRight } from "lucide-react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { AssistantAvatar } from "./AssistantAvatar";
-import { buildFeatureKeywords, buildPromptSuggestions, uniqueNonEmpty } from "./promptSuggestions";
+import { isAssistantAvailable } from "./assistantStatus";
+import {
+	buildDefaultSummonPrompt,
+	buildFeatureKeywords,
+	buildPromptSuggestions,
+	uniqueNonEmpty,
+} from "./promptSuggestions";
 
 type AssistantDetailDialogProps = {
 	assistant: DigitalAssistantItem | null;
@@ -33,9 +39,10 @@ export function AssistantDetailDialog({
 		return <Dialog open={open} onOpenChange={onOpenChange} />;
 	}
 
+	const isPresetAssistant = assistant.source === "template";
 	const featureKeywords = buildFeatureKeywords(assistant);
 	const expertise = uniqueNonEmpty(assistant.expertise);
-	const promptSuggestions = buildPromptSuggestions(assistant);
+	const promptSuggestions = isPresetAssistant ? buildPromptSuggestions(assistant) : [];
 	const buttonState = resolveSummonButtonState(assistant);
 
 	return (
@@ -51,6 +58,9 @@ export function AssistantDetailDialog({
 							<h2 className="truncate text-xl font-semibold text-[var(--leros-text-strong)]">
 								{assistant.name}
 							</h2>
+							{assistant.roleName ? (
+								<p className="mt-1 text-sm text-[var(--leros-text-muted)]">{assistant.roleName}</p>
+							) : null}
 							<div className="mt-3 flex flex-wrap items-center gap-2">
 								{featureKeywords.map((keyword) => (
 									<span
@@ -91,28 +101,31 @@ export function AssistantDetailDialog({
 							</div>
 						</section>
 
-						<section>
-							<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">
-								试试这样问我
-							</h3>
-							<div className="mt-3 space-y-3">
-								{promptSuggestions.map((prompt) => (
-									<button
-										key={prompt}
-										type="button"
-										className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-3 text-left text-sm leading-6 text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:text-[var(--leros-text-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-										onClick={() => onSummon(assistant, prompt)}
-										disabled={summoning || buttonState.disabled}
-									>
-										<span className="min-w-0 flex-1">“{prompt}”</span>
-										<ChevronRight
-											className="size-4 shrink-0 text-[var(--leros-text-subtle)]"
-											aria-hidden="true"
-										/>
-									</button>
-								))}
-							</div>
-						</section>
+						{/* 中文注释：预设队友保留「试试这样问我」；自定义队友仅展示能力介绍与擅长领域。 */}
+						{isPresetAssistant ? (
+							<section>
+								<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">
+									试试这样问我
+								</h3>
+								<div className="mt-3 space-y-3">
+									{promptSuggestions.map((prompt) => (
+										<button
+											key={prompt}
+											type="button"
+											className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-3 text-left text-sm leading-6 text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:text-[var(--leros-text-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+											onClick={() => onSummon(assistant, prompt)}
+											disabled={summoning || buttonState.disabled}
+										>
+											<span className="min-w-0 flex-1">“{prompt}”</span>
+											<ChevronRight
+												className="size-4 shrink-0 text-[var(--leros-text-subtle)]"
+												aria-hidden="true"
+											/>
+										</button>
+									))}
+								</div>
+							</section>
+						) : null}
 					</div>
 				</div>
 
@@ -120,7 +133,7 @@ export function AssistantDetailDialog({
 					<Button
 						type="button"
 						className="h-10 w-full rounded-lg bg-[var(--leros-text-strong)] text-sm font-semibold text-white hover:bg-[var(--leros-text)] disabled:bg-[var(--leros-text-subtle)]"
-						onClick={() => onSummon(assistant)}
+						onClick={() => onSummon(assistant, buildDefaultSummonPrompt(assistant))}
 						disabled={summoning || buttonState.disabled}
 					>
 						{summoning ? "召唤中" : buttonState.label}
@@ -134,7 +147,12 @@ export function AssistantDetailDialog({
 type SummonButtonState = { disabled: boolean; label: string };
 
 function resolveSummonButtonState(assistant: DigitalAssistantItem): SummonButtonState {
-	if (assistant.status !== "active") {
+	if (!isAssistantAvailable(assistant)) {
+		const deploymentStatus = assistant.deploymentStatus?.trim();
+		if (deploymentStatus === "pending") return { disabled: true, label: "初始化中…" };
+		if (deploymentStatus === "provisioning") return { disabled: true, label: "部署中…" };
+		if (deploymentStatus === "failed") return { disabled: true, label: "部署失败" };
+		if (deploymentStatus === "stopped") return { disabled: true, label: "已停止" };
 		if (assistant.status === "inactive") {
 			return { disabled: true, label: "已停用·请先启用" };
 		}
@@ -143,11 +161,5 @@ function resolveSummonButtonState(assistant: DigitalAssistantItem): SummonButton
 			label: assistant.status === "draft" ? "草稿·暂不可召唤" : "暂不可召唤",
 		};
 	}
-
-	const deploymentStatus = assistant.deploymentStatus?.trim();
-	if (deploymentStatus === "pending") return { disabled: true, label: "初始化中…" };
-	if (deploymentStatus === "provisioning") return { disabled: true, label: "部署中…" };
-	if (deploymentStatus === "failed") return { disabled: true, label: "部署失败" };
-
-	return { disabled: false, label: `召唤 ${assistant.name}` };
+	return { disabled: false, label: `召唤：${assistant.name}` };
 }

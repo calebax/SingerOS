@@ -10,6 +10,7 @@ import (
 	"github.com/insmtx/Leros/backend/agent"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 // Service is the single business entry point for an Agent Run.
@@ -77,6 +78,11 @@ func (s *Service) Run(
 		return nil, fmt.Errorf("agent run service dependencies are incomplete")
 	}
 
+	logs.InfoContextf(ctx, "agent run started: run_id=%s trace_id=%s session_id=%s worker_id=%d org_id=%d input_type=%s messages=%d",
+		eventContext.RunID, eventContext.TraceID, eventContext.SessionID,
+		eventContext.WorkerID, eventContext.OrgID,
+		req.Input.Type, len(req.Input.Messages))
+
 	// 1. Clone and normalize.
 	cloned := agentrundomain.CloneRequest(req)
 	if cloned.RunID == "" {
@@ -99,6 +105,9 @@ func (s *Service) Run(
 		return nil, fmt.Errorf("record run.started: %w", err)
 	}
 
+	logs.InfoContextf(ctx, "emitted run.started: run_id=%s session_id=%s worker_id=%d",
+		eventContext.RunID, eventContext.SessionID, eventContext.WorkerID)
+
 	resolvedRuntime, err := s.executor.ResolveRuntimeKind(cloned.Runtime.Kind)
 	if err != nil {
 		return s.finishError(ctx, cloned, nil, j, "resolve_runtime", err, startedAt)
@@ -106,7 +115,10 @@ func (s *Service) Run(
 	cloned.Runtime.Kind = resolvedRuntime
 
 	// 3. Prepare.
-	prepared, err := s.preparer.Prepare(ctx, cloned)
+	prepared, cleanup, err := s.preparer.Prepare(ctx, cloned)
+	if cleanup != nil {
+		defer cleanup()
+	}
 	if err != nil {
 		return s.finishError(ctx, cloned, nil, j, "prepare", err, startedAt)
 	}
@@ -120,6 +132,7 @@ func (s *Service) Run(
 		s.sessionStore,
 		prepared.Execution.Runtime,
 		prepared.Execution.SessionKey,
+		prepared.Execution.InstanceKey,
 	)
 	runtimeResult, err := s.executor.Execute(ctx, prepared.Execution, nodeHandler)
 	if err != nil {
@@ -199,7 +212,7 @@ func (s *Service) finishError(
 
 	status := agentrundomain.RunStatusFailed
 	message := ""
-	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+	if errors.Is(runErr, context.Canceled) {
 		status = agentrundomain.RunStatusCancelled
 		message = "已取消"
 	}

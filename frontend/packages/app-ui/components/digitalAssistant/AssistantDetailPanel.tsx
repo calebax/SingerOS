@@ -10,7 +10,7 @@ import { BookOpen, Bot, Brain, Network, Pencil, Settings, Shield, Star } from "l
 import { useState } from "react";
 import { AssistantAvatar } from "./AssistantAvatar";
 import { AssistantEditDialog } from "./AssistantEditDialog";
-import { getAssistantDisplayStatus } from "./assistantStatus";
+import { getAssistantDisplayStatus, getAssistantEditability } from "./assistantStatus";
 
 const configTabs = [
 	{ value: "basic", label: "基础信息", icon: <Bot className="size-3.5" /> },
@@ -31,6 +31,7 @@ export type AssistantDetailPanelProps = {
 export function AssistantDetailPanel({ assistant, className }: AssistantDetailPanelProps) {
 	const [editOpen, setEditOpen] = useState(false);
 	const statusInfo = getAssistantDisplayStatus(assistant);
+	const editability = getAssistantEditability(assistant);
 
 	return (
 		<div
@@ -45,12 +46,16 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 						{statusInfo.label}
 					</Badge>
 				</div>
-				{assistant.source !== "template" && (
-					<Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-						<Pencil className="size-3.5 mr-1" />
-						编辑
-					</Button>
-				)}
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={!editability.canEdit}
+					title={editability.reason}
+					onClick={() => setEditOpen(true)}
+				>
+					<Pencil className="size-3.5 mr-1" />
+					编辑
+				</Button>
 			</div>
 
 			<ScrollArea className="flex-1">
@@ -66,7 +71,7 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 						</TabsList>
 
 						<TabsContent value="basic" className="mt-4 space-y-3">
-							<DetailField label="编码" value={assistant.code} />
+							<DetailField label="编码" value={assistant.publicId} />
 							<DetailField label="状态" value={statusInfo.label} />
 							{assistant.deploymentError && (
 								<DetailField label="部署错误" value={assistant.deploymentError} multiline />
@@ -115,7 +120,7 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 				</div>
 			</ScrollArea>
 
-			{assistant.source !== "template" && (
+			{editability.canEdit && (
 				<AssistantEditDialog assistant={assistant} open={editOpen} onOpenChange={setEditOpen} />
 			)}
 		</div>

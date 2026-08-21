@@ -8,15 +8,6 @@ import { useEffect, useRef } from "react";
 import { AIMessageBubble } from "./AIMessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { UserMessageBubble } from "./UserMessageBubble";
-import { WelcomeScreen } from "./WelcomeScreen";
-
-function formatTime(timestamp: number): string {
-	const date = new Date(timestamp);
-	return date.toLocaleTimeString("zh-CN", {
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
 
 export function MessageTimeline({
 	emptyState,
@@ -85,17 +76,10 @@ export function MessageTimeline({
 
 	const messageList = (
 		<>
-			{messages.length > 0 && (
-				<div className="flex items-center justify-center py-1">
-					<span className="rounded-full bg-white/70 px-3 py-1 text-xs text-slate-400 shadow-sm ring-1 ring-slate-200/50">
-						{formatTime(messages[0]?.timestamp ?? 0)}
-					</span>
-				</div>
-			)}
 			{messages.map((msg: Message) => (
-				<div key={msg.id} className="py-0.5">
+				<div key={msg.id} className="min-w-0 py-0.5">
 					{msg.role === "user" ? (
-						<UserMessageBubble message={msg} />
+						<UserMessageBubble message={msg} projectId={projectId} />
 					) : msg.role === "assistant" ? (
 						<AIMessageBubble
 							message={msg}
@@ -113,17 +97,28 @@ export function MessageTimeline({
 		<div
 			ref={scrollRef}
 			data-slot="message-timeline"
+			onWheel={(event) => {
+				// 鼠标滚轮步进小：向上滚时立刻退出跟随，避免等 onScroll 时仍在底部附近又被重新打开。
+				if (event.deltaY < 0) {
+					autoFollowRef.current = false;
+				}
+			}}
 			onScroll={(event) => {
 				const container = event.currentTarget;
 				const distanceToBottom =
 					container.scrollHeight - container.scrollTop - container.clientHeight;
 
-				autoFollowRef.current = distanceToBottom <= 120;
+				// 滞回：贴底附近（≤120）不因小幅上滚重新打开跟随；真正回到底部（≤4）才恢复。
+				if (distanceToBottom <= 4) {
+					autoFollowRef.current = true;
+				} else if (distanceToBottom > 120) {
+					autoFollowRef.current = false;
+				}
 			}}
 			className={cn("no-scrollbar min-h-0 flex-1 overflow-y-auto", className)}
 		>
 			{isEmpty ? (
-				(emptyState ?? <WelcomeScreen />)
+				(emptyState ?? null)
 			) : contentShellClassName ? (
 				<div className={contentShellClassName}>
 					<div className={cn("flex w-full flex-col gap-3", contentClassName)}>{messageList}</div>

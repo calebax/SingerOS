@@ -3,19 +3,79 @@ package middleware
 import (
 	"context"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
+	adapteraccount "github.com/insmtx/Leros/backend/internal/adapter/account"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
+	"github.com/ygpkg/yg-go/apis/constants"
+	"github.com/ygpkg/yg-go/logs"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 const testJWTSecret = "test-secret-key"
+
+type mockTokenParser struct {
+	secret   string
+	database *gorm.DB
+}
+
+func (m *mockTokenParser) ParseUser(ctx context.Context, tokenStr string) (*types.Caller, error) {
+	claims, err := localauth.ParseUserToken(tokenStr, m.secret)
+	if err != nil {
+		return &types.Caller{State: types.AuthStateFailed}, nil
+	}
+	if claims.Uin == 0 {
+		return &types.Caller{State: types.AuthStateFailed}, nil
+	}
+	orgID := uint(0)
+	if m.database != nil {
+		userOrg, dbErr := db.NewUserOrgEntityDao(m.database).GetByCond(ctx, &db.UserOrgCond{BaseCond: &db.BaseCond{ID: claims.Uin}})
+		if dbErr == nil && userOrg != nil {
+			orgID = userOrg.OrgID
+		}
+	}
+	return &types.Caller{
+		Uin:   claims.Uin,
+		State: types.AuthStateSucc,
+		Kind:  types.CallerKindUser,
+		OrgID: orgID,
+	}, nil
+}
+
+func (m *mockTokenParser) ParseWorker(ctx context.Context, tokenStr string) (*types.Caller, error) {
+	claims, err := localauth.ParseWorkerToken(tokenStr, m.secret)
+	if err != nil {
+		return &types.Caller{State: types.AuthStateFailed}, nil
+	}
+	return &types.Caller{
+		State:    types.AuthStateSucc,
+		Kind:     types.CallerKindWorker,
+		OrgID:    claims.OrgID,
+		WorkerID: claims.WorkerID,
+	}, nil
+}
+
+func (m *mockTokenParser) IssueWorker(ctx context.Context, orgID, workerID uint, bootstrapToken string) (string, int64, error) {
+	panic("not implemented")
+}
+
+func newTestParser(database *gorm.DB) adapteraccount.TokenParser {
+	return &mockTokenParser{secret: testJWTSecret, database: database}
+}
+
+func wrongSecretParser(database *gorm.DB) adapteraccount.TokenParser {
+	return &mockTokenParser{secret: "wrong-secret", database: database}
+}
 
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -38,14 +98,11 @@ func generateTestUserJWT(uin uint) (string, error) {
 
 func generateRawUserJWT(claims localauth.UserClaims) (string, error) {
 	now := time.Now()
-	claims.StandardClaims = jwt.StandardClaims{
-		Subject:   "test-user",
-		Issuer:    localauth.UserTokenIssuer,
-		Audience:  localauth.UserTokenAudience,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: now.Add(time.Hour).Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &claims)
+	claims.IssuedAt = now.Unix()
+	claims.ExpiresAt = now.Add(time.Hour).Unix()
+	claims.Issuer = localauth.UserTokenIssuer
+	claims.Audience = localauth.UserTokenAudience
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(testJWTSecret))
 }
 
@@ -60,7 +117,7 @@ func TestCallerMiddleware_NoAuthHeader(t *testing.T) {
 	ctx, _ := setupTestContext()
 	ctx.Request = httptest.NewRequest("GET", "/", nil)
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -82,7 +139,7 @@ func TestCallerMiddleware_EmptyAuthHeader(t *testing.T) {
 	req.Header.Set("Authorization", "")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -101,7 +158,7 @@ func TestCallerMiddleware_InvalidToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -115,20 +172,18 @@ func TestCallerMiddleware_InvalidToken(t *testing.T) {
 
 func TestCallerMiddleware_ValidV2UserToken(t *testing.T) {
 	testUserID := uint(8)
-	testUin := uint(12345)
 	testOrgID := uint(2)
 	database := setupTestDB(t)
 	userOrg := &types.UserOrg{
-		Uin:       testUin,
 		UserID:    testUserID,
 		OrgID:     testOrgID,
 		IsDefault: true,
 	}
-	if err := db.CreateUserOrg(context.Background(), database, userOrg); err != nil {
+	if err := db.NewUserOrgEntityDao(database).Insert(context.Background(), userOrg); err != nil {
 		t.Fatalf("failed to create user org: %v", err)
 	}
 
-	token, err := generateTestUserJWT(testUin)
+	token, err := generateTestUserJWT(userOrg.ID)
 	if err != nil {
 		t.Fatalf("failed to generate token: %v", err)
 	}
@@ -138,15 +193,15 @@ func TestCallerMiddleware_ValidV2UserToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
 	if caller == nil {
 		t.Fatal("caller should not be nil")
 	}
-	if caller.Uin != testUin {
-		t.Errorf("expected Uin %d, got %d", testUin, caller.Uin)
+	if caller.Uin != userOrg.ID {
+		t.Errorf("expected Uin %d, got %d", userOrg.ID, caller.Uin)
 	}
 	if caller.OrgID != testOrgID {
 		t.Errorf("expected OrgID %d, got %d", testOrgID, caller.OrgID)
@@ -171,7 +226,7 @@ func TestCallerMiddleware_WorkerToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -195,12 +250,14 @@ func TestCallerMiddleware_WorkerToken(t *testing.T) {
 func TestCallerMiddleware_RequestIDAndTraceID(t *testing.T) {
 	database := setupTestDB(t)
 	ctx, _ := setupTestContext()
+	core, observed := observer.New(zapcore.InfoLevel)
+	logs.SetContextLogger(ctx, zap.New(core).Sugar())
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set(headerKeyRequestID, "test-request-id")
 	req.Header.Set(headerKeyTraceID, "test-trace-id")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	_, trace := localauth.FromGinContext(ctx)
@@ -213,6 +270,21 @@ func TestCallerMiddleware_RequestIDAndTraceID(t *testing.T) {
 	if trace.TraceID != "test-trace-id" {
 		t.Errorf("expected TraceID test-trace-id, got %s", trace.TraceID)
 	}
+	if got := ctx.Writer.Header().Get(headerKeyRequestID); got != "test-request-id" {
+		t.Errorf("response X-Request-ID = %q, want test-request-id", got)
+	}
+	logs.InfoContext(ctx, "request handled")
+	entries := observed.All()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["req_id"] != "test-request-id" {
+		t.Fatalf("log req_id = %#v, want test-request-id", fields["req_id"])
+	}
+	if _, ok := fields["trace_id"]; ok {
+		t.Fatalf("trace_id should not be added to request logs: %#v", fields["trace_id"])
+	}
 }
 
 func TestCallerMiddleware_AutoGenerateRequestID(t *testing.T) {
@@ -220,7 +292,7 @@ func TestCallerMiddleware_AutoGenerateRequestID(t *testing.T) {
 	ctx, _ := setupTestContext()
 	ctx.Request = httptest.NewRequest("GET", "/", nil)
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	_, trace := localauth.FromGinContext(ctx)
@@ -230,8 +302,14 @@ func TestCallerMiddleware_AutoGenerateRequestID(t *testing.T) {
 	if trace.RequestID == "" {
 		t.Error("RequestID should be auto-generated when not provided")
 	}
+	if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(trace.RequestID) {
+		t.Errorf("RequestID = %q, want 32 lowercase hexadecimal characters", trace.RequestID)
+	}
 	if trace.TraceID != trace.RequestID {
 		t.Error("TraceID should equal RequestID when not provided")
+	}
+	if got := ctx.Request.Context().Value(constants.CtxKeyRequestID); got != trace.RequestID {
+		t.Errorf("request context reqid = %#v, want %q", got, trace.RequestID)
 	}
 }
 
@@ -282,7 +360,7 @@ func TestCallerMiddleware_WrongSecret(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware("wrong-secret", database)
+	middleware := CallerMiddleware(wrongSecretParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -308,7 +386,7 @@ func TestCallerMiddleware_ZeroUin(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(testJWTSecret, database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -318,4 +396,87 @@ func TestCallerMiddleware_ZeroUin(t *testing.T) {
 	if caller.State != types.AuthStateFailed {
 		t.Errorf("expected State AuthStateFailed for zero uin, got %v", caller.State)
 	}
+}
+
+func TestIsWorkerToken_ValidWorkerToken(t *testing.T) {
+	token, _, err := localauth.GenerateWorkerToken(3, 7, testJWTSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate worker token: %v", err)
+	}
+	if !isWorkerToken(token) {
+		t.Error("isWorkerToken should return true for a valid worker token")
+	}
+}
+
+func TestIsWorkerToken_ValidUserToken(t *testing.T) {
+	token, err := generateTestUserJWT(12345)
+	if err != nil {
+		t.Fatalf("failed to generate user token: %v", err)
+	}
+	if isWorkerToken(token) {
+		t.Error("isWorkerToken should return false for a valid user token")
+	}
+}
+
+func TestIsWorkerToken_InvalidFormat(t *testing.T) {
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{"empty", ""},
+		{"plain text", "not-a-jwt"},
+		{"single dot", "abc.def"},
+		{"invalid base64", "a.b==.c"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if isWorkerToken(tt.token) {
+				t.Errorf("isWorkerToken(%q) should return false", tt.token)
+			}
+		})
+	}
+}
+
+func TestCallerMiddleware_WorkerTokenSkipsParseUser(t *testing.T) {
+	database := setupTestDB(t)
+	workerToken, _, err := localauth.GenerateWorkerToken(3, 7, testJWTSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate worker token: %v", err)
+	}
+
+	parser := &recordingTokenParser{secret: testJWTSecret, database: database}
+	ctx, _ := setupTestContext()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+workerToken)
+	ctx.Request = req
+
+	middleware := CallerMiddleware(parser, database)
+	middleware(ctx)
+
+	caller, _ := localauth.FromGinContext(ctx)
+	if caller == nil || caller.Kind != types.CallerKindWorker {
+		t.Fatalf("expected Kind worker, got %v", caller)
+	}
+	if parser.parseUserCalled {
+		t.Error("ParseUser should not be called for worker token")
+	}
+}
+
+type recordingTokenParser struct {
+	secret          string
+	database        *gorm.DB
+	parseUserCalled bool
+}
+
+func (m *recordingTokenParser) ParseUser(ctx context.Context, tokenStr string) (*types.Caller, error) {
+	m.parseUserCalled = true
+	return (&mockTokenParser{secret: m.secret, database: m.database}).ParseUser(ctx, tokenStr)
+}
+
+func (m *recordingTokenParser) ParseWorker(ctx context.Context, tokenStr string) (*types.Caller, error) {
+	return (&mockTokenParser{secret: m.secret, database: m.database}).ParseWorker(ctx, tokenStr)
+}
+
+func (m *recordingTokenParser) IssueWorker(ctx context.Context, orgID, workerID uint, bootstrapToken string) (string, int64, error) {
+	panic("not implemented")
 }

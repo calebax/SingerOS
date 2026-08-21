@@ -16,6 +16,8 @@ import (
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
+
+	"github.com/insmtx/Leros/backend/types"
 )
 
 type fileService struct {
@@ -89,14 +91,18 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 }
 
 func (s *fileService) DownloadFile(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
-	reader, fileUpload, err := filestore.OpenFileByPublicID(ctx, s.db, orgID, fileID)
+	fileUpload, err := s.resolveFileUploadForAccess(ctx, orgID, fileID)
+	if err != nil || fileUpload == nil {
+		logs.ErrorContextf(ctx, "resolve file upload by public id failed: %v", err)
+		return nil, nil, fmt.Errorf("get file download failed")
+	}
+
+	reader, err := filestore.OpenFileUpload(ctx, fileUpload)
 	if err != nil {
 		logs.ErrorContextf(ctx, "open file by public id failed: %v", err)
 		return nil, nil, fmt.Errorf("get file download failed")
 	}
 
-	// TODO: 当存储层支持 HTTP 请求时，直接使用 PublicURL 作为绝对路径或重定向地址，
-	//       当前本地磁盘模式下 PublicURL() 返回的是本地绝对路径，无法通过 HTTP 访问。
 	publicURL := ""
 	fileUpload.StorageURI = strings.TrimSpace(fileUpload.StorageURI)
 	if fileUpload.StorageURI != "" {
@@ -111,11 +117,32 @@ func (s *fileService) DownloadFile(ctx context.Context, orgID uint, fileID strin
 	}, nil
 }
 
+func (s *fileService) DownloadFileByURI(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+	_, bucket, key, err := storage.ParseURI(strings.TrimSpace(storageURI))
+	if err != nil {
+		logs.ErrorContextf(ctx, "parse storage URI failed: %v", err)
+		return nil, nil, fmt.Errorf("get file download failed")
+	}
+
+	obj, err := filestore.GetStorage().GetObject(ctx, bucket, key)
+	if err != nil {
+		logs.ErrorContextf(ctx, "get object failed: %v", err)
+		return nil, nil, fmt.Errorf("get file download failed")
+	}
+
+	return obj.Body, &contract.FileDownloadInfo{
+		FileName:  key[strings.LastIndex(key, "/")+1:],
+		MimeType:  "",
+		Size:      obj.Size,
+		PublicURL: "",
+	}, nil
+}
+
 func (s *fileService) PresignDownloadURL(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
 	var targetURI string
 
 	if publicID != "" {
-		fileUpload, err := infradb.GetFileUploadByPublicID(ctx, s.db, orgID, publicID)
+		fileUpload, err := s.resolveFileUploadForAccess(ctx, orgID, publicID)
 		if err != nil {
 			logs.ErrorContextf(ctx, "get file upload by publicID failed: %v", err)
 			return "", fmt.Errorf("get presign download url failed")
@@ -144,4 +171,27 @@ func (s *fileService) PresignDownloadURL(ctx context.Context, orgID uint, public
 		return "", fmt.Errorf("get presign download url failed")
 	}
 	return url, nil
+}
+
+// resolveFileUploadForAccess 解析待访问文件的 FileUpload 记录。
+// orgID 非零时优先在组织作用域内精确匹配（保证组织间文件隔离）；
+// 无论组织查询是否命中，都允许 fallback 到系统级（system）内置资源，
+// 使模板头像、官方插件产物等体系级共享文件可被任意组织乃至匿名访问方读取。
+// 返回 nil,nil 表示该 public_id 不存在（或匿名方仅能访问系统文件）。
+func (s *fileService) resolveFileUploadForAccess(ctx context.Context, orgID uint, publicID string) (*types.FileUpload, error) {
+	if orgID != 0 {
+		fileUpload, err := infradb.GetFileUploadByPublicID(ctx, s.db, orgID, publicID)
+		if err != nil {
+			return nil, err
+		}
+		if fileUpload != nil {
+			return fileUpload, nil
+		}
+	}
+
+	fileUpload, err := infradb.GetSystemFileUploadByPublicID(ctx, s.db, publicID)
+	if err != nil {
+		return nil, err
+	}
+	return fileUpload, nil
 }

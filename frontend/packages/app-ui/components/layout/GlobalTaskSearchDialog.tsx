@@ -6,10 +6,12 @@ import { Dialog, DialogContent, DialogTitle } from "@leros/ui/components/ui/dial
 import { Input } from "@leros/ui/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import { cn } from "@leros/ui/lib/utils";
-import { Folder, Loader2, Search, X } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { renderHighlightedText } from "../common/searchText";
 import type { AppNavigation } from "./LeftRail";
+import { ProjectIcon } from "./project-icon";
 
 const ALL_PROJECTS_VALUE = "__all_projects__";
 const TASK_LIST_PAGE_SIZE = 100;
@@ -150,13 +152,25 @@ export function GlobalTaskSearchDialog({
 		return () => window.clearTimeout(timer);
 	}, [open]);
 
+	const resolveTaskSessionId = (task: BackendTask): string | null => {
+		const sessionIdFromTask = task.session?.session_id?.trim();
+		if (sessionIdFromTask) return sessionIdFromTask;
+		const project = projects.find((item) => item.id === task.project_id);
+		return project?.tasks.find((item) => item.id === task.public_id)?.sessionId ?? null;
+	};
+
 	const handleOpenTask = (task: BackendTask) => {
+		const sessionId = resolveTaskSessionId(task);
 		onOpenChange(false);
-		if (navigation) {
-			navigation.goToTaskDetail(task.project_id, task.public_id, null);
+		if (!sessionId) {
+			toast.warning("当前任务缺少会话，无法打开详情");
 			return;
 		}
-		openTaskDetail(task.project_id, task.public_id, null);
+		if (navigation) {
+			navigation.goToTaskDetail(task.project_id, task.public_id, sessionId);
+			return;
+		}
+		openTaskDetail(task.project_id, task.public_id, sessionId);
 	};
 
 	return (
@@ -186,7 +200,7 @@ export function GlobalTaskSearchDialog({
 							>
 								<SelectTrigger className="!h-10 min-w-0 flex-1 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-4 py-0 text-sm font-medium text-[var(--leros-text)] shadow-none transition-colors hover:border-[var(--leros-control-border)] focus-visible:border-[var(--leros-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--leros-primary)]/12">
 									<span className="flex min-w-0 flex-1 items-center gap-2 pr-2 text-left">
-										<Folder className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+										<ProjectIcon className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
 										<span className="min-w-0 truncate">{selectedProjectLabel}</span>
 									</span>
 								</SelectTrigger>
@@ -203,7 +217,7 @@ export function GlobalTaskSearchDialog({
 										className="rounded-xl px-3 py-2 text-sm font-semibold text-[var(--leros-text-strong)]"
 									>
 										<span className="flex min-w-0 items-center gap-2">
-											<Folder className="size-4 shrink-0 text-[var(--leros-primary)]" />
+											<ProjectIcon className="size-4 shrink-0 text-[var(--leros-primary)]" />
 											<span className="min-w-0 truncate">全部项目</span>
 										</span>
 									</SelectItem>
@@ -214,7 +228,7 @@ export function GlobalTaskSearchDialog({
 											className="rounded-xl px-3 py-2 text-sm font-medium text-[var(--leros-text)]"
 										>
 											<span className="flex min-w-0 items-center gap-2">
-												<Folder className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+												<ProjectIcon className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
 												<span className="min-w-0 truncate">{project.name}</span>
 											</span>
 										</SelectItem>
@@ -296,7 +310,7 @@ export function GlobalTaskSearchDialog({
 											</div>
 										</div>
 										<div className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--leros-text-subtle)]">
-											<Folder className="size-3.5 shrink-0" />
+											<ProjectIcon className="size-3.5 shrink-0" />
 											<span
 												className="max-w-[220px] truncate whitespace-nowrap"
 												title={projectName}

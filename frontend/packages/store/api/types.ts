@@ -23,9 +23,8 @@ export type BackendSession = {
 	session_id: string;
 	type: string;
 	user_id: number;
-	assistant_id: number;
-	assistant_code: string;
 	status: string;
+	assistant_id?: string;
 	runtime_status?: "idle" | "responding" | string;
 	title: string;
 	message_count: number;
@@ -72,6 +71,7 @@ export type BackendMessageAttachment = {
 	name?: string;
 	mime_type?: string;
 	size?: number;
+	relative_path?: string;
 	purpose?: string;
 	PublicURL?: string;
 	public_url?: string;
@@ -80,6 +80,7 @@ export type BackendMessageAttachment = {
 export type BackendSessionEvent = {
 	type: string;
 	session_id?: string;
+	assistant_id?: string;
 	sequence?: number;
 	timestamp?: number;
 	payload?: BackendSessionEventPayloadLike;
@@ -136,6 +137,7 @@ export type BackendSessionArtifactPayload = {
 	sha256?: string;
 	storage_uri?: string;
 	created_at?: string;
+	version_no?: number;
 };
 
 export type BackendApprovalRequestPayload = {
@@ -183,13 +185,19 @@ export type BackendQuestionAnswerPayload = {
 
 export type BackendDigitalAssistant = {
 	id: number;
-	code: string;
+	public_id?: string;
+	code?: string;
 	name: string;
+	role_name?: string;
 	description?: string;
 	avatar?: string;
 	org_id: number;
 	owner_id: number;
 	status: string;
+	visibility?: "public" | "private";
+	permission?: {
+		role: "owner" | "admin" | "member";
+	};
 	system_prompt?: string;
 	expertise?: string[];
 	template_id?: number;
@@ -353,6 +361,7 @@ export type BackendProject = {
 	owner_id?: number;
 	org_id?: number;
 	task_count?: number;
+	automation_id?: number;
 	metadata?: Record<string, unknown>;
 	created_at: string;
 	updated_at: string;
@@ -370,17 +379,21 @@ export type BackendTask = {
 	task_type?: string;
 	deadline?: string;
 	metadata?: Record<string, unknown>;
+	session?: BackendSession;
 	created_at: string;
 	updated_at: string;
 };
 
 export type BackendProjectMemberItem = {
 	member_id: number;
+	public_id?: string;
 	member_type: string;
 	member_role: string;
+	is_default?: boolean;
 	joined_at: string;
 	name?: string;
 	avatar_url?: string;
+	description?: string;
 };
 
 export type BackendProjectTaskItem = BackendTask & {
@@ -393,18 +406,14 @@ export type BackendProjectDetail = BackendProject & {
 	members: BackendProjectMemberItem[];
 };
 
-export type BackendWorkbenchRecentContext = {
-	project_id: string;
-	project_name: string;
-	task_id?: string;
-	task_title?: string;
-	used_at: string;
-};
-
 export type BackendProjectFileNode = {
 	name: string;
-	path: string;
-	type: "file" | "directory" | string;
+	path?: string;
+	relative_path?: string;
+	type?: "file" | "directory" | string;
+	node_type?: "file" | "folder" | string;
+	parent_id?: string;
+	parent_ids?: string[];
 	children?: BackendProjectFileNode[];
 	size?: number;
 	mime_type?: string;
@@ -413,6 +422,31 @@ export type BackendProjectFileNode = {
 	public_id?: string;
 	storage_uri?: string;
 	sha256?: string;
+	initial_file_public_id?: string;
+	version_no?: number;
+	version_label?: string;
+	version_count?: number;
+	resource_type?: string;
+};
+
+export type BackendProjectFileVersion = {
+	public_id: string;
+	initial_file_public_id: string;
+	relative_path: string;
+	name: string;
+	version_no: number;
+	version_label: string;
+	size?: number;
+	mime_type?: string;
+	created_at?: number;
+	storage_uri?: string;
+	sha256?: string;
+};
+
+export type BackendProjectFileVersionList = {
+	initial_file_public_id: string;
+	current_file_public_id: string;
+	items: BackendProjectFileVersion[];
 };
 
 export type BackendProjectFileUploadResult = {
@@ -432,5 +466,107 @@ export type BackendNewMessageData = {
 	task_id: string;
 	session_id: string;
 	message_id?: string;
-	assistant_id?: number;
+	assistant_id?: string;
+};
+
+// ---------- Automation ----------
+
+export type BackendAutomationCalendarConfig = {
+	preset: string;
+	hour: number;
+	minute: number;
+	days_of_week?: number[];
+	days_of_month?: number[];
+};
+
+export type BackendAutomationIntervalConfig = {
+	interval_minutes?: number;
+	interval_unit?: string;
+	interval_seconds?: number;
+};
+
+export type BackendAutomationScheduleFormConfig = {
+	mode: string;
+	calendar?: BackendAutomationCalendarConfig;
+	interval?: BackendAutomationIntervalConfig;
+	timezone?: string;
+};
+
+/** 创建/更新自动化的输入结构；不包含旧版 anchor_at。 */
+export type BackendAutomationScheduleInput = {
+	mode: string;
+	calendar?: BackendAutomationCalendarConfig;
+	interval?: BackendAutomationIntervalConfig;
+	timezone?: string;
+};
+
+export type BackendAutomationSpec = {
+	version: number;
+	mode: string;
+	expression?: string;
+	month_day_overflow?: string;
+	anchor_at?: string;
+	origin_at?: string;
+	interval_seconds?: number;
+	timezone: string;
+};
+
+export type BackendAutomationScheduleSpec = {
+	form_config: BackendAutomationScheduleFormConfig;
+	spec: BackendAutomationSpec;
+};
+
+export type BackendAutomation = {
+	public_id: string;
+	org_id: number;
+	owner_id: number;
+	name: string;
+	instruction?: string;
+	enabled: boolean;
+	schedule_mode: string;
+	schedule_spec?: BackendAutomationScheduleSpec;
+	timezone: string;
+	assistant_id: number;
+	next_run_at?: string;
+	summary?: string;
+	has_active_execution?: boolean;
+	last_execution_status?: string;
+	last_execution_time?: string;
+	last_execution_public_id?: string;
+	last_task_id?: number;
+	project_id?: number;
+	project_public_id?: string;
+	project_name?: string;
+	created_at: string;
+	updated_at: string;
+};
+
+export type BackendAutomationExecution = {
+	public_id: string;
+	automation_id: number;
+	org_id: number;
+	owner_id: number;
+	trigger_type: string;
+	status: string;
+	scheduled_at: string;
+	not_after?: string;
+	started_at?: string;
+	finished_at?: string;
+	name_snapshot: string;
+	instruction_snapshot?: string;
+	assistant_id_snapshot: number;
+	missed_count: number;
+	project_id?: number;
+	task_id?: number;
+	session_id?: number;
+	message_id?: number;
+	project_public_id?: string;
+	task_public_id?: string;
+	session_public_id?: string;
+	message_public_id?: string;
+	run_id?: string;
+	attempt_count: number;
+	error_code?: string;
+	error_msg?: string;
+	created_at: string;
 };

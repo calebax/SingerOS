@@ -62,55 +62,14 @@ func GetProjectsByIDs(ctx context.Context, db *gorm.DB, ids []uint) ([]*types.Pr
 	return entities, nil
 }
 
-// CreateProjectMember 创建项目成员
-func CreateProjectMember(ctx context.Context, db *gorm.DB, member *types.ProjectMember) error {
-	return db.WithContext(ctx).Create(member).Error
-}
-
-// ListProjectMembers 查询项目成员列表
-func ListProjectMembers(ctx context.Context, db *gorm.DB, projectID uint) ([]*types.ProjectMember, error) {
-	var entities []*types.ProjectMember
-	err := db.WithContext(ctx).
-		Where("project_id = ? AND deleted_at IS NULL", projectID).
-		Order("joined_at ASC").
-		Find(&entities).Error
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
-// ListProjectIDsByMember 查询指定用户在某 org 下作为成员加入的所有 projectID。
-//
-// 通过 JOIN leros_project 表按 org_id 过滤，实现 org 隔离。
-// 仅返回 member_type='user' 且未软删除的成员关系。
-func ListProjectIDsByMember(ctx context.Context, db *gorm.DB, orgID, userID uint) ([]uint, error) {
-	var projectIDs []uint
-	err := db.WithContext(ctx).
-		Table(types.TableNameProjectMember+" AS pm").
-		Select("pm.project_id").
-		Joins("INNER JOIN "+types.TableNameProject+" AS p ON p.id = pm.project_id").
-		Where("pm.member_id = ? AND pm.member_type = ?", userID, string(types.MemberTypeUser)).
-		Where("p.org_id = ?", orgID).
-		Where("pm.deleted_at IS NULL AND p.deleted_at IS NULL").
-		Pluck("pm.project_id", &projectIDs).Error
-	if err != nil {
-		return nil, err
-	}
-	return projectIDs, nil
-}
-
-// IsProjectUserMember 检查指定用户是否为某 project 的 user 类型成员。
-// 仅校验 member_type='user' 且未软删除的记录。
-func IsProjectUserMember(ctx context.Context, db *gorm.DB, orgID, userID, projectID uint) (bool, error) {
+// IsProjectUserMember 检查指定用户（uin）是否在项目资源上拥有有效 binding。
+func IsProjectUserMember(ctx context.Context, db *gorm.DB, orgID, uin, projectID uint) (bool, error) {
 	var count int64
 	err := db.WithContext(ctx).
-		Table(types.TableNameProjectMember+" AS pm").
-		Joins("INNER JOIN "+types.TableNameProject+" AS p ON p.id = pm.project_id").
-		Where("pm.project_id = ? AND pm.member_id = ? AND pm.member_type = ?",
-			projectID, userID, string(types.MemberTypeUser)).
-		Where("p.org_id = ?", orgID).
-		Where("pm.deleted_at IS NULL AND p.deleted_at IS NULL").
+		Table(types.TableNameResourceBinding+" AS rb").
+		Joins("INNER JOIN "+types.TableNameResource+" AS r ON r.id = rb.resource_id").
+		Where("r.type = ? AND r.biz_id = ? AND r.org_id = ?", string(types.ResourceTypeProject), projectID, orgID).
+		Where("rb.uin = ? AND rb.deleted_at IS NULL AND r.deleted_at IS NULL", uin).
 		Count(&count).Error
 	if err != nil {
 		return false, err
@@ -133,6 +92,80 @@ func GetProjectSession(ctx context.Context, db *gorm.DB, projectID uint) (*types
 	return &entity, nil
 }
 
+// ListProjectIDsByUser 查询用户在组织内通过 resource_binding 可访问的项目 ID 列表。
+func ListProjectIDsByUser(ctx context.Context, db *gorm.DB, orgID, uin uint) ([]uint, error) {
+	var boundBizIDs []uint
+	if err := db.WithContext(ctx).
+		Table(types.TableNameResourceBinding+" AS rb").
+		Select("r.biz_id").
+		Joins("INNER JOIN "+types.TableNameResource+" AS r ON r.id = rb.resource_id").
+		Where("rb.org_id = ? AND rb.uin = ? AND r.type = ?", orgID, uin, string(types.ResourceTypeProject)).
+		Where("rb.deleted_at IS NULL AND r.deleted_at IS NULL").
+		Pluck("r.biz_id", &boundBizIDs).Error; err != nil {
+		return nil, err
+	}
+	return boundBizIDs, nil
+}
+
+// IsProjectAssistantBound 检查助手是否在项目资源上拥有有效 binding。
+func IsProjectAssistantBound(ctx context.Context, db *gorm.DB, orgID, projectID, assistantID uint) (bool, error) {
+	resource, err := GetResourceByBizID(ctx, db, orgID, types.ResourceTypeProject, projectID)
+	if err != nil {
+		return false, err
+	}
+	if resource == nil {
+		return false, nil
+	}
+	binding, err := GetResourceBindingByAssistantID(ctx, db, resource.ID, assistantID)
+	if err != nil {
+		return false, err
+	}
+	return binding != nil, nil
+}
+
+// ResolveBoundProjectAssistantID 解析项目上已绑定的 AI 队友 ID：优先组织默认队友，否则取最新绑定的助手。
+// 未找到时返回 0, nil。
+func ResolveBoundProjectAssistantID(ctx context.Context, db *gorm.DB, orgID, projectID uint) (uint, error) {
+	resource, err := GetResourceByBizID(ctx, db, orgID, types.ResourceTypeProject, projectID)
+	if err != nil {
+		return 0, err
+	}
+	if resource == nil {
+		return 0, nil
+	}
+
+	defaultAssistantID, err := GetDefaultAssistantIDByOrg(ctx, db, orgID)
+	if err != nil {
+		return 0, err
+	}
+	if defaultAssistantID > 0 {
+		binding, err := GetResourceBindingByAssistantID(ctx, db, resource.ID, defaultAssistantID)
+		if err != nil {
+			return 0, err
+		}
+		if binding != nil {
+			return defaultAssistantID, nil
+		}
+	}
+
+	bindings, err := ListResourceBindingsByResourceID(ctx, db, resource.ID)
+	if err != nil {
+		return 0, err
+	}
+	var latestAssistantID uint
+	var latestBindingID uint
+	for _, b := range bindings {
+		if b.AssistantID == nil || *b.AssistantID == 0 {
+			continue
+		}
+		if b.ID > latestBindingID {
+			latestBindingID = b.ID
+			latestAssistantID = *b.AssistantID
+		}
+	}
+	return latestAssistantID, nil
+}
+
 // ListProjects 查询项目列表，使用 PageQuery 作为查询参数
 func ListProjects(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.Project, int64, error) {
 	var entities []*types.Project
@@ -140,8 +173,8 @@ func ListProjects(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 
 	query := d.WithContext(ctx).Table(types.TableNameProject).
 		Where("org_id = ? AND deleted_at IS NULL", opt.OrgID)
-	if opt.Uin > 0 {
-		query = query.Where("owner_id = ?", opt.Uin)
+	if len(opt.ProjectIDs) > 0 {
+		query = query.Where("id IN (?)", opt.ProjectIDs)
 	}
 
 	for _, filter := range opt.Filters {
@@ -188,28 +221,6 @@ func ListProjects(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 	return entities, total, nil
 }
 
-// ListProjectsReferencingSkill 查询 org 内 metadata.extra.skills 引用了指定技能的项目。
-func ListProjectsReferencingSkill(ctx context.Context, d *gorm.DB, orgID uint, skillName string) ([]*types.Project, error) {
-	skillName = strings.TrimSpace(skillName)
-	if skillName == "" {
-		return nil, nil
-	}
-
-	var entities []*types.Project
-	err := d.WithContext(ctx).
-		Where("org_id = ? AND deleted_at IS NULL", orgID).
-		Where(`EXISTS (
-			SELECT 1 FROM jsonb_array_elements(COALESCE(metadata->'extra'->'skills', '[]'::jsonb)) AS elem
-			WHERE lower(trim(both from elem->>'code')) = lower(?)
-			   OR lower(trim(both from elem->>'name')) = lower(?)
-		)`, skillName, skillName).
-		Find(&entities).Error
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
 // GetProjectByID 根据主键ID获取项目
 func GetProjectByID(ctx context.Context, d *gorm.DB, id uint) (*types.Project, error) {
 	var entity types.Project
@@ -221,77 +232,4 @@ func GetProjectByID(ctx context.Context, d *gorm.DB, id uint) (*types.Project, e
 		return nil, err
 	}
 	return &entity, nil
-}
-
-// IsProjectMember 检查 member 是否为项目的指定类型成员（群聊准入 / AI 队友归属校验）。
-func IsProjectMember(ctx context.Context, db *gorm.DB, projectID, memberID uint, memberType types.MemberType) (bool, error) {
-	var count int64
-	err := db.WithContext(ctx).
-		Model(&types.ProjectMember{}).
-		Where("project_id = ? AND member_id = ? AND member_type = ?", projectID, memberID, string(memberType)).
-		Where("deleted_at IS NULL").
-		Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-// GetLatestProjectAssistant 查询项目最新加入的 AI 队友，优先返回 is_default=true 的成员；无则返回 (nil,nil)。
-func GetLatestProjectAssistant(ctx context.Context, db *gorm.DB, projectID uint) (*types.ProjectMember, error) {
-	var entity types.ProjectMember
-	err := db.WithContext(ctx).
-		Where("project_id = ? AND member_type = ?", projectID, string(types.MemberTypeAssistant)).
-		Where("deleted_at IS NULL").
-		Order("is_default DESC, id DESC").
-		First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &entity, nil
-}
-
-// GetDefaultProjectAssistant 查询项目的默认 AI 队友（is_default=true）；无则返回 (nil,nil)。
-func GetDefaultProjectAssistant(ctx context.Context, db *gorm.DB, projectID uint) (*types.ProjectMember, error) {
-	var entity types.ProjectMember
-	err := db.WithContext(ctx).
-		Where("project_id = ? AND member_type = ? AND is_default = true", projectID, string(types.MemberTypeAssistant)).
-		Where("deleted_at IS NULL").
-		First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &entity, nil
-}
-
-// ListProjectAssistantMembers 查询项目的所有 AI 队友成员。
-func ListProjectAssistantMembers(ctx context.Context, db *gorm.DB, projectID uint) ([]*types.ProjectMember, error) {
-	var entities []*types.ProjectMember
-	err := db.WithContext(ctx).
-		Where("project_id = ? AND member_type = ?", projectID, string(types.MemberTypeAssistant)).
-		Where("deleted_at IS NULL").
-		Find(&entities).Error
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
-// DeleteProjectMember 软删除项目成员记录。
-func DeleteProjectMember(ctx context.Context, db *gorm.DB, memberID uint) error {
-	return db.WithContext(ctx).Delete(&types.ProjectMember{}, memberID).Error
-}
-
-// BatchCreateProjectMembers 批量创建项目成员记录。
-func BatchCreateProjectMembers(ctx context.Context, db *gorm.DB, members []*types.ProjectMember) error {
-	if len(members) == 0 {
-		return nil
-	}
-	return db.WithContext(ctx).Create(&members).Error
 }

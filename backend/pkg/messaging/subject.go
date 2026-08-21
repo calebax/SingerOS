@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -63,6 +64,22 @@ func RunEventStreamWildcard() string {
 	return "org.*.session.*.run.stream"
 }
 
+// WorkerOpsStatusSubject 构建 server -> worker 运维状态查询 subject。
+//
+// 该 subject 走 Core NATS request/reply，不进入 JetStream 任务队列，
+// 因此不注册到任何 stream，也不参与 WorkerCommandWildcard。
+//
+// 格式：org.<org_id>.worker.<worker_id>.ops.status
+func WorkerOpsStatusSubject(orgID, workerID uint) (string, error) {
+	if orgID == 0 {
+		return "", fmt.Errorf("org_id is required")
+	}
+	if workerID == 0 {
+		return "", fmt.Errorf("worker_id is required")
+	}
+	return fmt.Sprintf("org.%d.worker.%d.ops.status", orgID, workerID), nil
+}
+
 // ProjectNotifySubject 构建 project 级全局通知 subject。
 //
 // 格式：org.<org_id>.project.<project_id>.notify
@@ -83,6 +100,52 @@ func ProjectNotifyWildcard() string {
 	return "org.*.project.*.notify"
 }
 
+// LLMUsageSubject 构建 worker -> server LLM usage 上报 subject。
+//
+// 格式：org.<org_id>.usage.llm
+func LLMUsageSubject(orgID uint) (string, error) {
+	if orgID == 0 {
+		return "", fmt.Errorf("org_id is required")
+	}
+	return fmt.Sprintf("org.%d.usage.llm", orgID), nil
+}
+
+// LLMUsageWildcard 返回匹配所有 LLM usage 上报的 wildcard subject。
+//
+// 格式：org.*.usage.llm
+func LLMUsageWildcard() string {
+	return "org.*.usage.llm"
+}
+
+// SkillPackageUploadedSubject constructs the worker -> server Skill package subject.
+//
+// Format: org.<org_id>.skill.package.uploaded
+func SkillPackageUploadedSubject(orgID uint) (string, error) {
+	if orgID == 0 {
+		return "", fmt.Errorf("org_id is required")
+	}
+	return fmt.Sprintf("org.%d.skill.package.uploaded", orgID), nil
+}
+
+// SkillPackageUploadedWildcard matches Skill package upload notifications.
+func SkillPackageUploadedWildcard() string {
+	return "org.*.skill.package.uploaded"
+}
+
+// OrgIDFromSkillPackageSubject obtains the organization scope carried by the subject.
+func OrgIDFromSkillPackageSubject(subject string) (uint, error) {
+	parts := splitSubject(subject)
+	if len(parts) != 5 || parts[0] != "org" || parts[2] != "skill" ||
+		parts[3] != "package" || parts[4] != "uploaded" {
+		return 0, fmt.Errorf("invalid Skill package subject %q", subject)
+	}
+	orgID, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil || orgID == 0 {
+		return 0, fmt.Errorf("invalid organization in Skill package subject %q", subject)
+	}
+	return uint(orgID), nil
+}
+
 // ---- Consumer 名称 ----
 
 // WorkerRunConsumer 返回 cmd.run lane 的持久化消费者名称。
@@ -95,9 +158,6 @@ func WorkerControlConsumer() string { return "worker-control-consumer" }
 // WorkerInteractionConsumer 返回 cmd.interaction lane 的持久化消费者名称。
 func WorkerInteractionConsumer() string { return "worker-interaction-consumer" }
 
-// WorkerSkillConsumer 返回 cmd.skill lane 的持久化消费者名称。
-func WorkerSkillConsumer() string { return "worker-skill-consumer" }
-
 // WorkerLaneConsumer 返回按 org/worker/lane 隔离的 worker 持久化消费者名称。
 func WorkerLaneConsumer(orgID, workerID uint, lane Lane) string {
 	switch lane {
@@ -107,8 +167,8 @@ func WorkerLaneConsumer(orgID, workerID uint, lane Lane) string {
 		return fmt.Sprintf("worker-o%d-w%d-control-consumer", orgID, workerID)
 	case LaneInteraction:
 		return fmt.Sprintf("worker-o%d-w%d-interaction-consumer", orgID, workerID)
-	case LaneSkill:
-		return fmt.Sprintf("worker-o%d-w%d-skill-consumer", orgID, workerID)
+	case LaneFile:
+		return fmt.Sprintf("worker-o%d-w%d-file-consumer", orgID, workerID)
 	default:
 		return fmt.Sprintf("worker-o%d-w%d-%s-consumer", orgID, workerID, lane)
 	}
@@ -118,18 +178,23 @@ func WorkerLaneConsumer(orgID, workerID uint, lane Lane) string {
 // 用于消费 run.state 事件，投影更新 session 的当前运行状态。
 func SessionRunStateConsumer() string { return "session-run-state-projector" }
 
+// SkillPackageUploadedConsumer returns the durable server consumer name.
+func SkillPackageUploadedConsumer() string { return "server-skill-package-uploaded-consumer" }
+
 // ---- Stream 配置 ----
 
 const (
 	StreamNameWorker       = "WORKER_CMD_STREAM"
 	StreamNameSession      = "SESSION_RUN_STREAM"
 	StreamNameGlobalNotify = "GLOBAL_NOTIFY_STREAM"
+	StreamNameLLMUsage     = "LLM_USAGE_STREAM"
+	StreamNameSkillPackage = "SKILL_PACKAGE_STREAM"
 )
 
 // StreamConfigs 返回所有预配置的 JetStream stream 配置。
 //
 // WORKER_CMD_STREAM: server -> worker 方向，覆盖所有 worker command subject
-// （cmd.run、cmd.control、cmd.interaction、cmd.skill）。
+// （cmd.run、cmd.control、cmd.interaction、cmd.file）。
 //
 //	保留 72h，每 subject 最多 10000 条。使用 DiscardOld，
 //	积压时丢弃最旧消息以确保新命令始终可写入。
@@ -167,6 +232,24 @@ func StreamConfigs() map[string]nats.StreamConfig {
 			MaxAge:            24 * time.Hour,
 			MaxMsgsPerSubject: 1000,
 		},
+		StreamNameLLMUsage: {
+			Name:              StreamNameLLMUsage,
+			Subjects:          []string{LLMUsageWildcard()},
+			Storage:           nats.FileStorage,
+			Retention:         nats.LimitsPolicy,
+			Discard:           nats.DiscardOld,
+			MaxAge:            72 * time.Hour,
+			MaxMsgsPerSubject: 100000,
+		},
+		StreamNameSkillPackage: {
+			Name:              StreamNameSkillPackage,
+			Subjects:          []string{SkillPackageUploadedWildcard()},
+			Storage:           nats.FileStorage,
+			Retention:         nats.LimitsPolicy,
+			Discard:           nats.DiscardOld,
+			MaxAge:            72 * time.Hour,
+			MaxMsgsPerSubject: 10000,
+		},
 	}
 }
 
@@ -185,6 +268,10 @@ func StreamNameFromSubject(subject string) string {
 		return StreamNameSession
 	case "project":
 		return StreamNameGlobalNotify
+	case "usage":
+		return StreamNameLLMUsage
+	case "skill":
+		return StreamNameSkillPackage
 	default:
 		return ""
 	}

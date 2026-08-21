@@ -17,7 +17,8 @@ import (
 )
 
 type taskService struct {
-	db *gorm.DB
+	db   *gorm.DB
+	perm *PermissionService
 }
 
 type projectTaskBrief struct {
@@ -25,10 +26,15 @@ type projectTaskBrief struct {
 	Name     string
 }
 
-func NewTaskService(db *gorm.DB) contract.TaskService {
+func NewTaskService(db *gorm.DB, perm *PermissionService) contract.TaskService {
 	return &taskService{
-		db: db,
+		db:   db,
+		perm: perm,
 	}
+}
+
+func (s *taskService) permWithDB(db *gorm.DB) *PermissionService {
+	return PermissionForDB(db, s.perm)
 }
 
 func (s *taskService) CreateTask(ctx context.Context, req *contract.CreateTaskRequest) (*contract.Task, error) {
@@ -46,9 +52,6 @@ func (s *taskService) CreateTask(ctx context.Context, req *contract.CreateTaskRe
 	}
 	if project == nil {
 		return nil, errors.New("project not found")
-	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
-		return nil, err
 	}
 
 	publicID := generateTaskPublicID()
@@ -87,7 +90,12 @@ func (s *taskService) CreateTask(ctx context.Context, req *contract.CreateTaskRe
 		}
 	}
 
-	if err := db.CreateTask(ctx, s.db, task); err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := db.CreateTask(ctx, tx, task); err != nil {
+			return err
+		}
+		return syncTaskResource(ctx, tx, caller.OrgID, project.ID, task.ID, caller.Uin)
+	}); err != nil {
 		return nil, err
 	}
 	// 中文注释：在项目内手动创建任务属于项目活跃行为，需要同步刷新项目排序时间。
@@ -113,15 +121,13 @@ func (s *taskService) GetTask(ctx context.Context, publicID string) (*contract.T
 	if task == nil {
 		return nil, errors.New("task not found")
 	}
-	if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
-		return nil, err
-	}
 
 	projectBrief, err := s.resolveProjectBrief(ctx, task.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	return convertToContractTask(task, projectBrief.PublicID, projectBrief.Name), nil
+	result := convertToContractTask(task, projectBrief.PublicID, projectBrief.Name)
+	return s.attachTaskSession(ctx, task, result), nil
 }
 
 func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *contract.UpdateTaskRequest) (*contract.Task, error) {
@@ -141,9 +147,6 @@ func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *cont
 		}
 		if task == nil {
 			return errors.New("task not found")
-		}
-		if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
-			return err
 		}
 
 		if req.Title != nil {
@@ -175,7 +178,7 @@ func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *cont
 			if project == nil {
 				return errors.New("project not found")
 			}
-			if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+			if err := s.permWithDB(tx).RequireProject(ctx, FromTypeCaller(caller), project, types.ActionProjectView); err != nil {
 				return err
 			}
 			task.ProjectID = project.ID
@@ -229,9 +232,6 @@ func (s *taskService) DeleteTask(ctx context.Context, publicID string) error {
 		if task == nil {
 			return errors.New("task not found")
 		}
-		if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
-			return err
-		}
 		return db.DeleteTask(ctx, tx, task.ID)
 	})
 }
@@ -259,10 +259,24 @@ func (s *taskService) ListTasks(ctx context.Context, req *contract.ListTasksRequ
 		if project == nil {
 			return nil, errors.New("project not found")
 		}
-		if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		if err := s.perm.RequireProject(ctx, FromTypeCaller(caller), project, types.ActionProjectView); err != nil {
 			return nil, err
 		}
 		opt.AddExactFilter("project_id", fmt.Sprintf("%d", project.ID))
+	} else {
+		projectIDs, listErr := db.ListProjectIDsByUser(ctx, s.db, caller.OrgID, caller.Uin)
+		if listErr != nil {
+			return nil, listErr
+		}
+		if len(projectIDs) == 0 {
+			return &contract.TaskList{
+				Total:  0,
+				Offset: req.Offset,
+				Limit:  req.Limit,
+				Items:  []contract.Task{},
+			}, nil
+		}
+		opt.ProjectIDs = projectIDs
 	}
 	if req.TaskType != nil && *req.TaskType != "" {
 		opt.AddFilter("task_type", *req.TaskType)
@@ -294,12 +308,72 @@ func (s *taskService) ListTasks(ctx context.Context, req *contract.ListTasksRequ
 		projectBrief := projectBriefMap[task.ProjectID]
 		items = append(items, *convertToContractTask(task, projectBrief.PublicID, projectBrief.Name))
 	}
+	items = s.attachTasksSessions(ctx, tasks, items)
 	return &contract.TaskList{
 		Total:  total,
 		Offset: req.Offset,
 		Limit:  req.Limit,
 		Items:  items,
 	}, nil
+}
+
+func (s *taskService) attachTaskSession(
+	ctx context.Context,
+	task *types.Task,
+	result *contract.Task,
+) *contract.Task {
+	if task == nil || result == nil || task.SessionID == nil {
+		return result
+	}
+	sess, err := db.GetSessionByID(ctx, s.db, *task.SessionID)
+	if err != nil {
+		logs.WarnContextf(ctx, "attach task session failed task=%s session_id=%d: %v", task.PublicID, *task.SessionID, err)
+		return result
+	}
+	if sess != nil {
+		result.Session = convertToContractSession(ctx, sess, s.db)
+	}
+	return result
+}
+
+func (s *taskService) attachTasksSessions(
+	ctx context.Context,
+	tasks []*types.Task,
+	items []contract.Task,
+) []contract.Task {
+	if len(tasks) == 0 || len(items) != len(tasks) {
+		return items
+	}
+
+	taskSessionIDs := make([]uint, 0)
+	for _, task := range tasks {
+		if task.SessionID != nil {
+			taskSessionIDs = append(taskSessionIDs, *task.SessionID)
+		}
+	}
+	if len(taskSessionIDs) == 0 {
+		return items
+	}
+
+	taskSessions, err := db.GetSessionsByIDs(ctx, s.db, taskSessionIDs)
+	if err != nil {
+		logs.WarnContextf(ctx, "attach tasks sessions failed: %v", err)
+		return items
+	}
+	sessionMap := make(map[uint]*types.Session, len(taskSessions))
+	for _, sess := range taskSessions {
+		sessionMap[sess.ID] = sess
+	}
+
+	for i, task := range tasks {
+		if task.SessionID == nil {
+			continue
+		}
+		if sess, ok := sessionMap[*task.SessionID]; ok {
+			items[i].Session = convertToContractSession(ctx, sess, s.db)
+		}
+	}
+	return items
 }
 
 func convertToContractTask(task *types.Task, projectPublicID string, projectName string) *contract.Task {

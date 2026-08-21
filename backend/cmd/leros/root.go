@@ -135,6 +135,17 @@ func applyLogLevel(level string) {
 	}
 }
 
+func applyLoggerConfig(module string, loggerConfig config.LogsConfig) error {
+	if len(loggerConfig) == 0 {
+		return nil
+	}
+	resolvedConfig, err := loggerConfig.ToYGConfig()
+	if err != nil {
+		return err
+	}
+	return logs.ReloadConfig(module, resolvedConfig)
+}
+
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "leros",
@@ -147,7 +158,9 @@ Core commands:
   chat       Start an interactive chat session with a running server
   session    List and inspect sessions
   project    Manage projects
+  skill      Manage organization and project skills
   task       Manage tasks
+  automation Manage scheduled automations
 
 Examples:
   leros server --config config.yaml
@@ -160,6 +173,7 @@ Examples:
   leros session get <session-id>
   leros project ls
   leros task ls --project-id <id>
+  leros automation ls
 
 Authentication:
   leros login
@@ -175,7 +189,12 @@ Use "leros [command] --help" for more information about a command.`,
 			cliConfig = loadCLIConfig(path)
 			applyEnvOverrides(cliConfig)
 			applyWorkspaceRoot(cliConfig)
-			applyLogLevel(cliConfig.Log.Level)
+			if err := applyLoggerConfig("leros-worker", cliConfig.Logger); err != nil {
+				logs.Warnf("Failed to configure worker logger: %v", err)
+				applyLogLevel(cliConfig.Log.Level)
+			} else if len(cliConfig.Logger) == 0 {
+				applyLogLevel(cliConfig.Log.Level)
+			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

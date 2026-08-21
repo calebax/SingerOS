@@ -5,7 +5,7 @@
 //     实现 at-least-once 语义。消息先持久化再 Ack，崩溃重启后通过 RecoverNonTerminal 恢复。
 //   - cmd.control：处理 cancel 等控制命令，自动确认。
 //   - cmd.interaction：处理审批/问答等交互命令，自动确认。
-//   - cmd.skill：处理 skill 管理命令，自动确认。
+//   - cmd.file：处理项目文件恢复命令，自动确认。
 //
 // 关闭顺序（5 步）：
 //  1. 取消 NATS 订阅 context → 2. 停止新任务准入 → 3. 等待 dispatcher 退出
@@ -30,18 +30,21 @@ import (
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/llm"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	builtin "github.com/insmtx/Leros/backend/internal/skill/builtin"
 	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
+	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/internal/worker/app"
 	"github.com/insmtx/Leros/backend/internal/worker/command"
 	"github.com/insmtx/Leros/backend/internal/worker/command/interaction"
+	"github.com/insmtx/Leros/backend/internal/worker/command/projectfile"
 	"github.com/insmtx/Leros/backend/internal/worker/command/run"
-	"github.com/insmtx/Leros/backend/internal/worker/command/skill"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/router"
 	"github.com/insmtx/Leros/backend/internal/worker/runtimehost"
+	"github.com/insmtx/Leros/backend/internal/worker/status"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -208,6 +211,11 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to ensure state dir: %v", err)
 		return
 	}
+	if report, err := skilllinks.CleanupLegacyGlobalSkillLinksOnce(); err != nil {
+		logs.Warnf("Clean legacy global CLI Skill links failed: %v", err)
+	} else if !report.AlreadyCompleted {
+		logs.Infof("Legacy global CLI Skill link cleanup complete: removed=%d", report.Removed)
+	}
 	if err := skilllinks.SyncToLerosDir(""); err != nil {
 		logs.Warnf("Sync worker built-in skills failed: %v", err)
 	}
@@ -224,6 +232,7 @@ func runTaskWorker(defaultRuntime string) {
 		mcpToken = cfg.CLI.MCP.BearerToken
 	}
 	modelStore := modelrouter.NewModelStore()
+	modelStore.SetOrgID(cfg.OrgID)
 	httpServer, err := startWorkerHTTPServer(workerListenAddr, modelStore, mcpToken)
 	if err != nil {
 		logs.Fatalf("Failed to start worker HTTP server: %v", err)
@@ -239,20 +248,20 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create NATS client: %v", err)
 		return
 	}
+
+	usagePub := llm.NewLLMUsagePublisher(bus.Publish)
+	recorder := llm.NewRecorderNATS(usagePub, cfg.OrgID)
+	callerHTTP := llm.NewCallerHTTP(nil, recorder)
+	modelStore.SetCaller(callerHTTP)
 	ctx, cancel := context.WithCancel(context.Background())
-	var cliSkillDirs []string
-	// Bootstrap 引擎：始终同步内置 skill 到 .leros/skills（服务于 native 引擎）。
-	// 如果配置了 CLI 引擎，还会同步 symlink。
+	// Bootstrap 仅发现外部引擎。Skill 会在每个 Run 中注入临时目录，不能写入宿主 CLI 全局目录。
 	{
 		var cliCfg *config.CLIEnginesConfig
 		if cfg.CLI != nil {
 			cliCfg = cfg.CLI
 		}
 		bootstrapSvc := builtin.NewBootstrapService()
-		updatedCLICfg, err := bootstrapSvc.Bootstrap(ctx, cliCfg, builtin.BootstrapOptions{})
-		if err != nil {
-			logs.Warnf("Bootstrap engines failed: %v", err)
-		}
+		updatedCLICfg := bootstrapSvc.Bootstrap(cliCfg)
 		if updatedCLICfg != nil {
 			cfg.CLI = updatedCLICfg
 		}
@@ -262,7 +271,6 @@ func runTaskWorker(defaultRuntime string) {
 				URL: buildWorkerMCPURL(workerListenAddr),
 			}
 		}
-		cliSkillDirs = bootstrapSvc.GetSkillDirs()
 	}
 	interactionRouter := runtimehost.NewInteractionRouter()
 	memoryStore, err := localmemory.NewStore(localmemory.Options{})
@@ -280,10 +288,14 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to resolve state db path: %v", err)
 		return
 	}
+	runCfg := cfg.Run.Effective()
+	logs.Infof("worker.run.scheduler.config max_concurrency=%d max_inflight=%d max_queued_commands=%d queue_start_timeout_seconds=%d max_run_duration_seconds=%d max_interaction_waits=%d interaction_timeout_seconds=%d debounce_ms=%d",
+		runCfg.MaxConcurrency, runCfg.MaxInflight,
+		runCfg.MaxQueuedCommands, runCfg.QueueStartTimeoutSeconds, runCfg.MaxRunDurationSeconds,
+		runCfg.MaxInteractionWaits, runCfg.InteractionTimeoutSeconds, runCfg.DebounceMS)
 	runtimeService, err := app.NewService(ctx, app.Options{
 		CLIConfig:         cfg.CLI,
 		DefaultRuntime:    defaultRuntime,
-		CLISkillDirs:      cliSkillDirs,
 		GiteaCfg:          cfg.Gitea,
 		Env:               cfg.Env,
 		InteractionRouter: interactionRouter,
@@ -292,7 +304,9 @@ func runTaskWorker(defaultRuntime string) {
 		SessionDBPath:     inboxDBPath,
 		ServerAddr:        cfg.ServerAddr,
 		OrgID:             cfg.OrgID,
+		WorkerID:          cfg.WorkerID,
 		AuthToken:         cfg.AuthToken,
+		SkillPublisher:    bus,
 	})
 	if err != nil {
 		cancel()
@@ -301,10 +315,19 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 	runHandler, err := run.New(run.Config{
-		OrgID:       cfg.OrgID,
-		WorkerID:    cfg.WorkerID,
-		Env:         cfg.Env,
-		InboxDBPath: inboxDBPath,
+		OrgID:                  cfg.OrgID,
+		WorkerID:               cfg.WorkerID,
+		Env:                    cfg.Env,
+		MaxConcurrency:         runCfg.MaxConcurrency,
+		MaxInflight:            runCfg.MaxInflight,
+		MaxQueuedCommands:      runCfg.MaxQueuedCommands,
+		QueueRetry:             time.Duration(runCfg.QueueRetrySeconds) * time.Second,
+		QueueStartTimeout:      time.Duration(runCfg.QueueStartTimeoutSeconds) * time.Second,
+		MaxRunDuration:         time.Duration(runCfg.MaxRunDurationSeconds) * time.Second,
+		MaxInteractionWaits:    runCfg.MaxInteractionWaits,
+		InteractionWaitTimeout: time.Duration(runCfg.InteractionTimeoutSeconds) * time.Second,
+		DebounceWindow:         time.Duration(runCfg.DebounceMS) * time.Millisecond,
+		InboxDBPath:            inboxDBPath,
 	}, bus, runtimeService.AgentRunService())
 	if err != nil {
 		cancel()
@@ -324,12 +347,12 @@ func runTaskWorker(defaultRuntime string) {
 
 	interactionHandler := interaction.New(interactionRouter)
 
-	skillHandler, err := skill.New(bus.Conn())
+	fileHandler, err := projectfile.New(bus.Conn())
 	if err != nil {
 		cancel()
 		_ = runtimeService.Close()
 		_ = bus.Close()
-		logs.Fatalf("Failed to create skill handler: %v", err)
+		logs.Fatalf("Failed to create project file handler: %v", err)
 		return
 	}
 
@@ -340,7 +363,7 @@ func runTaskWorker(defaultRuntime string) {
 		Run:         runHandler,
 		Control:     runHandler,
 		Interaction: interactionHandler,
-		Skill:       skillHandler,
+		File:        fileHandler,
 	})
 	if err != nil {
 		cancel()
@@ -360,6 +383,30 @@ func runTaskWorker(defaultRuntime string) {
 		}
 	}()
 
+	// 运维状态查询订阅：独立于 dispatcher 的 JetStream lane，
+	// 使用 Core NATS 直接回答 org.<org_id>.worker.<worker_id>.ops.status。
+	// 随共享 ctx 取消而停止，不加入 dispatcher 生命周期。
+	statusSvc, err := status.New(status.Config{
+		OrgID:    cfg.OrgID,
+		WorkerID: cfg.WorkerID,
+	}, bus.Conn(), runHandler)
+	if err != nil {
+		cancel()
+		_ = runtimeService.Close()
+		_ = bus.Close()
+		logs.Fatalf("Failed to create worker status service: %v", err)
+		return
+	}
+	statusDone := make(chan struct{})
+	go func() {
+		defer close(statusDone)
+		if err := statusSvc.Start(ctx); err != nil && err != context.Canceled {
+			logs.Errorf("Worker status subscriber exited with error: %v", err)
+		}
+	}()
+
+	go worker.StartParentWatcher()
+
 	// 设置生命周期强制退出超时。
 	lifecycle.Std().SetTimeout(40 * time.Second)
 
@@ -373,10 +420,14 @@ func runTaskWorker(defaultRuntime string) {
 		// 2. 停止准入，不再增加 WaitGroup 计数。
 		runHandler.StopAdmission()
 
-		// 3. 等待 dispatcher goroutine 退出，确保没有活跃的回调访问 Handler。
+		// 3. 等待 Core NATS 状态订阅及其在途查询退出，避免关闭本地 inbox 后
+		// 仍由运维回调读取状态。
+		<-statusDone
+
+		// 4. 等待 dispatcher goroutine 退出，确保没有活跃的回调访问 Handler。
 		<-dispatcherDone
 
-		// 4. Drain 正在执行的后台任务（含恢复 feeder），等待它们完成。
+		// 5. Drain 正在执行的后台任务（含恢复 feeder），等待它们完成。
 		if runHandler.Drain(drainTimeout) {
 			logs.Info("Worker drain complete, closing handler")
 			if err := runHandler.Close(); err != nil {
@@ -398,6 +449,10 @@ func runTaskWorker(defaultRuntime string) {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)
+	})
+	lifecycle.Std().AddCloseFunc(func() error {
+		logs.Close()
+		return nil
 	})
 	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, runHandler.RunSubject())
 	lifecycle.Std().WaitExit()

@@ -101,11 +101,18 @@ type RunEventBody struct {
 	Event             RunEventType    `json:"event"`
 	Payload           RunEventPayload `json:"payload"`
 	ReplyToMessageIDs []string        `json:"reply_to_message_ids,omitempty"`
+	// MemberCommandIDs / MemberRunIDs 标识同一 Session 合并批次中的所有源命令。
+	MemberCommandIDs []string `json:"member_command_ids,omitempty"`
+	MemberRunIDs     []string `json:"member_run_ids,omitempty"`
 
 	// RunCompleted 仅在终端事件（run.completed/failed/cancelled）时填充。
 	RunCompleted *RunCompletedPayload `json:"run_completed,omitempty"`
 	// Error 仅在 run.failed 时填充。
 	Error *RunEventError `json:"error,omitempty"`
+	// AssistantPKID 是 leros_digital_assistant.id（主键），用于 worker 侧持久化关联（如 llm_history）。
+	AssistantPKID uint `json:"assistant_pk_id,omitempty"`
+	// AssistantID 是 leros_digital_assistant.public_id，用于 server/UI 侧展示和 SSE 过滤。
+	AssistantID string `json:"assistant_id,omitempty"`
 }
 
 // RunEventPayload 携带流事件的特定内容。
@@ -180,21 +187,23 @@ type RuntimeTodoItem struct {
 
 // ArtifactPayload 引用单次运行产生的产物。
 type ArtifactPayload struct {
-	ArtifactID   string `json:"artifact_id,omitempty"`
-	Title        string `json:"title,omitempty"`
-	Filename     string `json:"filename,omitempty"`
-	OriginalName string `json:"original_name,omitempty"`
-	Description  string `json:"description,omitempty"`
-	MimeType     string `json:"mime_type,omitempty"`
-	ArtifactType string `json:"artifact_type,omitempty"`
-	FileSize     int64  `json:"file_size,omitempty"`
-	CreatedAt    string `json:"created_at,omitempty"`
-	RelativePath string `json:"relative_path,omitempty"`
-	StorageKey   string `json:"storage_key,omitempty"`
-	StorageURI   string `json:"storage_uri,omitempty"`
-	Sha256       string `json:"sha256,omitempty"`
-	Source       string `json:"source,omitempty"`
-	Status       string `json:"status,omitempty"`
+	ArtifactID           string `json:"artifact_id,omitempty"`
+	Title                string `json:"title,omitempty"`
+	Filename             string `json:"filename,omitempty"`
+	OriginalName         string `json:"original_name,omitempty"`
+	Description          string `json:"description,omitempty"`
+	MimeType             string `json:"mime_type,omitempty"`
+	ArtifactType         string `json:"artifact_type,omitempty"`
+	FileSize             int64  `json:"file_size,omitempty"`
+	CreatedAt            string `json:"created_at,omitempty"`
+	RelativePath         string `json:"relative_path,omitempty"`
+	PreviousRelativePath string `json:"previous_relative_path,omitempty"`
+	StorageKey           string `json:"storage_key,omitempty"`
+	StorageURI           string `json:"storage_uri,omitempty"`
+	Sha256               string `json:"sha256,omitempty"`
+	Source               string `json:"source,omitempty"`
+	Status               string `json:"status,omitempty"`
+	VersionNo            int    `json:"version_no,omitempty"`
 }
 
 // ApprovalRequestPayload 描述需要用户审批的工具调用。
@@ -292,9 +301,10 @@ type RunResultPayload struct {
 
 // RunEventRecord 是归一化、已归档的运行时事件。
 type RunEventRecord struct {
-	Seq       int64           `json:"seq,omitempty"`
-	LastSeq   int64           `json:"last_seq,omitempty"`
-	Type      string          `json:"type"`
-	Timestamp int64           `json:"timestamp,omitempty"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	Seq         int64           `json:"seq,omitempty"`
+	LastSeq     int64           `json:"last_seq,omitempty"`
+	Type        string          `json:"type"`
+	Timestamp   int64           `json:"timestamp,omitempty"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
+	AssistantID string          `json:"assistant_id,omitempty"`
 }

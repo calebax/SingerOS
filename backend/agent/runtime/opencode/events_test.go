@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
@@ -539,6 +541,37 @@ func TestWaitCompletionCompletedWhenNoError(t *testing.T) {
 	}
 }
 
+// Test that a prompt-echo final text (user prompt mistaken for assistant text)
+// is treated as a failure so it never lands as a completed assistant reply.
+func TestWaitCompletionRejectsPromptEchoWhenNoError(t *testing.T) {
+	st := &runState{
+		evtChan:       make(chan agent.NodeEvent, 16),
+		resultChan:    make(chan cli.InvocationResult, 1),
+		msgDone:       make(chan struct{}),
+		sseDone:       make(chan struct{}),
+		sseTerminal:   make(chan struct{}),
+		lastTextEnded: "【用户问题】\n[1] 用户 「宋浩」发送：「解读下这个图片」\n\n[Attachments]...",
+	}
+	close(st.msgDone)
+	close(st.sseDone)
+	close(st.sseTerminal)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go st.waitCompletion(ctx, func() {}, func() {})
+
+	for range st.evtChan {
+	}
+	result := <-st.resultChan
+	if result.Err == nil {
+		t.Fatalf("expected echo reply to be rejected, got %#v", result)
+	}
+	if result.Message != "" {
+		t.Fatalf("echo reply must not be promoted into assistant message, got %q", result.Message)
+	}
+}
+
 // Test that diagnostic errors are not promoted into assistant message content.
 func TestWaitCompletionFailedKeepsErrorOutOfResult(t *testing.T) {
 	const errMsg = "no enabled provider model for \"test\""
@@ -603,6 +636,88 @@ func TestWaitCompletionFailedDoesNotEmitMessageComplete(t *testing.T) {
 	}
 	if result.Message != "" {
 		t.Fatalf("result message = %q, want empty", result.Message)
+	}
+}
+
+func TestRecordProgressIgnoresHeartbeat(t *testing.T) {
+	st := &runState{progressCh: make(chan struct{}, 1)}
+
+	st.recordProgress(sseEvent{Type: "server.heartbeat"})
+
+	select {
+	case <-st.progressCh:
+		t.Fatal("heartbeat should not refresh progress")
+	default:
+	}
+}
+
+func TestRecordProgressAcceptsBusinessEvent(t *testing.T) {
+	st := &runState{progressCh: make(chan struct{}, 1)}
+
+	st.recordProgress(sseEvent{Type: "message.part.updated"})
+
+	select {
+	case <-st.progressCh:
+	default:
+		t.Fatal("business event should refresh progress")
+	}
+}
+
+func TestWaitCompletionProgressIdleTimeout(t *testing.T) {
+	st := &runState{
+		evtChan:         make(chan agent.NodeEvent, 16),
+		resultChan:      make(chan cli.InvocationResult, 1),
+		msgDone:         make(chan struct{}),
+		sseDone:         make(chan struct{}),
+		sseTerminal:     make(chan struct{}),
+		progressCh:      make(chan struct{}, 1),
+		progressTimeout: 20 * time.Millisecond,
+		sessionID:       "ses_timeout",
+	}
+
+	st.waitCompletion(context.Background(), func() {}, func() {})
+
+	for range st.evtChan {
+	}
+	result := <-st.resultChan
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "长时间未操作") {
+		t.Fatalf("result error = %v, want progress idle timeout", result.Err)
+	}
+	if result.ProviderSessionID != "ses_timeout" {
+		t.Fatalf("provider session id = %q, want ses_timeout", result.ProviderSessionID)
+	}
+}
+
+func TestWaitCompletionProgressEventResetsIdleTimeout(t *testing.T) {
+	st := &runState{
+		evtChan:         make(chan agent.NodeEvent, 16),
+		resultChan:      make(chan cli.InvocationResult, 1),
+		msgDone:         make(chan struct{}),
+		sseDone:         make(chan struct{}),
+		sseTerminal:     make(chan struct{}),
+		progressCh:      make(chan struct{}, 1),
+		progressTimeout: 30 * time.Millisecond,
+		lastTextEnded:   "ok",
+	}
+	close(st.sseDone)
+
+	go st.waitCompletion(context.Background(), func() {}, func() {})
+
+	time.Sleep(15 * time.Millisecond)
+	st.progressCh <- struct{}{}
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case result := <-st.resultChan:
+		t.Fatalf("result before reset timeout = %#v", result)
+	default:
+	}
+
+	close(st.msgDone)
+	for range st.evtChan {
+	}
+	result := <-st.resultChan
+	if result.Err != nil || result.Message != "ok" {
+		t.Fatalf("result = %#v, want successful ok", result)
 	}
 }
 
@@ -870,4 +985,90 @@ func todoItemsFromEventPayload(t *testing.T, event agent.NodeEvent) []agent.Runt
 	}
 	t.Fatal("payload is not TodoUpdatedPayload")
 	return nil
+}
+
+// TestHandleSSEEventUserTextDoesNotOverwriteLastTextEnded 验证根因修复：
+// 一旦 assistant messageID 已确定，user 消息的 text part（「【用户问题】…」）
+// 不得写入 lastTextEnded，避免在 assistant PartUpdated 事件因竞态延迟/丢失时
+// 把用户输入误判为最终回复（回声）。
+func TestHandleSSEEventUserTextDoesNotOverwriteLastTextEnded(t *testing.T) {
+	st := &runState{
+		evtChan:       make(chan agent.NodeEvent, 4),
+		messageID:     "msg_assistant",
+		lastTextEnded: "reply",
+	}
+
+	// user text part 到达，messageID 与当前 assistant messageID 不一致。
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "message.part.updated",
+		Properties: map[string]any{
+			"sessionID": "ses_1",
+			"part": map[string]any{
+				"id":        "prt_user",
+				"messageID": "msg_user",
+				"type":      "text",
+				"text":      "【用户问题】\n[1] 用户 「宋浩」发送：「总结下这个图片」",
+			},
+		},
+	})
+
+	if st.lastTextEnded != "reply" {
+		t.Fatalf("lastTextEnded = %q, want unchanged %q (user text must not overwrite)", st.lastTextEnded, "reply")
+	}
+}
+
+// TestHandleSSEEventAssistantTextUpdatesLastTextEnded 验证 assistant text part
+// 正确覆盖 lastTextEnded（messageID 匹配时）。
+func TestHandleSSEEventAssistantTextUpdatesLastTextEnded(t *testing.T) {
+	st := &runState{
+		evtChan:       make(chan agent.NodeEvent, 4),
+		messageID:     "msg_assistant",
+		lastTextEnded: "reply",
+	}
+
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "message.part.updated",
+		Properties: map[string]any{
+			"sessionID": "ses_1",
+			"part": map[string]any{
+				"id":        "prt_assistant",
+				"messageID": "msg_assistant",
+				"type":      "text",
+				"text":      "这张图片展示了两只可爱的猫咪…",
+			},
+		},
+	})
+
+	if st.lastTextEnded != "这张图片展示了两只可爱的猫咪…" {
+		t.Fatalf("lastTextEnded = %q, want assistant reply", st.lastTextEnded)
+	}
+}
+
+// TestAssistantTextFromParts 验证从同步响应体 parts 提取 assistant 完整文本，
+// 跳过空文本与非 text part，规避 SSE 竞态丢失导致的回声误判。
+func TestAssistantTextFromParts(t *testing.T) {
+	parts := []messagePartResp{
+		{Type: "step-start"},
+		{Type: "text", Text: "这是一段回复"},
+		{Type: "tool", ToolName: "read"},
+	}
+	if got := assistantTextFromParts(parts); got != "这是一段回复" {
+		t.Fatalf("assistantTextFromParts = %q, want %q", got, "这是一段回复")
+	}
+
+	// 空文本、仅空白文本应被跳过。
+	empty := []messagePartResp{
+		{Type: "text", Text: ""},
+		{Type: "text", Text: "   "},
+		{Type: "step-finish"},
+	}
+	if got := assistantTextFromParts(empty); got != "" {
+		t.Fatalf("assistantTextFromParts(empty) = %q, want empty", got)
+	}
+
+	// 无 text part 时返回空。
+	none := []messagePartResp{{Type: "tool", ToolName: "read"}}
+	if got := assistantTextFromParts(none); got != "" {
+		t.Fatalf("assistantTextFromParts(none) = %q, want empty", got)
+	}
 }

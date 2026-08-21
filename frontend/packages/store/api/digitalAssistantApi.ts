@@ -6,9 +6,39 @@ import type {
 	BackendPaginatedResponse,
 } from "./types";
 
-export type CreateDAParams = {
-	code?: string;
+export type DigitalAssistantVisibility = "public" | "private";
+export type DigitalAssistantPermissionRole = "owner" | "admin" | "member";
+
+export type DigitalAssistantPermission = {
+	role: DigitalAssistantPermissionRole;
+};
+
+export type DigitalAssistantPermissionUser = {
+	public_id: string;
 	name: string;
+	email?: string;
+	avatar_url?: string;
+};
+
+export type DigitalAssistantPermissionMember = {
+	user: DigitalAssistantPermissionUser;
+	role: DigitalAssistantPermissionRole;
+};
+
+export type DigitalAssistantPermissionSettings = {
+	visibility: DigitalAssistantVisibility;
+	members: DigitalAssistantPermissionMember[];
+};
+
+export type DigitalAssistantPermissionMemberInput = {
+	user: { public_id: string };
+	role: DigitalAssistantPermissionRole;
+};
+
+export type CreateDAParams = {
+	public_id?: string;
+	name: string;
+	role_name?: string;
 	description?: string;
 	avatar?: string;
 	system_prompt?: string;
@@ -20,6 +50,7 @@ export type CreateDAParams = {
 export type UpdateDAParams = {
 	id: number;
 	name?: string;
+	role_name?: string;
 	description?: string;
 	avatar?: string;
 	system_prompt?: string;
@@ -43,13 +74,19 @@ export type ListDAParams = {
 
 export type GetDAParams = {
 	id?: number;
-	code?: string;
+	public_id?: string;
+};
+
+export type CheckDANameParams = {
+	name: string;
+	exclude_id?: number;
 };
 
 export type CreateDAFromTemplateParams = {
 	template_id: number;
-	code?: string;
+	public_id?: string;
 	name?: string;
+	role_name?: string;
 	description?: string;
 	avatar?: string;
 	system_prompt?: string;
@@ -75,14 +112,23 @@ export type IncrementAITeammateTemplateCountParams = {
 	code?: string;
 };
 
+export type UpdateDigitalAssistantPermissionsParams = {
+	public_id: string;
+	visibility: DigitalAssistantVisibility;
+	members: DigitalAssistantPermissionMemberInput[];
+};
+
 const DA_ENDPOINTS = {
 	create: "/CreateDigitalAssistant",
 	createFromTemplate: "/CreateDigitalAssistantFromTemplate",
 	list: "/ListDigitalAssistant",
+	checkName: "/CheckDigitalAssistantName",
 	get: "/GetDigitalAssistant",
 	update: "/UpdateDigitalAssistant",
 	updateStatus: "/UpdateDigitalAssistantStatus",
 	delete: "/DeleteDigitalAssistant",
+	getPermissions: "/GetDigitalAssistantPermissions",
+	updatePermissions: "/UpdateDigitalAssistantPermissions",
 	listTemplates: "/ListAITeammateTemplates",
 	getTemplate: "/GetAITeammateTemplate",
 	incrementTemplateUseCount: "/IncrementAITeammateTemplateUseCount",
@@ -102,6 +148,9 @@ export const digitalAssistantApi = {
 	list: (params: ListDAParams) =>
 		apiClient.post<BackendPaginatedResponse<BackendDigitalAssistant>>(DA_ENDPOINTS.list, params),
 
+	checkName: (params: CheckDANameParams) =>
+		apiClient.post<BackendDataResponse<{ available: boolean }>>(DA_ENDPOINTS.checkName, params),
+
 	get: (params: GetDAParams) =>
 		apiClient.post<BackendDataResponse<BackendDigitalAssistant>>(DA_ENDPOINTS.get, params),
 
@@ -112,6 +161,18 @@ export const digitalAssistantApi = {
 		apiClient.post<BackendDataResponse<null>>(DA_ENDPOINTS.updateStatus, params),
 
 	delete: (id: number) => apiClient.post<BackendDataResponse<null>>(DA_ENDPOINTS.delete, { id }),
+
+	getPermissions: (publicID: string) =>
+		apiClient.post<BackendDataResponse<DigitalAssistantPermissionSettings>>(
+			DA_ENDPOINTS.getPermissions,
+			{ public_id: publicID },
+		),
+
+	updatePermissions: (params: UpdateDigitalAssistantPermissionsParams) =>
+		apiClient.post<BackendDataResponse<DigitalAssistantPermissionSettings>>(
+			DA_ENDPOINTS.updatePermissions,
+			params,
+		),
 
 	listTemplates: (params: ListAITeammateTemplateParams) =>
 		apiClient.post<BackendPaginatedResponse<BackendAITeammateTemplate>>(

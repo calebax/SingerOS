@@ -37,6 +37,7 @@ export type QuestionItem = {
 export type QuestionRequest = {
 	requestId: string;
 	questions: QuestionItem[];
+	assistantId?: string;
 	toolCallId?: string;
 	messageId?: string;
 	interactionType?: string;
@@ -91,6 +92,7 @@ export type ApprovalRequest = {
 	action?: ApprovalAction;
 	reason?: string;
 	error?: string;
+	assistantId?: string;
 };
 
 export type MessageArtifact = {
@@ -106,6 +108,7 @@ export type MessageArtifact = {
 	downloadUrl: string;
 	storageUri?: string;
 	sha256?: string;
+	versionNo?: number;
 };
 
 export type MessageMetadata = {
@@ -113,10 +116,18 @@ export type MessageMetadata = {
 	tokens?: number;
 	latency?: number;
 	composerTokens?: ComposerToken[];
+	displayContent?: string;
+	displayComposerTokens?: ComposerToken[];
+	invokedAssistant?: {
+		id?: string;
+		name: string;
+		avatarUrl?: string;
+	};
 };
 
 export type ComposerToken = {
-	kind: "assistant" | "skill";
+	kind: "assistant" | "skill" | "reference";
+	id?: string;
 	label: string;
 	start: number;
 	end: number;
@@ -134,9 +145,11 @@ export type MessageAttachment = {
 	name: string;
 	mimeType: string;
 	size: number;
+	relativePath?: string;
 	createdAt?: number;
 	url?: string;
 	storageUri?: string;
+	attachmentType?: "file" | "image" | "folder";
 };
 
 export type Message = {
@@ -167,9 +180,19 @@ export type Message = {
 	usage?: MessageUsage;
 };
 
+export type AttachmentFileRef = {
+	fileUploadId: string;
+	name: string;
+	mimeType: string;
+	size: number;
+	relativePath?: string;
+};
+
+export type AttachmentUploadStatus = "uploading" | "completed" | "failed";
+
 export type Attachment = {
 	id: string;
-	type: "image" | "file";
+	type: "image" | "file" | "folder";
 	name: string;
 	size: number;
 	url?: string;
@@ -178,6 +201,10 @@ export type Attachment = {
 	fileUploadId?: string;
 	mimeType?: string;
 	storageUri?: string;
+	folderFiles?: AttachmentFileRef[];
+	uploadStatus?: AttachmentUploadStatus;
+	/** 工具场景赋予附件的语义角色；空=普通上传 */
+	attachmentRole?: string;
 };
 
 export type ModelOption = {

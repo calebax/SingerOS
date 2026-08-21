@@ -1,8 +1,12 @@
+"use client";
+
 import { type ReactNode, useMemo } from "react";
-import Markdown from "react-markdown";
+import Markdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { isExternalHttpLink, openExternalLink } from "../../utils/open-external-link";
+import { CodeBlock } from "./CodeBlock";
 import { PlanBlock } from "./PlanBlock";
 
 type MarkdownRendererProps = {
@@ -88,6 +92,34 @@ function processContent(content: string): { text: string; planBlocks: PlanDirect
 	return segments;
 }
 
+const markdownComponents: Components = {
+	a: ({ href, children, ...props }) => {
+		if (isExternalHttpLink(href)) {
+			return (
+				<a
+					href={href}
+					target="_blank"
+					rel="noopener noreferrer"
+					onClick={(event) => {
+						event.preventDefault();
+						openExternalLink(href);
+					}}
+					{...props}
+				>
+					{children}
+				</a>
+			);
+		}
+
+		return (
+			<a href={href} {...props}>
+				{children}
+			</a>
+		);
+	},
+	pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+};
+
 export function MarkdownRenderer({
 	content,
 	className,
@@ -105,7 +137,11 @@ export function MarkdownRenderer({
 	if (!hasAnyPlanBlock) {
 		return (
 			<div className={className}>
-				<Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+				<Markdown
+					remarkPlugins={[remarkGfm, remarkMath]}
+					rehypePlugins={[rehypeKatex]}
+					components={markdownComponents}
+				>
 					{content}
 				</Markdown>
 			</div>
@@ -124,7 +160,11 @@ export function MarkdownRenderer({
 						onOpen={onPlanOpen}
 						onCopy={onPlanCopy}
 					>
-						<Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+						<Markdown
+							remarkPlugins={[remarkGfm, remarkMath]}
+							rehypePlugins={[rehypeKatex]}
+							components={markdownComponents}
+						>
 							{seg.text}
 						</Markdown>
 					</PlanBlock>,
@@ -133,7 +173,11 @@ export function MarkdownRenderer({
 		} else if (seg.text.trim()) {
 			elements.push(
 				<div key={`text-${i}`}>
-					<Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+					<Markdown
+						remarkPlugins={[remarkGfm, remarkMath]}
+						rehypePlugins={[rehypeKatex]}
+						components={markdownComponents}
+					>
 						{seg.text}
 					</Markdown>
 				</div>,

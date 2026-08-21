@@ -70,12 +70,16 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
-		if props.Info.ID != "" {
+		// messageID 语义为「当前 assistant message」，仅当其确为 assistant
+		// 消息时记录，避免被先到达的 user 消息（message.updated）覆盖。
+		if props.Info.Role == "assistant" && props.Info.ID != "" {
 			st.messageID = props.Info.ID
 		}
 		if props.Info.Role == "assistant" {
 			if usage := usageFromOpenCodeTokens(props.Info.Tokens); usage != nil {
 				st.tokenUsage = usage
+				logs.Debugf("[opencode] message usage updated: execution_id=%s session_id=%s message_id=%s input_tokens=%d output_tokens=%d total_tokens=%d",
+					st.executionID, props.SessionID, props.Info.ID, usage.InputTokens, usage.OutputTokens, usage.TotalTokens)
 			}
 		}
 
@@ -86,6 +90,15 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		var props messagePartDeltaProps
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
+		}
+		// FORENSIC: 记录所有文本 delta，验证失败时 assistant 文本 delta 是否到达
+		if props.Field == "text" && props.Delta != "" {
+			head := props.Delta
+			if len(head) > 60 {
+				head = head[:60]
+			}
+			logs.Infof("[opencode][forensic] text delta: execution_id=%s session_id=%s message_id=%s part_id=%s head=%q",
+				st.executionID, props.SessionID, props.MessageID, props.PartID, head)
 		}
 		if props.Field != "text" || props.Delta == "" {
 			return
@@ -109,27 +122,49 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 
 		switch part.Type {
 		case "text":
-			// 记录 messageID（首次 text part 出现时）
+			// 仅记录 assistant message 的 messageID（首次 text part 出现时）。
+			// st.messageID 语义为「当前 assistant message」，不应被 user 文本污染。
 			if st.messageID == "" && part.MessageID != "" {
 				st.messageID = part.MessageID
 			}
-			// 完整文本（非 synthetic）
-			if !isTrue(part.Synthetic) && part.Text != "" {
+			// 完整文本（非 synthetic）：仅接受属于当前 assistant message 的
+			// text part 作为最终回复。user 消息的 text part（形如「【用户问题】…」）
+			// 时序上必然早于 assistant 回复；一旦 assistant 的 PartUpdated 事件
+			// 因竞态延迟/丢失，若仍把 user 文本写入 lastTextEnded 就会触发回声误判。
+			// 强制要求 part.MessageID 与当前 assistant messageID 一致，从根上杜绝
+			// 用户输入污染 lastTextEnded。
+			if !isTrue(part.Synthetic) && part.Text != "" && isAssistantTextPart(st, part.MessageID) {
+				// FORENSIC: 记录是谁在更新 lastTextEnded —— 用户输入 part 还是当前 assistant part
+				isCur := part.MessageID != "" && part.MessageID == st.messageID
+				head := part.Text
+				if len(head) > 60 {
+					head = head[:60]
+				}
+				logs.Infof("[opencode][forensic] lastTextEnded update: execution_id=%s session_id=%s part_msg_id=%s cur_msg_id=%s is_cur_part=%v synthetic=%v head=%q",
+					st.executionID, props.SessionID, part.MessageID, st.messageID, isCur, isTrue(part.Synthetic), head)
 				st.lastTextEnded = part.Text
+				logs.Debugf("[opencode] text part updated: execution_id=%s session_id=%s message_id=%s text_len=%d",
+					st.executionID, props.SessionID, part.MessageID, len(part.Text))
 			}
 
 		case "step-start":
 			if part.MessageID != "" {
 				st.messageID = part.MessageID
 			}
+			logs.Infof("[opencode] step started: execution_id=%s session_id=%s message_id=%s",
+				st.executionID, props.SessionID, part.MessageID)
 
 		case "step-finish":
 			if usage := usageFromOpenCodeTokens(part.Tokens); usage != nil {
 				st.tokenUsage = usage
+				logs.Debugf("[opencode] step usage updated: execution_id=%s session_id=%s message_id=%s input_tokens=%d output_tokens=%d total_tokens=%d",
+					st.executionID, props.SessionID, part.MessageID, usage.InputTokens, usage.OutputTokens, usage.TotalTokens)
 			}
 			if part.Reason == "error" && st.runErr == "" {
 				st.runErr = "step finished with error"
 			}
+			logs.Infof("[opencode] step finished: execution_id=%s session_id=%s message_id=%s reason=%s",
+				st.executionID, props.SessionID, part.MessageID, part.Reason)
 
 		case "tool":
 			if part.State == nil {
@@ -142,12 +177,16 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			case "pending":
 				if isFilteredToolName(toolName) {
 					st.markFilteredToolCall(callID, toolName)
+					logs.Debugf("[opencode] filtered tool pending: execution_id=%s session_id=%s tool=%s call_id=%s",
+						st.executionID, props.SessionID, toolName, callID)
 				}
 
 			case "running":
 				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
 					return
 				}
+				logs.Infof("[opencode] tool started: execution_id=%s session_id=%s tool=%s call_id=%s",
+					st.executionID, props.SessionID, toolName, callID)
 				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionStart, &agent.ToolExecutionStartPayload{
 					ToolCallID: callID,
 					Name:       toolName,
@@ -157,8 +196,12 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			case "completed":
 				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
 					st.clearFilteredToolCall(callID)
+					logs.Debugf("[opencode] filtered tool completed: execution_id=%s session_id=%s tool=%s call_id=%s",
+						st.executionID, props.SessionID, toolName, callID)
 					return
 				}
+				logs.Infof("[opencode] tool completed: execution_id=%s session_id=%s tool=%s call_id=%s output_len=%d",
+					st.executionID, props.SessionID, toolName, callID, len(part.State.Output))
 				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd, &agent.ToolExecutionEndPayload{
 					ToolCallID: callID,
 					Name:       toolName,
@@ -169,12 +212,16 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			case "error":
 				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
 					st.clearFilteredToolCall(callID)
+					logs.Debugf("[opencode] filtered tool errored: execution_id=%s session_id=%s tool=%s call_id=%s",
+						st.executionID, props.SessionID, toolName, callID)
 					return
 				}
 				toolErr := part.State.Error
 				if toolErr == "" {
 					toolErr = "tool execution failed"
 				}
+				logs.Warnf("[opencode] tool errored: execution_id=%s session_id=%s tool=%s call_id=%s err=%s",
+					st.executionID, props.SessionID, toolName, callID, toolErr)
 				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd, &agent.ToolExecutionEndPayload{
 					ToolCallID: callID,
 					Name:       toolName,
@@ -193,6 +240,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 					msgID = st.messageID
 				}
 				evt := agent.NewReasoningUpdateEvent(msgID, part.Text)
+				logs.Debugf("[opencode] reasoning updated: execution_id=%s session_id=%s message_id=%s text_len=%d",
+					st.executionID, props.SessionID, msgID, len(part.Text))
 				sendEventDirect(st.evtChan, evt)
 			}
 		}
@@ -224,6 +273,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			Arguments:   agent.MarshalRawJSON(map[string]any{"patterns": props.Patterns}),
 			Metadata:    map[string]string{"engine": "opencode"},
 		}
+		logs.Infof("[opencode] permission requested: execution_id=%s session_id=%s request_id=%s permission=%s tool_call_id=%s",
+			st.executionID, props.SessionID, props.ID, props.Permission, toolCallID)
 		sendEventPayloadTo(st.evtChan, agent.NodeEventApprovalRequested, &payload)
 
 	// ============================================================
@@ -295,6 +346,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if isPlanConfirmation {
 			payload.InteractionType = "plan_confirmation"
 		}
+		logs.Infof("[opencode] question asked: execution_id=%s session_id=%s request_id=%s question_count=%d tool_call_id=%s interaction_type=%s",
+			st.executionID, props.SessionID, props.ID, len(questions), toolCallID, payload.InteractionType)
 		sendEventDirect(st.evtChan, agent.NewQuestionAskedEvent(payload))
 
 	// ============================================================
@@ -309,6 +362,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if len(items) == 0 {
 			return
 		}
+		logs.Debugf("[opencode] todo updated: execution_id=%s session_id=%s item_count=%d",
+			st.executionID, props.SessionID, len(items))
 		sendEventDirect(st.evtChan, agent.NewTodoUpdatedEvent(items))
 
 	// ============================================================
@@ -322,6 +377,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if st.tokenUsage == nil {
 			if usage := usageFromOpenCodeTokens(props.Info.Tokens); usage != nil {
 				st.tokenUsage = usage
+				logs.Debugf("[opencode] session usage fallback updated: execution_id=%s session_id=%s input_tokens=%d output_tokens=%d total_tokens=%d",
+					st.executionID, props.SessionID, usage.InputTokens, usage.OutputTokens, usage.TotalTokens)
 			}
 		}
 
@@ -348,13 +405,13 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 	// session.idle — SSE 空闲信号，不再作为终态
 	// ============================================================
 	case "session.idle":
-		logs.Debugf("[opencode] session idle (ignored for termination)")
+		logs.Debugf("[opencode] session idle ignored: execution_id=%s session_id=%s", st.executionID, st.sessionID)
 
 	// ============================================================
 	// 生命周期事件
 	// ============================================================
 	case "server.connected":
-		logs.Infof("OpenCode SSE connected")
+		logs.Infof("OpenCode SSE connected: execution_id=%s session_id=%s", st.executionID, st.sessionID)
 
 	case "server.heartbeat":
 		// 忽略心跳
@@ -369,6 +426,22 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 
 func isTrue(b *bool) bool {
 	return b != nil && *b
+}
+
+// isAssistantTextPart 判断该 text part 是否属于当前 assistant message。
+// 调用方必须持有 st.mu。
+//
+// 当 st.messageID 尚未确定（为空）时，任何 text part 都可能是 assistant 的
+// 首个文本（此时无法区分 user/assistant），故宽松放行，交由后续事件修正；
+// 一旦 st.messageID 已确定（assistant messageID），则仅接受与之匹配的 text part，
+// 拒绝 user 消息文本（「【用户问题】…」）写入 lastTextEnded。
+func isAssistantTextPart(st *runState, partMessageID string) bool {
+	partMessageID = strings.TrimSpace(partMessageID)
+	if st.messageID == "" {
+		// assistant messageID 尚未确定，无法可靠区分，放行。
+		return true
+	}
+	return partMessageID == st.messageID
 }
 
 func isFilteredToolName(toolName string) bool {

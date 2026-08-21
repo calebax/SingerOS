@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -25,8 +26,11 @@ func (h *DigitalAssistantHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/UpdateDigitalAssistant", h.UpdateDigitalAssistant)
 	r.POST("/DeleteDigitalAssistant", h.DeleteDigitalAssistant)
 	r.POST("/ListDigitalAssistant", h.ListDigitalAssistant)
+	r.POST("/CheckDigitalAssistantName", h.CheckDigitalAssistantName)
 	r.POST("/UpdateDigitalAssistantStatus", h.UpdateDigitalAssistantStatus)
 	r.POST("/CreateDigitalAssistantFromTemplate", h.CreateDigitalAssistantFromTemplate)
+	r.POST("/GetDigitalAssistantPermissions", h.GetDigitalAssistantPermissions)
+	r.POST("/UpdateDigitalAssistantPermissions", h.UpdateDigitalAssistantPermissions)
 }
 
 func RegisterDigitalAssistantRoutes(r gin.IRouter, service contract.DigitalAssistantService) {
@@ -54,11 +58,7 @@ func (h *DigitalAssistantHandler) CreateDigitalAssistant(ctx *gin.Context) {
 
 	result, err := h.service.CreateDigitalAssistant(ctx, &req)
 	if err != nil {
-		if err.Error() == "user not authenticated or org not set" {
-			ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
-			return
-		}
-		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+		handleServiceError(ctx, err)
 		return
 	}
 
@@ -66,12 +66,12 @@ func (h *DigitalAssistantHandler) CreateDigitalAssistant(ctx *gin.Context) {
 }
 
 type GetDigitalAssistantRequest struct {
-	ID   *uint   `json:"id,omitempty"`
-	Code *string `json:"code,omitempty"`
+	ID       *uint   `json:"id,omitempty"`
+	PublicID *string `json:"public_id,omitempty"`
 }
 
 // @Summary 获取数字助手详情
-// @Description 根据ID或Code获取数字助手详情
+// @Description 根据ID或PublicID获取数字助手详情
 // @Tags DigitalAssistant
 // @Accept json
 // @Produce json
@@ -90,8 +90,8 @@ func (h *DigitalAssistantHandler) GetDigitalAssistant(ctx *gin.Context) {
 		return
 	}
 
-	if req.ID == nil && req.Code == nil {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "id or code is required"))
+	if req.ID == nil && req.PublicID == nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "id or public_id is required"))
 		return
 	}
 
@@ -101,7 +101,7 @@ func (h *DigitalAssistantHandler) GetDigitalAssistant(ctx *gin.Context) {
 	if req.ID != nil {
 		result, err = h.service.GetDigitalAssistantByID(ctx, *req.ID)
 	} else {
-		result, err = h.service.GetDigitalAssistantByCode(ctx, *req.Code)
+		result, err = h.service.GetDigitalAssistantByPublicID(ctx, *req.PublicID)
 	}
 
 	if err != nil {
@@ -109,7 +109,7 @@ func (h *DigitalAssistantHandler) GetDigitalAssistant(ctx *gin.Context) {
 			ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
 			return
 		}
-		if err.Error() == "permission denied" {
+		if isPermissionDenied(err) {
 			ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, err.Error()))
 			return
 		}
@@ -224,6 +224,21 @@ func (h *DigitalAssistantHandler) ListDigitalAssistant(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// CheckDigitalAssistantName checks whether a teammate name is available in the caller organization.
+func (h *DigitalAssistantHandler) CheckDigitalAssistantName(ctx *gin.Context) {
+	var req contract.CheckDigitalAssistantNameRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.CheckDigitalAssistantName(ctx, &req)
+	if err != nil {
+		handleServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 type UpdateDigitalAssistantStatusRequest struct {
 	ID uint `json:"id" binding:"required"`
 	contract.UpdateDigitalAssistantStatusRequest
@@ -285,12 +300,62 @@ func (h *DigitalAssistantHandler) CreateDigitalAssistantFromTemplate(ctx *gin.Co
 	ctx.JSON(http.StatusOK, dto.NewCreateDigitalAssistantResponse(result))
 }
 
+// @Summary 获取数字助手共享权限
+// @Description 获取 AI 队友的公开范围和协作成员角色
+// @Tags DigitalAssistant
+// @Accept json
+// @Produce json
+// @Param body body contract.GetDigitalAssistantPermissionsRequest true "共享权限请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 403 {object} dto.ErrorResponse "权限不足"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Router /GetDigitalAssistantPermissions [post]
+func (h *DigitalAssistantHandler) GetDigitalAssistantPermissions(ctx *gin.Context) {
+	var req contract.GetDigitalAssistantPermissionsRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.GetDigitalAssistantPermissions(ctx, req.PublicID)
+	if err != nil {
+		handleServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 更新数字助手共享权限
+// @Description 全量更新 AI 队友的公开范围和协作成员角色
+// @Tags DigitalAssistant
+// @Accept json
+// @Produce json
+// @Param body body contract.UpdateDigitalAssistantPermissionsRequest true "共享权限更新请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 403 {object} dto.ErrorResponse "权限不足"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Router /UpdateDigitalAssistantPermissions [post]
+func (h *DigitalAssistantHandler) UpdateDigitalAssistantPermissions(ctx *gin.Context) {
+	var req contract.UpdateDigitalAssistantPermissionsRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.UpdateDigitalAssistantPermissions(ctx, &req)
+	if err != nil {
+		handleServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 func handleServiceError(ctx *gin.Context, err error) {
 	if err.Error() == "user not authenticated or org not set" {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
-	if err.Error() == "permission denied" {
+	if isPermissionDenied(err) {
 		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
@@ -299,6 +364,19 @@ func handleServiceError(ctx *gin.Context, err error) {
 		return
 	}
 	if err.Error() == "ai teammate template is inactive" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	if err.Error() == "digital assistant name already exists" || err.Error() == "name is required" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	if strings.HasPrefix(err.Error(), "visibility must be ") ||
+		strings.HasPrefix(err.Error(), "member ") ||
+		strings.HasPrefix(err.Error(), "duplicate member ") ||
+		strings.HasPrefix(err.Error(), "owner ") ||
+		strings.HasPrefix(err.Error(), "only the current owner") ||
+		strings.HasPrefix(err.Error(), "invalid member ") {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}

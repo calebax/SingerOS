@@ -42,12 +42,15 @@
 | [product/prd.md](product/prd.md) | 产品需求文档 |
 | [product/planning.md](product/planning.md) | 路线图规划 |
 | [product/todo.md](product/todo.md) | 后端开发 TODO |
+| [product/lework-product-whitepaper.md](product/lework-product-whitepaper.md) | Lework 产品功能白皮书（Markdown） |
+| [product/lework-product-whitepaper.pdf](product/lework-product-whitepaper.pdf) | Lework 产品功能白皮书（PDF） |
 
 ### 技术设计
 
 | 文档 | 说明 |
 |------|------|
 | [design/tech-design.md](design/tech-design.md) | 技术设计（技能 Schema、渲染引擎） |
+| [design/project-file-version-management.md](design/project-file-version-management.md) | 项目产物文件版本管理设计 |
 | [design/2026-07-04-agent-runtime-architecture-refactor.md](design/2026-07-04-agent-runtime-architecture-refactor.md) | Agent Runtime 最终架构优化设计 |
 | [design/2026-07-04-agent-runtime-implementation-plan.md](design/2026-07-04-agent-runtime-implementation-plan.md) | Agent Runtime 架构优化实施开发方案 |
 | [design/git-storage.md](design/git-storage.md) | 文件存储技术方案 |
@@ -77,8 +80,13 @@
 | 文档 | 说明 |
 |------|------|
 | [operations/troubleshooting.md](operations/troubleshooting.md) | 故障排除指南 |
+| [operations/worker-status-api.md](operations/worker-status-api.md) | Worker 运维状态查询接口与响应字段 |
 | [operations/issue-labels.md](operations/issue-labels.md) | Issue 标签体系 |
 | [operations/project-structure.md](operations/project-structure.md) | 项目结构与文件索引 |
+| [operations/private-deployment-resources.md](operations/private-deployment-resources.md) | 私有化资源清单（硬件/镜像/端口/存储） |
+| [operations/private-deployment-config.md](operations/private-deployment-config.md) | 私有化配置清单（Helm values 与 config.yaml） |
+| [operations/private-deployment-guide.md](operations/private-deployment-guide.md) | 私有化部署手册（k3s + Helm） |
+| [operations/private-deployment-model.md](operations/private-deployment-model.md) | 私有化模型部署（vLLM + Qwen3.6-27B） |
 
 ### API 文档
 

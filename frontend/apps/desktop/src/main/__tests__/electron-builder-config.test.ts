@@ -3,8 +3,9 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const builderConfigPath = resolve(__dirname, "../../../electron-builder.yml");
+const desktopPackagePath = resolve(__dirname, "../../../package.json");
 
-describe("electron-builder 桌面图标配置", () => {
+describe("electron-builder 桌面图标与资源配置", () => {
 	it("不应禁用 Windows 可执行文件资源编辑，否则安装后的图标会回退为默认值", () => {
 		const config = readFileSync(builderConfigPath, "utf8");
 
@@ -22,5 +23,48 @@ describe("electron-builder 桌面图标配置", () => {
 		const config = readFileSync(builderConfigPath, "utf8");
 
 		expect(config).toMatch(/win:\s*\n\s*icon:\s*resources\/icon\.ico/);
+	});
+
+	it("应注册 leros 协议，供 Web 端唤起桌面端", () => {
+		const config = readFileSync(builderConfigPath, "utf8");
+
+		expect(config).toMatch(/protocols:[\s\S]*schemes:\s*\n\s*-\s*leros/);
+	});
+
+	it("Linux 应同步 desktopName，确保任务栏窗口能关联应用图标", () => {
+		const config = readFileSync(builderConfigPath, "utf8");
+		const desktopPackage = JSON.parse(readFileSync(desktopPackagePath, "utf8")) as {
+			desktopName?: string;
+		};
+
+		expect(desktopPackage.desktopName).toBe("leros-desktop.desktop");
+		expect(config).toMatch(
+			/linux:[\s\S]*icon:\s*resources\/linux-icons[\s\S]*executableName:\s*leros-desktop[\s\S]*syncDesktopName:\s*true/,
+		);
+	});
+
+	it("应将登录页协议 PDF 复制到生产环境 resources 根目录", () => {
+		const config = readFileSync(builderConfigPath, "utf8");
+
+		// 中文注释：主进程生产环境通过 process.resourcesPath 直接打开 PDF，打包时必须复制到该目录。
+		expect(config).toMatch(
+			/extraResources:[\s\S]*from:\s*resources\/terms-of-service\.pdf[\s\S]*to:\s*terms-of-service\.pdf/,
+		);
+		expect(config).toMatch(
+			/extraResources:[\s\S]*from:\s*resources\/privacy-policy\.pdf[\s\S]*to:\s*privacy-policy\.pdf/,
+		);
+	});
+
+	it("Windows NSIS 应保留默认运行中确认，并用映像名强杀避免手动关闭兜底", () => {
+		const config = readFileSync(builderConfigPath, "utf8");
+		const installerScript = readFileSync(resolve(__dirname, "../../../nsis/installer.nsh"), "utf8");
+
+		expect(config).toMatch(/nsis:[\s\S]*include:\s*nsis\/installer\.nsh/);
+		expect(installerScript).toContain("!macro customCheckAppRunning");
+		expect(installerScript).toContain("$(appRunning)");
+		expect(installerScript).toContain("taskkill /F /IM");
+		expect(installerScript).toContain("/T");
+		expect(installerScript).not.toContain("继续安装需要强制关闭");
+		expect(installerScript).not.toContain("leros_force_kill_attempt");
 	});
 });

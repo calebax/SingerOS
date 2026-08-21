@@ -4,8 +4,10 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
 	type DesktopPolicyDocument,
 	type DesktopUpdateApi,
-	desktopOpenPolicyPdfChannel,
 	type DesktopUpdateState,
+	desktopOpenExternalChannel,
+	desktopOpenPolicyPdfChannel,
+	desktopOpenServerChannel,
 	desktopUpdateCheckChannel,
 	desktopUpdateEventChannel,
 	desktopUpdateGetStateChannel,
@@ -18,6 +20,17 @@ const desktopUpdateApi: DesktopUpdateApi = {
 	quitAndInstall: () => ipcRenderer.invoke(desktopUpdateRestartChannel),
 	openPolicyPdf: (document: DesktopPolicyDocument) =>
 		ipcRenderer.invoke(desktopOpenPolicyPdfChannel, document),
+	openExternal: (url: string) => ipcRenderer.invoke(desktopOpenExternalChannel, url),
+	onOpenServer: (listener) => {
+		const handler = (_event: IpcRendererEvent, serverURL: string) => {
+			listener(serverURL);
+		};
+
+		ipcRenderer.on(desktopOpenServerChannel, handler);
+		return () => {
+			ipcRenderer.removeListener(desktopOpenServerChannel, handler);
+		};
+	},
 	subscribe: (listener) => {
 		const handler = (_event: IpcRendererEvent, state: DesktopUpdateState) => {
 			listener(state);

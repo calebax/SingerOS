@@ -1,8 +1,8 @@
 import {
-	AiTeammatesView,
 	type AppNavigation,
-	AssistantListView,
-	CenterCanvas,
+	AutomationExecutionPage,
+	AutomationListView,
+	OrgAdminPage,
 	ProjectPage,
 	ProjectsHubView,
 	Shell,
@@ -11,15 +11,7 @@ import {
 	WorkbenchPanel,
 } from "@leros/app-ui";
 
-import {
-	Navigate,
-	Route,
-	Routes,
-	useLocation,
-	useNavigate,
-	useParams,
-	useSearchParams,
-} from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { DesktopSettingsPage } from "./components/DesktopSettingsPage";
 
@@ -33,8 +25,6 @@ export function AppRoutes() {
 
 				<Route path="/workbench" element={<WorkbenchRoutePage />} />
 
-				<Route path="/chat" element={<CenterCanvas />} />
-
 				<Route path="/projects" element={<ProjectsHubRoutePage />} />
 
 				<Route path="/projects/:projectId" element={<ProjectRoutePage />} />
@@ -43,17 +33,33 @@ export function AppRoutes() {
 
 				<Route path="/projects/:projectId/files" element={<ProjectRoutePage tab="files" />} />
 
-				<Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailRoutePage />} />
+				<Route path="/projects/:projectId/activity" element={<ProjectRoutePage tab="activity" />} />
 
-				<Route path="/assistants" element={<AssistantListView />} />
+				<Route
+					path="/projects/:projectId/tasks/:taskId/sessions/:sessionId"
+					element={<TaskDetailRoutePage />}
+				/>
 
-				<Route path="/ai-teammates" element={<AiTeammatesView />} />
+				<Route path="/org" element={<Navigate to="/org/profile" replace />} />
+
+				<Route path="/org/profile" element={<OrgAdminRoutePage section="profile" />} />
+
+				<Route path="/org/departments" element={<OrgAdminRoutePage section="departments" />} />
+
+				<Route path="/org/assistants" element={<OrgAdminRoutePage section="assistants" />} />
+
+				<Route path="/org/models" element={<OrgAdminRoutePage section="models" />} />
 
 				<Route path="/tasks" element={<EmptyRoutePage />} />
 
 				<Route path="/skills" element={<SkillMarketView navigation={navigation} />} />
 
-				<Route path="/knowledge" element={<EmptyRoutePage />} />
+				{/* 中文注释：资源库路由暂时隐藏，直接访问时回退到工作台。 */}
+				<Route path="/knowledge" element={<Navigate to="/workbench" replace />} />
+
+				<Route path="/automation" element={<AutomationListView navigation={navigation} />} />
+
+				<Route path="/automation/:publicId" element={<AutomationExecutionRoutePage />} />
 
 				<Route path="/settings" element={<DesktopSettingsPage />} />
 
@@ -73,8 +79,6 @@ function useDesktopNavigation(): AppNavigation {
 
 		goToRoute(route) {
 			const routePath = {
-				chat: "/chat",
-
 				workbench: "/workbench",
 
 				tasks: "/tasks",
@@ -85,28 +89,42 @@ function useDesktopNavigation(): AppNavigation {
 
 				taskDetail: "/workbench",
 
-				digitalAssistant: "/assistants",
+				orgProfile: "/org/profile",
 
-				aiTeammates: "/ai-teammates",
+				orgDepartments: "/org/departments",
+
+				orgAssistants: "/org/assistants",
+
+				orgModels: "/org/models",
 
 				knowledge: "/knowledge",
 
 				skills: "/skills",
 
+				automation: "/automation",
+
 				settings: "/settings",
 			}[route];
 
-			navigate(routePath);
+			navigate(routePath ?? "/workbench");
 		},
 
 		goToProject(projectId) {
 			navigate(`/projects/${projectId}`);
 		},
 
-		goToTaskDetail(projectId, taskId, sessionId) {
-			const search = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+		goToProjectTasks(projectId) {
+			navigate(`/projects/${projectId}/tasks`);
+		},
 
-			navigate(`/projects/${projectId}/tasks/${taskId}${search}`);
+		goToTaskDetail(projectId, taskId, sessionId) {
+			navigate(
+				`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/sessions/${encodeURIComponent(sessionId)}`,
+			);
+		},
+
+		goToAutomationDetail(publicId) {
+			navigate(`/automation/${encodeURIComponent(publicId)}`);
 		},
 	};
 }
@@ -117,7 +135,14 @@ function WorkbenchRoutePage() {
 	return <WorkbenchPanel navigation={navigation} />;
 }
 
-function ProjectRoutePage({ tab = "chat" }: { tab?: "chat" | "tasks" | "files" }) {
+function projectTabPath(projectId: string, tab: "chat" | "tasks" | "files" | "activity"): string {
+	if (tab === "chat") return `/projects/${projectId}`;
+	if (tab === "tasks") return `/projects/${projectId}/tasks`;
+	if (tab === "files") return `/projects/${projectId}/files`;
+	return `/projects/${projectId}/activity`;
+}
+
+function ProjectRoutePage({ tab = "chat" }: { tab?: "chat" | "tasks" | "files" | "activity" }) {
 	const navigation = useDesktopNavigation();
 
 	const navigate = useNavigate();
@@ -130,13 +155,7 @@ function ProjectRoutePage({ tab = "chat" }: { tab?: "chat" | "tasks" | "files" }
 			tab={tab}
 			navigation={navigation}
 			onTabChange={(nextTab) => {
-				if (nextTab === "chat") {
-					navigation.goToProject(projectId);
-
-					return;
-				}
-
-				navigate(`/projects/${projectId}/${nextTab === "tasks" ? "tasks" : "files"}`);
+				navigate(projectTabPath(projectId, nextTab));
 			}}
 		/>
 	);
@@ -145,18 +164,26 @@ function ProjectRoutePage({ tab = "chat" }: { tab?: "chat" | "tasks" | "files" }
 function TaskDetailRoutePage() {
 	const navigation = useDesktopNavigation();
 
-	const { projectId = "", taskId = "" } = useParams();
-
-	const [searchParams] = useSearchParams();
+	const { projectId = "", taskId = "", sessionId = "" } = useParams();
 
 	return (
 		<TaskDetailPage
 			projectId={projectId}
 			taskId={taskId}
-			sessionId={searchParams.get("sessionId")}
+			sessionId={sessionId}
 			navigation={navigation}
 		/>
 	);
+}
+
+function OrgAdminRoutePage({
+	section,
+}: {
+	section: "profile" | "departments" | "assistants" | "models";
+}) {
+	const navigation = useDesktopNavigation();
+
+	return <OrgAdminPage section={section} navigation={navigation} />;
 }
 
 function EmptyRoutePage() {
@@ -171,4 +198,11 @@ function ProjectsHubRoutePage() {
 	const navigation = useDesktopNavigation();
 
 	return <ProjectsHubView navigation={navigation} />;
+}
+
+function AutomationExecutionRoutePage() {
+	const navigation = useDesktopNavigation();
+	const { publicId = "" } = useParams();
+
+	return <AutomationExecutionPage automationPublicId={publicId} navigation={navigation} />;
 }

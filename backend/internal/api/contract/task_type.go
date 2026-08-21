@@ -21,6 +21,7 @@ type Task struct {
 	Status      string                 `json:"status"`
 	Deadline    *time.Time             `json:"deadline,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Session     *Session               `json:"session,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
 }

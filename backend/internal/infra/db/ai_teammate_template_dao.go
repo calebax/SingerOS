@@ -97,6 +97,9 @@ func UpsertAITeammateTemplate(ctx context.Context, db *gorm.DB, item *types.AITe
 
 	item.ID = existing.ID
 	item.CreatedAt = existing.CreatedAt
+	if existing.Avatar != "" {
+		item.Avatar = existing.Avatar
+	}
 	if item.UseCount == 0 {
 		item.UseCount = existing.UseCount
 	}
@@ -111,6 +114,15 @@ func IncrementAITeammateTemplateUseCount(ctx context.Context, db *gorm.DB, id ui
 	return db.WithContext(ctx).Model(&types.AITeammateTemplate{}).
 		Where("id = ?", id).
 		UpdateColumn("use_count", gorm.Expr("use_count + ?", 1)).Error
+}
+
+// UpdateAITeammateTemplateAvatarByCode updates the avatar of a template by code.
+// Used by seed to overwrite a stale/inaccessible avatar rather than relying on
+// the preserve-existing-avatar branch of UpsertAITeammateTemplate.
+func UpdateAITeammateTemplateAvatarByCode(ctx context.Context, db *gorm.DB, code, avatar string) error {
+	return db.WithContext(ctx).Model(&types.AITeammateTemplate{}).
+		Where("code = ?", code).
+		UpdateColumn("avatar", avatar).Error
 }
 
 // IncrementAITeammateTemplateRecommendCount increments recommend_count for a template.

@@ -25,7 +25,7 @@ import (
 const (
 	// defaultHealthCheckTimeout 是等待 opencode server 健康检查就绪的默认超时时间。
 	// 每个进程拥有独立的启动周期，周期结束后由上层停止进程并重试。
-	defaultHealthCheckTimeout = 10 * time.Second
+	defaultHealthCheckTimeout = 15 * time.Second
 
 	// fastPollInterval 是健康检查前期的快速轮询间隔。
 	fastPollInterval = 200 * time.Millisecond
@@ -104,7 +104,15 @@ type OpenCodeServer struct {
 
 // startOpenCodeServer 启动 opcode serve 子进程，失败时自动重试。
 // 最多启动 maxStartAttempts 个全新进程，每个进程拥有独立的健康检查周期。
-func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, healthCheckTimeout time.Duration, dataDir string) (*OpenCodeServer, error) {
+func startOpenCodeServer(
+	ctx context.Context,
+	binary, workDir string,
+	baseEnv []string,
+	modelCfg agent.ModelConfig,
+	mcpServers []agent.MCPServerConfig,
+	healthCheckTimeout time.Duration,
+	dataDir, skillDir string,
+) (*OpenCodeServer, error) {
 	return startOpenCodeServerWithStarter(
 		ctx,
 		binary,
@@ -114,6 +122,7 @@ func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []
 		mcpServers,
 		healthCheckTimeout,
 		dataDir,
+		skillDir,
 		startSingleOpenCodeServer,
 	)
 }
@@ -127,6 +136,7 @@ type openCodeServerStarter func(
 	[]agent.MCPServerConfig,
 	time.Duration,
 	string,
+	string,
 ) (*OpenCodeServer, error)
 
 func startOpenCodeServerWithStarter(
@@ -137,6 +147,7 @@ func startOpenCodeServerWithStarter(
 	mcpServers []agent.MCPServerConfig,
 	healthCheckTimeout time.Duration,
 	dataDir string,
+	skillDir string,
 	starter openCodeServerStarter,
 ) (*OpenCodeServer, error) {
 	if healthCheckTimeout <= 0 {
@@ -160,7 +171,7 @@ func startOpenCodeServerWithStarter(
 			workDir,
 		)
 
-		srv, healthErr := starter(ctx, binary, workDir, baseEnv, modelCfg, mcpServers, healthCheckTimeout, dataDir)
+		srv, healthErr := starter(ctx, binary, workDir, baseEnv, modelCfg, mcpServers, healthCheckTimeout, dataDir, skillDir)
 		if healthErr == nil {
 			logs.Infof("OpenCode server ready on attempt %d/%d: pid=%d port=%s workDir=%s",
 				attempt, maxStartAttempts, srv.PID(), srv.addr, workDir)
@@ -195,12 +206,21 @@ var errHealthFatal = errors.New("fatal health check response")
 
 // startSingleOpenCodeServer 启动一次 opcode serve 子进程并等待其就绪。
 // 健康检查失败时返回相应的 sentinel 错误，由上层 retry 逻辑处理。
-func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, healthCheckTimeout time.Duration, dataDir string) (*OpenCodeServer, error) {
+func startSingleOpenCodeServer(
+	ctx context.Context,
+	binary, workDir string,
+	baseEnv []string,
+	modelCfg agent.ModelConfig,
+	mcpServers []agent.MCPServerConfig,
+	healthCheckTimeout time.Duration,
+	dataDir, skillDir string,
+) (*OpenCodeServer, error) {
 	// 1. 动态端口分配 — 关闭后传递端口，端口冲突交给进程重试处理
 	port, err := pickFreePort()
 	if err != nil {
 		return nil, fmt.Errorf("pick free port: %w", err)
 	}
+	logs.Debugf("OpenCode server port selected: port=%d workDir=%s", port, workDir)
 
 	// 2. 生成随机密码
 	password, err := generatePassword()
@@ -209,7 +229,7 @@ func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, base
 	}
 
 	// 3. 构建配置和环境变量
-	configContent, err := buildConfigContent(modelCfg, mcpServers)
+	configContent, err := buildConfigContent(modelCfg, mcpServers, skillDir)
 	if err != nil {
 		return nil, fmt.Errorf("build config content: %w", err)
 	}
@@ -217,6 +237,9 @@ func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, base
 	if err != nil {
 		return nil, err
 	}
+	logs.Infof("OpenCode config injected: content=%s", sanitizeConfigContent(configContent))
+	logs.Debugf("OpenCode server config prepared: provider=%s model=%s mcp_count=%d database=%s",
+		providerID, modelCfg.Model, len(mcpServers), databasePath)
 
 	serverEnv := buildServerEnv(password, configContent, databasePath, baseEnv)
 
@@ -242,6 +265,7 @@ func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, base
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start opencode serve: %w", err)
 	}
+	logs.Infof("OpenCode server process started: pid=%d port=%d workDir=%s", cmd.Process.Pid, port, workDir)
 
 	// 5. 立即建立唯一的 cmd.Wait() goroutine
 	waitCh := make(chan error, 1)
@@ -582,6 +606,7 @@ func (s *OpenCodeServer) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
+		logs.Debugf("OpenCode server stop skipped; already closed: pid=%d", s.PID())
 		return nil
 	}
 	s.closed = true
@@ -589,6 +614,8 @@ func (s *OpenCodeServer) Stop() error {
 	pipeCancel := s.pipeCancel
 	cmd := s.cmd
 	done := s.done
+	startedAt := time.Now()
+	logs.Infof("OpenCode server stopping: pid=%d addr=%s workDir=%s", s.PID(), s.addr, s.workDir)
 
 	// 1. 通知管道 goroutine 退出
 	if pipeCancel != nil {
@@ -604,25 +631,30 @@ func (s *OpenCodeServer) Stop() error {
 
 	// 3. 无子进程直接返回
 	if cmd == nil || cmd.Process == nil {
+		logs.Debugf("OpenCode server stop complete without process: addr=%s", s.addr)
 		return nil
 	}
 
 	// 4. 优雅关闭：先 SIGTERM，超时后 SIGKILL
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		if errors.Is(err, os.ErrProcessDone) {
+			logs.Infof("OpenCode server already exited before SIGTERM: pid=%d elapsed=%s", cmd.Process.Pid, time.Since(startedAt).Truncate(time.Millisecond))
 			return nil
 		}
+		logs.Warnf("OpenCode server SIGTERM failed, sending SIGKILL: pid=%d err=%v", cmd.Process.Pid, err)
 		_ = cmd.Process.Kill()
 	}
 
 	// 5. 从唯一的 waitCh 等待进程退出
 	select {
 	case <-s.waitCh:
+		logs.Infof("OpenCode server stopped: pid=%d elapsed=%s", cmd.Process.Pid, time.Since(startedAt).Truncate(time.Millisecond))
 		return nil
 	case <-time.After(gracefulShutdownTimeout):
 		logs.Warnf("OpenCode server pid=%d did not exit after SIGTERM, sending SIGKILL", cmd.Process.Pid)
 		_ = cmd.Process.Kill()
 		<-s.waitCh
+		logs.Infof("OpenCode server killed: pid=%d elapsed=%s", cmd.Process.Pid, time.Since(startedAt).Truncate(time.Millisecond))
 		return nil
 	}
 }
@@ -641,6 +673,7 @@ func (s *OpenCodeServer) PID() int {
 
 // CreateSession 创建新的 OpenCode 会话。
 func (s *OpenCodeServer) CreateSession(ctx context.Context, title, providerID, modelID, systemPrompt string) (*sessionResponse, error) {
+	startedAt := time.Now()
 	reqBody := sessionCreateRequest{
 		Title: title,
 	}
@@ -659,7 +692,8 @@ func (s *OpenCodeServer) CreateSession(ctx context.Context, title, providerID, m
 		return nil, fmt.Errorf("marshal create session request: %w", err)
 	}
 
-	logs.Debugf("CreateSession request body: %s", string(body))
+	logs.Debugf("OpenCode CreateSession request: title=%s provider=%s model=%s system_prompt_len=%d body=%s",
+		title, providerID, modelID, len(strings.TrimSpace(systemPrompt)), string(body))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/session", bytes.NewReader(body))
 	if err != nil {
@@ -670,6 +704,7 @@ func (s *OpenCodeServer) CreateSession(ctx context.Context, title, providerID, m
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		logs.Warnf("OpenCode CreateSession request failed: elapsed=%s err=%v", time.Since(startedAt).Truncate(time.Millisecond), err)
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 	defer resp.Body.Close()
@@ -685,12 +720,14 @@ func (s *OpenCodeServer) CreateSession(ctx context.Context, title, providerID, m
 		return nil, fmt.Errorf("decode session response: %w", err)
 	}
 
-	logs.Infof("OpenCode session created: id=%s title=%s", session.ID, session.Title)
+	logs.Infof("OpenCode session created: id=%s title=%s elapsed=%s", session.ID, session.Title, time.Since(startedAt).Truncate(time.Millisecond))
 	return &session, nil
 }
 
 // GetSession retrieves session metadata required to resume plan handoff handling.
 func (s *OpenCodeServer) GetSession(ctx context.Context, sessionID string) (*sessionResponse, error) {
+	startedAt := time.Now()
+	logs.Debugf("OpenCode GetSession request: session_id=%s", sessionID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/session/"+sessionID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get session request: %w", err)
@@ -699,12 +736,16 @@ func (s *OpenCodeServer) GetSession(ctx context.Context, sessionID string) (*ses
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		logs.Warnf("OpenCode GetSession request failed: session_id=%s elapsed=%s err=%v",
+			sessionID, time.Since(startedAt).Truncate(time.Millisecond), err)
 		return nil, fmt.Errorf("get session: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		logs.Warnf("OpenCode GetSession returned non-OK: session_id=%s status=%d elapsed=%s body=%s",
+			sessionID, resp.StatusCode, time.Since(startedAt).Truncate(time.Millisecond), string(respBody))
 		return nil, fmt.Errorf("get session returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -712,6 +753,8 @@ func (s *OpenCodeServer) GetSession(ctx context.Context, sessionID string) (*ses
 	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
 		return nil, fmt.Errorf("decode session response: %w", err)
 	}
+	logs.Debugf("OpenCode GetSession complete: session_id=%s title=%s elapsed=%s",
+		session.ID, session.Title, time.Since(startedAt).Truncate(time.Millisecond))
 	return &session, nil
 }
 
@@ -719,10 +762,13 @@ func (s *OpenCodeServer) GetSession(ctx context.Context, sessionID string) (*ses
 // 注意：openCode 的 /session/:id/message 是同步端点，会等待模型完整生成，
 // 可能耗时数分钟甚至更长，因此不使用带超时的 httpClient，而是完全依赖 context 控制生命周期。
 func (s *OpenCodeServer) SendMessage(ctx context.Context, sessionID string, req messageRequest) (*messageResponse, error) {
+	startedAt := time.Now()
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal message request: %w", err)
 	}
+	logs.Infof("OpenCode SendMessage request started: session_id=%s agent=%s model=%s part_count=%d system_prompt_len=%d",
+		sessionID, req.Agent, modelIDFromRef(req.Model), len(req.Parts), len(strings.TrimSpace(req.System)))
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/session/"+sessionID+"/message", bytes.NewReader(body))
 	if err != nil {
@@ -733,6 +779,8 @@ func (s *OpenCodeServer) SendMessage(ctx context.Context, sessionID string, req 
 
 	resp, err := s.longPollClient().Do(httpReq)
 	if err != nil {
+		logs.Warnf("OpenCode SendMessage request failed: session_id=%s elapsed=%s err=%v",
+			sessionID, time.Since(startedAt).Truncate(time.Millisecond), err)
 		return nil, fmt.Errorf("send message: %w", err)
 	}
 	defer resp.Body.Close()
@@ -747,12 +795,16 @@ func (s *OpenCodeServer) SendMessage(ctx context.Context, sessionID string, req 
 	if err := json.NewDecoder(resp.Body).Decode(&msgResp); err != nil {
 		return nil, fmt.Errorf("decode message response: %w", err)
 	}
+	logs.Infof("OpenCode SendMessage request completed: session_id=%s message_id=%s role=%s elapsed=%s",
+		sessionID, msgResp.Info.ID, msgResp.Info.Role, time.Since(startedAt).Truncate(time.Millisecond))
 
 	return &msgResp, nil
 }
 
 // Abort 中断正在运行的会话。
 func (s *OpenCodeServer) Abort(ctx context.Context, sessionID string) error {
+	startedAt := time.Now()
+	logs.Warnf("OpenCode Abort request started: session_id=%s", sessionID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/session/"+sessionID+"/abort", nil)
 	if err != nil {
 		return fmt.Errorf("abort session request: %w", err)
@@ -761,6 +813,8 @@ func (s *OpenCodeServer) Abort(ctx context.Context, sessionID string) error {
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		logs.Warnf("OpenCode Abort request failed: session_id=%s elapsed=%s err=%v",
+			sessionID, time.Since(startedAt).Truncate(time.Millisecond), err)
 		return fmt.Errorf("abort session: %w", err)
 	}
 	defer resp.Body.Close()
@@ -770,12 +824,13 @@ func (s *OpenCodeServer) Abort(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("abort session returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	logs.Infof("OpenCode session aborted: id=%s", sessionID)
+	logs.Infof("OpenCode session aborted: id=%s elapsed=%s", sessionID, time.Since(startedAt).Truncate(time.Millisecond))
 	return nil
 }
 
 // SendPermissionDecision 响应权限请求。
 func (s *OpenCodeServer) SendPermissionDecision(ctx context.Context, permissionID, decision string) error {
+	startedAt := time.Now()
 	reqBody := permissionDecision{Reply: decision}
 
 	body, err := json.Marshal(reqBody)
@@ -793,6 +848,8 @@ func (s *OpenCodeServer) SendPermissionDecision(ctx context.Context, permissionI
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		logs.Warnf("OpenCode permission reply failed: permission_id=%s elapsed=%s err=%v",
+			permissionID, time.Since(startedAt).Truncate(time.Millisecond), err)
 		return fmt.Errorf("send permission decision: %w", err)
 	}
 	defer resp.Body.Close()
@@ -801,12 +858,15 @@ func (s *OpenCodeServer) SendPermissionDecision(ctx context.Context, permissionI
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("permission decision returned %d: %s", resp.StatusCode, string(respBody))
 	}
+	logs.Infof("OpenCode permission reply sent: permission_id=%s decision=%s elapsed=%s",
+		permissionID, decision, time.Since(startedAt).Truncate(time.Millisecond))
 
 	return nil
 }
 
 // SendQuestionAnswer 响应 question 请求，发送用户选择的答案。
 func (s *OpenCodeServer) SendQuestionAnswer(ctx context.Context, questionID string, answers [][]string) error {
+	startedAt := time.Now()
 	reqBody := questionAnswerReq{Answers: answers}
 
 	body, err := json.Marshal(reqBody)
@@ -824,6 +884,8 @@ func (s *OpenCodeServer) SendQuestionAnswer(ctx context.Context, questionID stri
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		logs.Warnf("OpenCode question reply failed: question_id=%s elapsed=%s err=%v",
+			questionID, time.Since(startedAt).Truncate(time.Millisecond), err)
 		return fmt.Errorf("send question answer: %w", err)
 	}
 	defer resp.Body.Close()
@@ -832,6 +894,8 @@ func (s *OpenCodeServer) SendQuestionAnswer(ctx context.Context, questionID stri
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("question answer returned %d: %s", resp.StatusCode, string(respBody))
 	}
+	logs.Infof("OpenCode question reply sent: question_id=%s answer_count=%d elapsed=%s",
+		questionID, len(answers), time.Since(startedAt).Truncate(time.Millisecond))
 
 	return nil
 }
@@ -843,6 +907,7 @@ func (s *OpenCodeServer) SendQuestionAnswer(ctx context.Context, questionID stri
 // ConnectSSE 连接到 /event SSE 端点，返回解析后的事件通道。
 // 事件按 directory 过滤以确保只接收当前工作区的事件。
 func (s *OpenCodeServer) ConnectSSE(ctx context.Context, workDir string) (<-chan sseEvent, error) {
+	startedAt := time.Now()
 	url := s.baseURL + "/event"
 	if workDir != "" {
 		url += "?directory=" + workDir
@@ -855,11 +920,14 @@ func (s *OpenCodeServer) ConnectSSE(ctx context.Context, workDir string) (<-chan
 	req.Header.Set("Authorization", s.authHeader)
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
+	logs.Debugf("OpenCode SSE connect request: url=%s workDir=%s", url, workDir)
 
 	// SSE 需要长连接，使用独立的无超时 client
 	sseClient := &http.Client{Timeout: 0}
 	resp, err := sseClient.Do(req)
 	if err != nil {
+		logs.Warnf("OpenCode SSE connect failed: workDir=%s elapsed=%s err=%v",
+			workDir, time.Since(startedAt).Truncate(time.Millisecond), err)
 		return nil, fmt.Errorf("connect SSE: %w", err)
 	}
 
@@ -868,6 +936,7 @@ func (s *OpenCodeServer) ConnectSSE(ctx context.Context, workDir string) (<-chan
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("SSE connect returned %d: %s", resp.StatusCode, string(respBody))
 	}
+	logs.Infof("OpenCode SSE connect established: workDir=%s elapsed=%s", workDir, time.Since(startedAt).Truncate(time.Millisecond))
 
 	ch := make(chan sseEvent, 128)
 
@@ -965,4 +1034,14 @@ func parseSSEData(lines []string) *sseEvent {
 // 这些请求可能耗时数分钟等待模型生成，生命周期由 context 控制而非 client timeout。
 func (s *OpenCodeServer) longPollClient() *http.Client {
 	return &http.Client{Timeout: 0}
+}
+
+func modelIDFromRef(model *sessionModelRef) string {
+	if model == nil {
+		return ""
+	}
+	if strings.TrimSpace(model.ModelID) != "" {
+		return strings.TrimSpace(model.ModelID)
+	}
+	return strings.TrimSpace(model.ID)
 }

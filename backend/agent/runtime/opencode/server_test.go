@@ -216,6 +216,7 @@ func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) 
 		_ []agent.MCPServerConfig,
 		timeout time.Duration,
 		_ string,
+		_ string,
 	) (*OpenCodeServer, error) {
 		gotTimeouts = append(gotTimeouts, timeout)
 		return nil, errors.New("startup timeout")
@@ -230,6 +231,7 @@ func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) 
 		nil,
 		attemptTimeout,
 		"/workspace/.opencode",
+		"/workspace/task/skills",
 		starter,
 	)
 	if err == nil {
@@ -245,9 +247,9 @@ func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) 
 	}
 }
 
-func TestDefaultHealthCheckTimeoutIsTenSeconds(t *testing.T) {
-	if defaultHealthCheckTimeout != 10*time.Second {
-		t.Fatalf("defaultHealthCheckTimeout=%s, want 10s", defaultHealthCheckTimeout)
+func TestDefaultHealthCheckTimeoutIsFifteenSeconds(t *testing.T) {
+	if defaultHealthCheckTimeout != 15*time.Second {
+		t.Fatalf("defaultHealthCheckTimeout=%s, want 15s", defaultHealthCheckTimeout)
 	}
 }
 

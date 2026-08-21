@@ -11,6 +11,9 @@ import (
 
 // CreateResourceBinding 创建资源角色绑定记录。
 func CreateResourceBinding(ctx context.Context, d *gorm.DB, binding *types.ResourceBinding) error {
+	if err := binding.Validate(); err != nil {
+		return err
+	}
 	return d.WithContext(ctx).Create(binding).Error
 }
 
@@ -76,6 +79,18 @@ func ListResourceBindingsByResourceID(ctx context.Context, d *gorm.DB, resourceI
 	return entities, nil
 }
 
+// CountResourceUserBindings counts active human collaborators bound to one resource.
+func CountResourceUserBindings(ctx context.Context, d *gorm.DB, resourceID uint) (int64, error) {
+	var count int64
+	if err := d.WithContext(ctx).
+		Model(&types.ResourceBinding{}).
+		Where("resource_id = ? AND uin IS NOT NULL AND uin <> 0 AND deleted_at IS NULL", resourceID).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ListResourceBindingsByResourceIDs 按资源 ID 列表批量查询有效绑定。
 // 供 PermissionService 沿资源树一次性加载所有祖先资源的绑定。
 func ListResourceBindingsByResourceIDs(ctx context.Context, d *gorm.DB, resourceIDs []uint) ([]*types.ResourceBinding, error) {
@@ -126,6 +141,23 @@ func UpdateResourceBindingRole(ctx context.Context, d *gorm.DB, id uint, role ty
 // DeleteResourceBinding 软删除资源角色绑定记录。
 func DeleteResourceBinding(ctx context.Context, d *gorm.DB, id uint) error {
 	return d.WithContext(ctx).Delete(&types.ResourceBinding{}, id).Error
+}
+
+// GetFirstResourceAssistantBinding 取指定资源上按绑定顺序第一个 assistant 绑定（assistant_id IS NOT NULL，id ASC）。
+// 无结果返回 nil, nil。
+func GetFirstResourceAssistantBinding(ctx context.Context, d *gorm.DB, resourceID uint) (*types.ResourceBinding, error) {
+	var entity types.ResourceBinding
+	err := d.WithContext(ctx).
+		Where("resource_id = ? AND assistant_id IS NOT NULL AND deleted_at IS NULL", resourceID).
+		Order("id ASC").
+		First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
 }
 
 // CountResourceBindingsByRole 统计指定资源上指定角色的有效绑定数量。

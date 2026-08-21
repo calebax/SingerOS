@@ -17,17 +17,19 @@ import (
 )
 
 const skillManifestFile = "SKILL.md"
+const hiddenSkillSourceDir = ".system"
 
 var errNoSkillDirs = errors.New("no skill directories found")
 
-// SyncToLerosDir copies worker built-in skills to the Leros workspace skills directory (.leros/skills).
+// SyncToLerosDir copies worker built-in skills to the protected worker system
+// cache (.leros/skills/.system). Run views link from this directory explicitly.
 func SyncToLerosDir(sourceDir string) error {
-	sourceDir, err := resolveBuiltinSkillsSource(sourceDir, "worker")
+	sourceDir, err := ResolveBuiltinSkillsSource(sourceDir, "worker")
 	if err != nil {
 		return err
 	}
 
-	userDir, err := defaultLerosSkillsDir()
+	userDir, err := leros.JoinWorkspace(".leros", "skills", ".system")
 	if err != nil {
 		return err
 	}
@@ -42,194 +44,12 @@ func SyncToLerosDir(sourceDir string) error {
 	}
 
 	logs.Infof("Syncing worker built-in skills from %s to %s", sourceDir, resolvedUserDir)
-	return syncSkillDir(sourceDir, resolvedUserDir, true)
+	return syncSkillDir(sourceDir, resolvedUserDir)
 }
 
-// SyncServerSkillsDir copies server built-in skills to the Leros workspace skills directory (.leros/skills).
-func SyncServerSkillsDir(sourceDir string) error {
-	sourceDir, err := resolveBuiltinSkillsSource(sourceDir, "server")
-	if err != nil {
-		return err
-	}
-
-	targetDir, err := defaultLerosSkillsDir()
-	if err != nil {
-		return err
-	}
-
-	resolvedTargetDir, err := expandPath(targetDir)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(resolvedTargetDir, 0o755); err != nil {
-		return fmt.Errorf("create server skills directory: %w", err)
-	}
-
-	logs.Infof("Syncing server built-in skills from %s to %s", sourceDir, resolvedTargetDir)
-	return syncSkillDir(sourceDir, resolvedTargetDir, false)
-}
-
-// ReconcileExternalSkillLinks 全量对齐外部 CLI skill 目录与 .leros/skills。
-// 遍历 .leros/skills 下所有合法 skill 子目录，在每个外部 CLI skill 根目录下创建
-// {skillName} → .leros/skills/{skillName} 的 symlink。
-//
-// 同名目标处理规则（由 ensureSymlink 实现）：
-//   - 不存在：创建 symlink。
-//   - 正确 symlink：跳过（幂等）。
-//   - 错误 symlink：删除并重建。
-//   - 真实目录或文件：删除并替换为 symlink。
-//
-// 安全：删除前使用 Lstat，不跟随 symlink。仅删除 external/{skillName} 子路径，
-// 不删除外部根目录或 .leros/skills 源目录。
-// 适用场景：worker 启动 / bootstrap 时的全量初始化。
-func ReconcileExternalSkillLinks(cliSkillDirs []string) error {
-	userDir, err := defaultLerosSkillsDir()
-	if err != nil {
-		return err
-	}
-
-	resolvedUserDir, err := expandPath(userDir)
-	if err != nil {
-		return err
-	}
-
-	// Check if workspace skills directory exists.
-	if _, err := os.Stat(resolvedUserDir); os.IsNotExist(err) {
-		logs.Debugf("Leros workspace skills directory does not exist, skipping sync to external CLI: %s", resolvedUserDir)
-		return nil
-	}
-
-	if len(cliSkillDirs) == 0 {
-		logs.Debug("No external CLI skill directories provided, skipping sync")
-		return nil
-	}
-
-	skillNames, err := listSkillDirs(resolvedUserDir)
-	if err != nil {
-		if errors.Is(err, errNoSkillDirs) {
-			logs.Debugf("No skills found in %s, skipping sync to external CLI", resolvedUserDir)
-			return nil
-		}
-		return err
-	}
-
-	for _, cliDir := range cliSkillDirs {
-		resolvedCliDir, err := expandPath(cliDir)
-		if err != nil {
-			logs.Warnf("Failed to resolve CLI skill directory %s: %v", cliDir, err)
-			continue
-		}
-
-		logs.Infof("Syncing skills from %s to %s via symlinks", resolvedUserDir, resolvedCliDir)
-
-		if err := os.MkdirAll(resolvedCliDir, 0o755); err != nil {
-			logs.Warnf("Failed to create external CLI skill directory %s: %v", resolvedCliDir, err)
-			continue
-		}
-
-		for _, skillName := range skillNames {
-			sourcePath := filepath.Join(resolvedUserDir, skillName)
-			targetPath := filepath.Join(resolvedCliDir, skillName)
-
-			if err := ensureSymlink(sourcePath, targetPath); err != nil {
-				logs.Warnf("Failed to sync skill %s to %s: %v", skillName, targetPath, err)
-				continue
-			}
-		}
-	}
-
-	return nil
-}
-
-// EnsureExternalSkillLink 为单个 skill 在所有外部 CLI 目录下创建或替换 symlink。
-// 与 ReconcileExternalSkillLinks 不同，本函数只处理一个 skill，用于 create 后增量维护。
-// 限定条件：skillName 不能包含路径分隔符、不能是绝对路径、不能是 ".."。
-// 若 .leros/skills/{skillName} 不存在，返回错误。
-func EnsureExternalSkillLink(skillName string, cliSkillDirs []string) error {
-	if strings.TrimSpace(skillName) == "" {
-		return fmt.Errorf("skill name is required")
-	}
-	if strings.ContainsAny(skillName, "/\\") || filepath.IsAbs(skillName) || skillName == ".." {
-		return fmt.Errorf("invalid skill name %q: must not contain path separators or be absolute", skillName)
-	}
-
-	userDir, err := defaultLerosSkillsDir()
-	if err != nil {
-		return err
-	}
-	resolvedUserDir, err := expandPath(userDir)
-	if err != nil {
-		return err
-	}
-
-	sourcePath := filepath.Join(resolvedUserDir, skillName)
-	if _, err := os.Stat(sourcePath); err != nil {
-		return fmt.Errorf("source skill %s does not exist in .leros/skills: %w", skillName, err)
-	}
-
-	for _, cliDir := range cliSkillDirs {
-		resolvedCliDir, err := expandPath(cliDir)
-		if err != nil {
-			logs.Warnf("Failed to resolve CLI skill directory %s: %v", cliDir, err)
-			continue
-		}
-		if err := os.MkdirAll(resolvedCliDir, 0o755); err != nil {
-			logs.Warnf("Failed to create external CLI skill directory %s: %v", resolvedCliDir, err)
-			continue
-		}
-		targetPath := filepath.Join(resolvedCliDir, skillName)
-		if err := ensureSymlink(sourcePath, targetPath); err != nil {
-			logs.Warnf("Failed to sync skill %s to %s: %v", skillName, targetPath, err)
-			continue
-		}
-	}
-
-	return nil
-}
-
-// RemoveExternalSkillLink removes external symlinks for a single skill from all CLI directories.
-// Only symlinks are removed; real directories or files are left untouched.
-// Logs warnings on failures but continues to the next directory (same pattern as EnsureExternalSkillLink).
-// No-op if the symlink does not exist.
-func RemoveExternalSkillLink(skillName string, cliSkillDirs []string) error {
-	if strings.TrimSpace(skillName) == "" {
-		return fmt.Errorf("skill name is required")
-	}
-	if strings.ContainsAny(skillName, "/\\") || filepath.IsAbs(skillName) || skillName == ".." {
-		return fmt.Errorf("invalid skill name %q: must not contain path separators or be absolute", skillName)
-	}
-
-	for _, cliDir := range cliSkillDirs {
-		resolvedCliDir, err := expandPath(cliDir)
-		if err != nil {
-			logs.Warnf("Failed to resolve CLI skill directory %s: %v", cliDir, err)
-			continue
-		}
-		targetPath := filepath.Join(resolvedCliDir, skillName)
-		fi, err := os.Lstat(targetPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue // Nothing to remove, no-op
-			}
-			logs.Warnf("Failed to stat external symlink %s: %v", targetPath, err)
-			continue
-		}
-		// Only remove symlinks, never real directories or regular files.
-		if fi.Mode()&os.ModeSymlink == 0 {
-			continue
-		}
-		if err := os.Remove(targetPath); err != nil {
-			logs.Warnf("Failed to remove external symlink %s: %v", targetPath, err)
-			continue
-		}
-	}
-	return nil
-}
-
-// resolveBuiltinSkillsSource resolves the built-in skills directory for a given subdir (e.g. "server" or "worker").
+// ResolveBuiltinSkillsSource resolves the built-in skills directory for a given subdir (e.g. "server" or "worker").
 // Priority: 1. sourceDir param, 2. LEROS_SKILLS_DIR env, 3. default locations.
-func resolveBuiltinSkillsSource(sourceDir string, subdir string) (string, error) {
+func ResolveBuiltinSkillsSource(sourceDir string, subdir string) (string, error) {
 	skillsRelPath := filepath.Join("backend", "skills", subdir)
 	var candidates []string
 	if strings.TrimSpace(sourceDir) != "" {
@@ -260,6 +80,10 @@ func resolveBuiltinSkillsSource(sourceDir string, subdir string) (string, error)
 	return "", fmt.Errorf("built-in skills directory not found")
 }
 
+func resolveBuiltinSkillsSource(sourceDir string, subdir string) (string, error) {
+	return ResolveBuiltinSkillsSource(sourceDir, subdir)
+}
+
 func findParentDirCandidates(startDir string, relativePath string) []string {
 	var candidates []string
 	current := filepath.Clean(startDir)
@@ -274,43 +98,12 @@ func findParentDirCandidates(startDir string, relativePath string) []string {
 	return candidates
 }
 
-func defaultLerosSkillsDir() (string, error) {
-	return leros.SkillsDir()
-}
-
-// ensureSymlink ensures target is a symlink pointing to source.
-func ensureSymlink(sourcePath string, targetPath string) error {
-	fi, err := os.Lstat(targetPath)
-	if err == nil {
-		if fi.Mode()&os.ModeSymlink != 0 {
-			existingTarget, readErr := os.Readlink(targetPath)
-			if readErr == nil && existingTarget == sourcePath {
-				return nil
-			}
-		}
-		if removeErr := os.RemoveAll(targetPath); removeErr != nil {
-			return fmt.Errorf("remove existing %s: %w", targetPath, removeErr)
-		}
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("lstat %s: %w", targetPath, err)
-	}
-
-	if err := os.Symlink(sourcePath, targetPath); err != nil {
-		return fmt.Errorf("symlink %s -> %s: %w", targetPath, sourcePath, err)
-	}
-	return nil
-}
-
 // seedManifestFile is the manifest file tracking synced skill directory hashes.
 const seedManifestFile = ".seed-manifest"
 
-// syncSkillDir synchronizes skill directories from source to target. When writeManifest
-// is true, directory-level SHA256 hashes are tracked in a .seed-manifest file for change
-// detection and built-in skill protection. When false, skills are simply copied without
-// manifest tracking (used for server-side skills that users should be able to
-// install/uninstall freely).
-func syncSkillDir(sourceDir string, targetDir string, writeManifest bool) error {
-	skillDirs, err := listSkillDirs(sourceDir)
+// syncSkillDir synchronizes protected worker built-ins and tracks their hashes.
+func syncSkillDir(sourceDir string, targetDir string) error {
+	skillSources, err := listSkillSources(sourceDir)
 	if err != nil {
 		return err
 	}
@@ -318,84 +111,99 @@ func syncSkillDir(sourceDir string, targetDir string, writeManifest bool) error 
 		return err
 	}
 
-	var oldManifest map[string]string
-	if writeManifest {
-		manifestPath := filepath.Join(targetDir, seedManifestFile)
-		oldManifest, err = readSeedManifest(manifestPath)
-		if err != nil {
-			logs.Warnf("Failed to read seed manifest, will resync all: %v", err)
-			oldManifest = make(map[string]string)
-		}
-	} else {
-		// Server skills: remove any existing entries from the seed manifest so they
-		// are no longer treated as built-in (allows user install/uninstall).
-		manifestPath := filepath.Join(targetDir, seedManifestFile)
-		if existing, err := readSeedManifest(manifestPath); err == nil {
-			changed := false
-			for _, skillName := range skillDirs {
-				if _, ok := existing[skillName]; ok {
-					delete(existing, skillName)
-					changed = true
-				}
-			}
-			if changed {
-				if err := writeSeedManifest(manifestPath, existing); err != nil {
-					logs.Warnf("Failed to clean server skill entries from seed manifest: %v", err)
-				}
-			}
-		}
+	manifestPath := filepath.Join(targetDir, seedManifestFile)
+	oldManifest, err := readSeedManifest(manifestPath)
+	if err != nil {
+		logs.Warnf("Failed to read seed manifest, will resync all: %v", err)
 		oldManifest = make(map[string]string)
 	}
 
-	newManifest := make(map[string]string, len(skillDirs))
-	for _, skillName := range skillDirs {
-		sourceSkillDir := filepath.Join(sourceDir, skillName)
-		sourceHash, err := computeDirHash(sourceSkillDir)
+	newManifest := make(map[string]string, len(skillSources))
+	for _, skillSource := range skillSources {
+		sourceHash, err := computeDirHash(skillSource.path)
 		if err != nil {
-			return fmt.Errorf("compute hash for %s: %w", skillName, err)
+			return fmt.Errorf("compute hash for %s: %w", skillSource.name, err)
 		}
-		newManifest[skillName] = sourceHash
+		newManifest[skillSource.name] = sourceHash
 
-		oldHash := oldManifest[skillName]
+		oldHash := oldManifest[skillSource.name]
 		if sourceHash != oldHash {
-			logs.Infof("skill %s changed (old=%s, new=%s), syncing...", skillName, oldHash, sourceHash)
-			if err := copyDir(sourceSkillDir, filepath.Join(targetDir, skillName)); err != nil {
-				return fmt.Errorf("copy skill %s: %w", skillName, err)
+			logs.Infof("skill %s changed (old=%s, new=%s), syncing...", skillSource.name, oldHash, sourceHash)
+			if err := copyDir(skillSource.path, filepath.Join(targetDir, skillSource.name)); err != nil {
+				return fmt.Errorf("copy skill %s: %w", skillSource.name, err)
 			}
 		} else {
-			logs.Debugf("skill %s unchanged, skipping", skillName)
+			logs.Debugf("skill %s unchanged, skipping", skillSource.name)
 		}
 	}
 
-	if writeManifest {
-		// Remove stale skills that exist in manifest but not in source.
-		for oldName := range oldManifest {
-			if _, ok := newManifest[oldName]; !ok {
-				logs.Infof("skill %s removed from source, cleaning up", oldName)
-				if err := os.RemoveAll(filepath.Join(targetDir, oldName)); err != nil {
-					logs.Warnf("Failed to remove stale skill %s: %v", oldName, err)
-				}
+	// Remove stale skills that exist in manifest but not in source.
+	for oldName := range oldManifest {
+		if _, ok := newManifest[oldName]; !ok {
+			logs.Infof("skill %s removed from source, cleaning up", oldName)
+			if err := os.RemoveAll(filepath.Join(targetDir, oldName)); err != nil {
+				logs.Warnf("Failed to remove stale skill %s: %v", oldName, err)
 			}
 		}
-
-		manifestPath := filepath.Join(targetDir, seedManifestFile)
-		if err := writeSeedManifest(manifestPath, newManifest); err != nil {
-			return fmt.Errorf("write seed manifest: %w", err)
-		}
+	}
+	if err := writeSeedManifest(manifestPath, newManifest); err != nil {
+		return fmt.Errorf("write seed manifest: %w", err)
 	}
 	return nil
 }
 
-func listSkillDirs(sourceDir string) ([]string, error) {
-	entries, err := os.ReadDir(sourceDir)
-	if err != nil {
+type skillSource struct {
+	name string
+	path string
+}
+
+func listSkillSources(sourceDir string) ([]skillSource, error) {
+	var skillSources []skillSource
+	if err := appendSkillSources(&skillSources, sourceDir); err != nil {
 		return nil, err
 	}
 
-	var skillDirs []string
+	hiddenSourceDir := filepath.Join(sourceDir, hiddenSkillSourceDir)
+	if info, err := os.Stat(hiddenSourceDir); err == nil {
+		if info.IsDir() {
+			if err := appendSkillSources(&skillSources, hiddenSourceDir); err != nil {
+				return nil, err
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	if len(skillSources) == 0 {
+		return nil, fmt.Errorf("%w in %s", errNoSkillDirs, sourceDir)
+	}
+
+	sort.Slice(skillSources, func(left, right int) bool {
+		return skillSources[left].name < skillSources[right].name
+	})
+	seen := make(map[string]string, len(skillSources))
+	for _, source := range skillSources {
+		if previousPath, exists := seen[source.name]; exists {
+			return nil, fmt.Errorf("duplicate built-in Skill %q in %s and %s", source.name, previousPath, source.path)
+		}
+		seen[source.name] = source.path
+	}
+	return skillSources, nil
+}
+
+func appendSkillSources(skillSources *[]skillSource, sourceDir string) error {
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return err
+	}
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			logs.Debugf("Skipping non-directory entry in skills root: %s", filepath.Join(sourceDir, entry.Name()))
+			continue
+		}
+		if entry.Name() == hiddenSkillSourceDir {
+			logs.Debugf("Skipping hidden Skill source directory: %s", filepath.Join(sourceDir, entry.Name()))
 			continue
 		}
 		manifestPath := filepath.Join(sourceDir, entry.Name(), skillManifestFile)
@@ -408,12 +216,12 @@ func listSkillDirs(sourceDir string) ([]string, error) {
 			logs.Debugf("Skipping directory where %s is a directory: %s", skillManifestFile, filepath.Join(sourceDir, entry.Name()))
 			continue
 		}
-		skillDirs = append(skillDirs, entry.Name())
+		*skillSources = append(*skillSources, skillSource{
+			name: entry.Name(),
+			path: filepath.Join(sourceDir, entry.Name()),
+		})
 	}
-	if len(skillDirs) == 0 {
-		return nil, fmt.Errorf("%w in %s", errNoSkillDirs, sourceDir)
-	}
-	return skillDirs, nil
+	return nil
 }
 
 // computeDirHash computes a deterministic SHA256 hash for an entire directory.

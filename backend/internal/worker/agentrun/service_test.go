@@ -15,12 +15,12 @@ import (
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
-type preparerFunc func(context.Context, *agentrundomain.RunRequest) (*PreparedRun, error)
+type preparerFunc func(context.Context, *agentrundomain.RunRequest) (*PreparedRun, func(), error)
 
 func (f preparerFunc) Prepare(
 	ctx context.Context,
 	req *agentrundomain.RunRequest,
-) (*PreparedRun, error) {
+) (*PreparedRun, func(), error) {
 	return f(ctx, req)
 }
 
@@ -159,7 +159,7 @@ func TestServiceRunEmitsOneTerminalAndPreservesInput(t *testing.T) {
 		preparerFunc(func(
 			_ context.Context,
 			req *agentrundomain.RunRequest,
-		) (*PreparedRun, error) {
+		) (*PreparedRun, func(), error) {
 			req.Input.Messages[0].Content = "prepared"
 			return &PreparedRun{
 				Request: req,
@@ -167,7 +167,7 @@ func TestServiceRunEmitsOneTerminalAndPreservesInput(t *testing.T) {
 					ExecutionID: req.RunID,
 					Runtime:     "test",
 				},
-			}, nil
+			}, func() {}, nil
 		}),
 		agent.NewExecutor(registry),
 		finalizerStub{
@@ -246,14 +246,14 @@ func TestServiceRunCancellationSeparatesMessageAndError(t *testing.T) {
 		preparerFunc(func(
 			_ context.Context,
 			req *agentrundomain.RunRequest,
-		) (*PreparedRun, error) {
+		) (*PreparedRun, func(), error) {
 			return &PreparedRun{
 				Request: req,
 				Execution: agent.ExecutionRequest{
 					ExecutionID: req.RunID,
 					Runtime:     "test",
 				},
-			}, nil
+			}, func() {}, nil
 		}),
 		agent.NewExecutor(registry),
 		finalizerStub{},
@@ -330,7 +330,7 @@ func TestServiceRunRedactsAPIKeyFromFailureEventsAndProviderSession(t *testing.T
 		preparerFunc(func(
 			_ context.Context,
 			req *agentrundomain.RunRequest,
-		) (*PreparedRun, error) {
+		) (*PreparedRun, func(), error) {
 			return &PreparedRun{
 				Request: req,
 				Execution: agent.ExecutionRequest{
@@ -344,7 +344,7 @@ func TestServiceRunRedactsAPIKeyFromFailureEventsAndProviderSession(t *testing.T
 						APIKey:   req.Model.APIKey,
 					},
 				},
-			}, nil
+			}, func() {}, nil
 		}),
 		agent.NewExecutor(registry),
 		finalizerStub{},
@@ -534,7 +534,7 @@ func TestServiceRunClassifiesPlanPublishFailureAsBusinessPhase(t *testing.T) {
 		preparerFunc(func(
 			_ context.Context,
 			req *agentrundomain.RunRequest,
-		) (*PreparedRun, error) {
+		) (*PreparedRun, func(), error) {
 			return &PreparedRun{
 				Request: req,
 				Execution: agent.ExecutionRequest{
@@ -542,7 +542,7 @@ func TestServiceRunClassifiesPlanPublishFailureAsBusinessPhase(t *testing.T) {
 					TraceID:     req.TraceID,
 					Runtime:     "test",
 				},
-			}, nil
+			}, func() {}, nil
 		}),
 		agent.NewExecutor(registry),
 		finalizerStub{
@@ -611,7 +611,7 @@ func TestJournalArchivesPayloadUsageAndToolResults(t *testing.T) {
 		testEventContext("run-1"),
 		recorder,
 	)
-	handler := NewNodeHandler(journal, nil, nil, "test", "")
+	handler := NewNodeHandler(journal, nil, nil, "test", "", "")
 	now := time.Now().UTC()
 	events := []agent.NodeEvent{
 		{

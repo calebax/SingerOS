@@ -23,9 +23,15 @@ func NewFileHandler(service contract.FileService) *FileHandler {
 	return &FileHandler{service: service}
 }
 
-func (h *FileHandler) RegisterRoutes(r gin.IRouter) {
+// RegisterAuthedRoutes 注册需要登录（RequireCallerOrg）的文件写操作路由。
+func (h *FileHandler) RegisterAuthedRoutes(r gin.IRouter) {
 	r.POST("/files/upload", h.UploadFile)
-	r.GET("/files/:id/download", h.DownloadFile)
+}
+
+// RegisterAnonymousRoutes 注册允许匿名访问的文件读操作路由。
+// 匿名访问仅放行体系级（system）共享资源；组织私有文件仍需登录。
+func (h *FileHandler) RegisterAnonymousRoutes(r gin.IRouter) {
+	r.GET("/files/download", h.DownloadFile)
 	r.GET("/files/preview", h.PresignDownloadURL)
 }
 
@@ -68,6 +74,18 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 		return
 	}
 
+	localPath := strings.TrimSpace(ctx.PostForm("local-path"))
+	if localPath != "" {
+		if err := filestore.ValidateComposerUploadFilename(localPath); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "unsupported file type"))
+			return
+		}
+		if fileHeader.Size == 0 {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "empty file is not allowed"))
+			return
+		}
+	}
+
 	result, err := h.service.UploadFile(ctx, &contract.UploadFileRequest{
 		OrgID:    caller.OrgID,
 		OwnerID:  caller.Uin,
@@ -87,29 +105,44 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 }
 
 // @Summary 下载文件
-// @Description 流式返回文件内容
+// @Description 通过 publicID 或 storageURI 流式返回文件内容
 // @Tags File
 // @Produce octet-stream
-// @Param id path string true "文件ID"
+// @Param public_id query string false "文件公共ID"
+// @Param storage_uri query string false "文件存储URI（格式 {schema}://{bucket}/{key}）"
 // @Success 200 {file} binary "文件内容"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"
 // @Failure 404 {object} dto.ErrorResponse "文件不存在"
-// @Router /files/{id}/download [get]
+// @Router /files/download [get]
 func (h *FileHandler) DownloadFile(ctx *gin.Context) {
-	fileID := strings.TrimSpace(ctx.Param("id"))
-	if fileID == "" {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "file id is required"))
+	fileID := strings.TrimSpace(ctx.Query("public_id"))
+	storageURI := strings.TrimSpace(ctx.Query("storage_uri"))
+	if fileID == "" && storageURI == "" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "public_id or storage_uri is required"))
 		return
 	}
 
 	caller, _ := auth.FromGinContext(ctx)
-	if caller == nil || caller.OrgID == 0 {
-		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, "not authenticated"))
-		return
+	orgID := uint(0)
+	if caller != nil && caller.OrgID != 0 {
+		orgID = caller.OrgID
 	}
 
-	reader, info, err := h.service.DownloadFile(ctx, caller.OrgID, fileID)
+	var reader io.ReadCloser
+	var info *contract.FileDownloadInfo
+	var err error
+
+	if fileID != "" {
+		reader, info, err = h.service.DownloadFile(ctx, orgID, fileID)
+	} else {
+		// 按 storage_uri 直读对象不区分归属，仅允许已登录方使用。
+		if orgID == 0 {
+			ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, "not authenticated"))
+			return
+		}
+		reader, info, err = h.service.DownloadFileByURI(ctx, orgID, storageURI)
+	}
 	if err != nil {
 		if err.Error() == "get file download failed" {
 			ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, "file not found"))
@@ -156,12 +189,19 @@ func (h *FileHandler) PresignDownloadURL(ctx *gin.Context) {
 	}
 
 	caller, _ := auth.FromGinContext(ctx)
-	if caller == nil || caller.OrgID == 0 {
+	orgID := uint(0)
+	if caller != nil && caller.OrgID != 0 {
+		orgID = caller.OrgID
+	}
+
+	// 匿名请求仅允许通过 public_id 访问体系级（system）共享资源；
+	// 直接按 storage_uri 预签名（不区分归属）只限已登录方使用。
+	if fileID == "" && orgID == 0 {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, "not authenticated"))
 		return
 	}
 
-	url, err := h.service.PresignDownloadURL(ctx, caller.OrgID, fileID, storageURI)
+	url, err := h.service.PresignDownloadURL(ctx, orgID, fileID, storageURI)
 	if err != nil {
 		if err.Error() == "get presign download url failed" {
 			ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, "file not found"))

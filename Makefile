@@ -2,7 +2,7 @@ PROJECT ?= insmtx
 APP?= leros
 REGISTRY ?= registry.yygu.cn
 
-.PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend
+.PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend docker-build-worker-base docker-build-worker-base-private docker-push-worker-base docker-push-worker-base-private docker-build-worker docker-build-web docker-build-tag docker-push-tag image-tag
 
 # GO='GOOS=windows GOARCH=386 go'
 VERSION := $(shell git describe --tags | sed 's/\(.*\)-.*/\1/')
@@ -11,14 +11,17 @@ GO_VERSION := $(shell go version)
 APP_VERSION := $(shell git describe --tags --abbrev=0)
 BUILD_AT := $(shell date "+%Y-%m-%dT%H:%M:%S")
 TIMESTAMP := $(shell date +%s)
-
 IMAGE_TAG := ${VERSION}_${GIT_COMMIT}
 
+BUILD_TAGS ?=
+LDFLAGS := -s -w
 
-
+ifneq ($(BUILD_TAGS),)
+BUILD_TAGS_FLAG := -tags "$(BUILD_TAGS)"
+endif
 
 build:
-	go build -v -o ./bundles/leros ./backend/cmd/leros/
+	go build $(BUILD_TAGS_FLAG) -ldflags="$(LDFLAGS)" -v -o ./bundles/leros ./backend/cmd/leros/
 
 install:
 	bash deployments/dev/install.sh
@@ -27,16 +30,40 @@ uninstall:
 	bash deployments/dev/install.sh --uninstall
 
 docker-build-base:
-	docker build -t $(REGISTRY)/$(PROJECT)/base:latest -f deployments/build/Dockerfile.base .
+	docker build -t $(REGISTRY)/$(PROJECT)/leros-base:latest -f deployments/build/Dockerfile.base .
 
 docker-push-base: docker-build-base
-	docker push $(REGISTRY)/$(PROJECT)/base:latest
+	docker push $(REGISTRY)/$(PROJECT)/leros-base:latest
+
+# Worker base: ubuntu + libreoffice + CJK fonts + node + claude-code/codex/opencode + leros user.
+# Independent from leros-base; rebuild whenever Dockerfile.worker-base changes.
+#
+# 版次（Dockerfile.worker-base 顶层 ARG EDITION）：
+#   docker-build-worker-base         WORKER_BASE_EDITION=saas     -> :saas     (SaaS 精简版，默认)
+#   docker-build-worker-base-private  WORKER_BASE_EDITION=private -> :private  (私有化完整版)
+# 不打 :latest 别名，避免 private/saas 共用 tag 在仓库里混淆；
+# Dockerfile.worker 的 FROM 默认显式写 :saas，私有化部署需改成 :private。
+# 也可显式指定：make docker-build-worker-base WORKER_BASE_EDITION=private
+WORKER_BASE_EDITION ?= saas
+WORKER_BASE_IMAGE ?= $(REGISTRY)/$(PROJECT)/leros-worker-base:$(WORKER_BASE_EDITION)
+
+docker-build-worker-base:
+	docker build --build-arg EDITION=$(WORKER_BASE_EDITION) -t $(REGISTRY)/$(PROJECT)/leros-worker-base:$(WORKER_BASE_EDITION) -f deployments/build/Dockerfile.worker-base .
+
+docker-build-worker-base-private:
+	$(MAKE) docker-build-worker-base WORKER_BASE_EDITION=private
+
+docker-push-worker-base: docker-build-worker-base
+	docker push $(REGISTRY)/$(PROJECT)/leros-worker-base:$(WORKER_BASE_EDITION)
+
+docker-push-worker-base-private:
+	$(MAKE) docker-push-worker-base WORKER_BASE_EDITION=private
 
 docker-build:
 	docker build -t $(REGISTRY)/$(PROJECT)/leros:latest -f deployments/build/Dockerfile.leros .
 
 docker-build-worker:
-	docker build -t $(REGISTRY)/$(PROJECT)/worker:latest -f deployments/build/Dockerfile.worker .
+	docker build --build-arg WORKER_BASE_IMAGE=$(WORKER_BASE_IMAGE) -t $(REGISTRY)/$(PROJECT)/worker:latest -f deployments/build/Dockerfile.worker .
 
 docker-build-web:
 	docker build -t $(REGISTRY)/$(PROJECT)/web:latest -f deployments/build/Dockerfile.web $(DOCKER_BUILD_ARGS) .
@@ -53,6 +80,7 @@ docker-build-tag:
 		exit 1; \
 	fi
 	docker build \
+		--build-arg BUILD_TAGS=$(BUILD_TAGS) \
 		-t $(REGISTRY)/$(PROJECT)/$(SERVICE):${IMAGE_TAG} \
 		-f deployments/build/Dockerfile.$(DOCKERFILE_NAME) \
 	    $(DOCKER_BUILD_ARGS) \
@@ -122,7 +150,10 @@ logs:
 .PHONY: swagger swagger-clean
 
 swagger:
-	swag init --generalInfo server.go --dir backend/cmd/leros,backend/internal/api/handler,backend/internal/api,backend/types --output docs/swagger --exclude example
+	swag init --generalInfo server.go \
+		--dir backend/cmd/leros,backend/internal/api/handler,backend/internal/api,backend/types \
+		--output docs/swagger --exclude example \
+		--parseDependency --parseDepth 2
 
 swagger-clean:
 	rm -rf docs/swagger

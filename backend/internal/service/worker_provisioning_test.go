@@ -12,7 +12,6 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/worker"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -41,16 +40,37 @@ func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {
 	if err := database.First(&defaultAssistant, defaultDeployment.DigitalAssistantID).Error; err != nil {
 		t.Fatalf("load default assistant: %v", err)
 	}
-	if defaultAssistant.Code != "default_o12" {
-		t.Fatalf("default assistant code = %q, want default_o12", defaultAssistant.Code)
+	if defaultAssistant.PublicID != "assistant_default_o12" {
+		t.Fatalf("default assistant public_id = %q, want assistant_default_o12", defaultAssistant.PublicID)
+	}
+	defaultDeploymentAgain, err := provisioning.EnsureDefaultWorkerForOrg(ctx, 12, 34)
+	if err != nil {
+		t.Fatalf("ensure default worker again: %v", err)
+	}
+	if defaultDeploymentAgain.ID != defaultDeployment.ID {
+		t.Fatalf("default deployment id = %d, want %d", defaultDeploymentAgain.ID, defaultDeployment.ID)
+	}
+	var defaultAssistantCount int64
+	if err := database.Model(&types.DigitalAssistant{}).Where("org_id = ? AND public_id = ?", 12, "assistant_default_o12").Count(&defaultAssistantCount).Error; err != nil {
+		t.Fatalf("count default assistants: %v", err)
+	}
+	if defaultAssistantCount != 1 {
+		t.Fatalf("default assistant count = %d, want 1", defaultAssistantCount)
+	}
+	var defaultDeploymentCount int64
+	if err := database.Model(&types.WorkerDeployment{}).Where("org_id = ? AND worker_id = ?", 12, 1).Count(&defaultDeploymentCount).Error; err != nil {
+		t.Fatalf("count default deployments: %v", err)
+	}
+	if defaultDeploymentCount != 1 {
+		t.Fatalf("default deployment count = %d, want 1", defaultDeploymentCount)
 	}
 
 	assistant := &types.DigitalAssistant{
-		Code:    "custom-agent",
-		OrgID:   12,
-		OwnerID: 34,
-		Name:    "Custom Agent",
-		Status:  string(contract.DigitalAssistantStatusDraft),
+		PublicID: "custom-agent",
+		OrgID:    12,
+		OwnerID:  34,
+		Name:     "Custom Agent",
+		Status:   string(contract.DigitalAssistantStatusDraft),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -78,11 +98,11 @@ func TestWorkerProvisioningRebindsLegacyDefaultWorker(t *testing.T) {
 
 	ctx := context.Background()
 	legacyAssistant := &types.DigitalAssistant{
-		Code:    "org_12_default_worker",
-		OrgID:   12,
-		OwnerID: 34,
-		Name:    "Legacy Default Worker",
-		Status:  string(contract.DigitalAssistantStatusActive),
+		PublicID: "org_12_default_worker",
+		OrgID:    12,
+		OwnerID:  34,
+		Name:     "Legacy Default Worker",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(legacyAssistant).Error; err != nil {
 		t.Fatalf("create legacy assistant: %v", err)
@@ -105,7 +125,7 @@ func TestWorkerProvisioningRebindsLegacyDefaultWorker(t *testing.T) {
 	}
 
 	var defaultAssistant types.DigitalAssistant
-	if err := database.Where("org_id = ? AND code = ?", 12, "default_o12").First(&defaultAssistant).Error; err != nil {
+	if err := database.Where("org_id = ? AND public_id = ?", 12, "assistant_default_o12").First(&defaultAssistant).Error; err != nil {
 		t.Fatalf("load default assistant: %v", err)
 	}
 	if defaultDeployment.DigitalAssistantID != defaultAssistant.ID {
@@ -130,10 +150,10 @@ func TestWorkerReconcilerDoesNotRestartProvisioningDeployment(t *testing.T) {
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		PublicID: "agent",
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -183,10 +203,10 @@ func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		PublicID: "agent",
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -247,10 +267,10 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		PublicID: "agent",
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -263,6 +283,7 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 		DeploymentName:     "leros-worker-o1-w1",
 		Status:             string(types.WorkerDeploymentStatusProvisioning),
 		BootstrapTokenHash: "stable-token-hash",
+		LastError:          "worker is not ready",
 		LastStartedAt:      &startedAt,
 	}
 	if err := database.Create(deployment).Error; err != nil {
@@ -284,66 +305,8 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 	if got.Status != string(types.WorkerDeploymentStatusReady) {
 		t.Fatalf("status = %q, want ready", got.Status)
 	}
-}
-
-func TestWorkerReconcilerSyncsOrgSkillsAfterProvisioningDeploymentReady(t *testing.T) {
-	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open database: %v", err)
-	}
-	if err := database.AutoMigrate(&types.DigitalAssistant{}, &types.WorkerDeployment{}, &types.OrgSkillInstallation{}); err != nil {
-		t.Fatalf("migrate database: %v", err)
-	}
-
-	ctx := context.Background()
-	assistant := &types.DigitalAssistant{
-		Code:   "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
-	}
-	if err := database.Create(assistant).Error; err != nil {
-		t.Fatalf("create assistant: %v", err)
-	}
-	if err := database.Create(&types.OrgSkillInstallation{
-		OrgID:   1,
-		Action:  "install",
-		Source:  "Leros",
-		SkillID: "demo-skill",
-		Version: "latest",
-		Name:    "demo-skill",
-		Status:  types.OrgSkillInstallationStatusActive,
-	}).Error; err != nil {
-		t.Fatalf("create org skill installation: %v", err)
-	}
-	startedAt := time.Now()
-	deployment := &types.WorkerDeployment{
-		OrgID:              1,
-		DigitalAssistantID: assistant.ID,
-		WorkerID:           1,
-		DeploymentName:     "leros-worker-o1-w1",
-		Status:             string(types.WorkerDeploymentStatusProvisioning),
-		BootstrapTokenHash: "stable-token-hash",
-		LastStartedAt:      &startedAt,
-	}
-	if err := database.Create(deployment).Error; err != nil {
-		t.Fatalf("create deployment: %v", err)
-	}
-
-	scheduler := &fakeWorkerScheduler{}
-	publisher := &skillInstallPublisher{
-		response: messaging.WorkerCommandResult{Success: true, Action: "install"},
-	}
-	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment, publisher); err != nil {
-		t.Fatalf("reconcile deployment: %v", err)
-	}
-
-	deadline := time.Now().Add(time.Second)
-	for len(publisher.requests) == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if len(publisher.requests) != 1 {
-		t.Fatalf("sync request count = %d, want 1", len(publisher.requests))
+	if got.LastError != "" {
+		t.Fatalf("last_error = %q, want empty", got.LastError)
 	}
 }
 
@@ -358,10 +321,10 @@ func TestWorkerReconcilerRestartsProvisioningDeploymentWhenRuntimeMissing(t *tes
 
 	ctx := context.Background()
 	assistant := &types.DigitalAssistant{
-		Code:   "agent",
-		OrgID:  1,
-		Name:   "Agent",
-		Status: string(contract.DigitalAssistantStatusActive),
+		PublicID: "agent",
+		OrgID:    1,
+		Name:     "Agent",
+		Status:   string(contract.DigitalAssistantStatusActive),
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create assistant: %v", err)
@@ -427,4 +390,8 @@ func (f *fakeWorkerScheduler) List(ctx context.Context) ([]*worker.WorkerInstanc
 
 func (f *fakeWorkerScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
 	return f.needsReconcile, nil
+}
+
+func (f *fakeWorkerScheduler) Shutdown(ctx context.Context) error {
+	return nil
 }

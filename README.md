@@ -92,6 +92,26 @@ AI 辅助工作越来越普及，但产出收不回来 — 对话结束即清零
 - **审批工作流** — 关键操作可配置人工审批节点
 - **私有化部署** — 支持企业内部基础设施部署
 
+### 认证体系
+
+Lework 支持两种认证模式，通过编译时 build tag 选择：
+
+| 模式 | 说明 | 构建命令 |
+|------|------|---------|
+| **builtin**（默认） | 内置邮箱/手机/Worker Token 认证，开源版使用 | `go build -o ./bundles/leros ./backend/cmd/leros/` |
+| **enterprise** | 委托至 IAM（身份认证管理）服务，企业版使用 | `go build -tags enterprise -o ./bundles/leros ./backend/cmd/leros/` |
+
+企业版需在 `config.yaml` 中配置 IAM 服务地址：
+
+```yaml
+auth:
+  mode: "enterprise"
+  iam:
+    base_url: "https://iam.example.com/v5"
+```
+
+开箱即用时无需配置 `auth` 块，默认使用内置认证。
+
 ---
 
 ## 🛣 路线图

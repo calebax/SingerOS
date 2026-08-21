@@ -1,3 +1,8 @@
+import {
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	resolveComposerUploadFileName,
+} from "../constants/composer-upload";
 import { authenticatedFetch } from "../utils/authStorage";
 import { apiClient } from "./client";
 import { API_BASE_URL } from "./config";
@@ -5,24 +10,31 @@ import type {
 	BackendDataResponse,
 	BackendProjectFileNode,
 	BackendProjectFileUploadResult,
+	BackendProjectFileVersionList,
 } from "./types";
 
 export type GetProjectFilesParams = {
 	projectId: string;
 	resourceType?: "user_upload" | "artifact";
 	taskId?: string;
+	nodeType?: "folder" | "file";
+	fileExt?: string;
 };
 
 export type UploadProjectFileParams = {
 	projectId: string;
 	projectPublicId: string;
 	file: File;
+	signal?: AbortSignal;
 };
 
 export type UploadLooseFileParams = {
 	file: File;
 	purpose?: string;
 	source_id?: string;
+	/** 对话输入框上传时传 true，后端会按 local-path 后缀校验 */
+	withLocalPath?: boolean;
+	signal?: AbortSignal;
 };
 
 type BackendUploadFilePayload = {
@@ -45,7 +57,28 @@ async function parseErrorMessage(response: Response): Promise<string> {
 	} catch {
 		// 保持默认错误信息即可
 	}
+	if (message === "unsupported file type") {
+		return `服务端拒绝了该文件类型。${COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE}`;
+	}
+	if (message === "empty file is not allowed") {
+		return COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE;
+	}
 	return message;
+}
+
+const listProjectFilesInflight = new Map<
+	string,
+	ReturnType<typeof apiClient.get<BackendDataResponse<BackendProjectFileNode[]>>>
+>();
+
+function getListProjectFilesKey(params: GetProjectFilesParams): string {
+	return [
+		params.projectId,
+		params.resourceType ?? "",
+		params.taskId ?? "",
+		params.nodeType ?? "",
+		params.fileExt ?? "",
+	].join(":");
 }
 
 function assertBackendSuccess<T>(
@@ -61,14 +94,23 @@ function assertBackendSuccess<T>(
 async function uploadFile(
 	file: File,
 	projectPublicId: string,
+	signal?: AbortSignal,
 ): Promise<BackendDataResponse<BackendUploadFilePayload>> {
-	return uploadLooseFile({ file, purpose: "projects", source_id: projectPublicId });
+	return uploadLooseFile({
+		file,
+		purpose: "projects",
+		source_id: projectPublicId,
+		withLocalPath: true,
+		signal,
+	});
 }
 
 async function uploadLooseFile({
 	file,
 	purpose = "attachment",
 	source_id,
+	withLocalPath = false,
+	signal,
 }: UploadLooseFileParams): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	const formData = new FormData();
 	formData.append("file", file);
@@ -76,10 +118,14 @@ async function uploadLooseFile({
 	if (source_id) {
 		formData.append("source_id", source_id);
 	}
+	if (withLocalPath) {
+		formData.append("local-path", resolveComposerUploadFileName(file));
+	}
 
 	const response = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
 		method: "POST",
 		body: formData,
+		signal,
 	});
 
 	if (!response.ok) {
@@ -90,20 +136,55 @@ async function uploadLooseFile({
 }
 
 export const projectFileApi = {
-	list: ({ projectId, resourceType, taskId }: GetProjectFilesParams) => {
-		const params: Record<string, string> = {};
-		if (resourceType) params.resource_type = resourceType;
-		if (taskId) params.task_id = taskId;
-		return apiClient.get<BackendDataResponse<BackendProjectFileNode[]>>(
-			`/projects/${encodeURIComponent(projectId)}/files`,
-			{
-				params: Object.keys(params).length > 0 ? params : undefined,
-			},
-		);
+	list: (params: GetProjectFilesParams) => {
+		const key = getListProjectFilesKey(params);
+		const inflight = listProjectFilesInflight.get(key);
+		if (inflight) return inflight;
+
+		const queryParams: Record<string, string> = {};
+		if (params.resourceType) queryParams.resource_type = params.resourceType;
+		if (params.taskId) queryParams.task_id = params.taskId;
+		if (params.nodeType) queryParams.node_type = params.nodeType;
+		if (params.fileExt) queryParams.file_ext = params.fileExt;
+
+		const promise = apiClient
+			.get<BackendDataResponse<BackendProjectFileNode[]>>(
+				`/projects/${encodeURIComponent(params.projectId)}/files`,
+				{
+					params: Object.keys(queryParams).length > 0 ? queryParams : undefined,
+				},
+			)
+			.finally(() => {
+				listProjectFilesInflight.delete(key);
+			});
+		listProjectFilesInflight.set(key, promise);
+		return promise;
 	},
 
 	download: (projectId: string, filePath: string): string =>
 		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/download?path=${encodeURIComponent(filePath)}`,
+
+	downloadVersion: (projectId: string, filePublicId: string): string =>
+		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/download`,
+
+	folderDownload: (projectId: string, folderPublicId: string): string =>
+		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/folders/${encodeURIComponent(folderPublicId)}/download`,
+
+	async fetchFolderDownload(
+		projectId: string,
+		folderPublicId: string,
+		options?: { signal?: AbortSignal },
+	): Promise<Response> {
+		const url = projectFileApi.folderDownload(projectId, folderPublicId);
+		const response = await authenticatedFetch(url, {
+			method: "GET",
+			signal: options?.signal,
+		});
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}`);
+		}
+		return response;
+	},
 
 	async fetchDownload(
 		projectId: string,
@@ -121,9 +202,37 @@ export const projectFileApi = {
 		return response;
 	},
 
-	upload: async ({ file, projectPublicId }: UploadProjectFileParams) => {
+	async fetchDownloadVersion(
+		projectId: string,
+		filePublicId: string,
+		options?: { signal?: AbortSignal },
+	): Promise<Response> {
+		const response = await authenticatedFetch(
+			projectFileApi.downloadVersion(projectId, filePublicId),
+			{
+				method: "GET",
+				signal: options?.signal,
+			},
+		);
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}`);
+		}
+		return response;
+	},
+
+	versions: (projectId: string, filePublicId: string) =>
+		apiClient.get<BackendDataResponse<BackendProjectFileVersionList>>(
+			`/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/versions`,
+		),
+
+	restoreVersion: (projectId: string, filePublicId: string) =>
+		apiClient.post<BackendDataResponse<BackendProjectFileNode>>(
+			`/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/restore`,
+		),
+
+	upload: async ({ file, projectPublicId, signal }: UploadProjectFileParams) => {
 		const uploadResponse = assertBackendSuccess(
-			await uploadFile(file, projectPublicId),
+			await uploadFile(file, projectPublicId, signal),
 			"文件上传失败",
 		);
 		const uploaded = uploadResponse.data;
@@ -148,9 +257,19 @@ export const projectFileApi = {
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
 
-	uploadLoose: async ({ file, purpose = "attachment" }: UploadLooseFileParams) => {
+	uploadLoose: async ({
+		file,
+		purpose = "attachment",
+		withLocalPath,
+		signal,
+	}: UploadLooseFileParams) => {
 		const uploadResponse = assertBackendSuccess(
-			await uploadLooseFile({ file, purpose }),
+			await uploadLooseFile({
+				file,
+				purpose,
+				withLocalPath,
+				signal,
+			}),
 			"文件上传失败",
 		);
 		const uploaded = uploadResponse.data;

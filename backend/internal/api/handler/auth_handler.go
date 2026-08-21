@@ -5,30 +5,32 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 )
 
 type AuthHandler struct {
-	service contract.AuthService
+	service account.AuthProvider
 }
 
-func NewAuthHandler(service contract.AuthService) *AuthHandler {
+func NewAuthHandler(service account.AuthProvider) *AuthHandler {
 	return &AuthHandler{service: service}
 }
 
 func (h *AuthHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/RegisterByEmail", h.RegisterByEmail)
-	r.POST("/LoginByEmail", h.LoginByEmail)
+	r.POST("/LoginByPassword", h.LoginByPassword)
 	r.POST("/SendPhoneLoginCode", h.SendPhoneLoginCode)
 	r.POST("/LoginByPhoneCode", h.LoginByPhoneCode)
 	r.POST("/RefreshToken", h.RefreshToken)
+	r.POST("/ChooseUin", h.ChooseUin)
 	r.POST("/SwitchOrganization", h.SwitchOrganization)
 	r.POST("/CreateOrganization", h.CreateOrganization)
 	r.GET("/AuthSession", h.AuthSession)
 }
 
-func RegisterAuthRoutes(r gin.IRouter, service contract.AuthService) {
+func RegisterAuthRoutes(r gin.IRouter, service account.AuthProvider) {
 	h := NewAuthHandler(service)
 	h.RegisterRoutes(r)
 }
@@ -50,7 +52,7 @@ func (h *AuthHandler) RegisterByEmail(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.RegisterByEmail(ctx, &req)
+	result, err := h.service.RegisterByEmail(ctx, &req.RegisterByEmailInput)
 	if err != nil {
 		handleAuthServiceError(ctx, err)
 		return
@@ -58,26 +60,26 @@ func (h *AuthHandler) RegisterByEmail(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
-// @Summary 邮箱登录
-// @Description 使用邮箱和密码登录并获取访问令牌
+// @Summary 账号密码登录
+// @Description 使用账号（邮箱或手机号）和密码登录；统一返回 refresh_token，需后续调用 ChooseUin 选择组织获取 JWT
 // @Tags Auth
 // @Accept json
 // @Produce json
-// @Param body body contract.LoginByEmailRequest true "邮箱登录请求"
+// @Param body body contract.LoginByPasswordRequest true "账号密码登录请求"
 // @Success 200 {object} dto.Response "成功响应"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "认证失败"
 // @Failure 429 {object} dto.ErrorResponse "登录失败次数过多"
 // @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
-// @Router /LoginByEmail [post]
-func (h *AuthHandler) LoginByEmail(ctx *gin.Context) {
-	var req contract.LoginByEmailRequest
+// @Router /LoginByPassword [post]
+func (h *AuthHandler) LoginByPassword(ctx *gin.Context) {
+	var req contract.LoginByPasswordRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
 
-	result, err := h.service.LoginByEmail(ctx, &req)
+	result, err := h.service.LoginByPassword(ctx, &req.LoginByPasswordInput)
 	if err != nil {
 		handleAuthServiceError(ctx, err)
 		return
@@ -103,7 +105,7 @@ func (h *AuthHandler) SendPhoneLoginCode(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.SendPhoneLoginCode(ctx, &req)
+	result, err := h.service.SendPhoneLoginCode(ctx, &req.SendPhoneLoginCodeInput)
 	if err != nil {
 		handleAuthServiceError(ctx, err)
 		return
@@ -130,7 +132,7 @@ func (h *AuthHandler) LoginByPhoneCode(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.LoginByPhoneCode(ctx, &req)
+	result, err := h.service.LoginByPhoneCode(ctx, &req.LoginByPhoneCodeInput)
 	if err != nil {
 		handleAuthServiceError(ctx, err)
 		return
@@ -156,7 +158,33 @@ func (h *AuthHandler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.RefreshToken(ctx, &req)
+	result, err := h.service.RefreshToken(ctx, &req.RefreshTokenInput)
+	if err != nil {
+		handleAuthServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 选择组织
+// @Description 使用 refresh token 选择组织并获取访问令牌
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param body body contract.ChooseUinRequest true "选择组织请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "认证失败"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /ChooseUin [post]
+func (h *AuthHandler) ChooseUin(ctx *gin.Context) {
+	var req contract.ChooseUinRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.ChooseUin(ctx, &req.ChooseUinInput)
 	if err != nil {
 		handleAuthServiceError(ctx, err)
 		return
@@ -182,12 +210,12 @@ func (h *AuthHandler) SwitchOrganization(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.SwitchOrganization(ctx, &req)
+	result, err := h.service.SwitchOrganization(ctx, &req.SwitchOrganizationInput)
 	if err != nil {
 		handleAuthServiceError(ctx, err)
 		return
 	}
-	ctx.JSON(http.StatusOK, dto.Success(result))
+	ctx.JSON(http.StatusOK, dto.Success(&contract.SwitchOrganizationResponse{JwtToken: result.JwtToken}))
 }
 
 // @Summary 创建组织并切换
@@ -208,7 +236,7 @@ func (h *AuthHandler) CreateOrganization(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.CreateOrganization(ctx, &req)
+	result, err := h.service.CreateOrganization(ctx, &req.CreateOrganizationInput)
 	if err != nil {
 		handleAuthServiceError(ctx, err)
 		return
@@ -252,7 +280,10 @@ func handleAuthServiceError(ctx *gin.Context, err error) {
 
 func isAuthBadRequestError(err error) bool {
 	switch err.Error() {
-	case "请输入邮箱",
+	case "请输入账号",
+		"邮箱格式错误",
+		"手机号格式错误",
+		"请输入邮箱",
 		"请输入正确的邮箱",
 		"请输入密码",
 		"密码不一致",
@@ -271,6 +302,10 @@ func isAuthBadRequestError(err error) bool {
 		return true
 	case "最多只能加入两个组织":
 		return true
+	case "当前版本不支持此特性":
+		return true
+	case "请先创建或加入组织":
+		return true
 	default:
 		return false
 	}
@@ -278,7 +313,8 @@ func isAuthBadRequestError(err error) bool {
 
 func isAuthUnauthorizedError(err error) bool {
 	switch err.Error() {
-	case "邮箱或密码错误",
+	case "账号或密码错误",
+		"邮箱或密码错误",
 		"验证码错误或已过期",
 		"登录已过期，请重新登录",
 		"用户不存在",

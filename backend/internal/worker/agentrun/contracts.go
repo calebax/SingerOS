@@ -10,8 +10,10 @@ import (
 )
 
 // Preparer converts a business run request into an immutable prepared run.
+// The returned cleanup function releases per‑run resources (e.g. model‑store
+// business identifiers). Callers MUST invoke it when the run finishes.
 type Preparer interface {
-	Prepare(ctx context.Context, req *agentrundomain.RunRequest) (*PreparedRun, error)
+	Prepare(ctx context.Context, req *agentrundomain.RunRequest) (*PreparedRun, func(), error)
 }
 
 // ToolProvider resolves business tools into the neutral execution contract.
@@ -54,15 +56,25 @@ type Finalization struct {
 
 // EventContext carries immutable routing and tracing values for one business run.
 type EventContext struct {
-	OrgID             uint
-	WorkerID          uint
-	SessionID         string
+	OrgID uint
+	// WorkerID 是 leros_worker_deployment.worker_id（worker 主键）。
+	WorkerID uint
+	// WorkerPublicID 是 leros_worker_deployment.public_id。
+	WorkerPublicID string
+	SessionID      string
+	// AssistantID 是 leros_digital_assistant.id（assistant 主键）。
+	AssistantID uint
+	// AssistantPublicID 是 leros_digital_assistant.public_id。
+	AssistantPublicID string
 	TraceID           string
 	RequestID         string
 	TaskID            string
 	RunID             string
 	ParentID          string
 	ReplyToMessageIDs []string
+	// MemberCommandIDs contains every durable command merged into this execution batch.
+	MemberCommandIDs []string
+	ClientIP         string
 }
 
 // RunEventPublisher publishes a fully constructed Worker/Server business event.
