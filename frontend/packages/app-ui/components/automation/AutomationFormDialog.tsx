@@ -417,7 +417,7 @@ export function AutomationFormDialog({
 							<span className="text-xs font-normal text-slate-700">
 								任务指令 <span className="text-red-500">*</span>
 							</span>
-							<div className="rounded-lg border border-slate-200 bg-white transition-colors focus-within:border-[#4f46e5] focus-within:outline-none">
+							<div className="rounded-lg border border-slate-200 bg-white px-3 py-2 transition-colors focus-within:border-[#4f46e5] focus-within:outline-none">
 								<StructuredComposer
 									ref={composerRef}
 									value={instruction}
