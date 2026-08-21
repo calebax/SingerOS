@@ -361,12 +361,56 @@ deploy:
       }
     - retry_before_script npm install -g --prefix "$CI_PROJECT_DIR/.pnpm-bin" pnpm@10.28.2
 
-# Windows 交叉打包专用 before_script：Wine 用于执行 electron-builder 的 Windows 资源编辑工具，
-# 无需安装 Linux Electron/GTK 运行时依赖。
+# Windows 交叉打包专用 before_script：Wine 用于 rcedit，以及跑 NSIS 临时安装包抽出 __uninstaller.exe。
+# 后者需要 wine32；只装 wine64 会在 makensis 阶段报 no files found。
+# wine 体积大且官方 Debian 源在国内慢：优先用预装镜像；否则阿里云源 + 作业 apt 缓存。
 .desktop-before-windows:
   before_script:
-    - apt-get -o Acquire::Retries=3 update && apt-get install -y --no-install-recommends
-        python3-venv ca-certificates wine
+    - |
+      switch_debian_mirror() {
+        local files=""
+        [ -f /etc/apt/sources.list.d/debian.sources ] && files="$files /etc/apt/sources.list.d/debian.sources"
+        [ -f /etc/apt/sources.list ] && files="$files /etc/apt/sources.list"
+        [ -z "$files" ] && return 0
+        sed -i \
+          -e 's|https\?://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' \
+          -e 's|https\?://security.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g' \
+          -e 's|https\?://security.debian.org|https://mirrors.aliyun.com/debian-security|g' \
+          $files
+      }
+
+      apt_get() {
+        apt-get \
+          -o Acquire::Retries=5 \
+          -o Acquire::http::Timeout=30 \
+          -o Dir::Cache="$APT_CACHE_DIR" \
+          -o Dir::Cache::archives="$APT_CACHE_DIR/archives" \
+          "$@"
+      }
+
+      wine32_installed() {
+        dpkg -s wine32 2>/dev/null | grep -q '^Status: install ok installed' \
+          || dpkg -s wine32:i386 2>/dev/null | grep -q '^Status: install ok installed'
+      }
+
+      if command -v wine >/dev/null 2>&1 && wine32_installed && python3 -m venv --help >/dev/null 2>&1; then
+        echo "Wine already present in the image: $(wine --version)"
+      else
+        switch_debian_mirror
+        dpkg --add-architecture i386
+        APT_CACHE_DIR="$CI_PROJECT_DIR/.apt-cache"
+        mkdir -p "$APT_CACHE_DIR/archives/partial"
+        apt_get update
+        # wine32 用于执行 32 位 NSIS 卸载器提取；--no-install-recommends 不会自动装它。
+        apt_get install -y --no-install-recommends \
+          python3-venv ca-certificates wine wine64 wine32
+      fi
+      python3 -m venv --help >/dev/null
+      if ! wine32_installed; then
+        echo "wine32 is required to extract the NSIS uninstaller on Linux"
+        dpkg -l 'wine*' || true
+        exit 1
+      fi
     - wine --version
     - export PATH="$CI_PROJECT_DIR/.pnpm-bin/bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
     - mkdir -p "$CI_PROJECT_DIR/.pnpm-bin"
@@ -415,6 +459,7 @@ deploy:
         exit 1
       fi
     - cd frontend
+    - pnpm config set store-dir "$CI_PROJECT_DIR/frontend/.pnpm-store"
     - pnpm install --frozen-lockfile
     - HOME="$CI_PROJECT_DIR/.ci-home" coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
     - |
@@ -616,11 +661,24 @@ desktop-build-mac-x64:
 
 desktop-build-win-x64:
   extends: .desktop-build-template
+  # 长期方案：把 wine32 打进 Harbor 镜像后改成 registry.yygu.cn/library/node:24-wine
+  # 构建见 deployments/build/Dockerfile.desktop-ci-win
   image: registry.yygu.cn/library/node:24
   tags:
     - ubuntu
+  cache:
+    key: desktop-win-x64-deps
+    paths:
+      - .apt-cache/
+      - .electron-cache/
+      - .electron-builder-cache/
+      - frontend/.pnpm-store
+    policy: pull-push
   variables:
     DESKTOP_TARGET: win-x64
+    # rcedit / NSIS 都不需要 Gecko/Mono；禁止 wine 首次运行再去拉这俩大包。
+    WINEDLLOVERRIDES: "mscoree,mshtml="
+    WINEDEBUG: "-all"
   before_script:
     - !reference [".desktop-before-windows", before_script]
     - !reference [".desktop-before-base", before_script]
