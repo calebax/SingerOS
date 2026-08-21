@@ -92,6 +92,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	pluginService := service.NewPluginServiceWithAPIKeyIssuer(
 		db,
 		edition.APIKeyIssuer(),
+		userRepo,
 		displayTranslation,
 	)
 
@@ -140,7 +141,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	permSvc := service.NewPermissionService(db, service.NewPermissionCore(db))
 	authed := v1.Group("/", middleware.RequireCallerOrg())
 	{
-		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioning(db, workerScheduler, workerProvisioningService)
+		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioningAndUserRepo(db, workerScheduler, workerProvisioningService, userRepo)
 		handler.RegisterDigitalAssistantRoutes(authed, digitalAssistantService)
 		logs.Info("Digital assistant routes registered successfully")
 

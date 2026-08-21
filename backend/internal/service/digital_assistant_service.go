@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
@@ -25,6 +27,7 @@ type digitalAssistantService struct {
 	db                 *gorm.DB
 	workerScheduler    worker.WorkerScheduler
 	workerProvisioning *WorkerProvisioningService
+	userRepo           account.UserRepository
 }
 
 func NewDigitalAssistantService(db *gorm.DB, workerScheduler worker.WorkerScheduler) contract.DigitalAssistantService {
@@ -39,6 +42,21 @@ func NewDigitalAssistantServiceWithProvisioning(db *gorm.DB, workerScheduler wor
 		db:                 db,
 		workerScheduler:    workerScheduler,
 		workerProvisioning: provisioning,
+	}
+}
+
+// NewDigitalAssistantServiceWithProvisioningAndUserRepo 创建带成员解析能力的数字助手服务。
+func NewDigitalAssistantServiceWithProvisioningAndUserRepo(
+	database *gorm.DB,
+	workerScheduler worker.WorkerScheduler,
+	provisioning *WorkerProvisioningService,
+	userRepo account.UserRepository,
+) contract.DigitalAssistantService {
+	return &digitalAssistantService{
+		db:                 database,
+		workerScheduler:    workerScheduler,
+		workerProvisioning: provisioning,
+		userRepo:           userRepo,
 	}
 }
 
@@ -84,6 +102,7 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 		PublicID:     publicID,
 		OrgID:        caller.OrgID,
 		OwnerID:      caller.Uin,
+		Visibility:   types.DigitalAssistantVisibilityPrivate,
 		Name:         req.Name,
 		RoleName:     strings.TrimSpace(req.RoleName),
 		Description:  req.Description,
@@ -96,7 +115,35 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 		Source:       source,
 	}
 
-	if err := db.CreateDigitalAssistant(ctx, s.db, da); err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := db.CreateDigitalAssistant(ctx, tx, da); err != nil {
+			return err
+		}
+		// 中文注释：部分旧的纯服务测试只迁移数字助手表；正式启动会先迁移统一资源表。
+		if !newDigitalAssistantAccessManager(tx).resourceTablesAvailable() {
+			return nil
+		}
+		resource := &types.Resource{
+			OrgID:                 caller.OrgID,
+			Uin:                   caller.Uin,
+			Type:                  types.ResourceTypeAssistant,
+			BizID:                 da.ID,
+			ParentResourcePathIDs: types.ResourcePathIDs{},
+		}
+		if err := db.CreateResource(ctx, tx, resource); err != nil {
+			return fmt.Errorf("create digital assistant resource: %w", err)
+		}
+		uin := caller.Uin
+		if err := db.CreateResourceBinding(ctx, tx, &types.ResourceBinding{
+			OrgID:      caller.OrgID,
+			Uin:        &uin,
+			ResourceID: resource.ID,
+			Role:       types.ResourceRoleOwner,
+		}); err != nil {
+			return fmt.Errorf("create digital assistant owner binding: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -123,7 +170,7 @@ func (s *digitalAssistantService) GetDigitalAssistantByID(ctx context.Context, i
 		return nil, errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
+	if _, err := newDigitalAssistantAccessManager(s.db).require(ctx, caller.OrgID, caller.Uin, da, types.ActionAssistantView); err != nil {
 		return nil, err
 	}
 	return &contract.DigitalAssistantDetail{
@@ -145,7 +192,7 @@ func (s *digitalAssistantService) GetDigitalAssistantByPublicID(ctx context.Cont
 		return nil, errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
+	if _, err := newDigitalAssistantAccessManager(s.db).require(ctx, caller.OrgID, caller.Uin, da, types.ActionAssistantView); err != nil {
 		return nil, err
 	}
 	return &contract.DigitalAssistantDetail{
@@ -167,7 +214,7 @@ func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id
 		return nil, errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
+	if _, err := newDigitalAssistantAccessManager(s.db).require(ctx, caller.OrgID, caller.Uin, da, types.ActionAssistantUpdate); err != nil {
 		return nil, err
 	}
 	// 中文注释：模板实例只允许维护用户侧信息，角色名称、角色设定和能力配置必须保持模板定义。
@@ -264,7 +311,34 @@ func (s *digitalAssistantService) DeleteDigitalAssistant(ctx context.Context, id
 	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
 		return err
 	}
-	return db.DeleteDigitalAssistant(ctx, s.db, id)
+	if _, err := newDigitalAssistantAccessManager(s.db).require(ctx, caller.OrgID, caller.Uin, da, types.ActionAssistantDelete); err != nil {
+		return err
+	}
+	access := newDigitalAssistantAccessManager(s.db)
+	if !access.resourceTablesAvailable() {
+		return db.DeleteDigitalAssistant(ctx, s.db, id)
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		resource, err := db.GetResourceByBizID(ctx, tx, da.OrgID, types.ResourceTypeAssistant, da.ID)
+		if err != nil {
+			return err
+		}
+		if resource != nil {
+			bindings, err := db.ListResourceBindingsByResourceID(ctx, tx, resource.ID)
+			if err != nil {
+				return err
+			}
+			for _, binding := range bindings {
+				if err := db.DeleteResourceBinding(ctx, tx, binding.ID); err != nil {
+					return err
+				}
+			}
+			if err := db.DeleteResource(ctx, tx, resource.ID); err != nil {
+				return err
+			}
+		}
+		return db.DeleteDigitalAssistant(ctx, tx, id)
+	})
 }
 
 func (s *digitalAssistantService) ListDigitalAssistant(ctx context.Context, req *contract.ListDigitalAssistantRequest) (*contract.DigitalAssistantList, error) {
@@ -273,10 +347,12 @@ func (s *digitalAssistantService) ListDigitalAssistant(ctx context.Context, req 
 		return nil, err
 	}
 
-	// 中文注释：项目成员候选应覆盖当前组织的 AI 队友，而不是只返回当前用户创建的 AI。
-	orgCaller := *caller
-	orgCaller.Uin = 0
-	opt := types.NewPageQuery(orgCaller, req.Offset, req.Limit)
+	// 中文注释：列表只返回组织公开队友和当前用户直接授权的私有队友。
+	opt := types.NewPageQuery(*caller, req.Offset, req.Limit)
+	opt.Uin = 0
+	if newDigitalAssistantAccessManager(s.db).resourceTablesAvailable() {
+		opt.AddFilter("viewer_uin", strconv.FormatUint(uint64(caller.Uin), 10))
+	}
 	if req.Status != nil {
 		opt.AddFilter("status", *req.Status)
 	}
@@ -320,10 +396,7 @@ func (s *digitalAssistantService) UpdateDigitalAssistantStatus(ctx context.Conte
 		return errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
-		return err
-	}
-	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
+	if _, err := newDigitalAssistantAccessManager(s.db).require(ctx, caller.OrgID, caller.Uin, da, types.ActionAssistantStatusUpdate); err != nil {
 		return err
 	}
 
@@ -416,23 +489,38 @@ func (s *digitalAssistantService) markAssistantActive(ctx context.Context, da *t
 }
 
 func (s *digitalAssistantService) convertToContractDigitalAssistant(ctx context.Context, da *types.DigitalAssistant) *contract.DigitalAssistant {
+	visibility := da.Visibility
+	if visibility == "" {
+		visibility = types.DigitalAssistantVisibilityPublic
+	}
 	item := &contract.DigitalAssistant{
-		ID:           da.ID,
-		PublicID:     da.PublicID,
-		OrgID:        da.OrgID,
-		OwnerID:      da.OwnerID,
-		Name:         da.Name,
-		RoleName:     s.resolveAssistantRoleName(ctx, da),
-		Description:  da.Description,
-		Avatar:       da.Avatar,
-		Status:       da.Status,
-		Version:      da.Version,
-		SystemPrompt: da.SystemPrompt,
-		Expertise:    []string(da.Expertise),
-		TemplateID:   da.TemplateID,
-		Source:       da.Source,
-		CreatedAt:    da.CreatedAt,
-		UpdatedAt:    da.UpdatedAt,
+		ID:          da.ID,
+		PublicID:    da.PublicID,
+		OrgID:       da.OrgID,
+		OwnerID:     da.OwnerID,
+		Name:        da.Name,
+		RoleName:    s.resolveAssistantRoleName(ctx, da),
+		Description: da.Description,
+		Avatar:      da.Avatar,
+		Status:      da.Status,
+		Version:     da.Version,
+		Visibility:  visibility,
+		Expertise:   []string(da.Expertise),
+		TemplateID:  da.TemplateID,
+		Source:      da.Source,
+		CreatedAt:   da.CreatedAt,
+		UpdatedAt:   da.UpdatedAt,
+	}
+	if caller, _ := auth.FromContext(ctx); caller != nil && caller.OrgID == da.OrgID {
+		role, err := newDigitalAssistantAccessManager(s.db).resolveRole(ctx, caller.OrgID, caller.Uin, da)
+		if err == nil {
+			if role != "" {
+				item.Permission = &contract.DigitalAssistantPermission{Role: role}
+			}
+			if role == types.ResourceRoleOwner || role == types.ResourceRoleAdmin {
+				item.SystemPrompt = da.SystemPrompt
+			}
+		}
 	}
 	if s != nil && s.db != nil {
 		deployment, err := db.GetWorkerDeploymentByAssistantID(ctx, s.db, da.ID)

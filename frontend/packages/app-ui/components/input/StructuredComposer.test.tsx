@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerActionBar } from "./ComposerActionBar";
 import {
+	type ComposerAssistantOption,
 	type ComposerSkillOption,
 	StructuredComposer,
 	type StructuredComposerHandle,
@@ -47,11 +48,15 @@ function placeCaretAtEnd(element: HTMLElement) {
 
 function TestHarness({
 	skillOptions,
+	assistantOptions,
 	onValueChange,
+	onAssistantPickerOpen,
 	onSkillPickerOpen,
 }: {
 	skillOptions: ComposerSkillOption[];
+	assistantOptions?: ComposerAssistantOption[];
 	onValueChange?: (value: string) => void;
+	onAssistantPickerOpen?: () => Promise<boolean> | undefined;
 	onSkillPickerOpen?: () => void;
 }) {
 	const [value, setValue] = useState("");
@@ -70,6 +75,8 @@ function TestHarness({
 			onBlur={vi.fn()}
 			placeholder="请输入"
 			isProjectVariant
+			assistantOptions={assistantOptions}
+			onAssistantPickerOpen={onAssistantPickerOpen}
 			skillOptions={skillOptions}
 			onSkillPickerOpen={onSkillPickerOpen}
 		/>
@@ -228,10 +235,14 @@ function ProjectTriggerHarness({
 
 function ActionBarHarness({
 	onValueChange,
+	onAssistantPickerOpen,
 	onSkillPickerOpen,
+	assistantOptions = [],
 }: {
 	onValueChange?: (value: string) => void;
+	onAssistantPickerOpen?: () => Promise<boolean> | undefined;
 	onSkillPickerOpen?: () => void;
+	assistantOptions?: ComposerAssistantOption[];
 }) {
 	const [value, setValue] = useState("");
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -266,11 +277,14 @@ function ActionBarHarness({
 				onBlur={vi.fn()}
 				placeholder="请输入"
 				isProjectVariant
+				assistantOptions={assistantOptions}
 				skillOptions={skillOptions}
 			/>
 			<ComposerActionBar
 				inputValue={value}
 				composerRef={composerRef}
+				assistantOptions={assistantOptions}
+				onAssistantPickerOpen={onAssistantPickerOpen}
 				skillOptions={skillOptions}
 				onSkillPickerOpen={onSkillPickerOpen}
 			/>
@@ -422,6 +436,43 @@ describe("StructuredComposer", () => {
 		expect(onSkillPickerOpen).toHaveBeenCalledTimes(1);
 	});
 
+	it("输入框打开 AI 队友选择器时刷新并隐藏旧候选", async () => {
+		const user = userEvent.setup();
+		let resolveRefresh!: (succeeded: boolean) => void;
+		const onAssistantPickerOpen = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveRefresh = resolve;
+				}),
+		);
+
+		render(
+			<TestHarness
+				onAssistantPickerOpen={onAssistantPickerOpen}
+				assistantOptions={[
+					{
+						id: "assistant-old",
+						code: "assistant-old",
+						name: "旧队友",
+						description: "旧数据",
+					},
+				]}
+				skillOptions={[]}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("@");
+
+		await screen.findByText("加载 AI 队友...");
+		expect(onAssistantPickerOpen).toHaveBeenCalledTimes(1);
+		expect(screen.queryByText("旧队友")).not.toBeInTheDocument();
+
+		resolveRefresh(true);
+		await screen.findByText("旧队友");
+	});
+
 	it("技能展示名称与 code 不同时插入展示名，并把 code 放进 token id", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();
@@ -540,6 +591,39 @@ describe("StructuredComposer", () => {
 
 		await user.click(screen.getByRole("button", { name: "添加技能" }));
 		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(1));
+	});
+
+	it("点击召唤 AI 队友时刷新并隐藏旧候选", async () => {
+		const user = userEvent.setup();
+		let resolveRefresh!: (succeeded: boolean) => void;
+		const onAssistantPickerOpen = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveRefresh = resolve;
+				}),
+		);
+
+		render(
+			<ActionBarHarness
+				onAssistantPickerOpen={onAssistantPickerOpen}
+				assistantOptions={[
+					{
+						id: "assistant-old",
+						code: "assistant-old",
+						name: "旧队友",
+						description: "旧数据",
+					},
+				]}
+			/>,
+		);
+
+		await user.click(screen.getByRole("button", { name: "召唤AI队友" }));
+		await screen.findByText("加载 AI 队友...");
+		expect(onAssistantPickerOpen).toHaveBeenCalledTimes(1);
+		expect(screen.queryByText("旧队友")).not.toBeInTheDocument();
+
+		resolveRefresh(true);
+		await screen.findByText("旧队友");
 	});
 
 	it("连续选择多个技能时第一个技能仍保持 mention 样式", async () => {

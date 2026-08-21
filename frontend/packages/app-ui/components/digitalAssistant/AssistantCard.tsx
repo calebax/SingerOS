@@ -10,7 +10,7 @@ import {
 	DropdownMenuTrigger,
 } from "@leros/ui/components/ui/dropdown-menu";
 import { cn } from "@leros/ui/lib/utils";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Settings2, Trash2 } from "lucide-react";
 import { AssistantAvatar } from "./AssistantAvatar";
 import {
 	getAssistantDisplayStatus,
@@ -23,6 +23,7 @@ export type AssistantCardProps = {
 	onSelect: (assistant: DigitalAssistantItem) => void;
 	onSummon: (assistant: DigitalAssistantItem) => void;
 	onEdit: (assistant: DigitalAssistantItem) => void;
+	onPermission: (assistant: DigitalAssistantItem) => void;
 	onDelete: (assistant: DigitalAssistantItem) => void;
 };
 
@@ -31,11 +32,25 @@ export function AssistantCard({
 	onSelect,
 	onSummon,
 	onEdit,
+	onPermission,
 	onDelete,
 }: AssistantCardProps) {
 	const statusInfo = getAssistantDisplayStatus(assistant);
 	const available = isAssistantAvailable(assistant);
 	const editability = getAssistantEditability(assistant);
+	const canManage = assistant.permissionRole === "owner" || assistant.permissionRole === "admin";
+	const canDelete = assistant.permissionRole === "owner";
+	const visibilityLabel = assistant.visibility === "private" ? "私有" : "共享";
+	const visibilityClassName =
+		assistant.visibility === "private"
+			? "bg-slate-50 text-slate-600 border-slate-200"
+			: "bg-sky-50 text-sky-700 border-sky-200";
+	const roleLabel =
+		assistant.permissionRole === "owner"
+			? "所有者"
+			: assistant.permissionRole === "admin"
+				? "管理员"
+				: null;
 
 	return (
 		<div
@@ -61,13 +76,26 @@ export function AssistantCard({
 								<span className="truncate text-sm text-slate-500">{assistant.roleName}</span>
 							) : null}
 						</div>
-						<Badge
-							variant="outline"
-							className={cn("mt-2 shrink-0 text-xs", statusInfo.className)}
-							title={statusInfo.title}
-						>
-							{statusInfo.label}
-						</Badge>
+						<div className="mt-2 flex flex-wrap items-center gap-2">
+							<Badge
+								variant="outline"
+								className={cn("shrink-0 text-xs", statusInfo.className)}
+								title={statusInfo.title}
+							>
+								{statusInfo.label}
+							</Badge>
+							<Badge variant="outline" className={cn("shrink-0 text-xs", visibilityClassName)}>
+								{visibilityLabel}
+							</Badge>
+							{roleLabel ? (
+								<Badge
+									variant="outline"
+									className="shrink-0 border-violet-200 bg-violet-50 text-xs text-violet-700"
+								>
+									{roleLabel}
+								</Badge>
+							) : null}
+						</div>
 					</div>
 				</div>
 				{/* 中文注释：简介固定占用两行高度，保证内容多少不影响底部信息位置。 */}
@@ -112,15 +140,18 @@ export function AssistantCard({
 							<Pencil className="size-3.5 mr-2" />
 							编辑
 						</DropdownMenuItem>
-						<DropdownMenuItem
-							variant="destructive"
-							onClick={() => {
-								onDelete(assistant);
-							}}
-						>
-							<Trash2 className="size-3.5 mr-2" />
-							删除
-						</DropdownMenuItem>
+						{canManage && (
+							<DropdownMenuItem onClick={() => onPermission(assistant)}>
+								<Settings2 className="mr-2 size-3.5" />
+								共享
+							</DropdownMenuItem>
+						)}
+						{canDelete && (
+							<DropdownMenuItem variant="destructive" onClick={() => onDelete(assistant)}>
+								<Trash2 className="mr-2 size-3.5" />
+								删除
+							</DropdownMenuItem>
+						)}
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</div>

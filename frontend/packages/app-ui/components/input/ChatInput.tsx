@@ -151,7 +151,7 @@ export function ChatInput({
 		fetchTasks,
 		consumeProjectComposerPrefill,
 	} = useLayoutStore((s) => s);
-	const { assistants, assistantsLoaded } = useDAStore((s) => s);
+	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const [bidComparisonOpen, setBidComparisonOpen] = useState(false);
@@ -186,6 +186,7 @@ export function ChatInput({
 	const handleSkillPickerOpen = useCallback(() => {
 		void reloadSkillOptions();
 	}, [reloadSkillOptions]);
+	const handleAssistantPickerOpen = useCallback(() => fetchAssistants(), [fetchAssistants]);
 	const { connectorOptions, connectorsLoading } = useComposerConnectorOptions({
 		projectId: isProjectVariant ? currentProjectId : null,
 	});
@@ -774,6 +775,7 @@ export function ChatInput({
 							}
 							isProjectVariant={isProjectVariant}
 							assistantOptions={projectAssistantOptions}
+							onAssistantPickerOpen={handleAssistantPickerOpen}
 							skillOptions={skillOptions}
 							skillsLoading={skillsLoading}
 							onSkillPickerOpen={handleSkillPickerOpen}
@@ -796,6 +798,7 @@ export function ChatInput({
 									onUpload={() => fileInputRef.current?.click()}
 									onUploadFolder={() => folderInputRef.current?.click()}
 									assistantOptions={projectAssistantOptions}
+									onAssistantPickerOpen={handleAssistantPickerOpen}
 									skillOptions={skillOptions}
 									skillsLoading={skillsLoading}
 									onSkillPickerOpen={handleSkillPickerOpen}

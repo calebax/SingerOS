@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/types"
@@ -217,13 +218,14 @@ func TestOrganizationMemberCanUpdateAndDeleteSharedAssistant(t *testing.T) {
 	database := setupDigitalAssistantDB(t)
 	service := NewDigitalAssistantService(database, nil)
 	assistant := &types.DigitalAssistant{
-		PublicID: "shared-assistant",
-		OrgID:    1,
-		OwnerID:  1,
-		Name:     "小法",
-		RoleName: "法务专员",
-		Status:   string(contract.DigitalAssistantStatusActive),
-		Source:   "custom",
+		PublicID:   "shared-assistant",
+		OrgID:      1,
+		OwnerID:    1,
+		Visibility: types.DigitalAssistantVisibilityPublic,
+		Name:       "小法",
+		RoleName:   "法务专员",
+		Status:     string(contract.DigitalAssistantStatusActive),
+		Source:     "custom",
 	}
 	if err := database.Create(assistant).Error; err != nil {
 		t.Fatalf("create shared assistant: %v", err)
@@ -242,6 +244,92 @@ func TestOrganizationMemberCanUpdateAndDeleteSharedAssistant(t *testing.T) {
 	}
 	if err := service.DeleteDigitalAssistant(memberCtx, assistant.ID); err != nil {
 		t.Fatalf("organization member delete failed: %v", err)
+	}
+}
+
+func TestDigitalAssistantPermissionRolesAndPromptVisibility(t *testing.T) {
+	database := setupDigitalAssistantDB(t)
+	if err := database.AutoMigrate(&types.Resource{}, &types.ResourceBinding{}); err != nil {
+		t.Fatalf("migrate resource permission tables: %v", err)
+	}
+	userRepo := &testUserRepo{
+		uinMap: map[string]uint{"user-owner": 1, "user-admin": 2, "user-member": 3},
+		userInfos: map[uint]*account.UserInfo{
+			1: {Uin: 1, PublicID: "user-owner", Name: "所有者"},
+			2: {Uin: 2, PublicID: "user-admin", Name: "管理员"},
+			3: {Uin: 3, PublicID: "user-member", Name: "使用者"},
+		},
+	}
+	service := NewDigitalAssistantServiceWithProvisioningAndUserRepo(database, nil, nil, userRepo)
+	ownerCtx := setupTestContextWithCaller(t)
+	created, err := service.CreateDigitalAssistant(ownerCtx, &contract.CreateDigitalAssistantRequest{
+		Name:         "共享法务队友",
+		SystemPrompt: "仅管理员可见的系统设定",
+	})
+	if err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	if err := database.Model(&types.DigitalAssistant{}).Where("id = ?", created.ID).
+		Update("status", "active").Update("visibility", types.DigitalAssistantVisibilityPrivate).Error; err != nil {
+		t.Fatalf("activate assistant: %v", err)
+	}
+
+	settings, err := service.GetDigitalAssistantPermissions(ownerCtx, created.PublicID)
+	if err != nil {
+		t.Fatalf("get owner permissions: %v", err)
+	}
+	if settings.Visibility != types.DigitalAssistantVisibilityPrivate || len(settings.Members) != 1 || settings.Members[0].Role != types.ResourceRoleOwner {
+		t.Fatalf("unexpected initial permission settings: %+v", settings)
+	}
+
+	ownerInput := contract.DigitalAssistantPermissionMemberInput{Role: types.ResourceRoleOwner}
+	ownerInput.User.PublicID = "user-owner"
+	adminInput := contract.DigitalAssistantPermissionMemberInput{Role: types.ResourceRoleAdmin}
+	adminInput.User.PublicID = "user-admin"
+	memberInput := contract.DigitalAssistantPermissionMemberInput{Role: types.ResourceRoleMember}
+	memberInput.User.PublicID = "user-member"
+	settings, err = service.UpdateDigitalAssistantPermissions(ownerCtx, &contract.UpdateDigitalAssistantPermissionsRequest{
+		PublicID:   created.PublicID,
+		Visibility: types.DigitalAssistantVisibilityPrivate,
+		Members:    []contract.DigitalAssistantPermissionMemberInput{ownerInput, adminInput, memberInput},
+	})
+	if err != nil {
+		t.Fatalf("share assistant: %v", err)
+	}
+	if len(settings.Members) != 3 {
+		t.Fatalf("shared members = %d, want 3", len(settings.Members))
+	}
+
+	memberCtx := auth.WithContext(context.Background(), &types.Caller{
+		Uin: 3, OrgID: 1, Kind: types.CallerKindUser, State: types.AuthStateSucc,
+	}, nil)
+	detail, err := service.GetDigitalAssistantByID(memberCtx, created.ID)
+	if err != nil {
+		t.Fatalf("member view assistant: %v", err)
+	}
+	if detail.SystemPrompt != "" || detail.Permission == nil || detail.Permission.Role != types.ResourceRoleMember {
+		t.Fatalf("member received unexpected private configuration: %+v", detail)
+	}
+	if _, err := service.GetDigitalAssistantPermissions(memberCtx, created.PublicID); err == nil {
+		t.Fatal("member should not read permission settings")
+	}
+
+	adminCtx := auth.WithContext(context.Background(), &types.Caller{
+		Uin: 2, OrgID: 1, Kind: types.CallerKindUser, State: types.AuthStateSucc,
+	}, nil)
+	if _, err := service.UpdateDigitalAssistantPermissions(adminCtx, &contract.UpdateDigitalAssistantPermissionsRequest{
+		PublicID:   created.PublicID,
+		Visibility: types.DigitalAssistantVisibilityPublic,
+		Members:    []contract.DigitalAssistantPermissionMemberInput{ownerInput, adminInput, memberInput},
+	}); err == nil {
+		t.Fatal("admin should not change assistant visibility")
+	}
+	if _, err := service.UpdateDigitalAssistantPermissions(adminCtx, &contract.UpdateDigitalAssistantPermissionsRequest{
+		PublicID:   created.PublicID,
+		Visibility: types.DigitalAssistantVisibilityPrivate,
+		Members:    []contract.DigitalAssistantPermissionMemberInput{ownerInput, adminInput},
+	}); err != nil {
+		t.Fatalf("admin member update: %v", err)
 	}
 }
 

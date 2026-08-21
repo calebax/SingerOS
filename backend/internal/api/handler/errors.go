@@ -12,7 +12,7 @@ import (
 
 // isPermissionDenied reports whether err is a permission denial from PermissionService.
 func isPermissionDenied(err error) bool {
-	return err != nil && strings.HasPrefix(err.Error(), "permission denied")
+	return err != nil && strings.Contains(err.Error(), "permission denied")
 }
 
 // abortPermissionDenied writes a 403 Forbidden response and aborts the handler chain.

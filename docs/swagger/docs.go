@@ -1704,6 +1704,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/GetDigitalAssistantPermissions": {
+            "post": {
+                "description": "获取 AI 队友的公开范围和协作成员角色",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DigitalAssistant"
+                ],
+                "summary": "获取数字助手共享权限",
+                "parameters": [
+                    {
+                        "description": "共享权限请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.GetDigitalAssistantPermissionsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/GetLLMModel": {
             "post": {
                 "description": "根据ID或Code获取LLM模型配置详情",
@@ -3612,6 +3664,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/UpdateDigitalAssistantPermissions": {
+            "post": {
+                "description": "全量更新 AI 队友的公开范围和协作成员角色",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DigitalAssistant"
+                ],
+                "summary": "更新数字助手共享权限",
+                "parameters": [
+                    {
+                        "description": "共享权限更新请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.UpdateDigitalAssistantPermissionsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/UpdateDigitalAssistantStatus": {
             "post": {
                 "description": "更新数字助手的运行状态",
@@ -5299,6 +5403,9 @@ const docTemplate = `{
                 "owner_id": {
                     "type": "integer"
                 },
+                "permission": {
+                    "$ref": "#/definitions/contract.DigitalAssistantPermission"
+                },
                 "public_id": {
                     "type": "string"
                 },
@@ -5322,6 +5429,33 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "integer"
+                },
+                "visibility": {
+                    "$ref": "#/definitions/types.DigitalAssistantVisibility"
+                }
+            }
+        },
+        "contract.DigitalAssistantPermission": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/definitions/types.ResourceRole"
+                }
+            }
+        },
+        "contract.DigitalAssistantPermissionMemberInput": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/definitions/types.ResourceRole"
+                },
+                "user": {
+                    "type": "object",
+                    "properties": {
+                        "public_id": {
+                            "type": "string"
+                        }
+                    }
                 }
             }
         },
@@ -5337,6 +5471,17 @@ const docTemplate = `{
             }
         },
         "contract.GetAutomationRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "public_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.GetDigitalAssistantPermissionsRequest": {
             "type": "object",
             "required": [
                 "public_id"
@@ -5842,6 +5987,26 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                }
+            }
+        },
+        "contract.UpdateDigitalAssistantPermissionsRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/contract.DigitalAssistantPermissionMemberInput"
+                    }
+                },
+                "public_id": {
+                    "type": "string"
+                },
+                "visibility": {
+                    "$ref": "#/definitions/types.DigitalAssistantVisibility"
                 }
             }
         },
@@ -6688,6 +6853,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.DigitalAssistantVisibility": {
+            "type": "string",
+            "enum": [
+                "public",
+                "private"
+            ],
+            "x-enum-varnames": [
+                "DigitalAssistantVisibilityPublic",
+                "DigitalAssistantVisibilityPrivate"
+            ]
+        },
         "types.ExecutionMode": {
             "type": "string",
             "enum": [
@@ -6805,6 +6981,21 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.ResourceRole": {
+            "type": "string",
+            "enum": [
+                "owner",
+                "admin",
+                "member",
+                "viewer"
+            ],
+            "x-enum-varnames": [
+                "ResourceRoleOwner",
+                "ResourceRoleAdmin",
+                "ResourceRoleMember",
+                "ResourceRoleViewer"
+            ]
         }
     }
 }`

@@ -44,10 +44,18 @@ export {
 } from "./config";
 export type {
 	CreateDAParams,
+	DigitalAssistantPermission,
+	DigitalAssistantPermissionMember,
+	DigitalAssistantPermissionMemberInput,
+	DigitalAssistantPermissionRole,
+	DigitalAssistantPermissionSettings,
+	DigitalAssistantPermissionUser,
+	DigitalAssistantVisibility,
 	GetDAParams,
 	ListDAParams,
 	UpdateDAParams,
 	UpdateDAStatusParams,
+	UpdateDigitalAssistantPermissionsParams,
 } from "./digitalAssistantApi";
 export { digitalAssistantApi } from "./digitalAssistantApi";
 export type {
@@ -96,8 +104,14 @@ export type {
 	MCPPluginDefinition,
 	PluginInstallationStatus,
 	PluginListItem,
+	PluginPermission,
+	PluginPermissionMember,
+	PluginPermissionRole,
+	PluginPermissionSettings,
+	PluginPermissionUser,
 	PluginRevisionContent,
 	PluginRevisionFile,
+	PluginVisibility,
 	ProjectPluginItem,
 	StartMCPPlatformOAuthResponse,
 	TestMCPPluginParams,
