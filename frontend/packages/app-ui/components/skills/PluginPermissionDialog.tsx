@@ -257,7 +257,7 @@ export function PluginPermissionDialog({
 										<Input
 											value={search}
 											onChange={(event) => setSearch(event.target.value)}
-											placeholder="搜索姓名、部门或邮箱"
+											placeholder="搜索成员名称"
 											className="h-10 pl-9"
 										/>
 										{search.trim() && (

@@ -143,7 +143,7 @@ export function AssistantCard({
 						{canManage && (
 							<DropdownMenuItem onClick={() => onPermission(assistant)}>
 								<Settings2 className="mr-2 size-3.5" />
-								共享权限
+								共享
 							</DropdownMenuItem>
 						)}
 						{canDelete && (
