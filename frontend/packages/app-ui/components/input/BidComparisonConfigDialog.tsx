@@ -735,7 +735,10 @@ export function ProjectFilePicker({
 
 				<DialogFooter className="shrink-0 border-t border-slate-100 px-6 py-4 sm:items-center sm:justify-between">
 					<div className="text-sm text-slate-500">
-						已选择 {totalSelectedCount}/{totalMaxCount}
+						已选择{" "}
+						{Number.isFinite(totalMaxCount)
+							? `${totalSelectedCount}/${totalMaxCount}`
+							: totalSelectedCount}
 					</div>
 					<div className="flex gap-2">
 						<Button type="button" variant="ghost" onClick={onClose}>

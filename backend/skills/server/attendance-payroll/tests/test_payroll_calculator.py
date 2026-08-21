@@ -1,12 +1,25 @@
+import io
+import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.payroll_calculator import attendance_records, calculate, read_rows, write_workbook
+from scripts.payroll_calculator import (
+    attendance_records,
+    attendance_records_from_paths,
+    calculate,
+    load_historical_payroll,
+    main,
+    month_statutory_holidays,
+    note_skipped_generated_history,
+    read_rows,
+    write_workbook,
+)
 
 
 class PayrollCalculatorTest(unittest.TestCase):
@@ -372,6 +385,56 @@ class PayrollCalculatorTest(unittest.TestCase):
             finally:
                 workbook.close()
 
+    def test_june_statutory_holidays_include_dragon_boat_weekend_days(self):
+        self.assertEqual(
+            month_statutory_holidays("2026-06", ["2026-06-06", "2026-06-07"]),
+            ["2026-06-19", "2026-06-20", "2026-06-21"],
+        )
+
+    def test_multiple_roster_and_attendance_files_are_merged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "a.json"
+            second = Path(directory) / "b.json"
+            first.write_text(
+                '{"month":"2026-06","records":[{"name":"甲","project":"A","category":"外聘","actual_work_days":21}]}',
+                encoding="utf-8",
+            )
+            second.write_text(
+                '{"month":"2026-06","records":[{"name":"乙","project":"B","category":"外聘","actual_work_days":21}]}',
+                encoding="utf-8",
+            )
+            month, _, records = attendance_records_from_paths([first, second])
+            self.assertEqual(month, "2026-06")
+            self.assertEqual({row["name"] for row in records}, {"甲", "乙"})
+            roster_a = self.make_book(
+                directory, "roster-a.xlsx", ["姓名", "项目", "人员类别"],
+                [["甲", "A", "外聘"]],
+            )
+            roster_b = self.make_book(
+                directory, "roster-b.xlsx", ["姓名", "项目", "人员类别"],
+                [["乙", "B", "外聘"]],
+            )
+            history = self.make_book(
+                directory, "history.xlsx",
+                ["姓名", "项目", "人员类别", "基本工资", "绩效工资"],
+                [["甲", "A", "外聘", 5000, 1000], ["乙", "B", "外聘", 4000, 800]],
+            )
+            rows = calculate(
+                [*read_rows(roster_a), *read_rows(roster_b)],
+                read_rows(history),
+                records, "2026-06", None, None,
+            )
+            self.assertEqual({row["姓名"] for row in rows["payroll_detail"]}, {"甲", "乙"})
+
+    def test_conflicting_attendance_months_are_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "june.json"
+            second = Path(directory) / "july.json"
+            first.write_text('{"month":"2026-06","records":[{"name":"甲","actual_work_days":21}]}', encoding="utf-8")
+            second.write_text('{"month":"2026-07","records":[{"name":"乙","actual_work_days":21}]}', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "考勤月份冲突"):
+                attendance_records_from_paths([first, second])
+
     def test_formula_cells_without_excel_cache_supply_seniority_and_construction(self):
         with tempfile.TemporaryDirectory() as directory:
             history = self.make_book(
@@ -425,6 +488,83 @@ class PayrollCalculatorTest(unittest.TestCase):
         )
         self.assertEqual(rows["payroll_detail"][0]["事假天数"], 2)
         self.assertEqual(rows["payroll_detail"][0]["绩效工资"], 1975)
+
+    def test_generated_result_workbook_is_rejected_as_sole_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = Path(directory) / "2026年6月工资核算表.xlsx"
+            write_workbook(
+                calculate(
+                    [],
+                    [{"name": "张三", "project": "A项目", "category": "外聘",
+                      "position_salary": 5000, "performance": 1000, "historical_gross": 6000}],
+                    [{"name": "张三", "project": "A项目", "category": "外聘",
+                      "actual_work_days": 21}],
+                    "2026-06", None, None,
+                ),
+                generated,
+            )
+            with self.assertRaisesRegex(ValueError, "系统生成的工资核算表"):
+                load_historical_payroll([generated])
+
+    def test_generated_result_workbook_is_skipped_when_mixed_with_human_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            human = self.make_book(
+                directory, "2026年5月人工工资表.xlsx",
+                ["姓名", "项目", "人员类别", "基本工资", "绩效工资", "应发工资"],
+                [["张三", "A项目", "外聘", 5000, 1000, 6800]],
+            )
+            generated = Path(directory) / "2026年6月工资核算表.xlsx"
+            write_workbook(
+                calculate(
+                    [],
+                    [{"name": "张三", "project": "A项目", "category": "外聘",
+                      "position_salary": 9999, "performance": 1, "historical_gross": 1}],
+                    [{"name": "张三", "project": "A项目", "category": "外聘",
+                      "actual_work_days": 21}],
+                    "2026-06", None, None,
+                ),
+                generated,
+            )
+            rows, skipped = load_historical_payroll([generated, human])
+            self.assertEqual(skipped, ["2026年6月工资核算表.xlsx"])
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["position_salary"], 5000)
+            result = calculate(
+                [],
+                rows,
+                [{"name": "张三", "project": "A项目", "category": "外聘",
+                  "actual_work_days": 21}],
+                "2026-06", None, None,
+            )
+            self.assertEqual(result["reconciliation"][0]["历史应发"], 6800)
+            self.assertNotEqual(result["reconciliation"][0]["状态"], "历史应发不唯一")
+            notes = note_skipped_generated_history(result, skipped)
+            self.assertEqual(notes["skipped_generated_historical"], skipped)
+            self.assertTrue(any("错传或漏传" in item["说明"] for item in result["review_exceptions"]))
+            attendance = Path(directory) / "attendance.json"
+            attendance.write_text(
+                '{"month":"2026-06","records":[{"name":"张三","project":"A项目","category":"外聘","actual_work_days":21}]}',
+                encoding="utf-8",
+            )
+            roster = self.make_book(
+                directory, "roster.xlsx", ["姓名", "项目", "人员类别"],
+                [["张三", "A项目", "外聘"]],
+            )
+            output = Path(directory) / "out.xlsx"
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = main([
+                    "--roster", str(roster),
+                    "--historical", str(generated), str(human),
+                    "--attendance", str(attendance),
+                    "--month", "2026-06",
+                    "--output", str(output),
+                ])
+            self.assertEqual(code, 0)
+            payload = json.loads(buffer.getvalue())
+            self.assertEqual(payload["skipped_generated_historical"], ["2026年6月工资核算表.xlsx"])
+            self.assertTrue(any("错传或漏传" in warning for warning in payload["warnings"]))
+            self.assertEqual(payload["statutory_holidays"], ["2026-06-19", "2026-06-20", "2026-06-21"])
 
 
 if __name__ == "__main__":

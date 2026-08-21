@@ -65,6 +65,21 @@ func TestValidateNewMessageScene_SalaryAccounting(t *testing.T) {
 	if !errors.Is(err, ErrInvalidNewMessage) {
 		t.Fatalf("missing attendance: got %v", err)
 	}
+
+	_, err = ValidateNewMessageScene(&contract.NewMessageRequest{
+		Scene: "salary_accounting",
+		Attachments: []types.MessageAttachment{
+			{FileUploadID: "roster-1", AttachmentRole: "roster"},
+			{FileUploadID: "roster-2", AttachmentRole: "roster"},
+			{FileUploadID: "history-1", AttachmentRole: "historical_payroll"},
+			{FileUploadID: "history-2", AttachmentRole: "historical_payroll"},
+			{FileUploadID: "attendance-1", AttachmentRole: "attendance"},
+			{FileUploadID: "attendance-2", AttachmentRole: "attendance"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("multiple attachments per role should pass: %v", err)
+	}
 }
 
 func TestValidateNewMessageScene_BidComparison(t *testing.T) {

@@ -80,7 +80,7 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 		setFiles([]);
 	};
 
-	const addFiles = (selected: FileList | null, role: SelectedFile["role"], maxCount: number) => {
+	const addFiles = (selected: FileList | null, role: SelectedFile["role"]) => {
 		const nextFiles = Array.from(selected ?? []);
 		if (!nextFiles.length) return;
 		setFiles((current) => {
@@ -96,7 +96,6 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 					existing.add(key);
 					return true;
 				})
-				.slice(0, Math.max(0, maxCount - current.filter((item) => item.role === role).length))
 				.map((file) => ({
 					id: `payroll-${crypto.randomUUID()}`,
 					file,
@@ -167,11 +166,9 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 	const selectProjectFiles = (selected: BidComparisonProjectFile[]) => {
 		if (!filePickerRole) return;
 		const role = filePickerRole;
-		const maxCount = role === "roster" ? 1 : role === "historical_payroll" ? 10 : 20;
 		setFiles((current) => {
 			const uploads = current.filter((file) => file.role === role && !file.publicId);
 			const projectFiles = selected
-				.slice(0, Math.max(0, maxCount - uploads.length))
 				.map((file) => ({
 					id: `payroll-project-${file.publicId}`,
 					name: file.name,
@@ -297,11 +294,11 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 
 						{(
 							[
-								["人员底表", "roster", rosterInputRef, 1],
-								["历史工资表", "historical_payroll", historicalInputRef, 10],
-								["当月考勤表", "attendance", attendanceInputRef, 20],
+								["人员底表", "roster", rosterInputRef],
+								["历史工资表", "historical_payroll", historicalInputRef],
+								["当月考勤表", "attendance", attendanceInputRef],
 							] as const
-						).map(([title, role, ref, maxCount]) => {
+						).map(([title, role, ref]) => {
 							const roleFiles = files.filter((file) => file.role === role);
 							return (
 								<section key={role}>
@@ -312,7 +309,7 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 											</div>
 										</div>
 										<span className="shrink-0 text-xs text-slate-400">
-											{roleFiles.length}/{maxCount}
+											{roleFiles.length} 个
 										</span>
 									</div>
 									<div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-3">
@@ -396,8 +393,9 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 						ref={rosterInputRef}
 						type="file"
 						className="hidden"
+						multiple
 						onChange={(event) => {
-							addFiles(event.target.files, "roster", 1);
+							addFiles(event.target.files, "roster");
 							event.target.value = "";
 						}}
 					/>
@@ -407,7 +405,7 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 						className="hidden"
 						multiple
 						onChange={(event) => {
-							addFiles(event.target.files, "historical_payroll", 10);
+							addFiles(event.target.files, "historical_payroll");
 							event.target.value = "";
 						}}
 					/>
@@ -417,14 +415,14 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 						className="hidden"
 						multiple
 						onChange={(event) => {
-							addFiles(event.target.files, "attendance", 20);
+							addFiles(event.target.files, "attendance");
 							event.target.value = "";
 						}}
 					/>
 					{filePickerRole ? (
 						<ProjectFilePicker
 							open
-							mode={filePickerRole === "roster" ? "main" : "compare"}
+							mode="compare"
 							titleOverride={
 								filePickerRole === "roster"
 									? "选择人员底表"
@@ -432,9 +430,7 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 										? "选择历史工资表"
 										: "选择当月考勤表"
 							}
-							maxCountOverride={
-								filePickerRole === "roster" ? 1 : filePickerRole === "historical_payroll" ? 10 : 20
-							}
+							maxCountOverride={Number.POSITIVE_INFINITY}
 							projects={projectOptions}
 							initialSelected={files
 								.filter((file) => file.role === filePickerRole && file.publicId && file.projectId)

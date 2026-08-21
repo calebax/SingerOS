@@ -127,14 +127,14 @@ func validateSalaryAccountingAttachments(attachments []types.MessageAttachment) 
 			counts[attachment.AttachmentRole]++
 		}
 	}
-	if counts[string(types.AttachmentRoleRoster)] != 1 {
-		return fmt.Errorf("%w: salary_accounting requires exactly 1 roster attachment, got %d", ErrInvalidNewMessage, counts[string(types.AttachmentRoleRoster)])
+	if counts[string(types.AttachmentRoleRoster)] < 1 {
+		return fmt.Errorf("%w: salary_accounting requires at least 1 roster attachment, got %d", ErrInvalidNewMessage, counts[string(types.AttachmentRoleRoster)])
 	}
-	if counts[string(types.AttachmentRoleHistoricalPayroll)] < 1 || counts[string(types.AttachmentRoleHistoricalPayroll)] > 10 {
-		return fmt.Errorf("%w: salary_accounting requires 1-10 historical_payroll attachments, got %d", ErrInvalidNewMessage, counts[string(types.AttachmentRoleHistoricalPayroll)])
+	if counts[string(types.AttachmentRoleHistoricalPayroll)] < 1 {
+		return fmt.Errorf("%w: salary_accounting requires at least 1 historical_payroll attachment, got %d", ErrInvalidNewMessage, counts[string(types.AttachmentRoleHistoricalPayroll)])
 	}
-	if counts[string(types.AttachmentRoleAttendance)] < 1 || counts[string(types.AttachmentRoleAttendance)] > 20 {
-		return fmt.Errorf("%w: salary_accounting requires 1-20 attendance attachments, got %d", ErrInvalidNewMessage, counts[string(types.AttachmentRoleAttendance)])
+	if counts[string(types.AttachmentRoleAttendance)] < 1 {
+		return fmt.Errorf("%w: salary_accounting requires at least 1 attendance attachment, got %d", ErrInvalidNewMessage, counts[string(types.AttachmentRoleAttendance)])
 	}
 	return nil
 }

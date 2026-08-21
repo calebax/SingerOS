@@ -32,6 +32,16 @@ ERROR_BLOCKED = 3
 ERROR_OUTPUT = 4
 MONEY = "0.00"
 
+# Workbook sheet titles written by this calculator. A file that contains all of
+# them is a generated result, not a human historical payroll sheet.
+GENERATED_PAYROLL_SHEETS = (
+    "工资核算明细",
+    "工资基准",
+    "考勤汇总",
+    "历史工资对比",
+    "人工复核事项",
+)
+
 # 国务院办公厅发布的 2026 年放假调休安排。考勤识别没有返回节假日时使用；
 # 新年份应在公告发布后补充，避免把非工作日猜成工作日。
 OFFICIAL_CALENDAR = {
@@ -260,6 +270,60 @@ def worksheet_values(sheet: Any) -> list[tuple[Any, ...]]:
     return rows
 
 
+def is_generated_payroll_workbook(path: Path) -> bool:
+    """Return whether the workbook is this calculator's multi-sheet result."""
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        names = set(workbook.sheetnames)
+    finally:
+        workbook.close()
+    return set(GENERATED_PAYROLL_SHEETS).issubset(names)
+
+
+def load_historical_payroll(paths: list[Path]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Load human historical payroll rows and skip generated result workbooks.
+
+    Generated 工资核算表 files repeat the same people across five sheets, which
+    would make every baseline match ambiguous. They are not a substitute for
+    human historical payroll. If every supplied file is generated, fail instead
+    of producing an empty comparison.
+    """
+    generated: list[str] = []
+    usable: list[Path] = []
+    for path in paths:
+        if is_generated_payroll_workbook(path):
+            generated.append(path.name)
+        else:
+            usable.append(path)
+    if not usable:
+        names = "、".join(generated) or "未指定文件"
+        raise ValueError(
+            f"历史工资表「{names}」是系统生成的工资核算表，不能作为历史人工工资表。"
+            "请改传往期人工编制的工资表。"
+        )
+    rows = [row for path in usable for row in read_rows(path)]
+    return rows, generated
+
+
+def note_skipped_generated_history(
+    result: dict[str, list[dict[str, Any]]],
+    skipped: list[str],
+) -> dict[str, Any]:
+    """Record skipped generated workbooks for the Excel review sheet and CLI JSON."""
+    if not skipped:
+        return {"skipped_generated_historical": [], "warnings": []}
+    listed = "、".join(f"「{name}」" for name in skipped)
+    warning = (
+        f"已忽略系统生成的工资核算表{listed}，未作为历史人工工资表。"
+        "本次工资基准和历史对比只使用其余人工历史工资表；请核对是否错传或漏传。"
+    )
+    result["review_exceptions"].append({
+        "姓名": "", "项目": "", "人员类别": "", "类型": "输入资料",
+        "说明": warning,
+    })
+    return {"skipped_generated_historical": skipped, "warnings": [warning]}
+
+
 def read_rows(path: Path) -> list[dict[str, Any]]:
     """读取所有工作表，允许表头前有标题行。"""
     workbook = load_workbook(path, data_only=False, read_only=False)
@@ -417,6 +481,25 @@ def attendance_records(path: Path) -> tuple[str | None, str | None, list[dict[st
     return str(month) if month else None, clean(project) or None, records
 
 
+def attendance_records_from_paths(
+    paths: list[Path],
+) -> tuple[str | None, str | None, list[dict[str, Any]]]:
+    """Load one or more attendance JSON files and reject conflicting months."""
+    months: set[str] = set()
+    project: str | None = None
+    records: list[dict[str, Any]] = []
+    for path in paths:
+        month, source_project, source_records = attendance_records(path)
+        if month:
+            months.add(month)
+        if source_project and not project:
+            project = source_project
+        records.extend(source_records)
+    if len(months) > 1:
+        raise ValueError("考勤月份冲突：" + "、".join(sorted(months)))
+    return next(iter(months), None), project, records
+
+
 def attendance_days(record: dict[str, Any]) -> tuple[float | None, float]:
     actual = number(record.get(
         "actual_work_days",
@@ -551,6 +634,43 @@ def calendar_base_workdays(month: str | None, holiday_values: Any) -> float | No
         if date_text.startswith(f"{year:04d}-{month_value:02d}-") and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text):
             non_working.add(date_text)
     return float(days_in_month - len(non_working))
+
+
+def month_statutory_holidays(month: str | None, holiday_values: Any) -> list[str]:
+    """Return statutory holiday dates in the payroll month, including weekend holidays.
+
+    Ordinary Saturdays and Sundays are not statutory holidays. Vision may still
+    supply weekend dates; those are ignored here unless they are on the official
+    holiday calendar.
+    """
+    if not month:
+        return []
+    match = re.fullmatch(r"(\d{4})-(\d{1,2})", month.strip())
+    if not match:
+        return []
+    year, month_value = int(match.group(1)), int(match.group(2))
+    official = OFFICIAL_CALENDAR.get(year, {}).get("holidays", set())
+    supplied = holiday_values if isinstance(holiday_values, list) else []
+    prefix = f"{year:04d}-{month_value:02d}-"
+    dates: set[str] = set()
+    for value in official:
+        date_text = clean(value)[:10]
+        if date_text.startswith(prefix) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text):
+            dates.add(date_text)
+    for value in supplied:
+        date_text = clean(value)[:10]
+        if not date_text.startswith(prefix) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text):
+            continue
+        if date_text in official:
+            dates.add(date_text)
+            continue
+        try:
+            weekday = datetime.strptime(date_text, "%Y-%m-%d").weekday()
+        except ValueError:
+            continue
+        if weekday < 5:
+            dates.add(date_text)
+    return sorted(dates)
 
 
 def applicable_phone(
@@ -903,11 +1023,11 @@ def write_workbook(result: dict[str, list[dict[str, Any]]], output: Path) -> Non
     workbook.remove(workbook.active)
     header_fill = PatternFill("solid", fgColor="D9EAF7")
     sheet_titles = {
-        "payroll_detail": "工资核算明细",
-        "baseline": "工资基准",
-        "attendance": "考勤汇总",
-        "reconciliation": "历史工资对比",
-        "review_exceptions": "人工复核事项",
+        "payroll_detail": GENERATED_PAYROLL_SHEETS[0],
+        "baseline": GENERATED_PAYROLL_SHEETS[1],
+        "attendance": GENERATED_PAYROLL_SHEETS[2],
+        "reconciliation": GENERATED_PAYROLL_SHEETS[3],
+        "review_exceptions": GENERATED_PAYROLL_SHEETS[4],
     }
     for sheet_name, title in sheet_titles.items():
         sheet = workbook.create_sheet(title)
@@ -934,9 +1054,9 @@ def write_workbook(result: dict[str, list[dict[str, Any]]], output: Path) -> Non
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="第一阶段陕建外聘工资确定性计算器（本地文件、无网络）")
-    result.add_argument("--roster", required=True, type=Path, help="人员底表 xlsx")
+    result.add_argument("--roster", required=True, nargs="+", type=Path, help="一个或多个人员底表 xlsx")
     result.add_argument("--historical", required=True, nargs="+", type=Path, help="一个或多个历史工资 xlsx")
-    result.add_argument("--attendance", required=True, type=Path, help="视觉模型输出的考勤 JSON")
+    result.add_argument("--attendance", required=True, nargs="+", type=Path, help="一个或多个视觉模型输出的考勤 JSON")
     result.add_argument("--output", required=True, type=Path, help="输出工作簿 xlsx")
     result.add_argument("--month", help="核算月份，例如 2026-06；也可由 attendance.month 提供")
     result.add_argument("--base-workdays", type=float, help="当月基础工作日，缺少时可由工休制度推导")
@@ -948,21 +1068,34 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        for path in [args.roster, args.attendance, *args.historical]:
+        for path in [*args.roster, *args.attendance, *args.historical]:
             if not path.is_file():
                 raise ValueError(f"输入文件不存在：{path}")
-        att_month, attendance_project, records = attendance_records(args.attendance)
+        att_month, attendance_project, records = attendance_records_from_paths(list(args.attendance))
         month = args.month or att_month
-        result = calculate(read_rows(args.roster),
-                           [row for path in args.historical for row in read_rows(path)],
-                           records, month, args.base_workdays, args.overtime_cap,
-                           args.work_schedule, attendance_project)
+        holiday_values = []
+        for record in records:
+            if isinstance(record, dict) and isinstance(record.get("holiday_dates"), list):
+                holiday_values.extend(record.get("holiday_dates"))
+        historical_rows, skipped_generated = load_historical_payroll(list(args.historical))
+        result = calculate(
+            [row for path in args.roster for row in read_rows(path)],
+            historical_rows,
+            records, month, args.base_workdays, args.overtime_cap,
+            args.work_schedule, attendance_project,
+        )
         if not records:
             raise ValueError("没有任何可识别的考勤人员")
+        input_notes = note_skipped_generated_history(result, skipped_generated)
         write_workbook(result, args.output)
         print(json.dumps({"status": "success", "output": str(args.output),
+                          "month": month,
+                          "base_workdays": calendar_base_workdays(month, holiday_values),
+                          "overtime_cap": weekend_slots(month),
+                          "statutory_holidays": month_statutory_holidays(month, holiday_values),
                           "rows": {name: len(rows) for name, rows in result.items()},
-                          "review_count": len(result["review_exceptions"])},
+                          "review_count": len(result["review_exceptions"]),
+                          **input_notes},
                          ensure_ascii=False, sort_keys=True))
         return 0
     except (ValueError, OSError, json.JSONDecodeError) as exc:
