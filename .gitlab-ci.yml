@@ -249,7 +249,7 @@ deploy:
     - python3 -m venv "$CI_PROJECT_DIR/.coscmd-venv"
     - $CI_PROJECT_DIR/.coscmd-venv/bin/pip install coscmd
 
-# macOS 专用 before_script：homebrew 的 node、npm 安装 pnpm、Apple 签名变量校验与 AuthKey 解码
+# macOS 专用 before_script：Node/pnpm、Apple 签名材料与显式 keychain 初始化
 .desktop-before-mac:
   before_script:
     - mkdir -p "$CI_PROJECT_DIR/.pnpm-bin"
@@ -285,8 +285,42 @@ deploy:
           fi
         done
 
+        export MACOS_CERTIFICATE_PATH="$CI_PROJECT_DIR/macos-certificate-${CI_JOB_ID}.p12"
+        export MACOS_KEYCHAIN_PATH="$CI_PROJECT_DIR/macos-signing-${CI_JOB_ID}.keychain-db"
+
         printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$CI_PROJECT_DIR/AuthKey.p8"
-        chmod 600 "$CI_PROJECT_DIR/AuthKey.p8"
+        printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$MACOS_CERTIFICATE_PATH"
+        chmod 600 "$CI_PROJECT_DIR/AuthKey.p8" "$MACOS_CERTIFICATE_PATH"
+
+        # electron-builder 26.15.2 在当前 Darwin 25.6 runner 上会用证书密码解锁其随机密码
+        # 创建的临时 keychain。这里显式管理 keychain，确保创建、导入和授权使用同一密码。
+        security delete-keychain "$MACOS_KEYCHAIN_PATH" 2>/dev/null || true
+        security create-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$MACOS_KEYCHAIN_PATH"
+        security set-keychain-settings -lut 21600 "$MACOS_KEYCHAIN_PATH"
+        security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$MACOS_KEYCHAIN_PATH"
+        security import "$MACOS_CERTIFICATE_PATH" \
+          -k "$MACOS_KEYCHAIN_PATH" \
+          -P "$MACOS_CERTIFICATE_PASSWORD" \
+          -T /usr/bin/codesign \
+          -T /usr/bin/productbuild \
+          -T /usr/bin/security
+        security set-key-partition-list \
+          -S apple-tool:,apple:,codesign: \
+          -s \
+          -k "$MACOS_CERTIFICATE_PASSWORD" \
+          "$MACOS_KEYCHAIN_PATH"
+
+        security find-identity -v -p codesigning "$MACOS_KEYCHAIN_PATH"
+        if [ -n "${MACOS_CODESIGN_IDENTITY:-}" ]; then
+          export MACOS_CSC_NAME="$(security find-identity -v -p codesigning "$MACOS_KEYCHAIN_PATH" | awk -v identity="$MACOS_CODESIGN_IDENTITY" 'index($0, identity) { print $2; exit }')"
+        else
+          export MACOS_CSC_NAME="$(security find-identity -v -p codesigning "$MACOS_KEYCHAIN_PATH" | awk 'index($0, "Developer ID Application:") { print $2; exit }')"
+        fi
+
+        if [ -z "$MACOS_CSC_NAME" ]; then
+          echo "No matching Developer ID Application identity found in the imported certificate"
+          exit 1
+        fi
       fi
 
 # Linux 专用 before_script：electron-builder 系统依赖、python3-venv、npm 安装 pnpm
@@ -442,12 +476,13 @@ deploy:
 
       cd "$CI_PROJECT_DIR/frontend"
       if [ "$build_with_signing" = "true" ]; then
+        unset CSC_LINK CSC_KEY_PASSWORD
         env \
           APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" \
           APPLE_API_KEY_ID="$APPLE_API_KEY_ID" \
           APPLE_API_ISSUER="$APPLE_API_ISSUER" \
-          CSC_LINK="$MACOS_CERTIFICATE_P12_BASE64" \
-          CSC_KEY_PASSWORD="$MACOS_CERTIFICATE_PASSWORD" \
+          CSC_KEYCHAIN="$MACOS_KEYCHAIN_PATH" \
+          CSC_NAME="$MACOS_CSC_NAME" \
           pnpm run "$build_script"
       else
         RETRY_MAX_ATTEMPTS=6 retry env ELECTRON_MIRROR="$ELECTRON_MIRROR" ELECTRON_BUILDER_BINARIES_MIRROR="$ELECTRON_BUILDER_BINARIES_MIRROR" npm_config_electron_mirror="$npm_config_electron_mirror" npm_config_electron_builder_binaries_mirror="$npm_config_electron_builder_binaries_mirror" pnpm run "$build_script"
@@ -497,7 +532,7 @@ deploy:
 # 桌面端打包 - 平台 template / job
 # ============================================================================
 
-# mac/win template：走 macOS runner，before_script = 通用段 + mac 段，script 继承公共段
+# 桌面构建公共 template；各平台 job 可覆盖 runner 与 before_script
 .desktop-build-template:
   stage: desktop_build
   rules:
@@ -520,6 +555,14 @@ deploy:
     - !reference [".desktop-before-mac", before_script]
   script:
     - !reference [".desktop-script-build", script]
+  after_script:
+    - |
+      if [ "$DESKTOP_TARGET" = "mac-arm64" ] || [ "$DESKTOP_TARGET" = "mac-x64" ]; then
+        security delete-keychain "$CI_PROJECT_DIR/macos-signing-${CI_JOB_ID}.keychain-db" 2>/dev/null || true
+        rm -f \
+          "$CI_PROJECT_DIR/macos-certificate-${CI_JOB_ID}.p12" \
+          "$CI_PROJECT_DIR/AuthKey.p8"
+      fi
 
 desktop-build-mac-arm64:
   extends: .desktop-build-template
@@ -537,10 +580,14 @@ desktop-build-mac-x64:
 
 desktop-build-win-x64:
   extends: .desktop-build-template
+  image: registry.yygu.cn/library/node:24
   tags:
-    - macos-1
+    - ubuntu
   variables:
     DESKTOP_TARGET: win-x64
+  before_script:
+    - !reference [".desktop-before-linux", before_script]
+    - !reference [".desktop-before-base", before_script]
 
 desktop-build-linux-x64:
   extends: .desktop-build-template
