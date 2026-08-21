@@ -235,6 +235,7 @@ type ConnectorSkillRef struct {
 type ResolveSkillDownloadURLsRequest struct {
 	SkillCodes      []string            `json:"skill_codes"`
 	ConnectorSkills []ConnectorSkillRef `json:"connector_skills,omitempty"`
+	Scene           string              `json:"scene,omitempty"`
 }
 
 // SkillDownloadURL is the worker-safe projection of one current Skill artifact.
