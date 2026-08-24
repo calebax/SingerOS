@@ -75,7 +75,3 @@ deployments/helm/leros/values.yaml
 .opencode
 .cursor
 backend/leros
-
-# git.yygu.cn 镜像 SSH 密钥（勿提交）
-yygu-mirror
-yygu-mirror.pub
