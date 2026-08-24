@@ -20,10 +20,9 @@ jobs:
 
       - name: Push mirror
         env:
-          MIRROR_URL: https://oauth2:${YYGU_TOKEN}@git.yygu.cn/corekg/lework.git
           YYGU_TOKEN: ${{ secrets.YYGU_TOKEN }}
         run: |
-          git remote add mirror "$MIRROR_URL"
+          git remote add mirror "https://oauth2:${YYGU_TOKEN}@git.yygu.cn/corekg/lework.git"
           git push --prune mirror main \
             'refs/heads/release*:refs/heads/release*' \
             'refs/tags/*:refs/tags/*' --force
