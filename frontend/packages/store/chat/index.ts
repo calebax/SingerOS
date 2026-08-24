@@ -11,6 +11,7 @@ export type {
 } from "./messageMerge";
 export {
 	ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT,
+	ASSISTANT_REPLY_TIMEOUT_RETRY_HINT,
 	ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT,
 	ASSISTANT_SESSION_EVENTS_WAITING_TEXT,
 	allLocalMessagesBelongToSession,
@@ -22,6 +23,7 @@ export {
 	insertGlobalUserMessageId,
 	isClientReplyTimeoutMessage,
 	isGlobalUserEchoMessage,
+	isSessionReplySuppressed,
 	isOptimisticMessage,
 	isTaskRoomAssistantPlaceholder,
 	mergeMessageAttachments,

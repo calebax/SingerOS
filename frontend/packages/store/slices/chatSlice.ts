@@ -12,6 +12,7 @@ import {
 	getApprovalStatus,
 	initialChatState,
 	isClientReplyTimeoutMessage,
+	isSessionReplySuppressed,
 	resolveActiveRunIdForCancel,
 	retainLocalMessagesForSession,
 } from "../chat";
@@ -367,7 +368,7 @@ export class ChatActionImpl {
 				streamingMessageId: null,
 				isGenerating: false,
 				streamCancelRef: null,
-				// 中文注释：离开页面后允许再进时对 responding 做 resume；停留页内的超时抑制仍由发送路径清除。
+				// 中文注释：离开页面后解除超时抑制，允许再进时 resume / 重新提问；停留页内禁止续聊。
 				suppressedReplySessionId: null,
 			};
 		});
@@ -444,6 +445,7 @@ export class ChatActionImpl {
 
 		const { activeSessionId } = state;
 		if (!activeSessionId) return;
+		if (isSessionReplySuppressed(state, activeSessionId)) return;
 
 		const now = Date.now();
 		const newMsg: Message = {

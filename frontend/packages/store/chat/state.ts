@@ -26,7 +26,7 @@ export type ChatState = {
 	/**
 	 * 本轮回复已超时收尾的 session。
 	 * 用于挡住迟到的 GlobalEvents assistant / 超时后因 isGenerating 变 false 触发的 resume，
-	 * 离开页面（closeSseConnection）或用户再次发送时清除。
+	 * 并锁住停留页内的续聊（禁止再发）；离开页面（closeSseConnection）后清除。
 	 */
 	suppressedReplySessionId: string | null;
 	/** 兼容旧字段：取消流式的回调引用（现主要由私有 SSE client 管理） */
