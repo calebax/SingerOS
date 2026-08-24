@@ -1,0 +1,29 @@
+name: Mirror to git.yygu.cn
+
+on:
+  push:
+    branches:
+      - main
+      - 'release*'
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Push mirror
+        env:
+          MIRROR_URL: https://oauth2:${YYGU_TOKEN}@git.yygu.cn/corekg/lework.git
+          YYGU_TOKEN: ${{ secrets.YYGU_TOKEN }}
+        run: |
+          git remote add mirror "$MIRROR_URL"
+          git push --prune mirror main \
+            'refs/heads/release*:refs/heads/release*' \
+            'refs/tags/*:refs/tags/*' --force
