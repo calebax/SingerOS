@@ -1,6 +1,7 @@
 name: Mirror to git.yygu.cn
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
