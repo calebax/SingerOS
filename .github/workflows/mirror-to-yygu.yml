@@ -18,11 +18,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Push mirror
+      - name: Setup mirror SSH key
         env:
-          YYGU_TOKEN: ${{ secrets.YYGU_TOKEN }}
+          SSH_KEY: ${{ secrets.YYGU_TOKEN }}
         run: |
-          git remote add mirror "https://oauth2:${YYGU_TOKEN}@git.yygu.cn/corekg/lework.git"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 git.yygu.cn >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Push mirror
+        run: |
+          git remote add mirror git@git.yygu.cn:corekg/lework.git
           git push --prune mirror main \
             'refs/heads/release*:refs/heads/release*' \
             'refs/tags/*:refs/tags/*' --force
