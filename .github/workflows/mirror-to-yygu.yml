@@ -31,6 +31,12 @@ jobs:
       - name: Push mirror
         run: |
           git remote add mirror git@git.yygu.cn:corekg/lework.git
-          GIT_SSH_COMMAND="ssh -vvv" timeout 120 git push --prune mirror main \
-            'refs/heads/release*:refs/heads/release*' \
-            'refs/tags/*:refs/tags/*' --force
+          export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
+          # 主分支（单 ref，避免通配 refspec 让服务端 enumerate 卡死）
+          git push --force mirror main
+          # tag
+          git push --force --tags mirror
+          # release* 分支：逐个 push，避免通配 refspec
+          for b in $(git for-each-ref --format='%(refname:short)' refs/heads/release\*); do
+            git push --force mirror "refs/heads/$b:refs/heads/$b"
+          done
