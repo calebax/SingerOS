@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""第一阶段陕建外聘人员确定性工资计算器。
+"""外聘人员确定性工资计算器。
 
 仅读取本地 xlsx/JSON，不联网、不读取环境变量中的密钥，也不修改输入文件。
 """
@@ -162,24 +162,33 @@ def header_map(headers: list[Any]) -> dict[str, int]:
 
 
 def source_hints(path: Path) -> tuple[str, str]:
-    """从真实工资文件路径补充表内没有重复声明的项目和用工类别。"""
-    text = clean(path.as_posix())
+    """从文件名补充项目简称和用工类别。取值来自文件名本身，不内置客户或供应商名单。"""
+    name = clean(path.name)
     project = ""
-    if "杨职院" in text:
-        project = "杨职院"
-    elif "瀚阅府" in text:
-        project = "瀚阅府"
+    project_match = re.search(r"^(.+?)20\d{2}年", name)
+    if project_match:
+        candidate = clean(project_match.group(1))
+        if candidate and "工资" not in candidate and not is_employment_category(candidate):
+            project = candidate
 
     category = ""
-    for marker, value in (
-        ("劳务派遣", "劳务派遣"),
-        ("博途", "博途外包"),
-        ("益通", "益通外包"),
-        ("易通", "易通外包"),
-    ):
-        if marker in text:
-            category = value
-            break
+    if "劳务派遣" in name:
+        category = "劳务派遣"
+    else:
+        vendor = re.search(r"((?:(?![年月日])[\u4e00-\u9fff]){2,4}外包)", name)
+        if vendor:
+            category = vendor.group(1)
+        elif "外包" in name:
+            category = "外包"
+        elif "外聘" in name:
+            category = "外聘"
+        else:
+            dated = re.match(r"^.+?20\d{2}年(?:\d{1,2}月)?(.*)$", name)
+            if dated:
+                tail = re.sub(r"\.(xlsx|xls)$", "", dated.group(1), flags=re.I)
+                tail = re.sub(r"(?:人员)?(?:工资表|工资).*$", "", clean(tail))
+                if tail and "工资" not in tail and not is_job_title(tail):
+                    category = tail
     return project, category
 
 
@@ -371,7 +380,23 @@ def row_identity(row: dict[str, Any]) -> tuple[str, str, str]:
 
 def is_employment_category(value: str) -> bool:
     """Return whether a label can safely constrain an external-worker match."""
-    return any(token in value for token in ("外包", "派遣", "劳务", "益通", "易通", "博途"))
+    return any(token in value for token in ("外包", "派遣", "劳务", "外聘"))
+
+
+def looks_like_department_or_title(value: str) -> bool:
+    """Vision often puts a department or job title into the category field."""
+    return is_job_title(value) or "管理" in value
+
+
+def employment_categories_compatible(left: str, right: str) -> bool:
+    """Treat nested labels such as 外包/某司 vs 某司外包 as the same employment type."""
+    if not left or not right:
+        return True
+    if looks_like_department_or_title(left) or looks_like_department_or_title(right):
+        return True
+    if left == right or left in right or right in left:
+        return True
+    return not (is_employment_category(left) or is_employment_category(right))
 
 
 def identity_matches(observed: tuple[str, str, str], candidate: tuple[str, str, str]) -> bool:
@@ -384,21 +409,14 @@ def identity_matches(observed: tuple[str, str, str], candidate: tuple[str, str, 
     # Vision may put a department/position such as “项目管理人员” in this
     # field. Only verified employment categories may rule out a name+project
     # match; otherwise the roster/history remains the source of truth.
-    if (is_employment_category(observed[2]) and is_employment_category(candidate[2])
-            and observed[2] != candidate[2]):
-        return False
-    return True
+    return employment_categories_compatible(observed[2], candidate[2])
 
 
 def compatible_identity(observed: tuple[str, str, str], candidate: tuple[str, str, str]) -> bool:
     """Check project and employment-category constraints before fuzzy name matching."""
     if observed[1] and candidate[1] and observed[1] not in candidate[1] and candidate[1] not in observed[1]:
         return False
-    return not (
-        is_employment_category(observed[2])
-        and is_employment_category(candidate[2])
-        and observed[2] != candidate[2]
-    )
+    return employment_categories_compatible(observed[2], candidate[2])
 
 
 def fuzzy_name_score(observed: Any, candidate: Any) -> tuple[float, str]:
@@ -1053,7 +1071,7 @@ def write_workbook(result: dict[str, list[dict[str, Any]]], output: Path) -> Non
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="第一阶段陕建外聘工资确定性计算器（本地文件、无网络）")
+    result = argparse.ArgumentParser(description="外聘工资确定性计算器（本地文件、无网络）")
     result.add_argument("--roster", required=True, nargs="+", type=Path, help="一个或多个人员底表 xlsx")
     result.add_argument("--historical", required=True, nargs="+", type=Path, help="一个或多个历史工资 xlsx")
     result.add_argument("--attendance", required=True, nargs="+", type=Path, help="一个或多个视觉模型输出的考勤 JSON")

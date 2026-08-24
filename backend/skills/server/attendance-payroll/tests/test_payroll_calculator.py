@@ -18,6 +18,7 @@ from scripts.payroll_calculator import (
     month_statutory_holidays,
     note_skipped_generated_history,
     read_rows,
+    source_hints,
     write_workbook,
 )
 
@@ -160,9 +161,9 @@ class PayrollCalculatorTest(unittest.TestCase):
 
     def test_overtime_counts_one_day_for_each_worked_weekend_without_schedule(self):
         rows = calculate(
-            [], [{"name": "周末", "project": "瀚阅府", "category": "益通外包",
+            [], [{"name": "周末", "project": "A项目", "category": "外包",
                   "position_salary": 3800, "performance": 1000}],
-            [{"name": "周末", "project": "瀚阅府", "category": "益通外包",
+            [{"name": "周末", "project": "A项目", "category": "外包",
               "actual_work_days": 24, "weekend_attendance_dates": [
                   "2026-06-06", "2026-06-14", "2026-06-20", "2026-06-28",
               ]}],
@@ -172,11 +173,11 @@ class PayrollCalculatorTest(unittest.TestCase):
         self.assertEqual(detail["加班天数"], 3)
         self.assertEqual(detail["加班费"], 1050)
 
-    def test_hanyuefu_june_uses_verified_overtime_public_rule(self):
+    def test_june_uses_verified_overtime_public_rule(self):
         rows = calculate(
-            [], [{"name": "程军虎", "project": "瀚阅府", "category": "益通外包",
+            [], [{"name": "赵六", "project": "A项目", "category": "外包",
                   "position_salary": 3800, "performance": 1000}],
-            [{"name": "程军虎", "project": "瀚阅府", "category": "益通外包",
+            [{"name": "赵六", "project": "A项目", "category": "外包",
               "actual_work_days": 26, "overtime_days": 4}],
             "2026-06", 26, 4, "single",
         )
@@ -186,9 +187,9 @@ class PayrollCalculatorTest(unittest.TestCase):
 
     def test_june_holiday_reduces_base_workdays_before_overtime_cap(self):
         rows = calculate(
-            [], [{"name": "节日", "project": "瀚阅府", "category": "益通外包",
+            [], [{"name": "节日", "project": "A项目", "category": "外包",
                   "position_salary": 3800, "performance": 1000}],
-            [{"name": "节日", "project": "瀚阅府", "category": "益通外包",
+            [{"name": "节日", "project": "A项目", "category": "外包",
               "actual_work_days": 25, "holiday_dates": [
                   "2026-06-19", "2026-06-20", "2026-06-21",
               ]}],
@@ -198,67 +199,67 @@ class PayrollCalculatorTest(unittest.TestCase):
 
     def test_unique_ocr_name_correction_is_marked_for_review(self):
         rows = calculate(
-            [], [{"name": "熊艳丽", "project": "瀚阅府", "category": "益通外包",
+            [], [{"name": "陈丽", "project": "A项目", "category": "外包",
                   "position_salary": 3000}],
-            [{"name": "熊艳利", "project": "瀚阅府", "category": "益通外包",
+            [{"name": "陈利", "project": "A项目", "category": "外包",
               "actual_work_days": 21}],
             "2026-06", 21, 4, "single",
         )
-        self.assertEqual(rows["payroll_detail"][0]["项目"], "瀚阅府")
+        self.assertEqual(rows["payroll_detail"][0]["项目"], "A项目")
         self.assertTrue(any("模糊匹配" in item["说明"] for item in rows["review_exceptions"]))
 
     def test_name_ocr_correction_is_reported_once(self):
         rows = calculate(
-            [{"name": "任新罡", "project": "瀚阅府", "category": "益通外包"}],
-            [{"name": "任新罡", "project": "瀚阅府", "category": "益通外包",
+            [{"name": "周罡", "project": "A项目", "category": "外包"}],
+            [{"name": "周罡", "project": "A项目", "category": "外包",
               "position_salary": 3000}],
-            [{"name": "任新翌", "project": "瀚阅府", "category": "益通外包",
+            [{"name": "周翌", "project": "A项目", "category": "外包",
               "actual_work_days": 21}],
             "2026-06", 21, 4,
         )
         notes = [
             item["说明"] for item in rows["review_exceptions"]
-            if item["姓名"] == "任新翌" and "模糊匹配" in item["说明"]
+            if item["姓名"] == "周翌" and "模糊匹配" in item["说明"]
         ]
         self.assertEqual(notes, ["姓名单字 OCR 易混，已模糊匹配，需人工复核"])
 
     def test_roster_project_has_priority_over_attendance_project(self):
         rows = calculate(
-            [{"name": "甲", "project": "瀚阅府", "category": "外聘", "status": "正常"}],
-            [{"name": "甲", "project": "瀚阅府", "category": "外聘",
+            [{"name": "甲", "project": "A项目", "category": "外聘", "status": "正常"}],
+            [{"name": "甲", "project": "A项目", "category": "外聘",
               "position_salary": 3000, "performance": 500}],
-            [{"name": "甲", "project": "瀚阅府西苑项目", "category": "外聘",
+            [{"name": "甲", "project": "A项目西区", "category": "外聘",
               "actual_work_days": 21}],
             "2026-06", 21, 4,
-            attendance_project="瀚阅府西苑项目",
+            attendance_project="A项目西区",
         )
-        self.assertEqual(rows["payroll_detail"][0]["项目"], "瀚阅府")
+        self.assertEqual(rows["payroll_detail"][0]["项目"], "A项目")
 
     def test_job_title_misread_as_project_does_not_block_matching(self):
         rows = calculate(
-            [{"name": "翁小龙", "project": "瀚阅府", "category": "易通外包", "status": "正常"}],
-            [{"name": "翁小龙", "project": "瀚阅府", "category": "易通外包",
+            [{"name": "吴工", "project": "A项目", "category": "外包", "status": "正常"}],
+            [{"name": "吴工", "project": "A项目", "category": "外包",
               "position_salary": 2300, "performance": 2500}],
-            [{"name": "翁小龙", "project": "施工员", "actual_work_days": 26}],
-            "2026-06", 21, 4, attendance_project="瀚阅府",
+            [{"name": "吴工", "project": "施工员", "actual_work_days": 26}],
+            "2026-06", 21, 4, attendance_project="A项目",
         )
         detail = rows["payroll_detail"][0]
-        self.assertEqual(detail["项目"], "瀚阅府")
+        self.assertEqual(detail["项目"], "A项目")
         self.assertEqual(detail["岗位工资"], 2300)
 
     def test_unknown_vision_placeholder_is_not_a_payroll_person(self):
         rows = calculate(
-            [], [{"name": "未知人员", "project": "瀚阅府", "category": "外聘",
+            [], [{"name": "未知人员", "project": "A项目", "category": "外聘",
                   "position_salary": 3000}],
             [{"name": "无法识别", "project": "施工员", "actual_work_days": 20}],
-            "2026-06", 21, 4, attendance_project="瀚阅府",
+            "2026-06", 21, 4, attendance_project="A项目",
         )
         self.assertEqual(rows["payroll_detail"], [])
 
     def test_ignored_review_always_uses_enrolled_category(self):
         rows = calculate(
-            [{"name": "杨福生", "project": "瀚阅府", "category": "项目经理", "status": "在册"}],
-            [], [{"name": "杨福生", "project": "瀚阅府", "category": "项目经理",
+            [{"name": "钱在册", "project": "A项目", "category": "项目经理", "status": "在册"}],
+            [], [{"name": "钱在册", "project": "A项目", "category": "项目经理",
                    "actual_work_days": 21}],
             "2026-06", 21, 4,
         )
@@ -267,23 +268,23 @@ class PayrollCalculatorTest(unittest.TestCase):
 
     def test_department_label_does_not_block_employment_category_match(self):
         rows = calculate(
-            [], [{"name": "李福山", "project": "瀚阅府", "category": "益通外包",
+            [], [{"name": "孙山", "project": "A项目", "category": "外包",
                   "position_salary": 3000, "performance": 500}],
-            [{"name": "李福山", "project": "瀚阅府", "category": "项目管理人员",
+            [{"name": "孙山", "project": "A项目", "category": "项目管理人员",
               "actual_work_days": 21}],
             "2026-06", 21, 4, "single",
         )
         detail = rows["payroll_detail"][0]
-        self.assertEqual(detail["人员类别"], "益通外包")
+        self.assertEqual(detail["人员类别"], "外包")
         self.assertEqual(detail["岗位工资"], 3000)
 
     def test_project_suffix_and_missing_category_still_match_unique_person(self):
         rows = calculate(
-            [{"name": "周九", "project": "瀚阅府", "category": "外聘", "status": "正常"}],
-            [{"name": "周九", "project": "瀚阅府", "category": "外聘",
+            [{"name": "周九", "project": "A项目", "category": "外聘", "status": "正常"}],
+            [{"name": "周九", "project": "A项目", "category": "外聘",
               "position_salary": 5000, "performance": 1000,
               "construction_day": 20}],
-            [{"name": "周九", "project": "瀚阅府西苑项目",
+            [{"name": "周九", "project": "A项目西区",
               "actual_work_days": 20}],
             "2026-06", 22, 8,
         )
@@ -309,14 +310,14 @@ class PayrollCalculatorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             attendance_path = Path(directory) / "attendance.json"
             attendance_path.write_text(
-                '{"month":"2026-06","project":"瀚阅府西苑项目","records":'
-                '[{"name":"程军虎","actual_attendance":26}]}',
+                '{"month":"2026-06","project":"A项目西区","records":'
+                '[{"name":"赵六","actual_attendance":26}]}',
                 encoding="utf-8",
             )
             month, project, attendance = attendance_records(attendance_path)
             rows = calculate(
-                [{"name": "程军虎", "project": "瀚阅府", "category": "益通外包", "status": "正常"}],
-                [{"name": "程军虎", "project": "瀚阅府", "category": "益通外包",
+                [{"name": "赵六", "project": "A项目", "category": "外包", "status": "正常"}],
+                [{"name": "赵六", "project": "A项目", "category": "外包",
                   "position_salary": 5000, "performance": 1000, "construction_day": 20}],
                 attendance, month, 22, 8, attendance_project=project,
             )
@@ -324,17 +325,17 @@ class PayrollCalculatorTest(unittest.TestCase):
             review = rows["review_exceptions"][0]
             self.assertEqual(detail["实际出勤"], 26)
             self.assertEqual(detail["施工补贴"], 520)
-            self.assertEqual(detail["项目"], "瀚阅府")
-            self.assertEqual(detail["人员类别"], "益通外包")
+            self.assertEqual(detail["项目"], "A项目")
+            self.assertEqual(detail["人员类别"], "外包")
             self.assertIn("人员类别", review)
 
     def test_parenthetical_name_annotation_matches_unique_roster_and_history(self):
         rows = calculate(
-            [{"name": "王晓（大）", "project": "杨职院", "category": "益通外包", "status": "正常"}],
-            [{"name": "王晓", "project": "杨职院", "category": "益通外包",
+            [{"name": "李雷（大）", "project": "B项目", "category": "外包", "status": "正常"}],
+            [{"name": "李雷", "project": "B项目", "category": "外包",
               "position_salary": 3200, "performance": 4200, "seniority": 240,
               "work_days": 26, "construction": 780}],
-            [{"name": "王晓", "project": "杨职院", "category": "益通外包",
+            [{"name": "李雷", "project": "B项目", "category": "外包",
               "actual_work_days": 26}],
             "2026-06", None, None,
         )
@@ -345,10 +346,10 @@ class PayrollCalculatorTest(unittest.TestCase):
     def test_fuzzy_name_candidate_is_not_used_when_tied(self):
         rows = calculate(
             [
-                {"name": "王小明", "project": "杨职院", "category": "益通外包", "status": "正常"},
-                {"name": "王晓明", "project": "杨职院", "category": "益通外包", "status": "正常"},
+                {"name": "张小明", "project": "B项目", "category": "外包", "status": "正常"},
+                {"name": "张晓明", "project": "B项目", "category": "外包", "status": "正常"},
             ],
-            [], [{"name": "王小鸣", "project": "杨职院", "category": "益通外包", "actual_work_days": 21}],
+            [], [{"name": "张小鸣", "project": "B项目", "category": "外包", "actual_work_days": 21}],
             "2026-06", None, None,
         )
         self.assertTrue(any("模糊匹配存在歧义" in item["说明"] for item in rows["review_exceptions"]))
@@ -370,9 +371,9 @@ class PayrollCalculatorTest(unittest.TestCase):
 
     def test_calendar_fallback_and_workbook_freeze_panes(self):
         rows = calculate(
-            [], [{"name": "节日", "project": "杨职院", "category": "外聘",
+            [], [{"name": "节日", "project": "B项目", "category": "外聘",
                   "position_salary": 3800, "performance": 1000}],
-            [{"name": "节日", "project": "杨职院", "category": "外聘", "actual_work_days": 26}],
+            [{"name": "节日", "project": "B项目", "category": "外聘", "actual_work_days": 26}],
             "2026-06", None, None,
         )
         self.assertEqual(rows["payroll_detail"][0]["加班天数"], 4)
@@ -438,27 +439,75 @@ class PayrollCalculatorTest(unittest.TestCase):
     def test_formula_cells_without_excel_cache_supply_seniority_and_construction(self):
         with tempfile.TemporaryDirectory() as directory:
             history = self.make_book(
-                directory, "杨职院2026年5月益通外包人员工资表.xlsx",
+                directory, "B项目2026年5月外包人员工资表.xlsx",
                 ["姓名", "项目", "人员类别", "工作天数", "基本工资", "绩效工资", "工龄工资", "施工补贴"],
-                [["王晓", "杨职院", "益通外包", 26, 3200, 4200, "=30*6+30+30", "=D2*30"]],
+                [["李雷", "B项目", "外包", 26, 3200, 4200, "=30*6+30+30", "=D2*30"]],
             )
             rows = calculate(
-                [{"name": "王晓（大）", "project": "杨职院", "category": "益通外包", "status": "正常"}],
+                [{"name": "李雷（大）", "project": "B项目", "category": "外包", "status": "正常"}],
                 read_rows(history),
-                [{"name": "王晓", "project": "杨职院", "category": "益通外包", "actual_work_days": 26}],
+                [{"name": "李雷", "project": "B项目", "category": "外包", "actual_work_days": 26}],
                 "2026-06", None, None,
             )
             detail = rows["payroll_detail"][0]
             self.assertEqual(detail["工龄工资"], 240)
             self.assertEqual(detail["施工补贴"], 780)
 
+    def test_filename_hints_extract_project_and_vendor_phrase(self):
+        path = Path("B项目2026年5月甲司外包人员工资表.xlsx")
+        self.assertEqual(source_hints(path), ("B项目", "甲司外包"))
+        self.assertEqual(
+            source_hints(Path("B项目2026年5月甲司人员工资表.xlsx")),
+            ("B项目", "甲司"),
+        )
+
+    def test_filename_vendor_short_name_matches_outsourced_label(self):
+        with tempfile.TemporaryDirectory() as directory:
+            history = self.make_book(
+                directory, "A项目2026年5月甲司人员工资表.xlsx",
+                ["姓名", "基本工资", "绩效工资"],
+                [["张三", 5000, 1000]],
+            )
+            rows = calculate(
+                [],
+                read_rows(history),
+                [{"name": "张三", "project": "A项目", "category": "甲司外包",
+                  "actual_work_days": 21}],
+                "2026-06", None, None,
+            )
+            self.assertEqual(rows["payroll_detail"][0]["岗位工资"], 5000)
+            self.assertEqual(rows["payroll_detail"][0]["人员类别"], "甲司外包")
+
+    def test_filename_vendor_short_name_does_not_match_other_vendor(self):
+        rows = calculate(
+            [],
+            [{"name": "张三", "project": "A项目", "category": "甲司",
+              "position_salary": 5000, "performance": 1000}],
+            [{"name": "张三", "project": "A项目", "category": "乙司外包",
+              "actual_work_days": 21}],
+            "2026-06", None, None,
+        )
+        self.assertEqual(rows["baseline"][0]["来源"], "未匹配历史工资")
+
+    def test_generic_filename_category_still_matches_specific_history_label(self):
+        rows = calculate(
+            [],
+            [{"name": "张三", "project": "A项目", "category": "外包",
+              "position_salary": 5000, "performance": 1000}],
+            [{"name": "张三", "project": "A项目", "category": "甲司外包",
+              "actual_work_days": 21}],
+            "2026-06", None, None,
+        )
+        self.assertEqual(rows["payroll_detail"][0]["岗位工资"], 5000)
+        self.assertEqual(rows["payroll_detail"][0]["人员类别"], "甲司外包")
+
     def test_submitted_cross_month_history_is_used_for_reconciliation(self):
         rows = calculate(
             [],
-            [{"name": "历史对比", "project": "杨职院", "category": "益通外包",
+            [{"name": "历史对比", "project": "B项目", "category": "外包",
               "position_salary": 5000, "performance": 1000, "historical_gross": 6000,
               "_source_month": "2026-05"}],
-            [{"name": "历史对比", "project": "杨职院", "category": "益通外包", "actual_work_days": 21}],
+            [{"name": "历史对比", "project": "B项目", "category": "外包", "actual_work_days": 21}],
             "2026-06", None, None,
         )
         comparison = rows["reconciliation"][0]
@@ -468,9 +517,9 @@ class PayrollCalculatorTest(unittest.TestCase):
     def test_official_holiday_is_retained_when_vision_only_returns_weekends(self):
         rows = calculate(
             [],
-            [{"name": "端午", "project": "杨职院", "category": "益通外包",
+            [{"name": "端午", "project": "B项目", "category": "外包",
               "position_salary": 3800, "performance": 1000}],
-            [{"name": "端午", "project": "杨职院", "category": "益通外包",
+            [{"name": "端午", "project": "B项目", "category": "外包",
               "actual_work_days": 25,
               "holiday_dates": ["2026-06-20", "2026-06-21"]}],
             "2026-06", None, None,
@@ -478,11 +527,11 @@ class PayrollCalculatorTest(unittest.TestCase):
         self.assertEqual(rows["payroll_detail"][0]["加班天数"], 4)
 
     def test_leave_days_is_personal_leave_but_compensatory_leave_is_not_deducted(self):
-        history = [{"name": "请假", "project": "杨职院", "category": "益通外包",
+        history = [{"name": "请假", "project": "B项目", "category": "外包",
                     "position_salary": 5000, "performance": 2175}]
         rows = calculate(
             [], history,
-            [{"name": "请假", "project": "杨职院", "category": "益通外包",
+            [{"name": "请假", "project": "B项目", "category": "外包",
               "actual_work_days": 21, "leave_days": 2, "comp_leave_days": 3}],
             "2026-06", None, None,
         )

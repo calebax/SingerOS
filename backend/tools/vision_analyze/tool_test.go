@@ -143,8 +143,8 @@ func TestMergeVisionResponsesAcceptsPeopleAlias(t *testing.T) {
 
 func TestMergeVisionResponsesAllowsEmptySegment(t *testing.T) {
 	output, err := mergeVisionResponses([]string{
-		`{"month":"2026-06","project":"瀚阅府","summary":"header only"}`,
-		`{"records":[{"name":"程军虎","actual_attendance":26}]}`,
+		`{"month":"2026-06","project":"A项目","summary":"header only"}`,
+		`{"records":[{"name":"赵六","actual_attendance":26}]}`,
 	})
 	if err != nil {
 		t.Fatalf("mergeVisionResponses() error = %v", err)
