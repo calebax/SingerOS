@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	ASSISTANT_REPLY_TIMEOUT_RETRY_HINT,
 	COMPOSER_UPLOAD_ACCEPT,
 	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
@@ -116,6 +117,7 @@ export function ChatInput({
 		inputAttachments,
 		isGenerating,
 		cancellingSessionId,
+		suppressedReplySessionId,
 		messagesMap,
 		messageIds,
 		streamingMessageId,
@@ -169,8 +171,14 @@ export function ChatInput({
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
 	const isProjectVariant = variant === "project";
 	const projectLayout = getProjectChatLayoutClasses(projectLayoutMode);
+	const isReplyLocked =
+		Boolean(suppressedReplySessionId) &&
+		(suppressedReplySessionId === activeSessionId ||
+			suppressedReplySessionId === activeTaskDetailSessionId);
+	const composerLocked = isGenerating || isReplyLocked;
 	const canSend =
 		Boolean(inputText.trim()) &&
+		!composerLocked &&
 		!inputAttachments.some((attachment) => attachment.uploadStatus === "uploading");
 	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
 	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
@@ -267,6 +275,7 @@ export function ChatInput({
 	);
 	const startBidComparison = useCallback(
 		async (config: BidComparisonConfig) => {
+			if (composerLocked) return;
 			try {
 				const projectId = config.projectId || currentProjectId;
 				if (!projectId) {
@@ -336,6 +345,7 @@ export function ChatInput({
 			navigation,
 			sendProjectMessage,
 			sendTaskRoomMessage,
+			composerLocked,
 		],
 	);
 	const activeProjectComposerPrefill =
@@ -412,6 +422,11 @@ export function ChatInput({
 	const submitMessage = useCallback(async () => {
 		// 中文注释：真实 SessionEvents 当前由单条 SSE 连接接管，生成中先阻止重复发送。
 		if (isGenerating) return;
+		// 中文注释：客户端超时报错未落库，停留当前对话窗口时禁止续聊，避免第二轮真人消息落库分叉。
+		if (isReplyLocked) {
+			toast.error(`当前回复已超时，${ASSISTANT_REPLY_TIMEOUT_RETRY_HINT}`);
+			return;
+		}
 		const trimmedInput = inputText.trim();
 		if (trimmedInput) {
 			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
@@ -534,6 +549,7 @@ export function ChatInput({
 		activeTaskDetailTaskId,
 		activeTaskDetailSessionId,
 		isGenerating,
+		isReplyLocked,
 		docxSelectionDraft,
 		navigation,
 		sendProjectMessage,
@@ -700,7 +716,7 @@ export function ChatInput({
 				{showBidComparisonButtonOnly ? (
 					<div className="mb-4">
 						<BidComparisonEntryButton
-							disabled={isGenerating}
+							disabled={composerLocked}
 							onClick={() => setBidComparisonOpen(true)}
 						/>
 					</div>
@@ -767,11 +783,13 @@ export function ChatInput({
 							onFocus={() => setInputFocused(true)}
 							onBlur={() => setInputFocused(false)}
 							placeholder={
-								isProjectVariant
-									? isNewProjectTaskView
-										? "在这里输入需求或描述目标。使用@召唤队友、/调用技能..."
-										: "继续帮你做什么？"
-									: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
+								isReplyLocked
+									? `当前回复已超时，${ASSISTANT_REPLY_TIMEOUT_RETRY_HINT}`
+									: isProjectVariant
+										? isNewProjectTaskView
+											? "在这里输入需求或描述目标。使用@召唤队友、/调用技能..."
+											: "继续帮你做什么？"
+										: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
 							}
 							isProjectVariant={isProjectVariant}
 							assistantOptions={projectAssistantOptions}
@@ -805,7 +823,7 @@ export function ChatInput({
 									assistantSelectionMode="single"
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
-									isGenerating={isGenerating}
+									isGenerating={composerLocked}
 									connectorOptions={connectorOptions}
 									connectorsLoading={connectorsLoading}
 									selectedConnectorIds={projectConnectorsDisabled ? [] : selectedConnectorIds}
@@ -820,7 +838,7 @@ export function ChatInput({
 										<TooltipTrigger
 											aria-label="Plan Mode"
 											aria-pressed={executionMode === "plan"}
-											disabled={isGenerating}
+											disabled={composerLocked}
 											onClick={() =>
 												setExecutionMode(executionMode === "plan" ? "default" : "plan")
 											}

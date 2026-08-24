@@ -7,6 +7,7 @@
 import { sessionApi } from "../../api/sessionApi";
 import type { Attachment, MessageMetadata } from "../../types/chat";
 import { mapOutgoingAttachments } from "../../utils/messageAttachments";
+import { isSessionReplySuppressed } from "../messageMerge";
 import { waitForGlobalAssistantOrFail } from "./assistantFallback";
 import type { SendPipelineDeps } from "./deps";
 import { buildBackendMessageMetadata, extractAssistantIdsFromMetadata } from "./metadata";
@@ -52,6 +53,8 @@ export async function sendTaskRoomMessage(
 		return null;
 	}
 	if (deps.get().isGenerating) return null;
+	// 中文注释：客户端超时报错只存在于前端，停留页内禁止再发，避免第二轮真人消息落库后与假回复分叉。
+	if (isSessionReplySuppressed(deps.get(), params.sessionId)) return null;
 
 	const now = Date.now();
 	const userMsg = createOptimisticUserMessage(params.sessionId, trimmed, now, {
@@ -71,8 +74,6 @@ export async function sendTaskRoomMessage(
 		streamingMessageId: assistantMsg.id,
 		isGenerating: true,
 		activeSessionId: params.sessionId,
-		// 中文注释：新一轮发送解除上一轮超时抑制。
-		suppressedReplySessionId: null,
 	});
 
 	try {

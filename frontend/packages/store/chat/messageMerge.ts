@@ -183,12 +183,27 @@ export const TASK_ROOM_ASSISTANT_START_FALLBACK_MS = 60_000;
 /** assistant 已接单、等待 SessionEvents 正文时的占位文案。 */
 export const ASSISTANT_SESSION_EVENTS_WAITING_TEXT = "AI 员工已接单，正在生成回复...";
 
+/** 客户端超时报错后的统一重试指引：离开当前对话再进，避免在假回复上续聊。 */
+export const ASSISTANT_REPLY_TIMEOUT_RETRY_HINT = "请退出当前对话后重新进入再试。";
+
 /** GlobalEvents 只回 human、始终无 assistant 时的超时报错正文。 */
 export const ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT =
-	"回复超时：系统已收到你的提问，但 AI 员工未能成功接单。请稍后重试。";
+	`回复超时：系统已收到你的提问，但 AI 员工未能成功接单。${ASSISTANT_REPLY_TIMEOUT_RETRY_HINT}`;
 
 /** SessionEvents 一直无法成功建连时的超时报错正文。 */
-export const ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT = "回复超时：无法建立实时回复连接，请稍后重试。";
+export const ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT =
+	`回复超时：无法建立实时回复连接，${ASSISTANT_REPLY_TIMEOUT_RETRY_HINT}`;
+
+/**
+ * 本轮客户端超时后仍停留在该会话：禁止再发。
+ * 兜底气泡只存在于前端，若此时继续 AddMessage，再进页会丢掉假回复却留下第二轮真人消息。
+ */
+export function isSessionReplySuppressed(
+	state: Pick<ChatState, "suppressedReplySessionId">,
+	sessionId?: string | null,
+): boolean {
+	return Boolean(sessionId) && state.suppressedReplySessionId === sessionId;
+}
 
 /**
  * 判断是否为前端本地写入的回复超时报错气泡（waiting/resume/poll 或超时正文）。

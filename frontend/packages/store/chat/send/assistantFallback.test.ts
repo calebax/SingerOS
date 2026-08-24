@@ -16,6 +16,7 @@ function createDeps(overrides?: Partial<ReturnType<SendPipelineDeps["get"]>>): S
 		activeSessionId: "session-1",
 		streamingMessageId: "msg-assistant-waiting-1",
 		isGenerating: true,
+		suppressedReplySessionId: null as string | null,
 		messagesMap: {
 			"msg-assistant-waiting-1": {
 				id: "msg-assistant-waiting-1",
@@ -105,5 +106,27 @@ describe("waitForGlobalAssistantOrFail", () => {
 		deps.set({ streamingMessageId: "msg-assistant-real" });
 		await vi.advanceTimersByTimeAsync(2_000);
 		await promise;
+	});
+
+	it("满窗口仍无 GE assistant 时写入超时报错并锁住本页续聊", async () => {
+		vi.useFakeTimers();
+		vi.mocked(sessionApi.get).mockResolvedValue({
+			data: { data: { runtime_status: "responding", message_count: 1 } },
+		} as never);
+		const deps = createDeps();
+
+		const promise = waitForGlobalAssistantOrFail(deps, "session-1", "msg-assistant-waiting-1");
+		await vi.advanceTimersByTimeAsync(62_000);
+		await promise;
+
+		expect(deps.get().suppressedReplySessionId).toBe("session-1");
+		expect(deps.finishStream).toHaveBeenCalled();
+		expect(deps.updateMessage).toHaveBeenCalledWith(
+			"msg-assistant-waiting-1",
+			expect.objectContaining({
+				status: "failed",
+				content: expect.stringContaining("回复超时："),
+			}),
+		);
 	});
 });

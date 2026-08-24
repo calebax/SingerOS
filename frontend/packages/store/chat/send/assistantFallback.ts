@@ -35,7 +35,7 @@ function failWaitingAssistant(
 	}
 	deps.set({
 		pendingBootstrapSessionId: null,
-		// 中文注释：抑制迟到 GE assistant，以及超时后 isGenerating→false 触发的 resume 开流。
+		// 中文注释：抑制迟到 GE assistant、超时后 isGenerating→false 触发的 resume，并锁住本页续聊。
 		suppressedReplySessionId: sessionId,
 	});
 	deps.finishStream();

@@ -104,7 +104,7 @@ export class SessionStream {
 	};
 
 	/**
-	 * SessionEvents 长时间无法成功建连：写入正文报错、抑制后续 resume/GE，并关流。
+	 * SessionEvents 长时间无法成功建连：写入正文报错、抑制后续 resume/GE，锁住本页续聊，并关流。
 	 */
 	#failConnectTimeout = (sessionId: string, assistantMsgId: string) => {
 		const msg = this.#deps.get().messagesMap[assistantMsgId];

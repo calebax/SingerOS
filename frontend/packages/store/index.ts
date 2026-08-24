@@ -204,6 +204,7 @@ export {
 	useTopicStore,
 } from "./appStore";
 export type { ParsedSkillChip } from "./chat/send/composerSkills";
+export { ASSISTANT_REPLY_TIMEOUT_RETRY_HINT } from "./chat";
 export {
 	formatTaskDisplayTitle,
 	hasComposerSkillTokens,

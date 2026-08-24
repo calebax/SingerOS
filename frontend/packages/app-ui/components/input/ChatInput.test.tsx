@@ -23,6 +23,7 @@ class ResizeObserverStub {
 vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 
 vi.mock("@leros/store", () => ({
+	ASSISTANT_REPLY_TIMEOUT_RETRY_HINT: "请退出当前对话后重新进入再试。",
 	useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			activeSessionId: null,
@@ -30,6 +31,7 @@ vi.mock("@leros/store", () => ({
 			inputAttachments: [],
 			isGenerating: false,
 			cancellingSessionId: null,
+			suppressedReplySessionId: null,
 			messagesMap: {},
 			messageIds: [],
 			selectedModel: "gpt-4.1",
