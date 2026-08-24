@@ -31,6 +31,6 @@ jobs:
       - name: Push mirror
         run: |
           git remote add mirror git@git.yygu.cn:corekg/lework.git
-          git push --prune mirror main \
+          GIT_SSH_COMMAND="ssh -vvv" timeout 120 git push --prune mirror main \
             'refs/heads/release*:refs/heads/release*' \
             'refs/tags/*:refs/tags/*' --force
