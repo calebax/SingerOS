@@ -2,11 +2,11 @@ import type { AppNavigation } from "./LeftRail";
 
 export function navigateToWorkbench(
 	navigation: AppNavigation | undefined,
-	switchView: (view: "workbench") => void,
+	switchView: (view: "chat") => void,
 ) {
 	if (navigation) {
-		navigation.goToRoute("workbench");
+		navigation.goToRoute("chat");
 		return;
 	}
-	switchView("workbench");
+	switchView("chat");
 }

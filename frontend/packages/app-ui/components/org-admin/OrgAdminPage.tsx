@@ -39,9 +39,9 @@ export function OrgAdminPage({ section, navigation }: OrgAdminPageProps) {
 	}, [section, switchView]);
 
 	const handleBackToWorkbench = () => {
-		switchView("workbench");
+		switchView("chat");
 		if (navigation) {
-			navigation.goToRoute("workbench");
+			navigation.goToRoute("chat");
 		}
 	};
 

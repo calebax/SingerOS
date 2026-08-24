@@ -255,6 +255,7 @@ type ConnectorSkillRef struct {
 type ResolveSkillDownloadURLsRequest struct {
 	SkillCodes      []string            `json:"skill_codes"`
 	ConnectorSkills []ConnectorSkillRef `json:"connector_skills,omitempty"`
+	Scene           string              `json:"scene,omitempty"`
 	// ActorUin 标识任务执行的实际用户，避免把 Worker 身份误当成插件 owner。
 	ActorUin uint `json:"actor_uin,omitempty"`
 	// ProjectID 是任务运行所在项目，存在有效项目绑定时按项目运行授权允许下载。

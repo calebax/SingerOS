@@ -89,6 +89,15 @@ func (p *registryToolProvider) ToolsFor(
 			RepoDir:              workspace.RepoDir,
 			ArtifactManifestPath: workspace.ArtifactManifestPath,
 			SkillDir:             workspace.SkillDir,
+			Model: tools.ToolModelMetadata{
+				Provider:    req.Model.Provider,
+				Model:       req.Model.Model,
+				APIKey:      req.Model.APIKey,
+				BaseURL:     req.Model.BaseURL,
+				Vision:      req.Model.Vision,
+				MaxTokens:   req.Model.MaxTokens,
+				OutputLimit: req.Model.OutputLimit,
+			},
 		}
 	}
 	for _, legacy := range legacyTools {

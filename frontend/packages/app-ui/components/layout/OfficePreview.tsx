@@ -226,7 +226,6 @@ function XlsxPreview({
 		if (!container) return;
 		const containerElement = container;
 		const viewerBuffer = copyArrayBuffer(buffer);
-		const textBuffer = tracksTextSelection ? copyArrayBuffer(buffer) : undefined;
 
 		let cancelled = false;
 		let viewer: XlsxViewer | undefined;
@@ -268,12 +267,18 @@ function XlsxPreview({
 			try {
 				const [{ XlsxViewer }, loadedXlsxModule] = await Promise.all([
 					import("@silurus/ooxml/xlsx"),
-					tracksTextSelection ? import("xlsx") : Promise.resolve(undefined),
+					import("xlsx"),
 				]);
 				if (cancelled) return;
 				xlsxModule = loadedXlsxModule;
-				if (loadedXlsxModule && textBuffer) {
-					workbook = loadedXlsxModule.read(textBuffer, { type: "array", cellDates: true });
+				const { hydrateXlsxFormulaCache } = await import("./xlsx-formula-preview");
+				const previewBuffer = await hydrateXlsxFormulaCache(viewerBuffer);
+				if (cancelled) return;
+				if (tracksTextSelection) {
+					workbook = loadedXlsxModule.read(previewBuffer, {
+						type: "array",
+						cellDates: true,
+					});
 				}
 
 				viewer = new XlsxViewer(containerElement, {
@@ -292,7 +297,7 @@ function XlsxPreview({
 						emitSelection();
 					},
 				});
-				await viewer.load(viewerBuffer);
+				await viewer.load(previewBuffer);
 				if (!cancelled) setStatus("ready");
 			} catch (err) {
 				if (cancelled) return;

@@ -67,6 +67,8 @@ const (
 	MessageSceneNormal MessageScene = "normal"
 	// MessageSceneBidComparison 标书对比工具场景。
 	MessageSceneBidComparison MessageScene = "bid_comparison"
+	// MessageSceneSalaryAccounting 工资核算工具场景。
+	MessageSceneSalaryAccounting MessageScene = "salary_accounting"
 )
 
 // OutputFormat 标识工具场景要求生成的最终交付格式。
@@ -91,6 +93,12 @@ const (
 	AttachmentRoleMain AttachmentRole = "main"
 	// AttachmentRoleCompare 场景对比文件。
 	AttachmentRoleCompare AttachmentRole = "compare"
+	// AttachmentRoleRoster 工资核算人员底表。
+	AttachmentRoleRoster AttachmentRole = "roster"
+	// AttachmentRoleHistoricalPayroll 工资核算历史工资表。
+	AttachmentRoleHistoricalPayroll AttachmentRole = "historical_payroll"
+	// AttachmentRoleAttendance 工资核算当月考勤资料。
+	AttachmentRoleAttendance AttachmentRole = "attendance"
 )
 
 // ObjectMetadata 项目元数据结构

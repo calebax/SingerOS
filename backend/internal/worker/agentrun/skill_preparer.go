@@ -81,6 +81,8 @@ type pluginSkillDescriptor struct {
 	ConnectorRef *connectorSkillDownloadRef
 }
 
+const salaryAccountingScene = "salary_accounting"
+
 // NewPluginSkillPreparer creates the worker implementation. A zero server
 // address is valid only when no project Skill artifact needs downloading.
 func NewPluginSkillPreparer(serverAddr, authToken string) *PluginSkillPreparer {
@@ -122,13 +124,39 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 		logs.WarnContextf(ctx, "link worker system Skills failed; continuing: root=%s error=%v", viewRoot, err)
 	}
 	p.preparePluginSkills(ctx, req.Plugins, viewRoot, policy)
+	if err := p.prepareSceneSkills(ctx, req, viewRoot); err != nil {
+		return "", cleanup, fmt.Errorf("prepare scene skills: %w", err)
+	}
 	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot, policy); err != nil {
 		return "", cleanup, fmt.Errorf("prepare invoked skills: %w", err)
 	}
 	return viewRoot, cleanup, nil
 }
 
-func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots []agentrundomain.PluginSnapshot, viewRoot string, policy disabledPluginPolicy) {
+func (p *PluginSkillPreparer) prepareSceneSkills(
+	ctx context.Context,
+	req *agentrundomain.RunRequest,
+	viewRoot string,
+) error {
+	if req == nil || !strings.EqualFold(strings.TrimSpace(req.Input.Scene), salaryAccountingScene) {
+		return nil
+	}
+	const code = "attendance-payroll"
+	// 场景 Skill 包含会随代码一起演进的确定性计算器。不能因为任务视图
+	// 已经存在旧副本就跳过刷新，否则工资规则修复不会进入本次运行。
+	if err := p.installLatestSkills(ctx, []string{code}, viewRoot, salaryAccountingScene); err != nil {
+		return err
+	}
+	logs.InfoContextf(ctx, "installed scene Skill %q for scene=%s", code, salaryAccountingScene)
+	return nil
+}
+
+func (p *PluginSkillPreparer) preparePluginSkills(
+	ctx context.Context,
+	snapshots []agentrundomain.PluginSnapshot,
+	viewRoot string,
+	policy disabledPluginPolicy,
+) {
 	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
 	if err != nil {
 		logs.WarnContextf(ctx, "resolve worker Skill directory failed: %v", err)
@@ -216,7 +244,7 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 			standardCodes = append(standardCodes, code)
 		}
 		sort.Strings(standardCodes)
-		downloads, err := p.resolveDownloadURLs(ctx, standardCodes, connectorRefs)
+		downloads, err := p.resolveDownloadURLs(ctx, standardCodes, connectorRefs, "")
 		if err != nil {
 			logs.WarnContextf(ctx, "resolve project Skill download URLs failed: %v", err)
 		} else {
@@ -302,14 +330,14 @@ func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
-	return p.installLatestSkills(ctx, codes, viewRoot)
+	return p.installLatestSkills(ctx, codes, viewRoot, "")
 }
 
 func isSystemSkill(code string) bool {
 	return hasSkillDocument(filepath.Join(systemSkillsDir(), code))
 }
 
-func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []string, viewRoot string) error {
+func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []string, viewRoot, scene string) error {
 	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
 	if err != nil {
 		return fmt.Errorf("resolve worker Skill directory: %w", err)
@@ -325,7 +353,7 @@ func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []s
 	if err != nil {
 		return fmt.Errorf("read worker Skill install manifest: %w", err)
 	}
-	downloads, err := p.resolveDownloadURLs(ctx, codes, nil)
+	downloads, err := p.resolveDownloadURLs(ctx, codes, nil, scene)
 	if err != nil {
 		return fmt.Errorf("resolve download URLs: %w", err)
 	}
@@ -401,6 +429,7 @@ func (p *PluginSkillPreparer) resolveDownloadURLs(
 	ctx context.Context,
 	codes []string,
 	connectorRefs []connectorSkillDownloadRef,
+	scene string,
 ) (map[string]skillDownloadURLResponse, error) {
 	if p == nil || strings.TrimSpace(p.serverAddr) == "" {
 		return nil, fmt.Errorf("server address is required")
@@ -408,7 +437,8 @@ func (p *PluginSkillPreparer) resolveDownloadURLs(
 	body, err := json.Marshal(struct {
 		SkillCodes      []string                    `json:"skill_codes"`
 		ConnectorSkills []connectorSkillDownloadRef `json:"connector_skills,omitempty"`
-	}{SkillCodes: codes, ConnectorSkills: connectorRefs})
+		Scene           string                      `json:"scene,omitempty"`
+	}{SkillCodes: codes, ConnectorSkills: connectorRefs, Scene: scene})
 	if err != nil {
 		return nil, fmt.Errorf("encode skill download URL request: %w", err)
 	}

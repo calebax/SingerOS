@@ -6,6 +6,7 @@ import {
 	OrgAdminPage,
 	ProjectPage,
 	ProjectsHubView,
+	PayrollWorkbench,
 	SkillMarketView,
 	TaskDetailPage,
 	WorkbenchPanel,
@@ -23,6 +24,12 @@ function projectTabPath(projectId: string, tab: ProjectTab): string {
 }
 
 export function WorkbenchRoutePage() {
+	const navigation = useWebNavigation();
+
+	return <PayrollWorkbench navigation={navigation} />;
+}
+
+export function ChatRoutePage() {
 	const navigation = useWebNavigation();
 
 	return <WorkbenchPanel navigation={navigation} />;

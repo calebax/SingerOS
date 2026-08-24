@@ -218,10 +218,10 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 
 		if (leavingActiveProject) {
 			if (navigation) {
-				navigation.goToRoute("workbench");
+				navigation.goToRoute("chat");
 				return;
 			}
-			switchView("workbench");
+			switchView("chat");
 		}
 	};
 
