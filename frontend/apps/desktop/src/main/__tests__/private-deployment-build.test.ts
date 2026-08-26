@@ -8,7 +8,7 @@ describe("private deployment build marker", () => {
 	it("injects the deployment mode into the renderer build", () => {
 		const viteConfig = readFileSync(resolve(desktopRoot, "electron.vite.config.ts"), "utf8");
 
-		expect(viteConfig).toContain('"import.meta.env.VITE_LEROS_DEPLOYMENT_MODE"');
+		expect(viteConfig).toContain('publicDir: resolve("src/renderer/public")');
 		expect(viteConfig).toContain('process.env.VITE_LEROS_DEPLOYMENT_MODE ?? "public"');
 	});
 
@@ -51,7 +51,27 @@ describe("private deployment build marker", () => {
 		expect(privateTargetScript).toContain('VITE_LEROS_DEPLOYMENT_MODE = "private"');
 		expect(privateTargetScript).toContain("runDesktopDist(builderArgs)");
 		expect(distRunScript).toContain("-linux-${arch}-private.${ext}");
+		expect(desktopPackage.scripts?.icons).toContain("inject-deploy-config.mjs");
 		expect(desktopPackage.scripts?.["dist:linux:arm64"]).toContain("AppImage:arm64 deb:arm64");
+	});
+
+	it("keeps private GitLab packages off the SaaS COS prefix", () => {
+		const gitlabCi = readFileSync(resolve(desktopRoot, "../../../.gitlab-ci.yml"), "utf8");
+
+		expect(gitlabCi).toContain("- private");
+		expect(gitlabCi).toContain('if [ "$ENV" = "private" ]');
+		expect(gitlabCi).toContain("dist:desktop${private_script_infix}");
+		expect(gitlabCi).toContain('name_suffix="-private"');
+		expect(gitlabCi).toContain("${root_prefix}/private/${deploy_mode}");
+		expect(gitlabCi).toContain("Private desktop build requires LEROS_DEPLOY_MODE");
+		expect(gitlabCi).toContain("Ignoring desktop_deploy_mode/desktop_app_name because environment=");
+		expect(gitlabCi).toContain("Invalid LEROS_DEPLOY_MODE");
+		expect(gitlabCi).toContain("/download?edition=private&mode=${deploy_mode}");
+		expect(gitlabCi).toContain('$ENV != "private"');
+		expect(gitlabCi).toContain("desktop-build-linux-arm64:");
+		expect(gitlabCi).toContain('$APP == "desktop" && $ENV == "private"');
+		expect(gitlabCi).toContain("dist:desktop${private_script_infix}:linux:arm64");
+		expect(gitlabCi).toContain("Lework-${version}-linux-arm64${name_suffix}.deb");
 	});
 
 	it("keeps renderer workspace packages out of production dependencies", () => {

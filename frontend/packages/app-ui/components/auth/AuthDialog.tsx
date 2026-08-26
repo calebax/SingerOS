@@ -45,7 +45,9 @@ import {
 	APP_PRIVACY_POLICY_PDF_SRC,
 	APP_TERMS_OF_SERVICE_PDF_SRC,
 } from "../../assets";
+import { ProtectedImage } from "../avatar/ProtectedImage";
 import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
+import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 
 type AuthMode = "phone" | "password";
 type PolicyDocument = "terms" | "privacy";
@@ -508,9 +510,20 @@ function AuthDialog({
 				showCloseButton
 			>
 				<div className="mx-auto flex w-full max-w-[430px] flex-col items-center">
-					<img src={logoSrc} alt="Lework" className="size-[60px] object-contain" />
+					{customBrandLogo ? (
+						<ProtectedImage
+							src={customBrandLogo}
+							alt={brandName}
+							className="size-[60px] object-contain"
+							fallback={
+								<img src={logoSrc} alt={brandName} className="size-[60px] object-contain" />
+							}
+						/>
+					) : (
+						<img src={logoSrc} alt={brandName} className="size-[60px] object-contain" />
+					)}
 					<DialogTitle className="mt-5 text-center text-3xl font-semibold tracking-normal">
-						欢迎来到Lework
+						欢迎来到{brandName}
 					</DialogTitle>
 
 					{mode === "phone" ? (

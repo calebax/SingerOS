@@ -6,7 +6,8 @@ spec:
         - test
         - prod
         - image
-      description: 发布的环境选择，image为仅构建镜像
+        - private
+      description: 发布的环境选择，image为仅构建镜像，private为桌面端私有化打包
     app:
       default: leros
       options:
@@ -27,6 +28,12 @@ spec:
         - enterprise
         - oss
       description: '构建版本类型，oss=社区版，enterprise=企业版'
+    desktop_deploy_mode:
+      default: ""
+      description: '仅 environment=private 的桌面打包生效；此时必填，对应 frontend/private/logo/{mode}/ 与 COS private/{mode}/。SaaS（test/prod）即使填写也会被忽略'
+    desktop_app_name:
+      default: ""
+      description: '仅 environment=private 的桌面打包生效；可选，留空则为 Lework。SaaS 即使填写也会被忽略'
 ---
 
 stages:
@@ -41,6 +48,8 @@ variables:
   ENV: "$[[ inputs.environment ]]"
   APP: "$[[ inputs.app ]]"
   UPDATE_WORKER_IMAGE: "$[[ inputs.update_worker_image ]]"
+  LEROS_DEPLOY_MODE: "$[[ inputs.desktop_deploy_mode ]]"
+  LEROS_DEPLOY_APP_NAME: "$[[ inputs.desktop_app_name ]]"
   K3S_NAMESPACE_TEST: "insmtx-test"
   K3S_SERVER_DEPLOYMENT: "leros"
   K3S_SERVER_CONTAINER: "leros"
@@ -159,6 +168,8 @@ deploy:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
     - if: '$APP == "desktop"'
+      when: never
+    - if: '$ENV == "private"'
       when: never
     - if: '$ENV != "image"'
       when: on_success
@@ -458,6 +469,23 @@ deploy:
         echo "desktop package version is required"
         exit 1
       fi
+    - |
+      if [ "$ENV" = "private" ]; then
+        if [ -z "$LEROS_DEPLOY_MODE" ]; then
+          echo "Private desktop build requires LEROS_DEPLOY_MODE (desktop_deploy_mode)"
+          exit 1
+        fi
+        if ! printf '%s' "$LEROS_DEPLOY_MODE" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
+          echo "Invalid LEROS_DEPLOY_MODE: $LEROS_DEPLOY_MODE"
+          exit 1
+        fi
+      else
+        if [ -n "${LEROS_DEPLOY_MODE:-}" ] || [ -n "${LEROS_DEPLOY_APP_NAME:-}" ]; then
+          echo "Ignoring desktop_deploy_mode/desktop_app_name because environment=$ENV (only used when environment=private)"
+        fi
+        export LEROS_DEPLOY_MODE=""
+        export LEROS_DEPLOY_APP_NAME=""
+      fi
     - cd frontend
     - pnpm config set store-dir "$CI_PROJECT_DIR/frontend/.pnpm-store"
     - pnpm install --frozen-lockfile
@@ -469,6 +497,16 @@ deploy:
       prefix="${DESKTOP_COS_PREFIX#/}"
       prefix="${prefix%/}"
       printf '%s\n' "$version" > "$CI_PROJECT_DIR/LATEST.txt"
+      deployment_mode="public"
+      if [ "$ENV" = "private" ]; then
+        deployment_mode="private"
+      fi
+      name_suffix=""
+      private_script_infix=""
+      if [ "$deployment_mode" = "private" ]; then
+        name_suffix="-private"
+        private_script_infix=":private"
+      fi
 
       upload_dir() {
         local local_dir="$1"
@@ -499,54 +537,67 @@ deploy:
 
       case "$DESKTOP_TARGET" in
         mac-arm64)
-          build_script="dist:desktop:mac:arm64"
+          build_script="dist:desktop${private_script_infix}:mac:arm64"
           release_dir="desktop-release/mac-arm64"
           cos_target_dir="darwin/arm64"
           latest_file="latest-mac.yml"
-          root_installer="Lework-${version}-mac-arm64.dmg"
+          root_installer="Lework-${version}-mac-arm64${name_suffix}.dmg"
           build_with_signing="true"
           payload_files="
-            Lework-${version}-mac-arm64.dmg
-            Lework-${version}-mac-arm64.zip
-            Lework-${version}-mac-arm64.dmg.blockmap
-            Lework-${version}-mac-arm64.zip.blockmap
+            Lework-${version}-mac-arm64${name_suffix}.dmg
+            Lework-${version}-mac-arm64${name_suffix}.zip
+            Lework-${version}-mac-arm64${name_suffix}.dmg.blockmap
+            Lework-${version}-mac-arm64${name_suffix}.zip.blockmap
           "
           ;;
         mac-x64)
-          build_script="dist:desktop:mac:x64"
+          build_script="dist:desktop${private_script_infix}:mac:x64"
           release_dir="desktop-release/mac-x64"
           cos_target_dir="darwin/x64"
           latest_file="latest-mac.yml"
-          root_installer="Lework-${version}-mac-x64.dmg"
+          root_installer="Lework-${version}-mac-x64${name_suffix}.dmg"
           build_with_signing="true"
           payload_files="
-            Lework-${version}-mac-x64.dmg
-            Lework-${version}-mac-x64.zip
-            Lework-${version}-mac-x64.dmg.blockmap
-            Lework-${version}-mac-x64.zip.blockmap
+            Lework-${version}-mac-x64${name_suffix}.dmg
+            Lework-${version}-mac-x64${name_suffix}.zip
+            Lework-${version}-mac-x64${name_suffix}.dmg.blockmap
+            Lework-${version}-mac-x64${name_suffix}.zip.blockmap
           "
           ;;
         win-x64)
-          build_script="dist:desktop:win:x64"
+          build_script="dist:desktop${private_script_infix}:win:x64"
           release_dir="desktop-release/win-x64"
           cos_target_dir="win32/x64"
           latest_file="latest.yml"
-          root_installer="Lework-${version}-win-x64.exe"
+          root_installer="Lework-${version}-win-x64${name_suffix}.exe"
           build_with_signing="false"
           payload_files="
-            Lework-${version}-win-x64.exe
-            Lework-${version}-win-x64.exe.blockmap
+            Lework-${version}-win-x64${name_suffix}.exe
+            Lework-${version}-win-x64${name_suffix}.exe.blockmap
           "
           ;;
         linux-x64)
-          build_script="dist:desktop:linux:x64"
+          build_script="dist:desktop${private_script_infix}:linux:x64"
           release_dir="desktop-release/linux-x64"
           cos_target_dir="linux/x64"
           latest_file="latest-linux.yml"
-          root_installer="Lework-${version}-linux-amd64.deb"
+          root_installer="Lework-${version}-linux-amd64${name_suffix}.deb"
+          linux_alt_installer="Lework-${version}-linux-x64${name_suffix}.deb"
           build_with_signing="false"
           payload_files="
-            Lework-${version}-linux-amd64.deb
+            Lework-${version}-linux-amd64${name_suffix}.deb
+          "
+          ;;
+        linux-arm64)
+          build_script="dist:desktop${private_script_infix}:linux:arm64"
+          release_dir="desktop-release/linux-arm64"
+          cos_target_dir="linux/arm64"
+          latest_file="latest-linux.yml"
+          root_installer="Lework-${version}-linux-arm64${name_suffix}.deb"
+          linux_alt_installer="Lework-${version}-linux-aarch64${name_suffix}.deb"
+          build_with_signing="false"
+          payload_files="
+            Lework-${version}-linux-arm64${name_suffix}.deb
           "
           ;;
         *)
@@ -599,15 +650,37 @@ deploy:
         trap - EXIT
       fi
 
+      if [ -n "${linux_alt_installer:-}" ] && [ ! -f "frontend/apps/desktop/dist/${root_installer}" ] && [ -f "frontend/apps/desktop/dist/${linux_alt_installer}" ]; then
+        cp "frontend/apps/desktop/dist/${linux_alt_installer}" "frontend/apps/desktop/dist/${root_installer}"
+      fi
+
       mkdir -p "$release_dir"
       for payload_file in $payload_files; do
         cp "frontend/apps/desktop/dist/${payload_file}" "$release_dir/" 2>/dev/null || true
       done
       cp "frontend/apps/desktop/dist/${latest_file}" "$release_dir/" 2>/dev/null || true
 
-      upload_dir "$release_dir" "$cos_target_dir"
-      upload_file "${release_dir}/${root_installer}" "$root_prefix"
-      upload_file "LATEST.txt" "$root_prefix"
+      if [ "$deployment_mode" = "private" ]; then
+        deploy_mode="${LEROS_DEPLOY_MODE}"
+        if [ -z "$deploy_mode" ]; then
+          echo "Private desktop build requires LEROS_DEPLOY_MODE (desktop_deploy_mode)"
+          exit 1
+        elif ! printf '%s' "$deploy_mode" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
+          echo "Invalid LEROS_DEPLOY_MODE: $deploy_mode"
+          exit 1
+        else
+          private_prefix="${root_prefix}/private/${deploy_mode}"
+          upload_file "${release_dir}/${root_installer}" "$private_prefix"
+          upload_file "LATEST.txt" "$private_prefix"
+          cos_host="https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com"
+          echo "Private installer URL: ${cos_host}/${private_prefix}/${root_installer}"
+          echo "Website hidden download: /download?edition=private&mode=${deploy_mode}"
+        fi
+      else
+        upload_dir "$release_dir" "$cos_target_dir"
+        upload_file "${release_dir}/${root_installer}" "$root_prefix"
+        upload_file "LATEST.txt" "$root_prefix"
+      fi
 
 # ============================================================================
 # 桌面端打包 - 平台 template / job
@@ -694,13 +767,30 @@ desktop-build-linux-x64:
     - !reference [".desktop-before-linux", before_script]
     - !reference [".desktop-before-base", before_script]
 
+desktop-build-linux-arm64:
+  extends: .desktop-build-template
+  image: registry.yygu.cn/library/node:24
+  tags:
+    - ubuntu
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - if: '$APP == "desktop" && $ENV == "private"'
+      when: on_success
+    - when: never
+  variables:
+    DESKTOP_TARGET: linux-arm64
+  before_script:
+    - !reference [".desktop-before-linux", before_script]
+    - !reference [".desktop-before-base", before_script]
+
 desktop-update-k3s-client-version:
   stage: notify
   image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
-    - if: '$APP == "desktop" && $ENV != "image"'
+    - if: '$APP == "desktop" && $ENV != "image" && $ENV != "private"'
       when: on_success
     - when: never
   needs:
@@ -711,6 +801,8 @@ desktop-update-k3s-client-version:
     - job: desktop-build-win-x64
       optional: true
     - job: desktop-build-linux-x64
+      optional: true
+    - job: desktop-build-linux-arm64
       optional: true
   before_script:
     - mkdir -p ~/.ssh
