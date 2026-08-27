@@ -461,7 +461,6 @@ complete:
 	case <-time.After(5 * time.Second):
 		logs.Warnf("OpenCode SSE stream did not close within 5s after cancel, proceeding anyway")
 	}
-
 	st.mu.Lock()
 	hasRunErr := st.runErr != ""
 	runErr := st.runErr
@@ -545,6 +544,7 @@ func sendEventPayloadTo(ch chan<- agent.NodeEvent, eventType agent.NodeEventType
 	select {
 	case ch <- agent.NodeEvent{Type: eventType, Payload: payload}:
 	default:
+		logs.Warnf("[opencode] dropped node event (channel full): type=%s", eventType)
 	}
 }
 
@@ -556,5 +556,6 @@ func sendEventDirect(ch chan<- agent.NodeEvent, evt agent.NodeEvent) {
 	select {
 	case ch <- evt:
 	default:
+		logs.Warnf("[opencode] dropped node event (channel full): type=%s", evt.Type)
 	}
 }
