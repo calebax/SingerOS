@@ -336,6 +336,7 @@ func mapUinListToAuthOrgInfos(uins []iamLoginUin) []account.AuthOrgInfo {
 			Name:            uin.CompanyName,
 			Logo:            uin.CompanyLogo,
 			Uin:             uin.Uin.ID,
+			IsAdmin:         uin.Role == sysAdminRole,
 			CreatedByUin:    uin.CreatedByUin,
 			CreatedByUserID: uin.CreatedByUserID,
 			UserName:        uin.Uin.Name,
@@ -364,6 +365,7 @@ func mapDepartmentTreeEmployeeToUserInfo(emp iamDepartmentTreeEmployee) account.
 		Email:     emp.Email,
 		Phone:     emp.Phone,
 		AvatarURL: emp.AvatarURL,
+		Role:      emp.Role,
 		CreatedAt: &emp.CreatedAt,
 	}
 }

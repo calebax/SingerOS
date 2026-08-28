@@ -31,6 +31,7 @@ type storedUser struct {
 	Name  string
 	Email string
 	Phone string
+	Role  string
 }
 
 func newMockIAMServer() *mockIAMServer {
@@ -94,6 +95,7 @@ func (m *mockIAMServer) handleCreateEmployee(w http.ResponseWriter, raw json.Raw
 		Name     string `json:"name"`
 		Email    string `json:"email"`
 		Phone    string `json:"phone"`
+		Role     string `json:"role"`
 	}
 	json.Unmarshal(raw, &req)
 
@@ -114,7 +116,11 @@ func (m *mockIAMServer) handleCreateEmployee(w http.ResponseWriter, raw json.Raw
 
 	id := m.nextID
 	m.nextID++
-	m.users = append(m.users, storedUser{ID: id, Name: req.Name, Email: req.Email, Phone: req.Phone})
+	role := req.Role
+	if role == "" {
+		role = "member"
+	}
+	m.users = append(m.users, storedUser{ID: id, Name: req.Name, Email: req.Email, Phone: req.Phone, Role: role})
 
 	m.write(w, 0, map[string]any{
 		"employee": map[string]any{
@@ -125,7 +131,7 @@ func (m *mockIAMServer) handleCreateEmployee(w http.ResponseWriter, raw json.Raw
 			"phone":          req.Phone,
 			"employee_id":    id,
 			"user_id":        id,
-			"role":           "member",
+			"role":           role,
 			"department_ids": []int{},
 		},
 	})
@@ -221,6 +227,9 @@ func (m *mockIAMServer) handleEditDepartmentEmployee(w http.ResponseWriter, raw 
 	if req.Phone != "" {
 		found.Phone = req.Phone
 	}
+	if req.Role != "" {
+		found.Role = req.Role
+	}
 
 	m.write(w, 0, map[string]any{
 		"employee": map[string]any{
@@ -231,7 +240,7 @@ func (m *mockIAMServer) handleEditDepartmentEmployee(w http.ResponseWriter, raw 
 			"phone":          found.Phone,
 			"employee_id":    found.ID,
 			"user_id":        found.ID,
-			"role":           "member",
+			"role":           found.Role,
 			"department_ids": []int{},
 		},
 	})
@@ -259,7 +268,7 @@ func (m *mockIAMServer) handleListEmployee(w http.ResponseWriter, raw json.RawMe
 					"email":          u.Email,
 					"phone":          u.Phone,
 					"avatar_url":     "",
-					"sys_role":       "member",
+					"sys_role":       u.Role,
 					"department_ids": []int{},
 					"created_at":     "2024-01-01T00:00:00Z",
 				})
@@ -320,7 +329,7 @@ func (m *mockIAMServer) handleDepartmentTree(w http.ResponseWriter, raw json.Raw
 			"phone":          u.Phone,
 			"employee_id":    u.ID,
 			"user_id":        u.ID,
-			"role":           "member",
+			"role":           u.Role,
 			"department_ids": []int{},
 		})
 	}
@@ -615,4 +624,114 @@ func createEnterpriseUser(t *testing.T, router *gin.Engine, name string) createU
 		t.Fatalf("CreateUser expected code %d, got %d", dto.CodeSuccess, resp.Code)
 	}
 	return parseData[createUserResult](t, resp)
+}
+
+func TestEnterpriseCreateUser_DefaultRole(t *testing.T) {
+	mock := newMockIAMServer()
+	defer mock.close()
+	router := setupEnterpriseUserHandler(t, mock)
+
+	w := doRequest(t, router, "/CreateUser", `{"name":"张三"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CreateUser expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := parseResponse(t, w)
+	if resp.Code != dto.CodeSuccess {
+		t.Fatalf("expected code %d, got %d", dto.CodeSuccess, resp.Code)
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.users) != 1 {
+		t.Fatalf("expected 1 stored user, got %d", len(mock.users))
+	}
+	if mock.users[0].Role != "sys_employee" {
+		t.Fatalf("expected IAM to receive default role sys_employee, got %q", mock.users[0].Role)
+	}
+}
+
+func TestEnterpriseCreateUser_WithAdminRole(t *testing.T) {
+	mock := newMockIAMServer()
+	defer mock.close()
+	router := setupEnterpriseUserHandler(t, mock)
+
+	w := doRequest(t, router, "/CreateUser", `{"name":"张三","role":"sys_admin"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CreateUser expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := parseResponse(t, w)
+	if resp.Code != dto.CodeSuccess {
+		t.Fatalf("expected code %d, got %d", dto.CodeSuccess, resp.Code)
+	}
+	result := parseData[createUserResult](t, resp)
+	if result.Role != "sys_admin" {
+		t.Fatalf("expected response role sys_admin, got %q", result.Role)
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.users) != 1 {
+		t.Fatalf("expected 1 stored user, got %d", len(mock.users))
+	}
+	if mock.users[0].Role != "sys_admin" {
+		t.Fatalf("expected IAM to receive role sys_admin, got %q", mock.users[0].Role)
+	}
+}
+
+func TestEnterpriseListUser_PreservesRole(t *testing.T) {
+	mock := newMockIAMServer()
+	defer mock.close()
+	router := setupEnterpriseUserHandler(t, mock)
+
+	w := doRequest(t, router, "/CreateUser", `{"name":"张三","role":"sys_admin"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CreateUser expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	lw := doRequest(t, router, "/ListUser", `{}`)
+	if lw.Code != http.StatusOK {
+		t.Fatalf("ListUser expected 200, got %d: %s", lw.Code, lw.Body.String())
+	}
+	result := parseData[userListResult](t, parseResponse(t, lw))
+	if len(result.Items) < 1 {
+		t.Fatalf("expected at least 1 item, got %d", len(result.Items))
+	}
+	for _, item := range result.Items {
+		if item.Role != "sys_admin" {
+			t.Fatalf("expected item role sys_admin, got %q", item.Role)
+		}
+	}
+}
+
+func TestEnterpriseUpdateUser_ForwardsRole(t *testing.T) {
+	mock := newMockIAMServer()
+	defer mock.close()
+	router := setupEnterpriseUserHandler(t, mock)
+
+	createResult := createEnterpriseUser(t, router, "张三")
+
+	uw := doRequest(t, router, "/UpdateUser", fmt.Sprintf(`{"public_id":"%d","role":"sys_admin"}`, createResult.UserID))
+	if uw.Code != http.StatusOK {
+		t.Fatalf("UpdateUser expected 200, got %d: %s", uw.Code, uw.Body.String())
+	}
+	uresp := parseResponse(t, uw)
+	if uresp.Code != dto.CodeSuccess {
+		t.Fatalf("expected code %d, got %d", dto.CodeSuccess, uresp.Code)
+	}
+	updated := parseData[userInfo](t, uresp)
+	if updated.Role != "sys_admin" {
+		t.Fatalf("expected updated user role sys_admin, got %q", updated.Role)
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	for _, u := range mock.users {
+		if u.ID == int(createResult.UserID) {
+			if u.Role != "sys_admin" {
+				t.Fatalf("expected stored user role sys_admin, got %q", u.Role)
+			}
+			return
+		}
+	}
+	t.Fatalf("stored user %d not found", createResult.UserID)
 }

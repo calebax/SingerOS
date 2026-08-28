@@ -323,6 +323,7 @@ func (s *auth) AuthSession(ctx context.Context) (*account.AuthSessionOutput, err
 			Code:            resp.CompanyInfo.Alias,
 			Logo:            resp.CompanyInfo.Logo,
 			IsDefault:       true,
+			IsAdmin:         resp.EmployeeDetail.SysRole == sysAdminRole,
 			CreatedByUin:    resp.CompanyInfo.CreatedByUin,
 			CreatedByUserID: resp.CompanyInfo.UserID,
 			UserName:        orgUinName,

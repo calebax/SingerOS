@@ -26,6 +26,7 @@ import {
 } from "@leros/ui/components/ui/dropdown-menu";
 import { Input } from "@leros/ui/components/ui/input";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import {
 	Table,
 	TableBody,
@@ -241,11 +242,10 @@ export function DepartmentTreePanel() {
 	const filteredTree = useMemo(() => filterDepartmentTree(tree, search), [tree, search]);
 	const departmentCount = useMemo(() => countDepartments(tree), [tree]);
 	const selectedDepartment = departments.find((item) => item.id === selectedId) ?? null;
-	// 中文注释：当前组织对象未必携带创建人，优先从 AuthSession 的组织列表取对应组织的创建人。
-	const createdByUserId =
-		user?.organizations?.find((org) => org.id === orgId)?.createdByUserId ??
-		user?.currentOrg?.createdByUserId;
-	const isDefaultUser = user?.userId === createdByUserId;
+	// 中文注释：组织管理权限由 AuthSession 返回的 is_admin（当前所查看组织，缺省回退到会话默认组织）决定。
+	const isDefaultUser = Boolean(
+		user?.organizations?.find((org) => org.id === orgId)?.isAdmin ?? user?.currentOrg?.isAdmin,
+	);
 
 	useEffect(() => {
 		// 中文注释：通讯录依赖组织创建人字段控制成员管理按钮，打开页面时刷新最新会话信息。
@@ -272,6 +272,7 @@ export function DepartmentTreePanel() {
 		phone: string,
 		email: string,
 		departmentIds: number[],
+		role: string,
 	) => {
 		if (!orgId) return;
 		setSubmitting(true);
@@ -283,6 +284,7 @@ export function DepartmentTreePanel() {
 				name: name.trim(),
 				phone: trimmedPhone || undefined,
 				email: trimmedEmail || undefined,
+				role: role || undefined,
 				department_ids: departmentIds,
 			});
 			toast.success("成员已添加");
@@ -296,7 +298,7 @@ export function DepartmentTreePanel() {
 		}
 	};
 
-	const handleUpdateMember = async (publicId: string, name: string) => {
+	const handleUpdateMember = async (publicId: string, name: string, role?: string) => {
 		if (!orgId) return;
 		const trimmedName = name.trim();
 		// 中文注释：编辑弹窗仍打开时可读到目标成员 uin，用于判断是否为当前登录用户本人。
@@ -306,6 +308,7 @@ export function DepartmentTreePanel() {
 			await orgAdminApi.updateUser({
 				public_id: publicId,
 				name: trimmedName,
+				role: role || undefined,
 			});
 			// 中文注释：通讯录改的是本人时，立即同步左下角展示名，与账户管理改名行为一致。
 			if (
@@ -480,15 +483,17 @@ export function DepartmentTreePanel() {
 							{/* 中文注释：固定列比例并截断过长文本，避免表格最小内容宽度触发横向滚动。 */}
 							<Table className="table-fixed">
 								<colgroup>
-									<col className="w-[25%]" />
-									<col className="w-[25%]" />
-									<col className="w-[25%]" />
+									<col className="w-[20%]" />
+									<col className="w-[20%]" />
+									<col className="w-[15%]" />
+									<col className="w-[20%]" />
 									<col className="w-[25%]" />
 								</colgroup>
 								<TableHeader>
 									<TableRow>
 										<TableHead>用户名</TableHead>
 										<TableHead>{isPrivateDeployment ? "邮箱" : "手机号"}</TableHead>
+										<TableHead>角色</TableHead>
 										<TableHead>创建时间</TableHead>
 										<TableHead>操作</TableHead>
 									</TableRow>
@@ -504,6 +509,17 @@ export function DepartmentTreePanel() {
 											</TableCell>
 											<TableCell className="truncate">
 												{isPrivateDeployment ? member.email?.trim() || "-" : (member.phone ?? "-")}
+											</TableCell>
+											<TableCell className="whitespace-nowrap">
+												{member.role === "sys_admin" ? (
+													<Badge variant="secondary" className="shrink-0">
+														管理员
+													</Badge>
+												) : (
+													<Badge variant="outline" className="shrink-0">
+														成员
+													</Badge>
+												)}
 											</TableCell>
 											<TableCell className="truncate">
 												{formatMemberCreatedAt(member.created_at)}
@@ -618,7 +634,13 @@ type AddMemberDialogProps = {
 	orgName: string;
 	submitting: boolean;
 	onClose: () => void;
-	onSubmit: (name: string, phone: string, email: string, departmentIds: number[]) => void;
+	onSubmit: (
+		name: string,
+		phone: string,
+		email: string,
+		departmentIds: number[],
+		role: string,
+	) => void;
 };
 
 function AddMemberDialog({
@@ -636,6 +658,7 @@ function AddMemberDialog({
 		defaultDepartmentId ? [defaultDepartmentId] : [],
 	);
 	const [pickerOpen, setPickerOpen] = useState(false);
+	const [role, setRole] = useState<"sys_admin" | "sys_employee">("sys_employee");
 	const { shouldShowError, handleFieldBlur, touchField } = useFormFieldValidation();
 
 	const toggleDepartment = (id: number) => {
@@ -678,7 +701,7 @@ function AddMemberDialog({
 
 	const handleSubmit = () => {
 		if (!canSubmitMember) return;
-		onSubmit(trimmedName, trimmedPhone, trimmedEmail, selectedIds);
+		onSubmit(trimmedName, trimmedPhone, trimmedEmail, selectedIds, role);
 	};
 
 	return (
@@ -783,6 +806,27 @@ function AddMemberDialog({
 						</div>
 					)}
 
+					<div className="space-y-2">
+						<span className="text-sm font-medium text-[var(--leros-text-strong)]">角色</span>
+						<Select
+							value={role}
+							onValueChange={(value) =>
+								setRole((value ?? "sys_employee") as "sys_admin" | "sys_employee")
+							}
+						>
+							<SelectTrigger size="sm" className="w-full" aria-label="选择角色">
+								<span>{role === "sys_admin" ? "管理员" : "成员"}</span>
+							</SelectTrigger>
+							<SelectContent align="end">
+								<SelectItem value="sys_employee">成员</SelectItem>
+								<SelectItem value="sys_admin">管理员</SelectItem>
+							</SelectContent>
+						</Select>
+						<p className="text-xs text-[var(--leros-text-subtle)]">
+							管理员可管理组织成员与部门，普通成员仅可浏览通讯录。
+						</p>
+					</div>
+
 					<FieldWithError error={showDepartmentError ? "请选择所属部门" : undefined}>
 						<div className="flex min-h-0 flex-1 flex-col gap-2">
 							<div className="flex items-center justify-between">
@@ -878,11 +922,14 @@ type EditUserDialogProps = {
 	member: User;
 	submitting: boolean;
 	onClose: () => void;
-	onSubmit: (publicId: string, name: string) => void;
+	onSubmit: (publicId: string, name: string, role?: string) => void;
 };
 
 function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialogProps) {
 	const [name, setName] = useState(member.name ?? "");
+	const [role, setRole] = useState<"sys_admin" | "sys_employee">(
+		(member.role as "sys_admin" | "sys_employee") ?? "sys_employee",
+	);
 
 	const handleSubmit = () => {
 		const trimmedName = name.trim();
@@ -890,7 +937,7 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 			toast.error("用户名不能为空");
 			return;
 		}
-		onSubmit(member.public_id, trimmedName);
+		onSubmit(member.public_id, trimmedName, role);
 	};
 
 	return (
@@ -898,7 +945,7 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 			<DialogContent className="w-[min(440px,95vw)] max-w-none">
 				<DialogHeader>
 					<DialogTitle>编辑成员</DialogTitle>
-					<DialogDescription>当前仅支持修改成员用户名，部门归属暂不支持编辑。</DialogDescription>
+					<DialogDescription>支持修改成员用户名与角色，部门归属暂不支持编辑。</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
 					<div className="space-y-2">
@@ -923,6 +970,23 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 							value={isPrivateDeployment ? member.email?.trim() || "-" : (member.phone ?? "-")}
 							disabled
 						/>
+					</div>
+					<div className="space-y-2">
+						<span className="text-sm font-medium text-[var(--leros-text-strong)]">角色</span>
+						<Select
+							value={role}
+							onValueChange={(value) =>
+								setRole((value ?? "sys_employee") as "sys_admin" | "sys_employee")
+							}
+						>
+							<SelectTrigger size="sm" className="w-full" aria-label="选择角色">
+								<span>{role === "sys_admin" ? "管理员" : "成员"}</span>
+							</SelectTrigger>
+							<SelectContent align="end">
+								<SelectItem value="sys_employee">成员</SelectItem>
+								<SelectItem value="sys_admin">管理员</SelectItem>
+							</SelectContent>
+						</Select>
 					</div>
 				</div>
 				<DialogFooter className="mt-6">

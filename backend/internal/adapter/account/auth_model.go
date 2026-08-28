@@ -106,6 +106,7 @@ type AuthOrgInfo struct {
 	Name            string `json:"name"`
 	Logo            string `json:"logo,omitempty"`
 	IsDefault       bool   `json:"is_default,omitempty"`
+	IsAdmin         bool   `json:"is_admin,omitempty"`
 	CreatedByUin    uint   `json:"created_by_uin,omitempty"`
 	CreatedByUserID uint   `json:"created_by_user_id,omitempty"`
 	Uin             uint   `json:"uin,omitempty"`

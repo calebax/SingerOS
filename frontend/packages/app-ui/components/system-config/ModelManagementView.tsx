@@ -27,7 +27,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@leros/ui/components/ui/table";
-import { Bot, Loader2, MoreHorizontal, Plus, Trash2, Wifi } from "lucide-react";
+import { AlertCircle, Bot, Loader2, MoreHorizontal, Plus, Trash2, Wifi } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ModelFormDialog } from "./ModelFormDialog";
@@ -37,8 +37,17 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 export function ModelManagementView() {
-	const { models, loading, loaded, fetchModels, deleteModel, setDefault, setStatus, testModel } =
-		useModelStore((s) => s);
+	const {
+		models,
+		loading,
+		loaded,
+		error,
+		fetchModels,
+		deleteModel,
+		setDefault,
+		setStatus,
+		testModel,
+	} = useModelStore((s) => s);
 	const [createOpen, setCreateOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<ModelItem | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<ModelItem | null>(null);
@@ -46,6 +55,7 @@ export function ModelManagementView() {
 	const [testingId, setTestingId] = useState<number | null>(null);
 
 	useEffect(() => {
+		// 中文注释：fetchModels 失败时 error 已写入 store，由下方错误态兜底展示。
 		void fetchModels();
 	}, [fetchModels]);
 
@@ -125,6 +135,14 @@ export function ModelManagementView() {
 					<div className="flex items-center justify-center py-20 text-sm text-slate-500">
 						<Loader2 className="mr-2 size-4 animate-spin" />
 						加载模型列表…
+					</div>
+				) : error && models.length === 0 ? (
+					<div className="flex flex-col items-center justify-center py-24 text-center">
+						<div className="flex size-16 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-slate-400">
+							<AlertCircle className="size-8" strokeWidth={1.5} />
+						</div>
+						<p className="mt-6 text-xl font-semibold text-slate-900">模型列表加载失败</p>
+						<p className="mt-3 max-w-sm text-sm leading-6 text-slate-400">{error}</p>
 					</div>
 				) : models.length === 0 ? (
 					<div className="flex flex-col items-center justify-center py-24 text-center">

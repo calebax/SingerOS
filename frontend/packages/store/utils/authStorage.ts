@@ -8,6 +8,7 @@ export type StoredAuthOrg = {
 	name: string;
 	logo?: string;
 	isDefault?: boolean;
+	isAdmin?: boolean;
 	createdByUin?: number;
 	createdByUserId?: number;
 };
@@ -51,6 +52,7 @@ type RefreshTokenPayload = {
 			name: string;
 			logo?: string;
 			is_default?: boolean;
+			is_admin?: boolean;
 			created_by_uin?: number;
 			created_by_user_id?: number;
 		};
@@ -62,6 +64,7 @@ type RefreshTokenPayload = {
 			name: string;
 			logo?: string;
 			is_default?: boolean;
+			is_admin?: boolean;
 			created_by_uin?: number;
 			created_by_user_id?: number;
 		}[];
@@ -234,6 +237,7 @@ function toStoredAuthOrg(org: {
 	name: string;
 	logo?: string;
 	is_default?: boolean;
+	is_admin?: boolean;
 	created_by_uin?: number;
 	created_by_user_id?: number;
 }): StoredAuthOrg {
@@ -245,6 +249,7 @@ function toStoredAuthOrg(org: {
 		name: org.name,
 		logo: org.logo,
 		isDefault: org.is_default,
+		isAdmin: org.is_admin,
 		createdByUin: org.created_by_uin,
 		createdByUserId: org.created_by_user_id,
 	};

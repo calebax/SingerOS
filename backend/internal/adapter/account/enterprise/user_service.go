@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
@@ -24,6 +25,10 @@ func NewUser(client *iamClient, db *gorm.DB) *user {
 }
 
 func (s *user) CreateUser(ctx context.Context, req *account.CreateUserInput) (*account.CreateUserResponse, error) {
+	role := strings.TrimSpace(req.Role)
+	if role == "" {
+		role = "sys_employee"
+	}
 	var resp iamCreateDepartmentEmployeeResponseBody
 	if err := s.client.callWithAuth(ctx, "account.CreateDepartmentEmployee", &iamCreateDepartmentEmployeeReq{
 		UserName:      req.Name,
@@ -31,7 +36,7 @@ func (s *user) CreateUser(ctx context.Context, req *account.CreateUserInput) (*a
 		Email:         req.Email,
 		Phone:         req.Phone,
 		DepartmentIDs: req.DepartmentIDs,
-		Role:          "sys_employee",
+		Role:          role,
 	}, &resp); err != nil {
 		return nil, mapIAMError(err)
 	}
@@ -46,6 +51,7 @@ func (s *user) CreateUser(ctx context.Context, req *account.CreateUserInput) (*a
 		Name:   req.Name,
 		Email:  req.Email,
 		Phone:  req.Phone,
+		Role:   role,
 		IsNew:  true,
 	}, nil
 }
@@ -80,6 +86,9 @@ func (s *user) UpdateUser(ctx context.Context, publicID string, req *account.Upd
 		Uin:        target.Uin,
 		EmployeeID: target.EmployeeID,
 		Name:       req.Name,
+	}
+	if req.Role != nil {
+		editReq.Role = *req.Role
 	}
 	if req.Email != nil {
 		editReq.Email = *req.Email

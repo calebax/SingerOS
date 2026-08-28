@@ -40,6 +40,7 @@ export type User = {
 	phone?: string;
 	email?: string;
 	avatar_url?: string;
+	role?: string;
 	created_at?: string;
 	updated_at?: string;
 };
@@ -126,19 +127,22 @@ export const orgAdminApi = {
 		name: string;
 		phone?: string;
 		email?: string;
+		role?: string;
 		department_ids: number[];
 	}) =>
 		apiClient.post<BackendDataResponse<User>>(ENDPOINTS.createUser, {
 			name: params.name,
 			phone: params.phone,
 			email: params.email,
+			role: params.role,
 			department_ids: params.department_ids,
 		}),
 
-	updateUser: (params: { public_id: string; name?: string }) =>
+	updateUser: (params: { public_id: string; name?: string; role?: string }) =>
 		apiClient.post<BackendDataResponse<User>>(ENDPOINTS.updateUser, {
 			public_id: params.public_id,
 			name: params.name,
+			role: params.role,
 		}),
 
 	deleteUser: (params: { public_id: string }) =>

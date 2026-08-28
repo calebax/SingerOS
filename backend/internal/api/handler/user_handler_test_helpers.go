@@ -16,6 +16,7 @@ type userInfo struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Phone    string `json:"phone"`
+	Role     string `json:"role"`
 }
 
 type createUserResult struct {
@@ -23,6 +24,7 @@ type createUserResult struct {
 	Name   string `json:"name"`
 	Email  string `json:"email"`
 	Phone  string `json:"phone"`
+	Role   string `json:"role"`
 	IsNew  bool   `json:"is_new"`
 }
 
