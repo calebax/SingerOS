@@ -14,6 +14,7 @@ type UserInfo struct {
 	Email       string                `json:"email,omitempty"`
 	Phone       string                `json:"phone,omitempty"`
 	AvatarURL   string                `json:"avatar_url,omitempty"`
+	Role        string                `json:"role,omitempty"`
 	Departments []OrgMemberDepartment `json:"departments,omitempty"`
 	CreatedAt   *time.Time            `json:"created_at,omitempty"`
 	UpdatedAt   *time.Time            `json:"updated_at,omitempty"`
@@ -23,11 +24,13 @@ type CreateUserInput struct {
 	Phone         string `json:"phone"`
 	Email         string `json:"email"`
 	Name          string `json:"name"`
+	Role          string `json:"role,omitempty"`
 	DepartmentIDs []uint `json:"department_ids"`
 }
 
 type UpdateUserInput struct {
 	Name  string  `json:"name"`
+	Role  *string `json:"role,omitempty"`
 	Email *string `json:"email"`
 }
 
@@ -55,6 +58,7 @@ type CreateUserResponse struct {
 	Name   string `json:"name"`
 	Email  string `json:"email"`
 	Phone  string `json:"phone"`
+	Role   string `json:"role,omitempty"`
 	IsNew  bool   `json:"is_new"`
 }
 
