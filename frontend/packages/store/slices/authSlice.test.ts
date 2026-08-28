@@ -92,4 +92,35 @@ describe("AuthActionImpl", () => {
 		expect(getState().authUser?.currentOrg?.id).toBe(2);
 		expect(getState().authUser?.currentOrg?.uin).toBe(20002);
 	});
+
+	it("setAuthSession 会话保留成员的 is_admin", async () => {
+		vi.spyOn(authApi, "authSession").mockResolvedValue({
+			data: {
+				code: 0,
+				message: "success",
+				data: {
+					user_info: {
+						id: 1,
+						public_id: "user-1",
+						name: "测试用户",
+						email: "test@example.com",
+					},
+					org: {
+						id: 2,
+						uin: 20002,
+						public_id: "org-2",
+						code: "org-2",
+						name: "AI冲锋队",
+						is_admin: true,
+					},
+					organizations: [],
+				},
+			},
+		} as never);
+		const { actions, getState } = createAuthActions();
+
+		await actions.refreshAuthSession();
+
+		expect(getState().authUser?.currentOrg?.isAdmin).toBe(true);
+	});
 });

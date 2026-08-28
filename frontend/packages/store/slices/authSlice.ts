@@ -227,6 +227,7 @@ function toStoredAuthOrg(org: AuthOrgInfo): StoredAuthOrg {
 		name: org.name,
 		logo: org.logo,
 		isDefault: org.is_default,
+		isAdmin: org.is_admin,
 		createdByUin: org.created_by_uin,
 		createdByUserId: org.created_by_user_id,
 	};
