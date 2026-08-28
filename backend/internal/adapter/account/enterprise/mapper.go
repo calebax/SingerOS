@@ -364,6 +364,7 @@ func mapDepartmentTreeEmployeeToUserInfo(emp iamDepartmentTreeEmployee) account.
 		Email:     emp.Email,
 		Phone:     emp.Phone,
 		AvatarURL: emp.AvatarURL,
+		Role:      emp.Role,
 		CreatedAt: &emp.CreatedAt,
 	}
 }
