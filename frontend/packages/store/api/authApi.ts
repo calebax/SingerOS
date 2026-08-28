@@ -77,6 +77,7 @@ export type AuthOrgInfo = {
 	name: string;
 	logo?: string;
 	is_default?: boolean;
+	is_admin?: boolean;
 	created_by_uin?: number;
 	created_by_user_id?: number;
 };
