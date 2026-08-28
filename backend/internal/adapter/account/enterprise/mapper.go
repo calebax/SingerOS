@@ -336,7 +336,7 @@ func mapUinListToAuthOrgInfos(uins []iamLoginUin) []account.AuthOrgInfo {
 			Name:            uin.CompanyName,
 			Logo:            uin.CompanyLogo,
 			Uin:             uin.Uin.ID,
-			IsAdmin:         uin.Role == "sys_admin",
+			IsAdmin:         uin.Role == sysAdminRole,
 			CreatedByUin:    uin.CreatedByUin,
 			CreatedByUserID: uin.CreatedByUserID,
 			UserName:        uin.Uin.Name,

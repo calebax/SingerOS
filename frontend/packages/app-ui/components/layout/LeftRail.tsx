@@ -385,33 +385,24 @@ export function LeftRail({
 		resetProjectExpansionState();
 	}, [user?.currentOrg?.id, resetProjectExpansionState]);
 
-	// 中文注释：组织管理入口仅组织创建者可见；enterprise 用 createdByUserId，OSS 用 createdByUin。
+	// 中文注释：组织管理入口按 AuthSession 返回的 is_admin 判断，当前组织为管理员即可进入。
 	const currentOrgMeta =
 		user?.organizations?.find((org) => org.id === user?.currentOrg?.id) ?? user?.currentOrg;
-	const isOrgCreator = Boolean(
-		user &&
-			currentOrgMeta &&
-			((currentOrgMeta.createdByUserId != null &&
-				currentOrgMeta.createdByUserId !== 0 &&
-				user.userId === currentOrgMeta.createdByUserId) ||
-				(currentOrgMeta.createdByUin != null &&
-					currentOrgMeta.createdByUin !== 0 &&
-					user.uin === currentOrgMeta.createdByUin)),
-	);
+	const isOrgAdmin = Boolean(currentOrgMeta?.isAdmin);
 
 	const inOrgAdminMode = navigation
 		? isOrgAdminPath(navigation.currentPath)
 		: isOrgAdminView(currentView);
 
 	useEffect(() => {
-		// 中文注释：非创建者不应停留在组织管理页（含直达路由），自动回到新建任务首页。
-		if (isOrgCreator || !inOrgAdminMode) return;
+		// 中文注释：非管理员不应停留在组织管理页（含直达路由），自动回到新建任务首页。
+		if (isOrgAdmin || !inOrgAdminMode) return;
 		if (navigation) {
 			navigation.goToRoute("chat");
 			return;
 		}
 		switchView("chat");
-	}, [inOrgAdminMode, isOrgCreator, navigation, switchView]);
+	}, [inOrgAdminMode, isOrgAdmin, navigation, switchView]);
 
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "workbench";
@@ -426,7 +417,7 @@ export function LeftRail({
 	};
 
 	const handleOpenOrgAdmin = () => {
-		if (!isOrgCreator) return;
+		if (!isOrgAdmin) return;
 		requireAuth(() => {
 			if (navigation) {
 				navigation.goToRoute("orgProfile");
@@ -902,7 +893,7 @@ export function LeftRail({
 								<UserRound className="size-4 shrink-0" />
 								<span>账户管理</span>
 							</DropdownMenuItem>
-							{isOrgCreator ? (
+							{isOrgAdmin ? (
 								<DropdownMenuItem onClick={handleOpenOrgAdmin}>
 									<Building2 className="size-4 shrink-0" />
 									<span>组织管理</span>

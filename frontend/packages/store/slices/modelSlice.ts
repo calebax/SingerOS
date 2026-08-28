@@ -29,6 +29,8 @@ export type ModelState = {
 	total: number;
 	loading: boolean;
 	loaded: boolean;
+	/** 列表加载失败时的错误信息，null 表示无错误。 */
+	error: string | null;
 };
 
 export type ModelAction = Pick<ModelSliceImpl, keyof ModelSliceImpl>;
@@ -58,7 +60,13 @@ function mapBackendModel(m: BackendModel): ModelItem {
 	};
 }
 
-const _initialState: ModelState = { models: [], total: 0, loading: false, loaded: false };
+const _initialState: ModelState = {
+	models: [],
+	total: 0,
+	loading: false,
+	loaded: false,
+	error: null,
+};
 
 type SetState = (
 	partial:
@@ -86,9 +94,13 @@ export class ModelSliceImpl {
 				models: items.map(mapBackendModel),
 				total: res.data.data?.total ?? 0,
 				loaded: true,
+				error: null,
 			});
 		} catch (err) {
 			console.error("fetchModels error:", err);
+			this.#set({
+				error: err instanceof Error ? err.message : "加载模型列表失败",
+			});
 		} finally {
 			this.#set({ loading: false });
 		}
@@ -126,7 +138,7 @@ export class ModelSliceImpl {
 	testModel = (params: Parameters<typeof modelApi.test>[0]) => modelApi.test(params);
 
 	resetAuthScopedData = () => {
-		this.#set({ models: [], total: 0, loading: false, loaded: false });
+		this.#set({ models: [], total: 0, loading: false, loaded: false, error: null });
 	};
 }
 

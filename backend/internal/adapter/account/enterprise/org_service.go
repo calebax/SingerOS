@@ -22,6 +22,9 @@ type org struct {
 	provisioning account.WorkerProvisioner
 }
 
+// sysAdminRole 表示 IAM 中拥有组织管理权限的系统角色。
+const sysAdminRole = "sys_admin"
+
 func NewOrg(database *gorm.DB, client *iamClient, provisioning account.WorkerProvisioner) *org {
 	return &org{db: database, client: client, provisioning: provisioning}
 }
@@ -198,10 +201,9 @@ func (s *org) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInp
 	}, nil
 }
 
-// IsOrgCreator 报告 uin 是否为 orgID 组织的创建者。
-// 企业版通过 IAM 的个人中心接口获取当前登录公司及其创建者 Uin，
-// 判定等价于"当前公司创建者 == uin"（orgID 为唯一鉴权组织）。
-// 其中 created_by_uin 由 IAM 侧反查公司 sys_admin 的企业 Uin 提供。
+// IsOrgCreator 报告当前登录用户是否拥有 orgID 组织的管理权限。
+// 企业版通过 IAM 的个人中心接口获取当前登录用户在公司的系统角色，
+// 角色为 sys_admin（与 AuthSession 的 is_admin 同源）即视为拥有组织管理权限。
 func (s *org) IsOrgCreator(ctx context.Context, orgID, uin uint) (bool, error) {
 	if orgID == 0 {
 		return false, nil
@@ -210,10 +212,7 @@ func (s *org) IsOrgCreator(ctx context.Context, orgID, uin uint) (bool, error) {
 	if err := s.client.callWithAuth(ctx, "account.DetailPersonalCenter", nil, &resp); err != nil {
 		return false, mapIAMError(err)
 	}
-	if resp.CompanyInfo.CreatedByUin == 0 {
-		return false, nil
-	}
-	return resp.CompanyInfo.CreatedByUin == uin, nil
+	return resp.EmployeeDetail.SysRole == sysAdminRole, nil
 }
 
 func (s *org) resolveOrgLogo(ctx context.Context, logoURL string) (string, error) {

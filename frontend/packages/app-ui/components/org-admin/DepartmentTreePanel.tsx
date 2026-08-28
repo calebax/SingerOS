@@ -26,6 +26,7 @@ import {
 } from "@leros/ui/components/ui/dropdown-menu";
 import { Input } from "@leros/ui/components/ui/input";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import {
 	Table,
 	TableBody,
@@ -241,13 +242,10 @@ export function DepartmentTreePanel() {
 	const filteredTree = useMemo(() => filterDepartmentTree(tree, search), [tree, search]);
 	const departmentCount = useMemo(() => countDepartments(tree), [tree]);
 	const selectedDepartment = departments.find((item) => item.id === selectedId) ?? null;
-	// 中文注释：管理员判断优先取当前组织的 is_admin，兜底仍按创建人判断（旧会话兼容）。
-	const isDefaultUser =
-		user?.currentOrg?.isAdmin ??
-		user?.organizations?.find((org) => org.id === orgId)?.isAdmin ??
-		(user?.userId != null &&
-			(user?.userId === user?.currentOrg?.createdByUserId ||
-				user?.userId === user?.organizations?.find((org) => org.id === orgId)?.createdByUserId));
+	// 中文注释：组织管理权限由 AuthSession 返回的 is_admin（当前所查看组织，缺省回退到会话默认组织）决定。
+	const isDefaultUser = Boolean(
+		user?.organizations?.find((org) => org.id === orgId)?.isAdmin ?? user?.currentOrg?.isAdmin,
+	);
 
 	useEffect(() => {
 		// 中文注释：通讯录依赖组织创建人字段控制成员管理按钮，打开页面时刷新最新会话信息。
@@ -485,15 +483,17 @@ export function DepartmentTreePanel() {
 							{/* 中文注释：固定列比例并截断过长文本，避免表格最小内容宽度触发横向滚动。 */}
 							<Table className="table-fixed">
 								<colgroup>
-									<col className="w-[25%]" />
-									<col className="w-[25%]" />
-									<col className="w-[25%]" />
+									<col className="w-[20%]" />
+									<col className="w-[20%]" />
+									<col className="w-[15%]" />
+									<col className="w-[20%]" />
 									<col className="w-[25%]" />
 								</colgroup>
 								<TableHeader>
 									<TableRow>
 										<TableHead>用户名</TableHead>
 										<TableHead>{isPrivateDeployment ? "邮箱" : "手机号"}</TableHead>
+										<TableHead>角色</TableHead>
 										<TableHead>创建时间</TableHead>
 										<TableHead>操作</TableHead>
 									</TableRow>
@@ -505,21 +505,21 @@ export function DepartmentTreePanel() {
 												className="max-w-0 truncate font-medium"
 												title={member.name ?? "未命名"}
 											>
-												<span className="flex items-center gap-1.5">
-													{member.name ?? "未命名"}
-													{member.role === "sys_admin" ? (
-														<Badge variant="secondary" className="shrink-0">
-															管理员
-														</Badge>
-													) : (
-														<Badge variant="outline" className="shrink-0">
-															成员
-														</Badge>
-													)}
-												</span>
+												{member.name ?? "未命名"}
 											</TableCell>
 											<TableCell className="truncate">
 												{isPrivateDeployment ? member.email?.trim() || "-" : (member.phone ?? "-")}
+											</TableCell>
+											<TableCell className="whitespace-nowrap">
+												{member.role === "sys_admin" ? (
+													<Badge variant="secondary" className="shrink-0">
+														管理员
+													</Badge>
+												) : (
+													<Badge variant="outline" className="shrink-0">
+														成员
+													</Badge>
+												)}
 											</TableCell>
 											<TableCell className="truncate">
 												{formatMemberCreatedAt(member.created_at)}
@@ -808,24 +808,20 @@ function AddMemberDialog({
 
 					<div className="space-y-2">
 						<span className="text-sm font-medium text-[var(--leros-text-strong)]">角色</span>
-						<div className="flex gap-2">
-							<Button
-								type="button"
-								variant={role === "sys_employee" ? "default" : "outline"}
-								size="sm"
-								onClick={() => setRole("sys_employee")}
-							>
-								成员
-							</Button>
-							<Button
-								type="button"
-								variant={role === "sys_admin" ? "default" : "outline"}
-								size="sm"
-								onClick={() => setRole("sys_admin")}
-							>
-								管理员
-							</Button>
-						</div>
+						<Select
+							value={role}
+							onValueChange={(value) =>
+								setRole((value ?? "sys_employee") as "sys_admin" | "sys_employee")
+							}
+						>
+							<SelectTrigger size="sm" className="w-full" aria-label="选择角色">
+								<span>{role === "sys_admin" ? "管理员" : "成员"}</span>
+							</SelectTrigger>
+							<SelectContent align="end">
+								<SelectItem value="sys_employee">成员</SelectItem>
+								<SelectItem value="sys_admin">管理员</SelectItem>
+							</SelectContent>
+						</Select>
 						<p className="text-xs text-[var(--leros-text-subtle)]">
 							管理员可管理组织成员与部门，普通成员仅可浏览通讯录。
 						</p>
@@ -977,24 +973,20 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 					</div>
 					<div className="space-y-2">
 						<span className="text-sm font-medium text-[var(--leros-text-strong)]">角色</span>
-						<div className="flex gap-2">
-							<Button
-								type="button"
-								variant={role === "sys_employee" ? "default" : "outline"}
-								size="sm"
-								onClick={() => setRole("sys_employee")}
-							>
-								成员
-							</Button>
-							<Button
-								type="button"
-								variant={role === "sys_admin" ? "default" : "outline"}
-								size="sm"
-								onClick={() => setRole("sys_admin")}
-							>
-								管理员
-							</Button>
-						</div>
+						<Select
+							value={role}
+							onValueChange={(value) =>
+								setRole((value ?? "sys_employee") as "sys_admin" | "sys_employee")
+							}
+						>
+							<SelectTrigger size="sm" className="w-full" aria-label="选择角色">
+								<span>{role === "sys_admin" ? "管理员" : "成员"}</span>
+							</SelectTrigger>
+							<SelectContent align="end">
+								<SelectItem value="sys_employee">成员</SelectItem>
+								<SelectItem value="sys_admin">管理员</SelectItem>
+							</SelectContent>
+						</Select>
 					</div>
 				</div>
 				<DialogFooter className="mt-6">
